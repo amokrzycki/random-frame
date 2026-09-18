@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#ebe8e1" />
+    <meta name="description" content="A quiet gallery for discovering one random public image at a time." />
+    <title>Random Frame</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <!--
+      THESIS: A random screenshot is inspected like a single archival print, never buried in a dashboard or card grid.
+      OWN-WORLD: Warm mineral paper surrounds a deep graphite viewing stage; cobalt actions and machined controls provide precise contrast.
+      STORY: The visitor acknowledges the public-source warning, reveals one frame, moves back through this session, draws the next, and saves a useful find.
+      FIRST VIEWPORT: A slim masthead floats above one oversized image stage; previous and next sit on its edges, while source and save stay on the quiet lower rail.
+      FORM: Archive inspection table, grounded direction 7; seed 5387cc79.
+      FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+    -->
+    <header class="masthead">
+      <a class="brand" href="/" aria-label="Random Frame — home">
+        <svg viewBox="0 0 28 28" aria-hidden="true"><path d="M4.5 8.5V4.5h4M19.5 4.5h4v4M23.5 19.5v4h-4M8.5 23.5h-4v-4M9 10.5h10v7H9z" /></svg>
+        <span>Random Frame</span>
+      </a>
+      <div class="session-mark" aria-label="Temporary session history">
+        <span class="status-dot"></span>
+        Session only
+      </div>
+    </header>
+
+    <main>
+      <section class="viewer" aria-labelledby="frame-title">
+        <div class="viewer-head">
+          <div>
+            <h1 id="frame-title">Random frame</h1>
+            <p id="frame-meta">One public image. No feed, no profile.</p>
+          </div>
+          <form class="jump-form" id="jump-form">
+            <label for="jump-input">Jump to</label>
+            <input id="jump-input" type="number" min="1" value="0" inputmode="numeric" autocomplete="off" disabled required />
+            <span aria-hidden="true">/</span>
+            <output id="history-total" for="jump-input" aria-live="polite">0</output>
+            <button id="jump-button" type="submit" disabled>Go</button>
+          </form>
+        </div>
+
+        <div class="stage" id="stage">
+          <div class="empty-state" id="empty-state">
+            <p class="empty-title">See a random corner of the internet.</p>
+            <p>Public uploads may contain personal or unsuitable content. Browse thoughtfully.</p>
+            <button class="primary-action" id="start-button" type="button">
+              Draw the first frame
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg>
+            </button>
+          </div>
+
+          <div class="loading-state" id="loading-state" role="status" aria-live="polite" hidden>
+            <span class="loader" aria-hidden="true"></span>
+            <p>Finding an available frame…</p>
+          </div>
+
+          <div class="error-state" id="error-state" hidden>
+            <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3.5 29 27H3L16 3.5Zm0 8v7m0 4v.5" /></svg>
+            <p class="error-title">This frame would not open.</p>
+            <p id="error-message">The source may have limited access, or this address may be empty.</p>
+            <button class="text-action" id="retry-button" type="button">Try another</button>
+          </div>
+
+          <img id="image" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'/%3E" alt="" hidden />
+
+          <button class="nav-button previous" id="previous-button" type="button" aria-label="Show the previous frame" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg>
+          </button>
+          <button class="nav-button next" id="next-button" type="button" aria-label="Draw a new frame" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
+          </button>
+        </div>
+
+        <div class="viewer-foot">
+          <div class="source-tools">
+            <a id="source-link" class="source-link" href="https://prnt.sc/" target="_blank" rel="noopener noreferrer" aria-disabled="true">
+              <span id="image-id">prnt.sc/———</span>
+              <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M7 4H4v10h10v-3M9 4h5v5m0-5L8 10" /></svg>
+            </a>
+            <div class="id-sequence" role="group" aria-label="Browse adjacent Prnt.sc identifiers">
+              <span>Adjacent ID</span>
+              <button id="previous-id-button" type="button" aria-label="Load the previous Prnt.sc identifier" title="Previous Prnt.sc ID" disabled>−1</button>
+              <button id="next-id-button" type="button" aria-label="Load the next Prnt.sc identifier" title="Next Prnt.sc ID" disabled>+1</button>
+            </div>
+          </div>
+          <div class="actions">
+            <span class="key-hint" aria-hidden="true"><kbd>←</kbd><kbd>→</kbd> navigate</span>
+            <button class="save-button" id="save-button" type="button" disabled>
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v9m-4-4 4 4 4-4M4 15.5h12" /></svg>
+              <span>Save image</span>
+            </button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>History clears on refresh. Respect the privacy of people whose information may appear in public uploads.</p>
+      <a class="footer-link" href="https://prnt.sc/" target="_blank" rel="noopener noreferrer">
+        Prnt.sc
+        <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M7 4H4v10h10v-3M9 4h5v5m0-5L8 10" /></svg>
+      </a>
+    </footer>
+
+    <div class="sr-only" id="announcer" aria-live="polite"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
