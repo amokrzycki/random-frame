@@ -5,8 +5,8 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { sendJson } from "./http.js";
 import { takeApiToken } from "./rate-limit.js";
-import { selectSource } from "./sources/registry.js";
 import { extractImageUrl, isAllowedImageUrl } from "./sources/prntsc.js";
+import { selectSource } from "./sources/registry.js";
 import type { RandomItem, RandomSource, SourceAsset } from "./sources/types.js";
 import { SourceError } from "./sources/types.js";
 
@@ -112,5 +112,6 @@ const server = createServer(handleRequest);
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const port = Number(process.env.PORT || 3000);
+  // biome-ignore lint/suspicious/noConsole: Development logging
   server.listen(port, () => console.log(`Random Frame is running at http://localhost:${port}`));
 }

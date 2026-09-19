@@ -20,11 +20,15 @@ function show(message: string, tone: ToastTone): void {
 
   window.setTimeout(() => {
     notification.classList.add("toast--leaving");
-    notification.addEventListener("animationend", () => {
-      const parent = notification.parentElement;
-      notification.remove();
-      if (!parent?.childElementCount) parent?.remove();
-    }, { once: true });
+    notification.addEventListener(
+      "animationend",
+      () => {
+        const parent = notification.parentElement;
+        notification.remove();
+        if (!parent?.childElementCount) parent?.remove();
+      },
+      { once: true },
+    );
   }, 3200);
 }
 

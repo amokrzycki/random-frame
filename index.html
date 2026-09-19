@@ -1,13 +1,15 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#ebe8e1" />
-    <meta name="description" content="A quiet gallery for discovering one random public image at a time." />
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'%3E%3Cpath d='M4.5 8.5V4.5h4M19.5 4.5h4v4M23.5 19.5v4h-4M8.5 23.5h-4v-4M9 10.5h10v7H9z'/%3E%3C/svg%3E" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#ebe8e1">
+    <meta name="description" content="A quiet gallery for discovering one random public image at a time.">
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'%3E%3Cpath d='M4.5 8.5V4.5h4M19.5 4.5h4v4M23.5 19.5v4h-4M8.5 23.5h-4v-4M9 10.5h10v7H9z'/%3E%3C/svg%3E">
     <title>Random Frame</title>
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
     <!--
@@ -20,15 +22,20 @@
     -->
     <dialog class="entry-dialog" id="entry-dialog" aria-labelledby="entry-title" aria-describedby="entry-description">
       <div class="entry-dialog__content">
-        <svg class="entry-dialog__mark" viewBox="0 0 28 28" aria-hidden="true"><path d="M4.5 8.5V4.5h4M19.5 4.5h4v4M23.5 19.5v4h-4M8.5 23.5h-4v-4M9 10.5h10v7H9z" /></svg>
+        <svg class="entry-dialog__mark" viewBox="0 0 28 28" aria-hidden="true">
+          <path d="M4.5 8.5V4.5h4M19.5 4.5h4v4M23.5 19.5v4h-4M8.5 23.5h-4v-4M9 10.5h10v7H9z" />
+        </svg>
         <h2 id="entry-title">Before you enter</h2>
         <div class="entry-dialog__copy" id="entry-description">
           <p>Random Frame displays randomly selected content from third-party sources.</p>
-          <p>You may encounter NSFW, disturbing, offensive, or otherwise unexpected material. Content is not reviewed or moderated by Random Frame.</p>
+          <p>
+            You may encounter NSFW, disturbing, offensive, or otherwise unexpected material. Content is not reviewed or
+            moderated by Random Frame.
+          </p>
           <p>By continuing, you confirm that you understand and accept this risk.</p>
         </div>
         <label class="entry-consent">
-          <input id="entry-consent" type="checkbox" />
+          <input id="entry-consent" type="checkbox">
           <span>I understand that random content may be NSFW or disturbing.</span>
         </label>
         <div class="entry-dialog__actions">
@@ -40,10 +47,12 @@
 
     <header class="masthead">
       <a class="brand" href="/" aria-label="Random Frame — home">
-        <svg viewBox="0 0 28 28" aria-hidden="true"><path d="M4.5 8.5V4.5h4M19.5 4.5h4v4M23.5 19.5v4h-4M8.5 23.5h-4v-4M9 10.5h10v7H9z" /></svg>
+        <svg viewBox="0 0 28 28" aria-hidden="true">
+          <path d="M4.5 8.5V4.5h4M19.5 4.5h4v4M23.5 19.5v4h-4M8.5 23.5h-4v-4M9 10.5h10v7H9z" />
+        </svg>
         <span>Random Frame</span>
       </a>
-      <div class="session-mark" aria-label="Temporary session history">
+      <div class="session-mark">
         <span class="status-dot"></span>
         Session only
       </div>
@@ -58,7 +67,15 @@
           </div>
           <form class="jump-form" id="jump-form">
             <label for="jump-input">Jump to</label>
-            <input id="jump-input" type="number" min="1" value="0" inputmode="numeric" autocomplete="off" disabled required />
+            <input
+              id="jump-input"
+              type="number"
+              min="1"
+              value="0"
+              inputmode="numeric"
+              autocomplete="off"
+              disabled
+              required>
             <span aria-hidden="true">/</span>
             <output id="history-total" for="jump-input" aria-live="polite">0</output>
             <button id="jump-button" type="submit" disabled>Go</button>
@@ -87,9 +104,18 @@
             <button class="text-action" id="retry-button" type="button">Try another</button>
           </div>
 
-          <img id="image" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'/%3E" alt="" hidden />
+          <img
+            id="image"
+            src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'/%3E"
+            alt=""
+            hidden>
 
-          <button class="nav-button previous" id="previous-button" type="button" aria-label="Show the previous frame" disabled>
+          <button
+            class="nav-button previous"
+            id="previous-button"
+            type="button"
+            aria-label="Show the previous frame"
+            disabled>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg>
           </button>
           <button class="nav-button next" id="next-button" type="button" aria-label="Draw a new frame" disabled>
@@ -101,18 +127,47 @@
           <div class="source-tools">
             <div class="source-reference">
               <span id="image-id">prnt.sc/———</span>
-              <button id="copy-link-button" class="source-icon" type="button" aria-label="Copy source link" title="Copy source link" disabled>
+              <button
+                id="copy-link-button"
+                class="source-icon"
+                type="button"
+                aria-label="Copy source link"
+                title="Copy source link"
+                disabled>
                 <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M6 6V3.5h8.5V12H12M3.5 6H12v8.5H3.5z" /></svg>
               </button>
-              <a id="source-link" class="source-icon" href="https://prnt.sc/" target="_blank" rel="noopener noreferrer" aria-label="Open source link in a new tab" title="Open source link in a new tab" aria-disabled="true">
+              <a
+                id="source-link"
+                class="source-icon"
+                href="https://prnt.sc/"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open source link in a new tab"
+                title="Open source link in a new tab"
+                aria-disabled="true">
+                <span class="sr-only">Open source link in a new tab</span>
                 <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M7 4H4v10h10v-3M9 4h5v5m0-5L8 10" /></svg>
               </a>
             </div>
-            <div class="id-sequence" role="group" aria-label="Browse adjacent Prnt.sc identifiers">
-              <span>Adjacent ID</span>
-              <button id="previous-id-button" type="button" aria-label="Load the previous Prnt.sc identifier" title="Previous Prnt.sc ID" disabled>−1</button>
-              <button id="next-id-button" type="button" aria-label="Load the next Prnt.sc identifier" title="Next Prnt.sc ID" disabled>+1</button>
-            </div>
+            <fieldset class="id-sequence">
+              <legend>Adjacent ID</legend>
+              <button
+                id="previous-id-button"
+                type="button"
+                aria-label="Load the previous Prnt.sc identifier"
+                title="Previous Prnt.sc ID"
+                disabled>
+                −1
+              </button>
+              <button
+                id="next-id-button"
+                type="button"
+                aria-label="Load the next Prnt.sc identifier"
+                title="Next Prnt.sc ID"
+                disabled>
+                +1
+              </button>
+            </fieldset>
           </div>
           <div class="actions">
             <span class="key-hint" aria-hidden="true"><kbd>←</kbd><kbd>→</kbd> navigate</span>
@@ -126,7 +181,9 @@
     </main>
 
     <footer>
-      <p>History clears on refresh. Respect the privacy of people whose information may appear in public uploads.</p>
+      <p class="footer-copy">
+        History clears on refresh. Respect the privacy of people whose information may appear in public uploads.
+      </p>
       <div class="footer-meta">
         <span>v{{VERSION}}</span>
         <a href="/privacy">Privacy</a>

@@ -1,5 +1,6 @@
-import test from "node:test";
+/** biome-ignore-all lint/suspicious/noEmptyBlockStatements: Test file */
 import assert from "node:assert/strict";
+import test from "node:test";
 import { getRandomAsset, handleRequest, selectSource } from "../dist/server.js";
 import { SourceError } from "../dist/sources/types.js";
 
@@ -19,8 +20,14 @@ test("selects explicit, mixed, unknown, and unavailable sources", () => {
   const registered = [first, unavailable, second];
 
   assert.equal(selectSource("second", Math.random, registered), second);
-  assert.equal(selectSource("mixed", () => 0, registered), first);
-  assert.equal(selectSource("mixed", () => 0.99, registered), second);
+  assert.equal(
+    selectSource("mixed", () => 0, registered),
+    first,
+  );
+  assert.equal(
+    selectSource("mixed", () => 0.99, registered),
+    second,
+  );
   assert.throws(() => selectSource("unknown", Math.random, registered), /Unknown source/);
   assert.throws(() => selectSource("later", Math.random, registered), /not available yet/);
   assert.equal(selectSource().id, "prntsc");

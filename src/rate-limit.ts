@@ -15,6 +15,11 @@ export function takeApiToken(response: ServerResponse): boolean {
 
   // ponytail: process-local by design; use shared state only if the app runs multiple instances.
   const retryAfter = Math.max(1, Math.ceil((1 - tokens) / 3));
-  sendJson(response, 429, { error: "Too many requests. Please try again shortly." }, { "retry-after": String(retryAfter) });
+  sendJson(
+    response,
+    429,
+    { error: "Too many requests. Please try again shortly." },
+    { "retry-after": String(retryAfter) },
+  );
   return false;
 }

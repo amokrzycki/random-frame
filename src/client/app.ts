@@ -1,4 +1,10 @@
-import { adjacentPrntscId, frameNumberToIndex, historyIndexForId, nextHistoryIndex, shouldShowEntryDialog } from "./navigation.js";
+import {
+  adjacentPrntscId,
+  frameNumberToIndex,
+  historyIndexForId,
+  nextHistoryIndex,
+  shouldShowEntryDialog,
+} from "./navigation.js";
 import { toast } from "./toast.js";
 
 interface HistoryItem {
@@ -90,11 +96,16 @@ function syncControls(): void {
   elements.jumpInput.max = String(history.length);
   if (document.activeElement !== elements.jumpInput) elements.jumpInput.value = String(history.length ? index + 1 : 0);
   elements.historyTotal.textContent = String(history.length);
-  elements.next.setAttribute("aria-label", index < history.length - 1 ? "Show the next saved frame" : "Draw a new frame");
+  elements.next.setAttribute(
+    "aria-label",
+    index < history.length - 1 ? "Show the next saved frame" : "Draw a new frame",
+  );
   elements.imageId.textContent = current ? `prnt.sc/${current.id}` : "prnt.sc/———";
   elements.source.href = current ? `https://prnt.sc/${current.id}` : "https://prnt.sc/";
   elements.source.setAttribute("aria-disabled", String(!current));
-  elements.meta.textContent = current ? `Source: Prnt.sc · frame ${current.id}` : "One public image. No feed, no profile.";
+  elements.meta.textContent = current
+    ? `Source: Prnt.sc · frame ${current.id}`
+    : "One public image. No feed, no profile.";
   sessionStorage.setItem(storageKey, JSON.stringify({ history, index }));
 }
 
@@ -122,7 +133,8 @@ function showFrame(id: string, blob: Blob): void {
   setState("image");
   syncControls();
   elements.announcer.textContent = `Showing frame ${id}`;
-  if (oldUrl.startsWith("blob:") && ![...blobs.values()].some((item) => item.url === oldUrl)) URL.revokeObjectURL(oldUrl);
+  if (oldUrl.startsWith("blob:") && ![...blobs.values()].some((item) => item.url === oldUrl))
+    URL.revokeObjectURL(oldUrl);
 }
 
 async function loadRandom(): Promise<void> {
@@ -244,7 +256,9 @@ elements.entryButton.addEventListener("click", () => {
   if (!elements.entryConsent.checked) return;
   try {
     localStorage.setItem(entryStorageKey, "accepted");
-  } catch {}
+  } catch {
+    // Ignore errors, the dialog will just show again next time
+  }
   elements.entryDialog.close();
   elements.start.focus();
 });

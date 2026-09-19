@@ -1,6 +1,12 @@
-import test from "node:test";
 import assert from "node:assert/strict";
-import { adjacentPrntscId, frameNumberToIndex, historyIndexForId, nextHistoryIndex, shouldShowEntryDialog } from "../dist/client/navigation.js";
+import test from "node:test";
+import {
+  adjacentPrntscId,
+  frameNumberToIndex,
+  historyIndexForId,
+  nextHistoryIndex,
+  shouldShowEntryDialog,
+} from "../dist/client/navigation.js";
 
 test("shows the entry warning until it is accepted", () => {
   assert.equal(shouldShowEntryDialog(null), true);
