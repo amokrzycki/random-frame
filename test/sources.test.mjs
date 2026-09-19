@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { getRandomAsset, handleRequest, selectSource } from "../dist/server.js";
+import { SourceError } from "../dist/sources/types.js";
 
 function source(id, available = true) {
   return {
@@ -41,6 +42,22 @@ test("delegates item resolution and asset fetching to the selected source", asyn
 
   assert.deepEqual(await getRandomAsset(selected), [item, asset]);
   assert.deepEqual(calls, ["item", item]);
+});
+
+test("skips missing random images until one is available", async () => {
+  let attempts = 0;
+  const item = { id: "item", source: "fake", mediaUrl: "https://example.test/item.png" };
+  const asset = { response: new Response(), contentType: "image/png" };
+  const selected = source("fake");
+  selected.getRandomItem = async () => item;
+  selected.fetchAsset = async () => {
+    attempts += 1;
+    if (attempts < 5) throw new SourceError("Missing", 404);
+    return asset;
+  };
+
+  assert.deepEqual(await getRandomAsset(selected), [item, asset]);
+  assert.equal(attempts, 5);
 });
 
 test("reports unknown and not-yet-available source query values", async () => {

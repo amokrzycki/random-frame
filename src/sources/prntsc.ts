@@ -58,7 +58,7 @@ async function resolveItem(id: string): Promise<RandomItem> {
     if (!page.ok) throw new SourceError(`Prnt.sc returned status ${page.status}`, page.status);
 
     mediaUrl = extractImageUrl(await page.text()) ?? undefined;
-    if (!mediaUrl) throw new Error("No image was found at this address");
+    if (!mediaUrl) throw new SourceError("No image was found at this address", 404);
 
     resolvedImages.set(id, mediaUrl);
     if (resolvedImages.size > 100) {
