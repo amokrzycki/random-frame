@@ -17,6 +17,10 @@ async function copyHtml() {
       await writeFile(`dist/${name}`, html);
     }),
   );
+  await writeFile(
+    "dist/random-frame.desktop",
+    `[Desktop Entry]\nCategories=\nComment=Random public images, one frame at a time\nExec=random-frame\nStartupWMClass=random-frame\nIcon=random-frame\nName=Random Frame\nTerminal=false\nType=Application\nX-AppImage-Version=${version}\n`,
+  );
   await cp("assets", "dist/assets", { recursive: true });
 }
 
