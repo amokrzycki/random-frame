@@ -65,4 +65,4 @@ jobs:
           SSH_USER: ${{ secrets.SSH_USER }}
         run: |
           ssh "$SSH_USER@$SSH_HOST" \
-            "sudo systemctl restart random-frame && sudo systemctl status random-frame --no-pager"
+            "sudo -n /usr/bin/systemctl restart random-frame && /usr/bin/systemctl is-active --quiet random-frame"
