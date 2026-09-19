@@ -55,6 +55,15 @@ test("renders the package version in the footer", async () => {
   assert.match((await request("/")).text(), new RegExp(`>v${version.replaceAll(".", "\\.")}<`));
 });
 
+test("renders the session history dialog and controls", async () => {
+  const html = (await request("/")).text();
+  assert.match(html, /id="history-button"/);
+  assert.match(html, /<dialog class="history-dialog" id="history-dialog"/);
+  assert.match(html, /id="history-grid"/);
+  assert.match(html, /id="history-empty" hidden/);
+  assert.match(html, /id="history-close-button"[^>]+aria-label="Close history"/);
+});
+
 test("serves the privacy policy and links it from the footer", async () => {
   const home = await request("/");
   const privacy = await request("/privacy");

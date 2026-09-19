@@ -45,6 +45,24 @@
       </div>
     </dialog>
 
+    <dialog class="history-dialog" id="history-dialog" aria-labelledby="history-title">
+      <div class="history-dialog__content">
+        <header class="history-dialog__header">
+          <h2 id="history-title">Session history</h2>
+          <button class="history-close" id="history-close-button" type="button" aria-label="Close history" autofocus>
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
+          </button>
+        </header>
+        <div class="history-dialog__body">
+          <div class="history-grid" id="history-grid"></div>
+          <div class="history-empty" id="history-empty" hidden>
+            <p>No frames in this session yet.</p>
+            <span>Draw a frame to begin your history.</span>
+          </div>
+        </div>
+      </div>
+    </dialog>
+
     <header class="masthead">
       <a class="brand" href="/" aria-label="Random Frame — home">
         <svg viewBox="0 0 28 28" aria-hidden="true">
@@ -171,6 +189,10 @@
           </div>
           <div class="actions">
             <span class="key-hint" aria-hidden="true"><kbd>←</kbd><kbd>→</kbd> navigate</span>
+            <button class="save-button history-button" id="history-button" type="button">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5.5h12M4 10h12M4 14.5h12" /></svg>
+              History
+            </button>
             <button class="save-button" id="save-button" type="button" disabled>
               <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v9m-4-4 4 4 4-4M4 15.5h12" /></svg>
               <span>Save image</span>

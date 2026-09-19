@@ -1,6 +1,7 @@
 import {
   adjacentPrntscId,
   frameNumberToIndex,
+  historyFromStorage,
   historyIndexForId,
   nextHistoryIndex,
   shouldShowEntryDialog,
@@ -55,6 +56,11 @@ const elements = {
   jumpInput: element<HTMLInputElement>("#jump-input"),
   jumpButton: element<HTMLButtonElement>("#jump-button"),
   historyTotal: element<HTMLOutputElement>("#history-total"),
+  historyButton: element<HTMLButtonElement>("#history-button"),
+  historyDialog: element<HTMLDialogElement>("#history-dialog"),
+  historyClose: element<HTMLButtonElement>("#history-close-button"),
+  historyGrid: element<HTMLElement>("#history-grid"),
+  historyEmpty: element<HTMLElement>("#history-empty"),
   meta: element<HTMLElement>("#frame-meta"),
   announcer: element<HTMLElement>("#announcer"),
   entryDialog: element<HTMLDialogElement>("#entry-dialog"),
@@ -185,6 +191,35 @@ async function goTo(targetIndex: number): Promise<void> {
   syncControls();
 }
 
+function openHistory(): void {
+  const stored = historyFromStorage(sessionStorage.getItem(storageKey));
+  elements.historyGrid.replaceChildren();
+  elements.historyGrid.hidden = !stored.history.length;
+  elements.historyEmpty.hidden = Boolean(stored.history.length);
+
+  for (const [itemIndex, item] of stored.history.entries()) {
+    const button = document.createElement("button");
+    const image = document.createElement("img");
+    const label = document.createElement("span");
+    button.className = "history-item";
+    button.type = "button";
+    button.setAttribute("aria-label", `Show frame ${itemIndex + 1}, ${item.id}`);
+    if (itemIndex === stored.index) button.setAttribute("aria-current", "true");
+    image.src = blobs.get(item.id)?.url ?? `/api/image/${encodeURIComponent(item.id)}`;
+    image.alt = "";
+    image.loading = "lazy";
+    label.textContent = `${itemIndex + 1} · ${item.id}`;
+    button.append(image, label);
+    button.addEventListener("click", () => {
+      elements.historyDialog.close();
+      void goTo(itemIndex);
+    });
+    elements.historyGrid.append(button);
+  }
+
+  elements.historyDialog.showModal();
+}
+
 function goBack(): void {
   void goTo(index - 1);
 }
@@ -248,6 +283,12 @@ elements.previousId.addEventListener("click", () => void loadAdjacent(-1));
 elements.nextId.addEventListener("click", () => void loadAdjacent(1));
 elements.save.addEventListener("click", saveCurrent);
 elements.copyLink.addEventListener("click", () => void copySourceLink());
+elements.historyButton.addEventListener("click", openHistory);
+elements.historyClose.addEventListener("click", () => elements.historyDialog.close());
+elements.historyDialog.addEventListener("click", (event) => {
+  if (event.target === elements.historyDialog) elements.historyDialog.close();
+});
+elements.historyDialog.addEventListener("close", () => elements.historyButton.focus());
 elements.entryConsent.addEventListener("change", () => {
   elements.entryButton.disabled = !elements.entryConsent.checked;
 });
@@ -276,7 +317,8 @@ elements.jumpForm.addEventListener("submit", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if (event.altKey || event.ctrlKey || event.metaKey) return;
+  if (event.altKey || event.ctrlKey || event.metaKey || elements.historyDialog.open || elements.entryDialog.open)
+    return;
   if (event.key === "ArrowLeft") goBack();
   if (event.key === "ArrowRight" && index >= 0) goNext();
 });
