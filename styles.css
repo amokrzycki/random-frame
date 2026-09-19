@@ -292,6 +292,7 @@ main {
   max-height: min(82dvh, 760px);
   padding: 0;
   overflow: hidden;
+  opacity: 0;
   color: var(--ink);
   background: var(--paper);
   border: 0;
@@ -299,10 +300,41 @@ main {
   box-shadow:
     0 28px 70px rgba(35, 32, 25, 0.22),
     0 3px 10px rgba(35, 32, 25, 0.12);
+  transform: scale(0.97);
+  transition:
+    opacity 220ms var(--ease-out),
+    transform 220ms var(--ease-out),
+    overlay 220ms var(--ease-out) allow-discrete,
+    display 220ms var(--ease-out) allow-discrete;
 }
 
 .history-dialog::backdrop {
+  opacity: 0;
   background: rgba(21, 22, 20, 0.76);
+  transition:
+    opacity 220ms var(--ease-out),
+    overlay 220ms var(--ease-out) allow-discrete,
+    display 220ms var(--ease-out) allow-discrete;
+}
+
+.history-dialog:modal {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.history-dialog:modal::backdrop {
+  opacity: 1;
+}
+
+@starting-style {
+  .history-dialog:modal {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+
+  .history-dialog:modal::backdrop {
+    opacity: 0;
+  }
 }
 
 .history-dialog__content {
@@ -1137,5 +1169,11 @@ footer a {
     scroll-behavior: auto !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+  }
+
+  .history-dialog,
+  .history-dialog:modal {
+    transform: none;
+    transition-duration: 200ms;
   }
 }
