@@ -22,14 +22,18 @@ const files: Record<string, readonly [string, string]> = {
 };
 
 export async function getRandomAsset(source: RandomSource): Promise<[RandomItem, SourceAsset]> {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  let transientFailures = 0;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
     try {
       const item = await source.getRandomItem();
       return [item, await source.fetchAsset(item)];
     } catch (error) {
       const status = error instanceof SourceError ? error.status : undefined;
-      if (attempt === 2 || status === 403 || status === 429) throw error;
-      await delay(150 * (attempt + 1));
+      if (attempt === 19 || status === 403 || status === 429) throw error;
+      if (status === 404) continue;
+      transientFailures += 1;
+      if (transientFailures === 3) throw error;
+      await delay(150 * transientFailures);
     }
   }
   throw new Error("The image could not be loaded");
