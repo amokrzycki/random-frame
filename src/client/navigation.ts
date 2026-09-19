@@ -39,8 +39,12 @@ export function historyIndexForId(history: readonly { id: string }[], id: string
   return history.findIndex((item) => item.id === id);
 }
 
+// Legacy Prnt.sc IDs are a sequential base-36 counter, not a fixed 6-character
+// code: the upper bound is the empirically observed end of the legacy namespace.
+const LEGACY_MAX_VALUE = 4_773_622_239;
+
 export function adjacentPrntscId(id: string, offset: number): string | null {
-  if (!/^[a-z0-9]{6}$/.test(id) || ![-1, 1].includes(offset)) return null;
+  if (!/^[a-z0-9]{1,7}$/.test(id) || ![-1, 1].includes(offset)) return null;
   const value = Number.parseInt(id, 36) + offset;
-  return value >= 0 && value < 36 ** 6 ? value.toString(36).padStart(6, "0") : null;
+  return value >= 0 && value <= LEGACY_MAX_VALUE ? value.toString(36) : null;
 }

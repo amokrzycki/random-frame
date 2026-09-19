@@ -40,9 +40,10 @@ test("reads the existing session history format", () => {
   assert.deepEqual(historyFromStorage("invalid"), { history: [], index: -1 });
 });
 
-test("steps through fixed-width Prnt.sc base-36 identifiers", () => {
-  assert.equal(adjacentPrntscId("00000z", 1), "000010");
-  assert.equal(adjacentPrntscId("000010", -1), "00000z");
-  assert.equal(adjacentPrntscId("000000", -1), null);
-  assert.equal(adjacentPrntscId("zzzzzz", 1), null);
+test("steps through the legacy sequential base-36 Prnt.sc namespace", () => {
+  assert.equal(adjacentPrntscId("z", 1), "10");
+  assert.equal(adjacentPrntscId("10", -1), "z");
+  assert.equal(adjacentPrntscId("0", -1), null);
+  assert.equal(adjacentPrntscId("26y3ahq", 1), "26y3ahr");
+  assert.equal(adjacentPrntscId("26y3ahr", 1), null);
 });

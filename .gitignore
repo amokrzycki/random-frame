@@ -5,3 +5,4 @@
 .zed
 dist/
 node_modules/
+.codegraph
