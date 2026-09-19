@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 import { extractImageUrl, handleRequest, isAllowedImageUrl } from "../dist/server.js";
 
-async function request(url) {
+async function request(url, handler = handleRequest) {
   let status;
   let headers;
   let body;
@@ -22,7 +25,7 @@ async function request(url) {
     },
   };
 
-  await handleRequest({ url }, response);
+  await handler({ url }, response);
   return {
     status,
     headers,
@@ -53,6 +56,17 @@ test("serves the compiled client modules", async () => {
 test("renders the package version in the footer", async () => {
   const { version } = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
   assert.match((await request("/")).text(), new RegExp(`>v${version.replaceAll(".", "\\.")}<`));
+});
+
+test("runs from the deployed files without package.json", async (t) => {
+  const { version } = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+  const root = await mkdtemp(join(tmpdir(), "random-frame-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await cp(new URL("../dist", import.meta.url), join(root, "dist"), { recursive: true });
+  await cp(new URL("../index.html", import.meta.url), join(root, "index.html"));
+
+  const { handleRequest: deployedHandler } = await import(pathToFileURL(join(root, "dist/server.js")).href);
+  assert.match((await request("/", deployedHandler)).text(), new RegExp(`>v${version.replaceAll(".", "\\.")}<`));
 });
 
 test("renders the session history dialog and controls", async () => {

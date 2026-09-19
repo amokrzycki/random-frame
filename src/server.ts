@@ -10,10 +10,11 @@ import { selectSource } from "./sources/registry.js";
 import type { RandomItem, RandomSource, SourceAsset } from "./sources/types.js";
 import { SourceError } from "./sources/types.js";
 
+declare const APP_VERSION: string;
+
 export { extractImageUrl, isAllowedImageUrl, selectSource };
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const { version } = JSON.parse(await readFile(join(root, "package.json"), "utf8")) as { version: string };
 const files: Record<string, readonly [string, string]> = {
   "/": ["index.html", "text/html; charset=utf-8"],
   "/privacy": ["privacy.html", "text/html; charset=utf-8"],
@@ -94,7 +95,7 @@ export async function handleRequest(request: IncomingMessage, response: ServerRe
         "cache-control": name.endsWith(".woff2") ? "public, max-age=31536000, immutable" : "no-cache",
       });
       const body = await readFile(join(root, name));
-      response.end(name === "index.html" ? body.toString().replace("{{VERSION}}", version) : body);
+      response.end(name === "index.html" ? body.toString().replace("{{VERSION}}", APP_VERSION) : body);
       return;
     }
 

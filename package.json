@@ -1,12 +1,12 @@
 {
   "name": "random-frame",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "scripts": {
     "dev": "node dev.mjs",
     "build": "npm run typecheck && npm run build:server && npm run build:client",
-    "build:server": "esbuild src/*.ts src/sources/*.ts --platform=node --format=esm --sourcemap --outbase=src --outdir=dist",
+    "build:server": "esbuild src/*.ts src/sources/*.ts --platform=node --format=esm --sourcemap --outbase=src --outdir=dist '--define:APP_VERSION=\"'\"$npm_package_version\"'\"'",
     "build:client": "esbuild src/client/*.ts --platform=browser --format=esm --sourcemap --outdir=dist/client",
     "prestart": "npm run build",
     "start": "node dist/server.js",

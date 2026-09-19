@@ -1,8 +1,11 @@
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { context } from "esbuild";
 
+const { version } = JSON.parse(readFileSync("package.json", "utf8"));
 const builds = await Promise.all([
   context({
+    define: { APP_VERSION: JSON.stringify(version) },
     entryPoints: ["src/*.ts", "src/sources/*.ts"],
     platform: "node",
     format: "esm",
