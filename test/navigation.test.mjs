@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { adjacentPrntscId, frameNumberToIndex, nextHistoryIndex, shouldShowEntryDialog } from "../dist/client/navigation.js";
+import { adjacentPrntscId, frameNumberToIndex, historyIndexForId, nextHistoryIndex, shouldShowEntryDialog } from "../dist/client/navigation.js";
 
 test("shows the entry warning until it is accepted", () => {
   assert.equal(shouldShowEntryDialog(null), true);
@@ -10,6 +10,12 @@ test("shows the entry warning until it is accepted", () => {
 test("uses saved history before requesting a new frame", () => {
   assert.equal(nextHistoryIndex(2, 42), 3);
   assert.equal(nextHistoryIndex(41, 42), null);
+});
+
+test("reuses a previously drawn adjacent frame", () => {
+  const history = [{ id: "uox2x4" }, { id: "uox2x5" }];
+  assert.equal(historyIndexForId(history, "uox2x4"), 0);
+  assert.equal(historyIndexForId(history, "uox2x3"), -1);
 });
 
 test("validates frame numbers before jumping", () => {

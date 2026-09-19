@@ -1,4 +1,4 @@
-import { adjacentPrntscId, frameNumberToIndex, nextHistoryIndex, shouldShowEntryDialog } from "./navigation.js";
+import { adjacentPrntscId, frameNumberToIndex, historyIndexForId, nextHistoryIndex, shouldShowEntryDialog } from "./navigation.js";
 import { toast } from "./toast.js";
 
 interface HistoryItem {
@@ -187,6 +187,8 @@ async function loadAdjacent(offset: -1 | 1): Promise<void> {
   const current = history[index];
   const id = current && adjacentPrntscId(current.id, offset);
   if (loading || !id) return;
+  const savedIndex = historyIndexForId(history, id);
+  if (savedIndex !== -1) return void goTo(savedIndex);
   loading = true;
   setState("loading");
   syncControls();

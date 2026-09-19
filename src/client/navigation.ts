@@ -11,6 +11,10 @@ export function frameNumberToIndex(value: string, length: number): number | null
   return Number.isInteger(frameNumber) && frameNumber >= 1 && frameNumber <= length ? frameNumber - 1 : null;
 }
 
+export function historyIndexForId(history: readonly { id: string }[], id: string): number {
+  return history.findIndex((item) => item.id === id);
+}
+
 export function adjacentPrntscId(id: string, offset: number): string | null {
   if (!/^[a-z0-9]{6}$/.test(id) || ![-1, 1].includes(offset)) return null;
   const value = Number.parseInt(id, 36) + offset;
