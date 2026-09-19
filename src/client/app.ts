@@ -1,3 +1,5 @@
+import { save } from "@tauri-apps/plugin-dialog";
+import { writeFile } from "@tauri-apps/plugin-fs";
 import { getFrameById, getRandomFrame } from "./api.js";
 import {
   adjacentPrntscId,
@@ -300,16 +302,36 @@ async function loadAdjacent(offset: -1 | 1): Promise<void> {
   }
 }
 
-function saveCurrent(): void {
+function imageExtension(mimeType: string): string {
+  const subtype =
+    mimeType
+      .split(";", 1)[0]
+      ?.trim()
+      .toLowerCase()
+      .replace(/^image\//, "") ?? "";
+  const aliases: Record<string, string> = { jpeg: "jpg", "svg+xml": "svg", tiff: "tif", "x-icon": "ico" };
+  return aliases[subtype] ?? (subtype.replace(/[^a-z0-9]/g, "") || "img");
+}
+
+async function saveCurrent(): Promise<void> {
   const current = history[index];
   const cached = current && blobs.get(current.id);
   if (!current || !cached) return;
-  const extension = cached.blob.type.split("/")[1]?.replace("jpeg", "jpg") || "png";
-  const link = document.createElement("a");
-  link.href = cached.url;
-  link.download = `random-frame-prntsc-${current.id}.${extension}`;
-  link.click();
-  elements.announcer.textContent = `Saved frame ${current.id}`;
+  const extension = imageExtension(cached.blob.type);
+  try {
+    const path = await save({
+      title: "Save image",
+      defaultPath: `random-frame-prntsc-${current.id}.${extension}`,
+      filters: [{ name: "Image", extensions: [extension] }],
+    });
+    if (!path) return;
+    await writeFile(path, new Uint8Array(await cached.blob.arrayBuffer()));
+    elements.announcer.textContent = `Saved frame ${current.id}`;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "The image could not be saved";
+    toast.error(message);
+    elements.announcer.textContent = `Error: ${message}`;
+  }
 }
 
 async function copySourceLink(): Promise<void> {
@@ -327,7 +349,7 @@ elements.next.addEventListener("click", goNext);
 elements.previous.addEventListener("click", goBack);
 elements.previousId.addEventListener("click", () => void loadAdjacent(-1));
 elements.nextId.addEventListener("click", () => void loadAdjacent(1));
-elements.save.addEventListener("click", saveCurrent);
+elements.save.addEventListener("click", () => void saveCurrent());
 elements.copyLink.addEventListener("click", () => void copySourceLink());
 elements.historyButton.addEventListener("click", openHistory);
 elements.historyClose.addEventListener("click", () => elements.historyDialog.close());

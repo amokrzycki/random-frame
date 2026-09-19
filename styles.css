@@ -741,11 +741,22 @@ main {
 }
 .loader {
   width: 36px;
-  aspect-ratio: 1;
-  border: 1px solid #595a55;
-  border-top-color: var(--white);
-  border-radius: 50%;
+  height: 36px;
+  fill: none;
+  transform-origin: center;
   animation: spin 0.85s linear infinite;
+}
+.loader__track,
+.loader__indicator {
+  stroke-width: 1.5;
+}
+.loader__track {
+  stroke: #595a55;
+}
+.loader__indicator {
+  stroke: var(--white);
+  stroke-dasharray: 24 74;
+  stroke-linecap: round;
 }
 
 .error-state > svg {

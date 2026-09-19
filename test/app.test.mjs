@@ -147,12 +147,15 @@ test("history dialog uses session history and the existing jump path", async (t)
 
   Object.assign(globalThis, { document, localStorage, sessionStorage, window });
   let draw = 0;
+  let savePath = null;
+  const invocations = [];
   window.__TAURI_INTERNALS__ = {
-    async invoke(command, args) {
+    async invoke(command, args, options) {
+      invocations.push({ command, args, options });
       if (command === "get_random_frame") {
         draw += 1;
         const id = draw === 1 ? "abc123" : "def456";
-        return { id, source: "prntsc", sourcePageUrl: `https://prnt.sc/${id}`, mimeType: "image/png" };
+        return { id, source: "prntsc", sourcePageUrl: `https://prnt.sc/${id}`, mimeType: "image/jpeg" };
       }
       if (command === "get_frame_by_id") {
         return {
@@ -163,6 +166,8 @@ test("history dialog uses session history and the existing jump path", async (t)
         };
       }
       if (command === "get_frame_image") return new Uint8Array([draw]).buffer;
+      if (command === "plugin:dialog|save") return savePath;
+      if (command === "plugin:fs|write_file") return null;
       throw new Error(`Unexpected command: ${command}`);
     },
   };
@@ -219,6 +224,19 @@ test("history dialog uses session history and the existing jump path", async (t)
   get("history-grid").children[0].click();
   assert.equal(get("history-dialog").open, false);
   assert.match(get("image").alt, /abc123/);
+
+  get("save-button").click();
+  await flush();
+  assert.equal(invocations.at(-1).command, "plugin:dialog|save");
+
+  savePath = "/tmp/random-frame-prntsc-abc123.jpg";
+  get("save-button").click();
+  await flush();
+  await flush();
+  assert.equal(invocations.at(-2).command, "plugin:dialog|save");
+  assert.equal(invocations.at(-2).args.options.defaultPath, "random-frame-prntsc-abc123.jpg");
+  assert.equal(invocations.at(-1).command, "plugin:fs|write_file");
+  assert.deepEqual([...invocations.at(-1).args], [1]);
 
   get("jump-input").value = "2";
   get("jump-form").dispatchEvent(new Event("submit", { cancelable: true }));
