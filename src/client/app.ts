@@ -41,7 +41,9 @@ function errorMessage(error: unknown): string {
 const storageKey = "prntsc-gallery-history";
 const entryStorageKey = "random-frame-risk-accepted";
 const statsStorageKey = "random-frame-viewing-stats";
-const history: HistoryItem[] = [];
+const navigation = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+const storedHistory = historyFromStorage(navigation?.type === "reload" ? null : sessionStorage.getItem(storageKey));
+const history: HistoryItem[] = [...storedHistory.history];
 const blobs = new Map<string, CachedBlob>();
 let index = -1;
 let loading = false;
@@ -125,8 +127,6 @@ const elements = {
   entryConsent: element<HTMLInputElement>("#entry-consent"),
   entryButton: element<HTMLButtonElement>("#entry-button"),
 };
-
-sessionStorage.removeItem(storageKey);
 
 try {
   if (shouldShowEntryDialog(localStorage.getItem(entryStorageKey))) elements.entryDialog.showModal();
@@ -414,3 +414,4 @@ window.addEventListener("pagehide", () => {
 });
 
 syncControls();
+if (storedHistory.index >= 0) void goTo(storedHistory.index);

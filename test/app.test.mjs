@@ -141,11 +141,16 @@ test("history dialog uses session history and the existing jump path", async (t)
   const sessionStorage = new FakeStorage();
   const localStorage = new FakeStorage();
   const window = new EventTarget();
-  const globalNames = ["document", "localStorage", "sessionStorage", "window"];
+  const performance = { getEntriesByType: () => [{ type: "back_forward" }] };
+  const globalNames = ["document", "localStorage", "performance", "sessionStorage", "window"];
   const originalGlobals = new Map(globalNames.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
   localStorage.setItem("random-frame-risk-accepted", "accepted");
+  sessionStorage.setItem(
+    "prntsc-gallery-history",
+    JSON.stringify({ history: [{ id: "saved1" }, { id: "saved2" }], index: 1 }),
+  );
 
-  Object.assign(globalThis, { document, localStorage, sessionStorage, window });
+  Object.assign(globalThis, { document, localStorage, performance, sessionStorage, window });
   let draw = 0;
   let savePath = null;
   const invocations = [];
@@ -180,11 +185,13 @@ test("history dialog uses session history and the existing jump path", async (t)
 
   await import(`../dist/test-client/app.js?test=${Date.now()}`);
   const get = (id) => document.querySelector(`#${id}`);
+  await flush();
+  await flush();
 
   get("history-button").click();
   assert.equal(get("history-dialog").open, true);
-  assert.equal(get("history-grid").hidden, true);
-  assert.equal(get("history-empty").hidden, false);
+  assert.equal(get("history-grid").children.length, 2);
+  assert.match(get("image").alt, /saved2/);
 
   get("history-close-button").click();
   assert.equal(get("history-dialog").open, false);
@@ -210,11 +217,11 @@ test("history dialog uses session history and the existing jump path", async (t)
   assert.equal(document.activeElement, get("stats-button"));
 
   get("history-button").click();
-  assert.equal(get("history-grid").children.length, 2);
-  assert.equal(get("history-grid").children[1].getAttribute("aria-current"), "true");
+  assert.equal(get("history-grid").children.length, 4);
+  assert.equal(get("history-grid").children[3].getAttribute("aria-current"), "true");
   assert.deepEqual(JSON.parse(sessionStorage.getItem("prntsc-gallery-history")), {
-    history: [{ id: "abc123" }, { id: "def456" }],
-    index: 1,
+    history: [{ id: "saved1" }, { id: "saved2" }, { id: "abc123" }, { id: "def456" }],
+    index: 3,
   });
 
   get("history-dialog").click();
@@ -223,22 +230,24 @@ test("history dialog uses session history and the existing jump path", async (t)
   get("history-button").click();
   get("history-grid").children[0].click();
   assert.equal(get("history-dialog").open, false);
-  assert.match(get("image").alt, /abc123/);
+  await flush();
+  await flush();
+  assert.match(get("image").alt, /saved1/);
 
   get("save-button").click();
   await flush();
   assert.equal(invocations.at(-1).command, "plugin:dialog|save");
 
-  savePath = "/tmp/random-frame-prntsc-abc123.jpg";
+  savePath = "/tmp/random-frame-prntsc-saved1.png";
   get("save-button").click();
   await flush();
   await flush();
   assert.equal(invocations.at(-2).command, "plugin:dialog|save");
-  assert.equal(invocations.at(-2).args.options.defaultPath, "random-frame-prntsc-abc123.jpg");
+  assert.equal(invocations.at(-2).args.options.defaultPath, "random-frame-prntsc-saved1.png");
   assert.equal(invocations.at(-1).command, "plugin:fs|write_file");
-  assert.deepEqual([...invocations.at(-1).args], [1]);
+  assert.deepEqual([...invocations.at(-1).args], [2]);
 
-  get("jump-input").value = "2";
+  get("jump-input").value = "4";
   get("jump-form").dispatchEvent(new Event("submit", { cancelable: true }));
   assert.match(get("image").alt, /def456/);
 });

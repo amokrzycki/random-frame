@@ -338,7 +338,7 @@ main {
 
 .stage {
   position: relative;
-  min-height: min(68vh, 720px);
+  min-height: clamp(420px, calc(100dvh - 432px), 720px);
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -782,7 +782,7 @@ main {
   position: relative;
   z-index: 1;
   width: 100%;
-  height: min(68vh, 720px);
+  height: clamp(420px, calc(100dvh - 432px), 720px);
   padding: 34px 72px;
   object-fit: contain;
   animation: reveal 0.62s var(--ease-out) both;
