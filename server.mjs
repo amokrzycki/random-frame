@@ -1,11 +1,14 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const characters = "abcdefghijklmnopqrstuvwxyz0123456789";
 const resolvedImages = new Map();
+let apiTokens = 8;
+let apiTokensUpdatedAt = Date.now();
 const files = {
   "/": ["index.html", "text/html; charset=utf-8"],
   "/app.js": ["app.js", "text/javascript; charset=utf-8"],
@@ -56,7 +59,11 @@ async function resolveImage(id) {
     },
     signal: AbortSignal.timeout(12_000),
   });
-  if (!page.ok) throw new Error(`Prnt.sc returned status ${page.status}`);
+  if (!page.ok) {
+    const error = new Error(`Prnt.sc returned status ${page.status}`);
+    error.status = page.status;
+    throw error;
+  }
 
   const imageUrl = extractImageUrl(await page.text());
   if (!imageUrl) throw new Error("No image was found at this address");
@@ -78,15 +85,35 @@ async function fetchImage(id) {
   });
   const contentType = image.headers.get("content-type") || "";
   const contentLength = Number(image.headers.get("content-length") || 0);
-  if (!image.ok || !contentType.startsWith("image/") || contentLength > 15_000_000) {
+  if (!image.ok) {
+    const error = new Error(`The image host returned status ${image.status}`);
+    error.status = image.status;
+    throw error;
+  }
+  if (!contentType.startsWith("image/") || contentLength > 15_000_000) {
     throw new Error("The source did not return a valid image");
   }
   return { image, contentType };
 }
 
-function sendJson(response, status, body) {
-  response.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+function sendJson(response, status, body, headers = {}) {
+  response.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...headers });
   response.end(JSON.stringify(body));
+}
+
+function takeApiToken(response) {
+  const now = Date.now();
+  apiTokens = Math.min(8, apiTokens + ((now - apiTokensUpdatedAt) / 1000) * 3);
+  apiTokensUpdatedAt = now;
+  if (apiTokens >= 1) {
+    apiTokens -= 1;
+    return true;
+  }
+
+  // ponytail: process-local by design; use shared state only if the app runs multiple instances.
+  const retryAfter = Math.max(1, Math.ceil((1 - apiTokens) / 3));
+  sendJson(response, 429, { error: "Too many requests. Please try again shortly." }, { "retry-after": String(retryAfter) });
+  return false;
 }
 
 async function serveImage(response, id, cacheControl = "private, max-age=600") {
@@ -102,17 +129,19 @@ async function serveImage(response, id, cacheControl = "private, max-age=600") {
   response.end(body);
 }
 
-const server = createServer(async (request, response) => {
+export async function handleRequest(request, response) {
   try {
     const url = new URL(request.url, "http://localhost");
 
     if (url.pathname === "/api/random") {
+      if (!takeApiToken(response)) return;
       for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
           await serveImage(response, makeId(), "no-store");
           return;
         } catch (error) {
-          if (attempt === 2) throw error;
+          if (attempt === 2 || error.status === 403 || error.status === 429) throw error;
+          await delay(150 * (attempt + 1));
         }
       }
     }
@@ -120,6 +149,7 @@ const server = createServer(async (request, response) => {
     if (url.pathname.startsWith("/api/image/")) {
       const id = url.pathname.slice("/api/image/".length);
       if (!/^[a-z0-9]{6}$/.test(id)) return sendJson(response, 400, { error: "Invalid image identifier" });
+      if (!takeApiToken(response)) return;
       await serveImage(response, id);
       return;
     }
@@ -137,7 +167,9 @@ const server = createServer(async (request, response) => {
     if (!response.headersSent) sendJson(response, 502, { error: error.message || "The image could not be loaded" });
     else response.destroy(error);
   }
-});
+}
+
+const server = createServer(handleRequest);
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const port = Number(process.env.PORT || 3000);
