@@ -28,7 +28,6 @@ const files: Record<string, readonly [string, string]> = {
 };
 
 export async function getRandomAsset(source: RandomSource): Promise<[RandomItem, SourceAsset]> {
-  let transientFailures = 0;
   for (let attempt = 0; attempt < 20; attempt += 1) {
     try {
       const item = await source.getRandomItem();
@@ -37,9 +36,7 @@ export async function getRandomAsset(source: RandomSource): Promise<[RandomItem,
       const status = error instanceof SourceError ? error.status : undefined;
       if (attempt === 19 || status === 403 || status === 429) throw error;
       if (status === 404) continue;
-      transientFailures += 1;
-      if (transientFailures === 3) throw error;
-      await delay(150 * transientFailures);
+      await delay(150 * (attempt + 1));
     }
   }
   throw new Error("The image could not be loaded");
