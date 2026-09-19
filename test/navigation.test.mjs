@@ -7,7 +7,7 @@ import {
   historyIndexForId,
   nextHistoryIndex,
   shouldShowEntryDialog,
-} from "../dist/client/navigation.js";
+} from "../dist/test-client/navigation.js";
 
 test("shows the entry warning until it is accepted", () => {
   assert.equal(shouldShowEntryDialog(null), true);

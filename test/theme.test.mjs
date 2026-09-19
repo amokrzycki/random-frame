@@ -8,11 +8,11 @@ test("theme toggle updates and persists the selected theme", async (t) => {
   const root = { dataset: { theme: "light" }, style: {} };
   const themeColor = { setAttribute: (name, value) => attributes.set(name, value) };
   const values = new Map();
+  const document = new EventTarget();
+  document.documentElement = root;
+  document.querySelector = (selector) => (selector === ".theme-toggle" ? toggle : themeColor);
   const globals = {
-    document: {
-      documentElement: root,
-      querySelector: (selector) => (selector === ".theme-toggle" ? toggle : themeColor),
-    },
+    document,
     localStorage: { setItem: (key, value) => values.set(key, value) },
   };
   const original = new Map(
@@ -26,11 +26,19 @@ test("theme toggle updates and persists the selected theme", async (t) => {
     }
   });
 
-  await import(`../dist/client/theme.js?test=${Date.now()}`);
+  await import(`../dist/test-client/theme.js?test=${Date.now()}`);
   toggle.dispatchEvent(new Event("click"));
 
   assert.equal(root.dataset.theme, "dark");
   assert.equal(root.style.colorScheme, "dark");
   assert.equal(attributes.get("aria-pressed"), "true");
   assert.equal(values.get("random-frame-theme"), "dark");
+
+  const tab = new Event("keydown");
+  Object.defineProperty(tab, "key", { value: "Tab" });
+  document.dispatchEvent(tab);
+  assert.equal("keyboardNavigation" in root.dataset, true);
+
+  document.dispatchEvent(new Event("pointerdown"));
+  assert.equal("keyboardNavigation" in root.dataset, false);
 });

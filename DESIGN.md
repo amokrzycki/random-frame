@@ -154,7 +154,7 @@ Light mode uses the original warm mineral paper. Dark mode keeps the archival ch
 
 ## Layout
 
-The page uses a centered fluid shell capped at 1480px, with the viewer capped at 1240px. A slim 84px masthead leads into a 48px top gap and one stage up to 720px high. The viewer header and lower rail align title, count, source, shortcuts, and save action around that stage.
+The page uses a centered fluid shell capped at 1480px, with the viewer capped at 1240px. A slim 84px masthead leads into a 48px top gap and one stage whose height is `clamp(420px, calc(100dvh - 432px), 720px)`. The viewer header and lower rail align title, count, source, shortcuts, and save action around that stage, keeping the frame responsive to the available viewport rather than relying on a fixed percentage height.
 
 At 720px and below, outer gutters tighten, the stage becomes 58vh tall, secondary header copy and keyboard hints disappear, and previous/next controls move to a two-column bottom dock. At 430px and below, labels compact further, dialogs tighten their internal padding, and the footer stacks.
 

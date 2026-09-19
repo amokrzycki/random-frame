@@ -1,3 +1,6 @@
+import { save } from "@tauri-apps/plugin-dialog";
+import { writeFile } from "@tauri-apps/plugin-fs";
+import { getFrameById, getRandomFrame } from "./api.js";
 import {
   adjacentPrntscId,
   frameNumberToIndex,
@@ -38,7 +41,9 @@ function errorMessage(error: unknown): string {
 const storageKey = "prntsc-gallery-history";
 const entryStorageKey = "random-frame-risk-accepted";
 const statsStorageKey = "random-frame-viewing-stats";
-const history: HistoryItem[] = [];
+const navigation = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+const storedHistory = historyFromStorage(navigation?.type === "reload" ? null : sessionStorage.getItem(storageKey));
+const history: HistoryItem[] = [...storedHistory.history];
 const blobs = new Map<string, CachedBlob>();
 let index = -1;
 let loading = false;
@@ -123,8 +128,6 @@ const elements = {
   entryButton: element<HTMLButtonElement>("#entry-button"),
 };
 
-sessionStorage.removeItem(storageKey);
-
 try {
   if (shouldShowEntryDialog(localStorage.getItem(entryStorageKey))) elements.entryDialog.showModal();
 } catch {
@@ -170,18 +173,6 @@ function syncControls(): void {
   sessionStorage.setItem(storageKey, JSON.stringify({ history, index }));
 }
 
-async function responseToFrame(response: Response): Promise<{ id: string; blob: Blob }> {
-  if (!response.ok) {
-    const body: unknown = await response.json().catch(() => ({}));
-    const responseError = typeof body === "object" && body !== null && "error" in body ? body.error : undefined;
-    const message = responseError ? String(responseError) : "The image could not be loaded";
-    throw new Error(message);
-  }
-  const id = response.headers.get("x-prntsc-id");
-  if (!id) throw new Error("The source did not provide an image identifier");
-  return { id, blob: await response.blob() };
-}
-
 function showFrame(id: string, blob: Blob): void {
   const oldUrl = elements.image.src;
   const url = URL.createObjectURL(blob);
@@ -204,7 +195,7 @@ async function loadRandom(): Promise<void> {
   setState("loading");
   syncControls();
   try {
-    const frame = await responseToFrame(await fetch("/api/random", { cache: "no-store" }));
+    const frame = await getRandomFrame();
     history.push({ id: frame.id });
     index = history.length - 1;
     recordView();
@@ -236,7 +227,7 @@ async function goTo(targetIndex: number): Promise<void> {
     setState("loading");
     syncControls();
     try {
-      const frame = await responseToFrame(await fetch(`/api/image/${current.id}`));
+      const frame = await getFrameById(current.id);
       showFrame(current.id, frame.blob);
     } catch (error) {
       index = previousIndex;
@@ -261,7 +252,7 @@ function openHistory(): void {
     button.type = "button";
     button.setAttribute("aria-label", `Show frame ${itemIndex + 1}, ${item.id}`);
     if (itemIndex === stored.index) button.setAttribute("aria-current", "true");
-    image.src = blobs.get(item.id)?.url ?? `/api/image/${encodeURIComponent(item.id)}`;
+    image.src = blobs.get(item.id)?.url ?? "";
     image.alt = "";
     image.loading = "lazy";
     label.textContent = `${itemIndex + 1} · ${item.id}`;
@@ -296,7 +287,7 @@ async function loadAdjacent(offset: -1 | 1): Promise<void> {
   setState("loading");
   syncControls();
   try {
-    const frame = await responseToFrame(await fetch(`/api/image/${id}`, { cache: "no-store" }));
+    const frame = await getFrameById(id);
     history.push({ id: frame.id });
     index = history.length - 1;
     recordView();
@@ -311,16 +302,36 @@ async function loadAdjacent(offset: -1 | 1): Promise<void> {
   }
 }
 
-function saveCurrent(): void {
+function imageExtension(mimeType: string): string {
+  const subtype =
+    mimeType
+      .split(";", 1)[0]
+      ?.trim()
+      .toLowerCase()
+      .replace(/^image\//, "") ?? "";
+  const aliases: Record<string, string> = { jpeg: "jpg", "svg+xml": "svg", tiff: "tif", "x-icon": "ico" };
+  return aliases[subtype] ?? (subtype.replace(/[^a-z0-9]/g, "") || "img");
+}
+
+async function saveCurrent(): Promise<void> {
   const current = history[index];
   const cached = current && blobs.get(current.id);
   if (!current || !cached) return;
-  const extension = cached.blob.type.split("/")[1]?.replace("jpeg", "jpg") || "png";
-  const link = document.createElement("a");
-  link.href = cached.url;
-  link.download = `random-frame-prntsc-${current.id}.${extension}`;
-  link.click();
-  elements.announcer.textContent = `Saved frame ${current.id}`;
+  const extension = imageExtension(cached.blob.type);
+  try {
+    const path = await save({
+      title: "Save image",
+      defaultPath: `random-frame-prntsc-${current.id}.${extension}`,
+      filters: [{ name: "Image", extensions: [extension] }],
+    });
+    if (!path) return;
+    await writeFile(path, new Uint8Array(await cached.blob.arrayBuffer()));
+    elements.announcer.textContent = `Saved frame ${current.id}`;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "The image could not be saved";
+    toast.error(message);
+    elements.announcer.textContent = `Error: ${message}`;
+  }
 }
 
 async function copySourceLink(): Promise<void> {
@@ -338,7 +349,7 @@ elements.next.addEventListener("click", goNext);
 elements.previous.addEventListener("click", goBack);
 elements.previousId.addEventListener("click", () => void loadAdjacent(-1));
 elements.nextId.addEventListener("click", () => void loadAdjacent(1));
-elements.save.addEventListener("click", saveCurrent);
+elements.save.addEventListener("click", () => void saveCurrent());
 elements.copyLink.addEventListener("click", () => void copySourceLink());
 elements.historyButton.addEventListener("click", openHistory);
 elements.historyClose.addEventListener("click", () => elements.historyDialog.close());
@@ -403,3 +414,4 @@ window.addEventListener("pagehide", () => {
 });
 
 syncControls();
+if (storedHistory.index >= 0) void goTo(storedHistory.index);
