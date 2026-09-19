@@ -1,46 +1,71 @@
 import { adjacentPrntscId, frameNumberToIndex, nextHistoryIndex } from "./navigation.js";
 
+interface HistoryItem {
+  id: string;
+}
+
+interface CachedBlob {
+  blob: Blob;
+  url: string;
+}
+
+type ViewState = "empty" | "loading" | "error" | "image";
+
+function element<T extends Element>(selector: string): T {
+  const result = document.querySelector<T>(selector);
+  if (!result) throw new Error(`Missing required element: ${selector}`);
+  return result;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "The image could not be loaded";
+}
+
 const storageKey = "prntsc-gallery-history";
-const history = [];
-const blobs = new Map();
+const history: HistoryItem[] = [];
+const blobs = new Map<string, CachedBlob>();
 let index = -1;
 let loading = false;
 
 const elements = {
-  stage: document.querySelector("#stage"),
-  image: document.querySelector("#image"),
-  empty: document.querySelector("#empty-state"),
-  loading: document.querySelector("#loading-state"),
-  error: document.querySelector("#error-state"),
-  errorMessage: document.querySelector("#error-message"),
-  start: document.querySelector("#start-button"),
-  retry: document.querySelector("#retry-button"),
-  previous: document.querySelector("#previous-button"),
-  next: document.querySelector("#next-button"),
-  save: document.querySelector("#save-button"),
-  source: document.querySelector("#source-link"),
-  imageId: document.querySelector("#image-id"),
-  previousId: document.querySelector("#previous-id-button"),
-  nextId: document.querySelector("#next-id-button"),
-  jumpForm: document.querySelector("#jump-form"),
-  jumpInput: document.querySelector("#jump-input"),
-  jumpButton: document.querySelector("#jump-button"),
-  historyTotal: document.querySelector("#history-total"),
-  meta: document.querySelector("#frame-meta"),
-  announcer: document.querySelector("#announcer"),
+  image: element<HTMLImageElement>("#image"),
+  empty: element<HTMLElement>("#empty-state"),
+  loading: element<HTMLElement>("#loading-state"),
+  error: element<HTMLElement>("#error-state"),
+  errorMessage: element<HTMLElement>("#error-message"),
+  start: element<HTMLButtonElement>("#start-button"),
+  retry: element<HTMLButtonElement>("#retry-button"),
+  previous: element<HTMLButtonElement>("#previous-button"),
+  next: element<HTMLButtonElement>("#next-button"),
+  save: element<HTMLButtonElement>("#save-button"),
+  source: element<HTMLAnchorElement>("#source-link"),
+  imageId: element<HTMLElement>("#image-id"),
+  previousId: element<HTMLButtonElement>("#previous-id-button"),
+  nextId: element<HTMLButtonElement>("#next-id-button"),
+  jumpForm: element<HTMLFormElement>("#jump-form"),
+  jumpInput: element<HTMLInputElement>("#jump-input"),
+  jumpButton: element<HTMLButtonElement>("#jump-button"),
+  historyTotal: element<HTMLOutputElement>("#history-total"),
+  meta: element<HTMLElement>("#frame-meta"),
+  announcer: element<HTMLElement>("#announcer"),
 };
 
 sessionStorage.removeItem(storageKey);
 
-function setState(state, message = "") {
-  for (const [name, element] of Object.entries({ empty: elements.empty, loading: elements.loading, error: elements.error, image: elements.image })) {
-    element.hidden = name !== state;
+function setState(state: ViewState, message = ""): void {
+  for (const [name, target] of Object.entries({
+    empty: elements.empty,
+    loading: elements.loading,
+    error: elements.error,
+    image: elements.image,
+  })) {
+    target.hidden = name !== state;
   }
   if (message) elements.errorMessage.textContent = message;
   if (state === "loading") elements.announcer.textContent = "Finding an available frame";
 }
 
-function syncControls() {
+function syncControls(): void {
   const current = history[index];
   elements.previous.disabled = loading || index <= 0;
   elements.next.disabled = loading || index < 0;
@@ -49,9 +74,9 @@ function syncControls() {
   elements.nextId.disabled = loading || !current || adjacentPrntscId(current.id, 1) === null;
   elements.jumpInput.disabled = loading || !history.length;
   elements.jumpButton.disabled = loading || !history.length;
-  elements.jumpInput.max = history.length;
-  if (document.activeElement !== elements.jumpInput) elements.jumpInput.value = history.length ? index + 1 : 0;
-  elements.historyTotal.textContent = history.length;
+  elements.jumpInput.max = String(history.length);
+  if (document.activeElement !== elements.jumpInput) elements.jumpInput.value = String(history.length ? index + 1 : 0);
+  elements.historyTotal.textContent = String(history.length);
   elements.next.setAttribute("aria-label", index < history.length - 1 ? "Show the next saved frame" : "Draw a new frame");
   elements.imageId.textContent = current ? `prnt.sc/${current.id}` : "prnt.sc/———";
   elements.source.href = current ? `https://prnt.sc/${current.id}` : "https://prnt.sc/";
@@ -60,17 +85,19 @@ function syncControls() {
   sessionStorage.setItem(storageKey, JSON.stringify({ history, index }));
 }
 
-async function responseToFrame(response) {
+async function responseToFrame(response: Response): Promise<{ id: string; blob: Blob }> {
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.error || "The image could not be loaded");
+    const body: unknown = await response.json().catch(() => ({}));
+    const responseError = typeof body === "object" && body !== null && "error" in body ? body.error : undefined;
+    const message = responseError ? String(responseError) : "The image could not be loaded";
+    throw new Error(message);
   }
   const id = response.headers.get("x-prntsc-id");
   if (!id) throw new Error("The source did not provide an image identifier");
   return { id, blob: await response.blob() };
 }
 
-function showFrame(id, blob) {
+function showFrame(id: string, blob: Blob): void {
   const oldUrl = elements.image.src;
   const url = URL.createObjectURL(blob);
   blobs.set(id, { blob, url });
@@ -85,7 +112,7 @@ function showFrame(id, blob) {
   if (oldUrl.startsWith("blob:") && ![...blobs.values()].some((item) => item.url === oldUrl)) URL.revokeObjectURL(oldUrl);
 }
 
-async function loadRandom() {
+async function loadRandom(): Promise<void> {
   if (loading) return;
   loading = true;
   setState("loading");
@@ -96,52 +123,54 @@ async function loadRandom() {
     index = history.length - 1;
     showFrame(frame.id, frame.blob);
   } catch (error) {
-    setState("error", error.message);
-    elements.announcer.textContent = `Error: ${error.message}`;
+    const message = errorMessage(error);
+    setState("error", message);
+    elements.announcer.textContent = `Error: ${message}`;
   } finally {
     loading = false;
     syncControls();
   }
 }
 
-async function goTo(targetIndex) {
+async function goTo(targetIndex: number): Promise<void> {
   if (loading || targetIndex === index || targetIndex < 0 || targetIndex >= history.length) return;
+  const current = history[targetIndex];
+  if (!current) return;
   loading = true;
   const previousIndex = index;
   index = targetIndex;
-  const { id } = history[index];
-  const cached = blobs.get(id);
+  const cached = blobs.get(current.id);
   if (cached) {
     elements.image.src = cached.url;
-    elements.image.alt = `Public image from Prnt.sc with identifier ${id}`;
+    elements.image.alt = `Public image from Prnt.sc with identifier ${current.id}`;
     setState("image");
-    elements.announcer.textContent = `Showing frame ${id}`;
+    elements.announcer.textContent = `Showing frame ${current.id}`;
   } else {
     setState("loading");
     syncControls();
     try {
-      const frame = await responseToFrame(await fetch(`/api/image/${id}`));
-      showFrame(id, frame.blob);
+      const frame = await responseToFrame(await fetch(`/api/image/${current.id}`));
+      showFrame(current.id, frame.blob);
     } catch (error) {
       index = previousIndex;
-      setState("error", error.message);
+      setState("error", errorMessage(error));
     }
   }
   loading = false;
   syncControls();
 }
 
-function goBack() {
-  goTo(index - 1);
+function goBack(): void {
+  void goTo(index - 1);
 }
 
-function goNext() {
+function goNext(): void {
   const targetIndex = nextHistoryIndex(index, history.length);
-  if (targetIndex === null) loadRandom();
-  else goTo(targetIndex);
+  if (targetIndex === null) void loadRandom();
+  else void goTo(targetIndex);
 }
 
-async function loadAdjacent(offset) {
+async function loadAdjacent(offset: -1 | 1): Promise<void> {
   const current = history[index];
   const id = current && adjacentPrntscId(current.id, offset);
   if (loading || !id) return;
@@ -154,18 +183,19 @@ async function loadAdjacent(offset) {
     index = history.length - 1;
     showFrame(frame.id, frame.blob);
   } catch (error) {
-    setState("error", error.message);
-    elements.announcer.textContent = `Error: ${error.message}`;
+    const message = errorMessage(error);
+    setState("error", message);
+    elements.announcer.textContent = `Error: ${message}`;
   } finally {
     loading = false;
     syncControls();
   }
 }
 
-function saveCurrent() {
+function saveCurrent(): void {
   const current = history[index];
   const cached = current && blobs.get(current.id);
-  if (!cached) return;
+  if (!current || !cached) return;
   const extension = cached.blob.type.split("/")[1]?.replace("jpeg", "jpg") || "png";
   const link = document.createElement("a");
   link.href = cached.url;
@@ -174,12 +204,12 @@ function saveCurrent() {
   elements.announcer.textContent = `Saved frame ${current.id}`;
 }
 
-elements.start.addEventListener("click", loadRandom);
-elements.retry.addEventListener("click", loadRandom);
+elements.start.addEventListener("click", () => void loadRandom());
+elements.retry.addEventListener("click", () => void loadRandom());
 elements.next.addEventListener("click", goNext);
 elements.previous.addEventListener("click", goBack);
-elements.previousId.addEventListener("click", () => loadAdjacent(-1));
-elements.nextId.addEventListener("click", () => loadAdjacent(1));
+elements.previousId.addEventListener("click", () => void loadAdjacent(-1));
+elements.nextId.addEventListener("click", () => void loadAdjacent(1));
 elements.save.addEventListener("click", saveCurrent);
 elements.jumpInput.addEventListener("input", () => elements.jumpInput.setCustomValidity(""));
 elements.jumpForm.addEventListener("submit", (event) => {
@@ -191,7 +221,7 @@ elements.jumpForm.addEventListener("submit", (event) => {
     return;
   }
   elements.jumpInput.setCustomValidity("");
-  goTo(targetIndex);
+  void goTo(targetIndex);
 });
 
 document.addEventListener("keydown", (event) => {

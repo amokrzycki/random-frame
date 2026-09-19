@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { adjacentPrntscId, frameNumberToIndex, nextHistoryIndex } from "../navigation.js";
+import { adjacentPrntscId, frameNumberToIndex, nextHistoryIndex } from "../dist/client/navigation.js";
 
 test("uses saved history before requesting a new frame", () => {
   assert.equal(nextHistoryIndex(2, 42), 3);
