@@ -17,6 +17,12 @@ interface CachedBlob {
   url: string;
 }
 
+interface ViewingStats {
+  day: string;
+  today: number;
+  total: number;
+}
+
 type ViewState = "empty" | "loading" | "error" | "image";
 
 function element<T extends Element>(selector: string): T {
@@ -31,10 +37,54 @@ function errorMessage(error: unknown): string {
 
 const storageKey = "prntsc-gallery-history";
 const entryStorageKey = "random-frame-risk-accepted";
+const statsStorageKey = "random-frame-viewing-stats";
 const history: HistoryItem[] = [];
 const blobs = new Map<string, CachedBlob>();
 let index = -1;
 let loading = false;
+
+function currentDay(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+function readStats(): ViewingStats {
+  const day = currentDay();
+  try {
+    const stored: unknown = JSON.parse(localStorage.getItem(statsStorageKey) ?? "");
+    if (
+      typeof stored === "object" &&
+      stored !== null &&
+      "day" in stored &&
+      "today" in stored &&
+      "total" in stored &&
+      typeof stored.day === "string" &&
+      typeof stored.today === "number" &&
+      Number.isInteger(stored.today) &&
+      stored.today >= 0 &&
+      typeof stored.total === "number" &&
+      Number.isInteger(stored.total) &&
+      stored.total >= stored.today
+    )
+      return { day, today: stored.day === day ? stored.today : 0, total: stored.total };
+  } catch {
+    // Use fresh in-memory statistics when browser storage is unavailable or invalid
+  }
+  return { day, today: 0, total: 0 };
+}
+
+let stats = readStats();
+
+function recordView(): void {
+  if (stats.day !== currentDay()) stats = { ...stats, day: currentDay(), today: 0 };
+  stats.today += 1;
+  stats.total += 1;
+  try {
+    localStorage.setItem(statsStorageKey, JSON.stringify(stats));
+  } catch {
+    // Keep counting in memory for this page view
+  }
+}
 
 const elements = {
   image: element<HTMLImageElement>("#image"),
@@ -61,6 +111,11 @@ const elements = {
   historyClose: element<HTMLButtonElement>("#history-close-button"),
   historyGrid: element<HTMLElement>("#history-grid"),
   historyEmpty: element<HTMLElement>("#history-empty"),
+  statsButton: element<HTMLButtonElement>("#stats-button"),
+  statsDialog: element<HTMLDialogElement>("#stats-dialog"),
+  statsClose: element<HTMLButtonElement>("#stats-close-button"),
+  statsToday: element<HTMLElement>("#stats-today"),
+  statsTotal: element<HTMLElement>("#stats-total"),
   meta: element<HTMLElement>("#frame-meta"),
   announcer: element<HTMLElement>("#announcer"),
   entryDialog: element<HTMLDialogElement>("#entry-dialog"),
@@ -152,6 +207,7 @@ async function loadRandom(): Promise<void> {
     const frame = await responseToFrame(await fetch("/api/random", { cache: "no-store" }));
     history.push({ id: frame.id });
     index = history.length - 1;
+    recordView();
     showFrame(frame.id, frame.blob);
   } catch (error) {
     const message = errorMessage(error);
@@ -243,6 +299,7 @@ async function loadAdjacent(offset: -1 | 1): Promise<void> {
     const frame = await responseToFrame(await fetch(`/api/image/${id}`, { cache: "no-store" }));
     history.push({ id: frame.id });
     index = history.length - 1;
+    recordView();
     showFrame(frame.id, frame.blob);
   } catch (error) {
     const message = errorMessage(error);
@@ -289,6 +346,17 @@ elements.historyDialog.addEventListener("click", (event) => {
   if (event.target === elements.historyDialog) elements.historyDialog.close();
 });
 elements.historyDialog.addEventListener("close", () => elements.historyButton.focus());
+elements.statsButton.addEventListener("click", () => {
+  if (stats.day !== currentDay()) stats = { ...stats, day: currentDay(), today: 0 };
+  elements.statsToday.textContent = String(stats.today);
+  elements.statsTotal.textContent = String(stats.total);
+  elements.statsDialog.showModal();
+});
+elements.statsClose.addEventListener("click", () => elements.statsDialog.close());
+elements.statsDialog.addEventListener("click", (event) => {
+  if (event.target === elements.statsDialog) elements.statsDialog.close();
+});
+elements.statsDialog.addEventListener("close", () => elements.statsButton.focus());
 elements.entryConsent.addEventListener("change", () => {
   elements.entryButton.disabled = !elements.entryConsent.checked;
 });
@@ -317,7 +385,14 @@ elements.jumpForm.addEventListener("submit", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if (event.altKey || event.ctrlKey || event.metaKey || elements.historyDialog.open || elements.entryDialog.open)
+  if (
+    event.altKey ||
+    event.ctrlKey ||
+    event.metaKey ||
+    elements.historyDialog.open ||
+    elements.statsDialog.open ||
+    elements.entryDialog.open
+  )
     return;
   if (event.key === "ArrowLeft") goBack();
   if (event.key === "ArrowRight" && index >= 0) goNext();

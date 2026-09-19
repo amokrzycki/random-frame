@@ -122,6 +122,11 @@ const ids = [
   "history-close-button",
   "history-grid",
   "history-empty",
+  "stats-button",
+  "stats-dialog",
+  "stats-close-button",
+  "stats-today",
+  "stats-total",
   "frame-meta",
   "announcer",
   "entry-dialog",
@@ -173,6 +178,18 @@ test("history dialog uses session history and the existing jump path", async (t)
   get("next-button").click();
   await flush();
   await flush();
+
+  get("stats-button").click();
+  assert.equal(get("stats-dialog").open, true);
+  assert.equal(get("stats-today").textContent, "2");
+  assert.equal(get("stats-total").textContent, "2");
+  assert.deepEqual(JSON.parse(localStorage.getItem("random-frame-viewing-stats")), {
+    day: new Date().toLocaleDateString("en-CA"),
+    today: 2,
+    total: 2,
+  });
+  get("stats-close-button").click();
+  assert.equal(document.activeElement, get("stats-button"));
 
   get("history-button").click();
   assert.equal(get("history-grid").children.length, 2);

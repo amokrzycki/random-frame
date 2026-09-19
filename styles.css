@@ -148,6 +148,40 @@ footer {
   cursor: pointer;
 }
 
+.stats-button {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--ink);
+  background: var(--paper-deep);
+  cursor: pointer;
+  transition:
+    color 160ms ease,
+    background-color 160ms ease,
+    transform 120ms ease;
+}
+
+.stats-button:hover {
+  color: var(--control-fill-text);
+  background: var(--control-fill);
+}
+
+.stats-button:active {
+  transform: scale(0.94);
+}
+
+.stats-button svg {
+  width: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 1.7;
+}
+
 .theme-toggle__knob {
   width: 40px;
   height: 40px;
@@ -507,6 +541,48 @@ main {
   padding: 24px 28px 28px;
   overflow: auto;
   scrollbar-color: var(--muted) var(--paper-deep);
+}
+
+.stats-dialog {
+  width: min(560px, calc(100% - 32px));
+}
+
+.stats-dialog__body {
+  padding: 12px 28px 28px;
+}
+
+.stats-list {
+  margin: 0;
+}
+
+.stats-list > div {
+  min-height: 92px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 24px;
+  border-bottom: 1px solid var(--line);
+}
+
+.stats-list dt {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.stats-list dd {
+  margin: 0;
+  font-family: "Archive Serif", serif;
+  font-size: clamp(38px, 8vw, 58px);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.035em;
+}
+
+.stats-dialog__body > p {
+  margin: 22px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .history-grid {
@@ -1296,6 +1372,10 @@ footer a {
   }
 
   .theme-toggle:active .theme-toggle__knob {
+    transform: none;
+  }
+
+  .stats-button:active {
     transform: none;
   }
 }
