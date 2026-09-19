@@ -13,6 +13,14 @@ colors:
   action-cobalt-dark: "#1944b8"
   hairline-stone: "#c9c5bc"
   warning-terracotta: "#c86b55"
+  dark-mineral-paper: "#171815"
+  dark-mineral-paper-deep: "#22231f"
+  dark-graphite-ink: "#f0eee8"
+  dark-muted-olive-gray: "#aaa99f"
+  dark-action-cobalt: "#496adc"
+  dark-hairline-stone: "#3b3c36"
+  dark-control-fill: "#343530"
+  dark-floating-control: "#2b2c28"
 typography:
   display:
     fontFamily: "Archive Serif, serif"
@@ -104,6 +112,10 @@ The palette pairs warm archival neutrals with a near-black viewing environment a
 - **Warning Terracotta:** Error icon only.
 
 **The One Cobalt Rule.** Cobalt communicates action, focus, or live status; it is not decorative fill.
+
+### Themes
+
+Light mode uses the original warm mineral paper. Dark mode keeps the archival character with charcoal paper, warm white type, restrained olive-gray metadata, and a brighter cobalt reserved for action and focus. The viewing stage deepens rather than inverts, so displayed media remains the focal point. Theme choice follows the system on first visit and persists after the visitor switches it.
 
 ## Typography
 

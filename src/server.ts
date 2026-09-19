@@ -21,6 +21,7 @@ const files: Record<string, readonly [string, string]> = {
   "/app.js": ["dist/client/app.js", "text/javascript; charset=utf-8"],
   "/navigation.js": ["dist/client/navigation.js", "text/javascript; charset=utf-8"],
   "/toast.js": ["dist/client/toast.js", "text/javascript; charset=utf-8"],
+  "/theme.js": ["dist/client/theme.js", "text/javascript; charset=utf-8"],
   "/styles.css": ["styles.css", "text/css; charset=utf-8"],
   "/assets/noto-serif-display.woff2": ["assets/noto-serif-display.woff2", "font/woff2"],
 };
