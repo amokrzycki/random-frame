@@ -1,24 +1,26 @@
 {
-	"name": "random-frame",
-	"private": true,
-	"version": "0.1.2",
-	"type": "module",
-	"scripts": {
-		"dev": "node dev.mjs",
-		"build": "npm run typecheck && npm run build:server && npm run build:client",
-		"build:server": "esbuild src/*.ts src/sources/*.ts --platform=node --format=esm --sourcemap --outbase=src --outdir=dist",
-		"build:client": "esbuild src/client/*.ts --platform=browser --format=esm --sourcemap --outdir=dist/client",
-		"prestart": "npm run build",
-		"start": "node dist/server.js",
-		"test": "npm run build:server && npm run build:client && node --test",
-		"typecheck": "tsc --noEmit"
-	},
-	"devDependencies": {
-		"@types/node": "26.6.2",
-		"esbuild": "0.28.2",
-		"typescript": "7.0.2"
-	},
-	"allowScripts": {
-		"esbuild@0.28.2": true
-	}
+  "name": "random-frame",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node dev.mjs",
+    "build": "npm run typecheck && npm run build:server && npm run build:client",
+    "build:server": "esbuild src/*.ts src/sources/*.ts --platform=node --format=esm --sourcemap --outbase=src --outdir=dist",
+    "build:client": "esbuild src/client/*.ts --platform=browser --format=esm --sourcemap --outdir=dist/client",
+    "prestart": "npm run build",
+    "start": "node dist/server.js",
+    "test": "npm run build:server && npm run build:client && node --test",
+    "lint": "biome check",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.14",
+    "@types/node": "26.6.2",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
 }

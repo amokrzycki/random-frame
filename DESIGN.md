@@ -13,6 +13,18 @@ colors:
   action-cobalt-dark: "#1944b8"
   hairline-stone: "#c9c5bc"
   warning-terracotta: "#c86b55"
+  dark-mineral-paper: "#171815"
+  dark-mineral-paper-deep: "#22231f"
+  dark-graphite-ink: "#f0eee8"
+  dark-muted-olive-gray: "#aaa99f"
+  dark-viewing-stage: "#0d0e0c"
+  dark-viewing-stage-soft: "#1b1c19"
+  dark-action-cobalt: "#496adc"
+  dark-action-cobalt-dark: "#3f63d7"
+  dark-hairline-stone: "#3b3c36"
+  dark-control-fill: "#343530"
+  dark-floating-control: "#2b2c28"
+  dark-warning-terracotta: "#e58b75"
 typography:
   display:
     fontFamily: "Archive Serif, serif"
@@ -30,6 +42,12 @@ typography:
     fontSize: "13px"
     fontWeight: 650
     lineHeight: 1.2
+  metric:
+    fontFamily: "Archive Serif, serif"
+    fontSize: "clamp(38px, 8vw, 58px)"
+    fontWeight: 400
+    lineHeight: 1
+    letterSpacing: "-0.035em"
 rounded:
   compact: "5px"
   inset: "8px"
@@ -57,6 +75,12 @@ components:
     rounded: "9px"
     padding: "0 14px"
     height: "40px"
+  button-icon:
+    backgroundColor: "{colors.mineral-paper-deep}"
+    textColor: "{colors.graphite-ink}"
+    rounded: "{rounded.control}"
+    width: "40px"
+    height: "40px"
   navigation-button:
     backgroundColor: "rgba(249, 248, 244, 0.94)"
     textColor: "{colors.graphite-ink}"
@@ -81,6 +105,7 @@ The system is quiet, lightly premium, and intentionally sparse. Typography and f
 - Warm paper, dark graphite, and one cobalt action color define the palette.
 - Editorial serif headings sit beside neutral sans-serif controls and metadata.
 - Controls are compact, tactile, and visibly keyboard-focusable.
+- Native dialogs present focused history, consent, and local viewing statistics without becoming dashboard surfaces.
 
 ## Colors
 
@@ -105,6 +130,10 @@ The palette pairs warm archival neutrals with a near-black viewing environment a
 
 **The One Cobalt Rule.** Cobalt communicates action, focus, or live status; it is not decorative fill.
 
+### Themes
+
+Light mode uses the original warm mineral paper. Dark mode keeps the archival character with charcoal paper, warm white type, restrained olive-gray metadata, and a brighter cobalt reserved for action and focus. The viewing stage deepens rather than inverts, so displayed media remains the focal point. Theme choice follows the system on first visit and persists after the visitor switches it.
+
 ## Typography
 
 **Display Font:** Archive Serif (local Noto Serif Display asset, with serif fallback)  
@@ -119,6 +148,7 @@ The palette pairs warm archival neutrals with a near-black viewing environment a
 - **Body:** Compact sans-serif for descriptions and warnings, with generous leading inside the dark stage.
 - **Label:** Semibold sans-serif for controls and terse interface labels.
 - **Metadata:** Small muted sans-serif or tabular/monospace figures for counters, shortcuts, and source IDs.
+- **Metric:** Large tabular serif numerals for the two viewing-stat totals inside their focused dialog.
 
 **The Serif Sparingly Rule.** Reserve Archive Serif for the viewer title and state headlines; actions and operational copy stay sans-serif.
 
@@ -126,7 +156,7 @@ The palette pairs warm archival neutrals with a near-black viewing environment a
 
 The page uses a centered fluid shell capped at 1480px, with the viewer capped at 1240px. A slim 84px masthead leads into a 48px top gap and one stage up to 720px high. The viewer header and lower rail align title, count, source, shortcuts, and save action around that stage.
 
-At 720px and below, outer gutters tighten, the stage becomes 58vh tall, secondary header copy and keyboard hints disappear, and previous/next controls move to a two-column bottom dock. At 430px and below, labels compact further and the footer stacks.
+At 720px and below, outer gutters tighten, the stage becomes 58vh tall, secondary header copy and keyboard hints disappear, and previous/next controls move to a two-column bottom dock. At 430px and below, labels compact further, dialogs tighten their internal padding, and the footer stacks.
 
 **The Single Frame Rule.** Never turn the experience into a grid: one image owns the viewing stage at a time.
 
@@ -144,7 +174,7 @@ Depth is concentrated on the viewing stage and floating controls. The paper shel
 
 ## Shapes
 
-The stage uses a gently rounded outer frame with a smaller inset hairline. Controls use compact rounded rectangles; the session indicator and loading spinner are circular. Thin strokes and open SVG icons preserve the technical, machined feel.
+The stage and dialogs use gently rounded outer frames, with the stage carrying a smaller inset hairline. Controls use compact rounded rectangles; the session indicator and loading spinner are circular. Thin strokes and open SVG icons preserve the technical, machined feel.
 
 ## Components
 
@@ -154,15 +184,23 @@ The stage uses a gently rounded outer frame with a smaller inset hairline. Contr
 - **Secondary:** Transparent with a graphite outline; hover inverts to graphite with archival-white text.
 - **Text action:** Unboxed archival-white text with a thin underline, used only inside the dark error state.
 - **Hover / Focus:** Hover changes color or inverts the surface. Keyboard focus uses a high-contrast cobalt outline offset from the component.
+- **Icon controls:** Forty-pixel paper-deep squares in the masthead; hover inverts to graphite and active state compresses slightly.
 
 ### Cards / Containers
 
 - **Viewing stage:** Near-black surface, gently rounded outer frame, faint inset line, and deep ambient shadow.
 - **Internal spacing:** Images retain generous breathing room; mobile reserves extra bottom space for the docked navigation controls.
 
+### Dialogs
+
+- **Shell:** Native modal behavior with mineral-paper surfaces, a graphite scrim, 14px corners, and the same ambient depth vocabulary as the stage.
+- **Header:** Serif title, close control, and one hairline divider.
+- **Statistics:** Two ruled definition rows pair muted labels with large tabular serif values; the supporting privacy note remains visually secondary.
+- **Motion:** Dialogs scale from 0.97 while fading over 220ms; reduced-motion mode removes the scale.
+
 ### Navigation
 
-- **Masthead:** Brand mark and title on the left, temporary-session status on the right, divided from content by one stone hairline.
+- **Masthead:** Brand mark and title on the left, compact statistics and theme controls plus temporary-session status on the right, divided from content by one stone hairline.
 - **Frame navigation:** Archival-white floating edge controls on desktop; equal-width docked controls on mobile. Disabled buttons remain visible at reduced opacity.
 - **Lower rail:** Monospace source link on the left; shortcut hint and save action on the right.
 - **Provider-specific browsing:** When a source exposes sequential identifiers, compact −1/+1 controls sit beside its source link, visually separated from the large history navigation. Omit this control group for providers without meaningful adjacency.

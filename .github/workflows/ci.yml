@@ -26,6 +26,9 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
+      - name: Lint
+        run: npx @biomejs/biome ci ./
+
       - name: Test
         run: npm test
 

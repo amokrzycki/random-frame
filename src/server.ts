@@ -5,18 +5,23 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { sendJson } from "./http.js";
 import { takeApiToken } from "./rate-limit.js";
-import { selectSource } from "./sources/registry.js";
 import { extractImageUrl, isAllowedImageUrl } from "./sources/prntsc.js";
+import { selectSource } from "./sources/registry.js";
 import type { RandomItem, RandomSource, SourceAsset } from "./sources/types.js";
 import { SourceError } from "./sources/types.js";
 
 export { extractImageUrl, isAllowedImageUrl, selectSource };
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const { version } = JSON.parse(await readFile(join(root, "package.json"), "utf8")) as { version: string };
 const files: Record<string, readonly [string, string]> = {
   "/": ["index.html", "text/html; charset=utf-8"],
+  "/privacy": ["privacy.html", "text/html; charset=utf-8"],
+  "/privacy.html": ["privacy.html", "text/html; charset=utf-8"],
   "/app.js": ["dist/client/app.js", "text/javascript; charset=utf-8"],
   "/navigation.js": ["dist/client/navigation.js", "text/javascript; charset=utf-8"],
+  "/toast.js": ["dist/client/toast.js", "text/javascript; charset=utf-8"],
+  "/theme.js": ["dist/client/theme.js", "text/javascript; charset=utf-8"],
   "/styles.css": ["styles.css", "text/css; charset=utf-8"],
   "/assets/noto-serif-display.woff2": ["assets/noto-serif-display.woff2", "font/woff2"],
 };
@@ -88,7 +93,8 @@ export async function handleRequest(request: IncomingMessage, response: ServerRe
         "content-type": contentType,
         "cache-control": name.endsWith(".woff2") ? "public, max-age=31536000, immutable" : "no-cache",
       });
-      response.end(await readFile(join(root, name)));
+      const body = await readFile(join(root, name));
+      response.end(name === "index.html" ? body.toString().replace("{{VERSION}}", version) : body);
       return;
     }
 
@@ -107,5 +113,6 @@ const server = createServer(handleRequest);
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const port = Number(process.env.PORT || 3000);
+  // biome-ignore lint/suspicious/noConsole: Development logging
   server.listen(port, () => console.log(`Random Frame is running at http://localhost:${port}`));
 }
