@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { extractImageUrl, handleRequest, isAllowedImageUrl } from "../server.mjs";
+import { extractImageUrl, handleRequest, isAllowedImageUrl } from "../dist/server.js";
 
 async function request(url) {
   let status;
@@ -22,7 +22,7 @@ async function request(url) {
   };
 
   await handleRequest({ url }, response);
-  return { status, headers, json: () => JSON.parse(String(body)) };
+  return { status, headers, json: () => JSON.parse(String(body)), text: () => String(body) };
 }
 
 test("extracts only a trusted screenshot image", () => {
@@ -35,6 +35,12 @@ test("allows only known HTTPS image hosts", () => {
   assert.equal(isAllowedImageUrl("https://i.imgur.com/example.png"), true);
   assert.equal(isAllowedImageUrl("http://image.prntscr.com/example.png"), false);
   assert.equal(isAllowedImageUrl("https://image.prntscr.com.evil.example/image.png"), false);
+});
+
+test("serves the compiled client at the existing URL", async () => {
+  const response = await request("/app.js");
+  assert.equal(response.status, 200);
+  assert.match(response.text(), /navigation\.js/);
 });
 
 test("limits API bursts and does not retry upstream 403 or 429 responses", async (t) => {
@@ -83,7 +89,7 @@ test("limits API bursts and does not retry upstream 403 or 429 responses", async
   }
 
   const callsBeforeLimit = upstreamCalls;
-  const limited = await request("/api/random");
+  const limited = await request("/api/image/abc124");
   assert.equal(limited.status, 429);
   assert.equal(limited.headers.get("retry-after"), "1");
   assert.deepEqual(limited.json(), { error: "Too many requests. Please try again shortly." });
