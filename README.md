@@ -2,23 +2,22 @@
 
 A minimalist gallery for viewing random public images, one at a time. Browse the current session history, visit the source, or download the displayed image.
 
-Images are currently fetched from [prnt.sc](https://prnt.sc/) through a small Node.js proxy server.
+Images are fetched from [prnt.sc](https://prnt.sc/) by the native Rust backend.
 
 ## Getting started
 
-Node.js and npm are required.
+Node.js, npm, Rust, and the [Tauri system dependencies](https://v2.tauri.app/start/prerequisites/) are required.
 
 ```bash
 npm install
-npm run dev
+npx tauri dev
 ```
 
-The app will be available at <http://localhost:3000>.
+`npm run dev` only watches and rebuilds the static frontend; Tauri runs the application.
 
 ## Commands
 
 - `npm run build` — build the app
-- `npm start` — build and start the production server
 - `npm test` — run the tests
 - `npm run lint` — check formatting and code quality
 - `npm run typecheck` — check TypeScript types

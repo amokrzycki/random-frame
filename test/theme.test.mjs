@@ -26,7 +26,7 @@ test("theme toggle updates and persists the selected theme", async (t) => {
     }
   });
 
-  await import(`../dist/client/theme.js?test=${Date.now()}`);
+  await import(`../dist/test-client/theme.js?test=${Date.now()}`);
   toggle.dispatchEvent(new Event("click"));
 
   assert.equal(root.dataset.theme, "dark");

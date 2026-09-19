@@ -141,17 +141,30 @@ test("history dialog uses session history and the existing jump path", async (t)
   const sessionStorage = new FakeStorage();
   const localStorage = new FakeStorage();
   const window = new EventTarget();
-  const globalNames = ["document", "fetch", "localStorage", "sessionStorage", "window"];
+  const globalNames = ["document", "localStorage", "sessionStorage", "window"];
   const originalGlobals = new Map(globalNames.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
   localStorage.setItem("random-frame-risk-accepted", "accepted");
 
   Object.assign(globalThis, { document, localStorage, sessionStorage, window });
   let draw = 0;
-  globalThis.fetch = async () => {
-    draw += 1;
-    return new Response(new Blob([String(draw)]), {
-      headers: { "x-prntsc-id": draw === 1 ? "abc123" : "def456" },
-    });
+  window.__TAURI_INTERNALS__ = {
+    async invoke(command, args) {
+      if (command === "get_random_frame") {
+        draw += 1;
+        const id = draw === 1 ? "abc123" : "def456";
+        return { id, source: "prntsc", sourcePageUrl: `https://prnt.sc/${id}`, mimeType: "image/png" };
+      }
+      if (command === "get_frame_by_id") {
+        return {
+          id: args.id,
+          source: "prntsc",
+          sourcePageUrl: `https://prnt.sc/${args.id}`,
+          mimeType: "image/png",
+        };
+      }
+      if (command === "get_frame_image") return new Uint8Array([draw]).buffer;
+      throw new Error(`Unexpected command: ${command}`);
+    },
   };
   t.after(() => {
     for (const [name, descriptor] of originalGlobals) {
@@ -160,7 +173,7 @@ test("history dialog uses session history and the existing jump path", async (t)
     }
   });
 
-  await import(`../dist/client/app.js?test=${Date.now()}`);
+  await import(`../dist/test-client/app.js?test=${Date.now()}`);
   const get = (id) => document.querySelector(`#${id}`);
 
   get("history-button").click();

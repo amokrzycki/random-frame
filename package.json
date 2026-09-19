@@ -1,28 +1,26 @@
 {
   "name": "random-frame",
   "private": true,
-  "version": "0.2.2",
+  "version": "0.3.0",
   "type": "module",
   "scripts": {
-    "dev": "node dev.mjs",
-    "build": "npm run typecheck && npm run build:server && npm run build:client && npm run build:styles",
-    "build:server": "esbuild src/*.ts src/sources/*.ts --platform=node --format=esm --sourcemap --outbase=src --outdir=dist '--define:APP_VERSION=\"'\"$npm_package_version\"'\"'",
-    "build:client": "esbuild src/client/app.ts src/client/theme.ts --bundle --minify --platform=browser --format=esm --sourcemap --outdir=dist/client --entry-names=[name]-[hash] --metafile=dist/client/meta.json",
-    "build:client:dev": "esbuild src/client/*.ts --platform=browser --format=esm --sourcemap --outdir=dist/client",
-    "build:styles": "esbuild styles.css --bundle --minify --sourcemap --outdir=dist --entry-names=[name]-[hash] --metafile=dist/meta-styles.json --external:/assets/*",
-    "prestart": "npm run build",
-    "start": "node dist/server.js",
-    "test": "npm run build:server && npm run build:client:dev && node --test",
+    "dev": "node build.mjs --watch",
+    "build": "npm run typecheck && node build.mjs",
+    "build:test": "esbuild src/client/*.ts --platform=browser --format=esm --sourcemap --outdir=dist/test-client",
+    "test": "npm run build && npm run build:test && node --test",
     "lint": "biome check",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",
-    "@types/node": "26.6.2",
+    "@tauri-apps/cli": "2.11.4",
     "esbuild": "0.28.2",
     "typescript": "7.0.2"
   },
   "allowScripts": {
     "esbuild@0.28.2": true
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.11.1"
   }
 }
