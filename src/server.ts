@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { dirname, join } from "node:path";
@@ -15,16 +16,50 @@ declare const APP_VERSION: string;
 export { extractImageUrl, isAllowedImageUrl, selectSource };
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+// Hashed filenames come from esbuild's --metafile output, produced only by the
+// production build. In dev (no metafile yet) we fall back to the unhashed paths.
+function resolveHashedAsset(metaFile: string, entryPoint: string, devDiskPath: string, devUrl: string) {
+  try {
+    const meta = JSON.parse(readFileSync(join(root, metaFile), "utf8")) as {
+      outputs: Record<string, { entryPoint?: string }>;
+    };
+    const outPath = Object.keys(meta.outputs).find((path) => meta.outputs[path]?.entryPoint === entryPoint);
+    if (outPath) return { disk: outPath, url: `/${outPath.slice(outPath.lastIndexOf("/") + 1)}`, hashed: true };
+  } catch {
+    // No metafile yet (dev server) — use the unhashed dev build output.
+  }
+  return { disk: devDiskPath, url: devUrl, hashed: false };
+}
+
+const appAsset = resolveHashedAsset("dist/client/meta.json", "src/client/app.ts", "dist/client/app.js", "/app.js");
+const themeAsset = resolveHashedAsset(
+  "dist/client/meta.json",
+  "src/client/theme.ts",
+  "dist/client/theme.js",
+  "/theme.js",
+);
+const stylesAsset = resolveHashedAsset("dist/meta-styles.json", "styles.css", "styles.css", "/styles.css");
+const hashedDiskPaths = new Set(
+  [appAsset, themeAsset, stylesAsset].filter((asset) => asset.hashed).map((asset) => asset.disk),
+);
+
 const files: Record<string, readonly [string, string]> = {
   "/": ["index.html", "text/html; charset=utf-8"],
   "/privacy": ["privacy.html", "text/html; charset=utf-8"],
   "/privacy.html": ["privacy.html", "text/html; charset=utf-8"],
-  "/app.js": ["dist/client/app.js", "text/javascript; charset=utf-8"],
-  "/navigation.js": ["dist/client/navigation.js", "text/javascript; charset=utf-8"],
-  "/toast.js": ["dist/client/toast.js", "text/javascript; charset=utf-8"],
-  "/theme.js": ["dist/client/theme.js", "text/javascript; charset=utf-8"],
-  "/styles.css": ["styles.css", "text/css; charset=utf-8"],
+  [appAsset.url]: [appAsset.disk, "text/javascript; charset=utf-8"],
+  [themeAsset.url]: [themeAsset.disk, "text/javascript; charset=utf-8"],
+  [stylesAsset.url]: [stylesAsset.disk, "text/css; charset=utf-8"],
   "/assets/noto-serif-display.woff2": ["assets/noto-serif-display.woff2", "font/woff2"],
+  // Unbundled dev build only: the browser resolves app.js's relative imports
+  // to these paths directly. Absent in the bundled, hashed production build.
+  ...(appAsset.hashed
+    ? {}
+    : {
+        "/navigation.js": ["dist/client/navigation.js", "text/javascript; charset=utf-8"],
+        "/toast.js": ["dist/client/toast.js", "text/javascript; charset=utf-8"],
+      }),
 };
 
 export async function getRandomAsset(source: RandomSource): Promise<[RandomItem, SourceAsset]> {
@@ -89,10 +124,20 @@ export async function handleRequest(request: IncomingMessage, response: ServerRe
       const [name, contentType] = asset;
       response.writeHead(200, {
         "content-type": contentType,
-        "cache-control": name.endsWith(".woff2") ? "public, max-age=31536000, immutable" : "no-cache",
+        "cache-control":
+          name.endsWith(".woff2") || hashedDiskPaths.has(name) ? "public, max-age=31536000, immutable" : "no-cache",
       });
       const body = await readFile(join(root, name));
-      response.end(name === "index.html" ? body.toString().replace("{{VERSION}}", APP_VERSION) : body);
+      response.end(
+        name === "index.html" || name === "privacy.html"
+          ? body
+              .toString()
+              .replace("{{VERSION}}", APP_VERSION)
+              .replace("{{STYLES_CSS}}", stylesAsset.url)
+              .replace("{{THEME_JS}}", themeAsset.url)
+              .replace("{{APP_JS}}", appAsset.url)
+          : body,
+      );
       return;
     }
 

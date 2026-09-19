@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "node dev.mjs",
-    "build": "npm run typecheck && npm run build:server && npm run build:client",
+    "build": "npm run typecheck && npm run build:server && npm run build:client && npm run build:styles",
     "build:server": "esbuild src/*.ts src/sources/*.ts --platform=node --format=esm --sourcemap --outbase=src --outdir=dist '--define:APP_VERSION=\"'\"$npm_package_version\"'\"'",
-    "build:client": "esbuild src/client/*.ts --platform=browser --format=esm --sourcemap --outdir=dist/client",
+    "build:client": "esbuild src/client/app.ts src/client/theme.ts --bundle --minify --platform=browser --format=esm --sourcemap --outdir=dist/client --entry-names=[name]-[hash] --metafile=dist/client/meta.json",
+    "build:client:dev": "esbuild src/client/*.ts --platform=browser --format=esm --sourcemap --outdir=dist/client",
+    "build:styles": "esbuild styles.css --bundle --minify --sourcemap --outdir=dist --entry-names=[name]-[hash] --metafile=dist/meta-styles.json --external:/assets/*",
     "prestart": "npm run build",
     "start": "node dist/server.js",
-    "test": "npm run build:server && npm run build:client && node --test",
+    "test": "npm run build:server && npm run build:client:dev && node --test",
     "lint": "biome check",
     "typecheck": "tsc --noEmit"
   },
