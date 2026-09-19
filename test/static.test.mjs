@@ -12,6 +12,6 @@ test("builds static Tauri assets with the package version", async () => {
   assert.match(index, new RegExp(`>v${version.replaceAll(".", "\\.")}<`));
   assert.match(index, /src="app\.js"/);
   assert.match(index, /href="privacy\.html">Privacy<\/a>/);
-  assert.match(privacy, /<h1>Privacy Policy<\/h1>/);
+  assert.match(privacy, /<h1>Privacy policy<\/h1>/);
   assert.doesNotMatch(index + privacy, /{{[A-Z_]+}}/);
 });
