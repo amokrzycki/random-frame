@@ -52,6 +52,7 @@ jobs:
 
           rsync -az \
             index.html \
+            privacy.html \
             styles.css \
             "$SSH_USER@$SSH_HOST:$REMOTE_PATH/"
 
