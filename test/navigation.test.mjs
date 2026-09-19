@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { adjacentPrntscId, frameNumberToIndex, nextHistoryIndex } from "../dist/client/navigation.js";
+import { adjacentPrntscId, frameNumberToIndex, nextHistoryIndex, shouldShowEntryDialog } from "../dist/client/navigation.js";
+
+test("shows the entry warning until it is accepted", () => {
+  assert.equal(shouldShowEntryDialog(null), true);
+  assert.equal(shouldShowEntryDialog("accepted"), false);
+});
 
 test("uses saved history before requesting a new frame", () => {
   assert.equal(nextHistoryIndex(2, 42), 3);

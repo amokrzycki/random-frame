@@ -2,6 +2,10 @@ export function nextHistoryIndex(index: number, length: number): number | null {
   return index + 1 < length ? index + 1 : null;
 }
 
+export function shouldShowEntryDialog(storedAcceptance: string | null): boolean {
+  return storedAcceptance !== "accepted";
+}
+
 export function frameNumberToIndex(value: string, length: number): number | null {
   const frameNumber = Number(value);
   return Number.isInteger(frameNumber) && frameNumber >= 1 && frameNumber <= length ? frameNumber - 1 : null;

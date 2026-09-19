@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { extractImageUrl, handleRequest, isAllowedImageUrl } from "../dist/server.js";
 
 async function request(url) {
@@ -37,10 +38,16 @@ test("allows only known HTTPS image hosts", () => {
   assert.equal(isAllowedImageUrl("https://image.prntscr.com.evil.example/image.png"), false);
 });
 
-test("serves the compiled client at the existing URL", async () => {
+test("serves the compiled client modules", async () => {
   const response = await request("/app.js");
   assert.equal(response.status, 200);
   assert.match(response.text(), /navigation\.js/);
+  assert.equal((await request("/toast.js")).status, 200);
+});
+
+test("renders the package version in the footer", async () => {
+  const { version } = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+  assert.match((await request("/")).text(), new RegExp(`>v${version.replaceAll(".", "\\.")}<`));
 });
 
 test("limits API bursts and does not retry upstream 403 or 429 responses", async (t) => {

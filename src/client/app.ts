@@ -1,4 +1,5 @@
-import { adjacentPrntscId, frameNumberToIndex, nextHistoryIndex } from "./navigation.js";
+import { adjacentPrntscId, frameNumberToIndex, nextHistoryIndex, shouldShowEntryDialog } from "./navigation.js";
+import { toast } from "./toast.js";
 
 interface HistoryItem {
   id: string;
@@ -22,6 +23,7 @@ function errorMessage(error: unknown): string {
 }
 
 const storageKey = "prntsc-gallery-history";
+const entryStorageKey = "random-frame-risk-accepted";
 const history: HistoryItem[] = [];
 const blobs = new Map<string, CachedBlob>();
 let index = -1;
@@ -38,6 +40,7 @@ const elements = {
   previous: element<HTMLButtonElement>("#previous-button"),
   next: element<HTMLButtonElement>("#next-button"),
   save: element<HTMLButtonElement>("#save-button"),
+  copyLink: element<HTMLButtonElement>("#copy-link-button"),
   source: element<HTMLAnchorElement>("#source-link"),
   imageId: element<HTMLElement>("#image-id"),
   previousId: element<HTMLButtonElement>("#previous-id-button"),
@@ -48,9 +51,18 @@ const elements = {
   historyTotal: element<HTMLOutputElement>("#history-total"),
   meta: element<HTMLElement>("#frame-meta"),
   announcer: element<HTMLElement>("#announcer"),
+  entryDialog: element<HTMLDialogElement>("#entry-dialog"),
+  entryConsent: element<HTMLInputElement>("#entry-consent"),
+  entryButton: element<HTMLButtonElement>("#entry-button"),
 };
 
 sessionStorage.removeItem(storageKey);
+
+try {
+  if (shouldShowEntryDialog(localStorage.getItem(entryStorageKey))) elements.entryDialog.showModal();
+} catch {
+  elements.entryDialog.showModal();
+}
 
 function setState(state: ViewState, message = ""): void {
   for (const [name, target] of Object.entries({
@@ -70,6 +82,7 @@ function syncControls(): void {
   elements.previous.disabled = loading || index <= 0;
   elements.next.disabled = loading || index < 0;
   elements.save.disabled = loading || !current || !blobs.has(current.id);
+  elements.copyLink.disabled = loading || !current;
   elements.previousId.disabled = loading || !current || adjacentPrntscId(current.id, -1) === null;
   elements.nextId.disabled = loading || !current || adjacentPrntscId(current.id, 1) === null;
   elements.jumpInput.disabled = loading || !history.length;
@@ -204,6 +217,15 @@ function saveCurrent(): void {
   elements.announcer.textContent = `Saved frame ${current.id}`;
 }
 
+async function copySourceLink(): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(elements.source.href);
+    toast.success("Copied to clipboard");
+  } catch {
+    elements.announcer.textContent = "Could not copy the source link";
+  }
+}
+
 elements.start.addEventListener("click", () => void loadRandom());
 elements.retry.addEventListener("click", () => void loadRandom());
 elements.next.addEventListener("click", goNext);
@@ -211,6 +233,19 @@ elements.previous.addEventListener("click", goBack);
 elements.previousId.addEventListener("click", () => void loadAdjacent(-1));
 elements.nextId.addEventListener("click", () => void loadAdjacent(1));
 elements.save.addEventListener("click", saveCurrent);
+elements.copyLink.addEventListener("click", () => void copySourceLink());
+elements.entryConsent.addEventListener("change", () => {
+  elements.entryButton.disabled = !elements.entryConsent.checked;
+});
+elements.entryDialog.addEventListener("cancel", (event) => event.preventDefault());
+elements.entryButton.addEventListener("click", () => {
+  if (!elements.entryConsent.checked) return;
+  try {
+    localStorage.setItem(entryStorageKey, "accepted");
+  } catch {}
+  elements.entryDialog.close();
+  elements.start.focus();
+});
 elements.jumpInput.addEventListener("input", () => elements.jumpInput.setCustomValidity(""));
 elements.jumpForm.addEventListener("submit", (event) => {
   event.preventDefault();

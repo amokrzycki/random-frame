@@ -18,6 +18,26 @@
       FORM: Archive inspection table, grounded direction 7; seed 5387cc79.
       FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
     -->
+    <dialog class="entry-dialog" id="entry-dialog" aria-labelledby="entry-title" aria-describedby="entry-description">
+      <div class="entry-dialog__content">
+        <svg class="entry-dialog__mark" viewBox="0 0 28 28" aria-hidden="true"><path d="M4.5 8.5V4.5h4M19.5 4.5h4v4M23.5 19.5v4h-4M8.5 23.5h-4v-4M9 10.5h10v7H9z" /></svg>
+        <h2 id="entry-title">Before you enter</h2>
+        <div class="entry-dialog__copy" id="entry-description">
+          <p>Random Frame displays randomly selected content from third-party sources.</p>
+          <p>You may encounter NSFW, disturbing, offensive, or otherwise unexpected material. Content is not reviewed or moderated by Random Frame.</p>
+          <p>By continuing, you confirm that you understand and accept this risk.</p>
+        </div>
+        <label class="entry-consent">
+          <input id="entry-consent" type="checkbox" />
+          <span>I understand that random content may be NSFW or disturbing.</span>
+        </label>
+        <div class="entry-dialog__actions">
+          <button class="primary-action" id="entry-button" type="button" disabled>Enter Random Frame</button>
+          <a class="leave-action" href="about:blank">Leave</a>
+        </div>
+      </div>
+    </dialog>
+
     <header class="masthead">
       <a class="brand" href="/" aria-label="Random Frame — home">
         <svg viewBox="0 0 28 28" aria-hidden="true"><path d="M4.5 8.5V4.5h4M19.5 4.5h4v4M23.5 19.5v4h-4M8.5 23.5h-4v-4M9 10.5h10v7H9z" /></svg>
@@ -79,10 +99,15 @@
 
         <div class="viewer-foot">
           <div class="source-tools">
-            <a id="source-link" class="source-link" href="https://prnt.sc/" target="_blank" rel="noopener noreferrer" aria-disabled="true">
+            <div class="source-reference">
               <span id="image-id">prnt.sc/———</span>
-              <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M7 4H4v10h10v-3M9 4h5v5m0-5L8 10" /></svg>
-            </a>
+              <button id="copy-link-button" class="source-icon" type="button" aria-label="Copy source link" title="Copy source link" disabled>
+                <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M6 6V3.5h8.5V12H12M3.5 6H12v8.5H3.5z" /></svg>
+              </button>
+              <a id="source-link" class="source-icon" href="https://prnt.sc/" target="_blank" rel="noopener noreferrer" aria-label="Open source link in a new tab" title="Open source link in a new tab" aria-disabled="true">
+                <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M7 4H4v10h10v-3M9 4h5v5m0-5L8 10" /></svg>
+              </a>
+            </div>
             <div class="id-sequence" role="group" aria-label="Browse adjacent Prnt.sc identifiers">
               <span>Adjacent ID</span>
               <button id="previous-id-button" type="button" aria-label="Load the previous Prnt.sc identifier" title="Previous Prnt.sc ID" disabled>−1</button>
@@ -102,10 +127,13 @@
 
     <footer>
       <p>History clears on refresh. Respect the privacy of people whose information may appear in public uploads.</p>
-      <a class="footer-link" href="https://prnt.sc/" target="_blank" rel="noopener noreferrer">
-        Prnt.sc
-        <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M7 4H4v10h10v-3M9 4h5v5m0-5L8 10" /></svg>
-      </a>
+      <div class="footer-meta">
+        <span>v{{VERSION}}</span>
+        <a class="footer-link" href="https://prnt.sc/" target="_blank" rel="noopener noreferrer">
+          Prnt.sc
+          <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M7 4H4v10h10v-3M9 4h5v5m0-5L8 10" /></svg>
+        </a>
+      </div>
     </footer>
 
     <div class="sr-only" id="announcer" aria-live="polite"></div>
