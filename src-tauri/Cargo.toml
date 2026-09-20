@@ -4,7 +4,7 @@ version = "0.3.0"
 description = "Random public images, one frame at a time"
 authors = ["Adrian Mokrzycki"]
 license = ""
-repository = ""
+repository = "https://github.com/amokrzycki/random-frame"
 edition = "2021"
 rust-version = "1.77.2"
 
