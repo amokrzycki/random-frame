@@ -56,6 +56,15 @@
   opacity: 1;
 }
 
+.history-dialog:modal.is-closing {
+  opacity: 0;
+  transform: scale(0.97);
+}
+
+.history-dialog:modal.is-closing::backdrop {
+  opacity: 0;
+}
+
 @starting-style {
   .history-dialog:modal {
     opacity: 0;

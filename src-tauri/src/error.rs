@@ -51,7 +51,9 @@ impl AppError {
     }
 
     pub fn network(error: reqwest::Error) -> Self {
-        if error.is_timeout() {
+        let is_timeout = error.is_timeout();
+        drop(error);
+        if is_timeout {
             Self::new(ErrorKind::Timeout, "The source timed out")
         } else {
             Self::new(ErrorKind::Network, "The source could not be reached")

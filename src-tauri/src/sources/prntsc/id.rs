@@ -25,14 +25,15 @@ fn value_to_base36(mut value: u64) -> String {
         value /= 36;
     }
     digits.reverse();
-    String::from_utf8(digits).expect("base36 alphabet is ASCII")
+    String::from_utf8(digits)
+        .unwrap_or_else(|invalid| String::from_utf8_lossy(invalid.as_bytes()).into_owned())
 }
 
 fn base36_to_value(id: &str) -> Option<u64> {
     id.bytes().try_fold(0u64, |value, byte| {
         let digit = match byte {
-            b'0'..=b'9' => (byte - b'0') as u64,
-            b'a'..=b'z' => (byte - b'a') as u64 + 10,
+            b'0'..=b'9' => u64::from(byte - b'0'),
+            b'a'..=b'z' => u64::from(byte - b'a') + 10,
             _ => return None,
         };
         value.checked_mul(36)?.checked_add(digit)
@@ -65,16 +66,25 @@ mod tests {
         for invalid in [
             "26y3ahs", "26y3ahz", "zzzzzzz", "ABC123", "abc-12", "ąbc123", "",
         ] {
-            assert_eq!(
-                validate_item_id(invalid).unwrap_err().kind,
-                ErrorKind::InvalidInput
-            );
+            assert!(matches!(
+                validate_item_id(invalid),
+                Err(AppError {
+                    kind: ErrorKind::InvalidInput,
+                    ..
+                })
+            ));
         }
     }
 
     #[test]
     fn base36_conversions_match_known_boundary_values() {
-        assert!(base36_to_value("8aupm6").unwrap() < base36_to_value(LEGACY_MAX_ID).unwrap());
+        assert!(matches!(
+            (
+                base36_to_value("8aupm6"),
+                base36_to_value(LEGACY_MAX_ID)
+            ),
+            (Some(lower), Some(upper)) if lower < upper
+        ));
         assert_eq!(base36_to_value(LEGACY_MAX_ID), Some(LEGACY_MAX_VALUE));
         assert_eq!(value_to_base36(LEGACY_MAX_VALUE), LEGACY_MAX_ID);
         assert_eq!(value_to_base36(LEGACY_MAX_VALUE + 1), "26y3ahs");
@@ -96,7 +106,10 @@ mod tests {
                 .bytes()
                 .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()));
             assert!(id.len() <= LEGACY_MAX_ID.len());
-            assert!(base36_to_value(&id).unwrap() <= LEGACY_MAX_VALUE);
+            assert!(matches!(
+                base36_to_value(&id),
+                Some(value) if value <= LEGACY_MAX_VALUE
+            ));
             if id.len() == LEGACY_MAX_ID.len() {
                 saw_seven_char_id = true;
             }

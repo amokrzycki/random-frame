@@ -6,7 +6,7 @@ use error::{AppError, ErrorKind};
 use rate_limit::RateLimiter;
 use reqwest::StatusCode;
 use sources::{prntsc, prntsc::FetchedFrame, prntsc::Prntsc, select_source, Source};
-use std::{sync::Mutex, time::Duration};
+use std::{error::Error, sync::Mutex, time::Duration};
 use tauri::{ipc::Response, State};
 
 struct PendingFrame {
@@ -34,7 +34,7 @@ impl AppState {
     fn take_api_token(&self) -> Result<(), AppError> {
         self.rate_limiter
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .take()
     }
 
@@ -47,14 +47,14 @@ impl AppState {
         *self
             .pending
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(pending);
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(pending);
     }
 
     fn take_pending(&self, source: &str, id: &str) -> Option<Vec<u8>> {
         let mut pending = self
             .pending
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if pending
             .as_ref()
             .is_some_and(|frame| frame.source == source && frame.id == id)
@@ -87,23 +87,25 @@ fn retry_decision(attempt: usize, error: &AppError) -> RetryDecision {
 }
 
 async fn random_frame(source: Source, state: &AppState) -> Result<FetchedFrame, AppError> {
-    for attempt in 0..20 {
+    let mut attempt = 0;
+    loop {
         let result = match source {
             Source::Prntsc => state.prntsc.get_random_frame().await,
-            Source::InternetArchive => {
-                unreachable!("unavailable sources are rejected by the registry")
-            }
+            Source::InternetArchive => Err(AppError::new(
+                ErrorKind::UnavailableSource,
+                "Internet Archive source is not available yet",
+            )),
         };
         match result {
             Ok(frame) => return Ok(frame),
             Err(error) => match retry_decision(attempt, &error) {
-                RetryDecision::RetryNow => continue,
+                RetryDecision::RetryNow => {}
                 RetryDecision::RetryAfter(delay) => tokio::time::sleep(delay).await,
                 RetryDecision::Abort => return Err(error),
             },
         }
+        attempt += 1;
     }
-    unreachable!("the retry loop returns on its final attempt")
 }
 
 #[tauri::command]
@@ -130,7 +132,12 @@ async fn get_frame_by_id(
     state.take_api_token()?;
     let mut frame = match source {
         Source::Prntsc => state.prntsc.get_frame(&id).await?,
-        Source::InternetArchive => unreachable!("unavailable sources are rejected by the registry"),
+        Source::InternetArchive => {
+            return Err(AppError::new(
+                ErrorKind::UnavailableSource,
+                "Internet Archive source is not available yet",
+            ));
+        }
     };
     let item = frame.item.clone();
     state.store_pending(&mut frame);
@@ -152,25 +159,36 @@ async fn get_frame_image(
     state.take_api_token()?;
     let frame = match source {
         Source::Prntsc => state.prntsc.get_frame(&id).await?,
-        Source::InternetArchive => unreachable!("unavailable sources are rejected by the registry"),
+        Source::InternetArchive => {
+            return Err(AppError::new(
+                ErrorKind::UnavailableSource,
+                "Internet Archive source is not available yet",
+            ));
+        }
     };
     Ok(Response::new(frame.bytes))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
+/// Starts the application.
+///
+/// # Errors
+///
+/// Returns an error when the HTTP client or Tauri runtime cannot be initialized.
+pub fn run() -> Result<(), Box<dyn Error>> {
+    let state = AppState::new()?;
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .manage(AppState::new().expect("failed to initialize the HTTP client"))
+        .manage(state)
         .invoke_handler(tauri::generate_handler![
             get_random_frame,
             get_frame_by_id,
             get_frame_image
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .run(tauri::generate_context!())?;
+    Ok(())
 }
 
 #[cfg(test)]

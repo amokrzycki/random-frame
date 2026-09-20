@@ -168,13 +168,33 @@ function openHistory(): void {
     label.textContent = `${itemIndex + 1} · ${item.id}`;
     button.append(image, label);
     button.addEventListener("click", () => {
-      elements.historyDialog.close();
+      closeDialog(elements.historyDialog);
       void goTo(itemIndex);
     });
     elements.historyGrid.append(button);
   }
 
   elements.historyDialog.showModal();
+}
+
+function closeDialog(dialog: HTMLDialogElement): void {
+  const classList = (dialog as unknown as { classList?: DOMTokenList }).classList;
+  if (!classList) {
+    dialog.close();
+    return;
+  }
+  if (classList.contains("is-closing")) return;
+  classList.add("is-closing");
+  const fallback = setTimeout(() => dialog.close(), 250);
+  dialog.addEventListener(
+    "transitionend",
+    (event) => {
+      if (event.target !== dialog || event.propertyName !== "opacity") return;
+      clearTimeout(fallback);
+      dialog.close();
+    },
+    { once: true },
+  );
 }
 
 function goBack(): void {
@@ -245,22 +265,36 @@ elements.save.addEventListener("click", () => void saveCurrent());
 elements.copyImage.addEventListener("click", () => void copyCurrentImage());
 elements.copyLink.addEventListener("click", () => void copySourceLink());
 elements.historyButton.addEventListener("click", openHistory);
-elements.historyClose.addEventListener("click", () => elements.historyDialog.close());
+elements.historyClose.addEventListener("click", () => closeDialog(elements.historyDialog));
 elements.historyDialog.addEventListener("click", (event) => {
-  if (event.target === elements.historyDialog) elements.historyDialog.close();
+  if (event.target === elements.historyDialog) closeDialog(elements.historyDialog);
 });
-elements.historyDialog.addEventListener("close", () => elements.historyButton.focus());
+elements.historyDialog.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  closeDialog(elements.historyDialog);
+});
+elements.historyDialog.addEventListener("close", () => {
+  elements.historyDialog.classList?.remove("is-closing");
+  elements.historyButton.focus();
+});
 elements.statsButton.addEventListener("click", () => {
   const stats = viewingStats.current();
   elements.statsToday.textContent = String(stats.today);
   elements.statsTotal.textContent = String(stats.total);
   elements.statsDialog.showModal();
 });
-elements.statsClose.addEventListener("click", () => elements.statsDialog.close());
+elements.statsClose.addEventListener("click", () => closeDialog(elements.statsDialog));
 elements.statsDialog.addEventListener("click", (event) => {
-  if (event.target === elements.statsDialog) elements.statsDialog.close();
+  if (event.target === elements.statsDialog) closeDialog(elements.statsDialog);
 });
-elements.statsDialog.addEventListener("close", () => elements.statsButton.focus());
+elements.statsDialog.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  closeDialog(elements.statsDialog);
+});
+elements.statsDialog.addEventListener("close", () => {
+  elements.statsDialog.classList?.remove("is-closing");
+  elements.statsButton.focus();
+});
 elements.entryConsent.addEventListener("change", () => {
   elements.entryButton.disabled = !elements.entryConsent.checked;
 });

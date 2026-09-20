@@ -15,6 +15,7 @@ pub use id::validate_item_id;
 pub use parser::{extract_image_url, is_allowed_image_url};
 
 const MAX_IMAGE_BYTES: usize = 15_000_000;
+const MAX_IMAGE_BYTES_U64: u64 = 15_000_000;
 const USER_AGENT: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/128 Safari/537.36";
 
@@ -92,7 +93,7 @@ impl Prntsc {
         let cached = self
             .resolved
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .values
             .get(id)
             .cloned();
@@ -121,7 +122,7 @@ impl Prntsc {
         })?;
         self.resolved
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .insert(id.to_owned(), media_url.clone());
         Ok(ResolvedItem {
             id: id.to_owned(),
@@ -162,14 +163,17 @@ impl Prntsc {
             ));
         }
         if let Some(length) = response.content_length() {
-            validate_image_size(length as usize)?;
+            if length > MAX_IMAGE_BYTES_U64 {
+                return Err(image_too_large());
+            }
         }
 
         let mut bytes = Vec::with_capacity(
             response
                 .content_length()
+                .and_then(|length| usize::try_from(length).ok())
                 .unwrap_or(0)
-                .min(MAX_IMAGE_BYTES as u64) as usize,
+                .min(MAX_IMAGE_BYTES),
         );
         while let Some(chunk) = response.chunk().await.map_err(AppError::network)? {
             validate_image_size(bytes.len() + chunk.len())?;
@@ -189,13 +193,14 @@ impl Prntsc {
 
 fn validate_image_size(size: usize) -> Result<(), AppError> {
     if size > MAX_IMAGE_BYTES {
-        Err(AppError::new(
-            ErrorKind::ImageTooLarge,
-            "The image is too large",
-        ))
+        Err(image_too_large())
     } else {
         Ok(())
     }
+}
+
+fn image_too_large() -> AppError {
+    AppError::new(ErrorKind::ImageTooLarge, "The image is too large")
 }
 
 #[cfg(test)]
@@ -219,9 +224,12 @@ mod tests {
     #[test]
     fn rejects_images_over_fifteen_megabytes() {
         assert!(validate_image_size(MAX_IMAGE_BYTES).is_ok());
-        assert_eq!(
-            validate_image_size(MAX_IMAGE_BYTES + 1).unwrap_err().kind,
-            ErrorKind::ImageTooLarge
-        );
+        assert!(matches!(
+            validate_image_size(MAX_IMAGE_BYTES + 1),
+            Err(AppError {
+                kind: ErrorKind::ImageTooLarge,
+                ..
+            })
+        ));
     }
 }

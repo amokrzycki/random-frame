@@ -10,7 +10,7 @@ pub fn is_allowed_image_url(value: &str) -> bool {
 }
 
 pub fn extract_image_url(html: &str) -> Option<String> {
-    static PATTERNS: OnceLock<Vec<Regex>> = OnceLock::new();
+    static PATTERNS: OnceLock<Result<Vec<Regex>, regex::Error>> = OnceLock::new();
     let patterns = PATTERNS.get_or_init(|| {
         [
             r#"(?i)<img[^>]+id=["']screenshot-image["'][^>]+src=["']([^"']+)["']"#,
@@ -19,9 +19,10 @@ pub fn extract_image_url(html: &str) -> Option<String> {
             r#"(?i)<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']"#,
         ]
         .into_iter()
-        .map(|pattern| Regex::new(pattern).expect("static HTML pattern must compile"))
+        .map(Regex::new)
         .collect()
     });
+    let patterns = patterns.as_ref().ok()?;
     patterns.iter().find_map(|pattern| {
         let value = pattern.captures(html)?.get(1)?.as_str();
         let decoded = value
