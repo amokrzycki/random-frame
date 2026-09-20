@@ -27,6 +27,8 @@
   --control-fill-text: #f9f8f4;
   --nav-surface: rgba(249, 248, 244, 0.94);
   --nav-ink: #191a18;
+  --close-hover: #c42b1c;
+  --titlebar-height: 42px;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -74,7 +76,8 @@ body {
 body.app-shell {
   height: 100dvh;
   display: grid;
-  grid-template-rows: 56px minmax(0, 1fr) 34px;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: var(--titlebar-height) minmax(0, 1fr) 34px;
   overflow: hidden;
 }
 
@@ -97,7 +100,7 @@ button {
   background: var(--blue);
 }
 
-.masthead,
+.titlebar,
 main,
 footer {
   width: 100%;

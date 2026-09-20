@@ -13,6 +13,7 @@ async function copyHtml() {
         .replace("{{VERSION}}", version)
         .replace("{{STYLES_CSS}}", "styles.css")
         .replace("{{THEME_JS}}", "theme.js")
+        .replace("{{WINDOW_CONTROLS_JS}}", "window-controls.js")
         .replace("{{APP_JS}}", "app.js");
       await writeFile(`dist/${name}`, html);
     }),
@@ -34,6 +35,7 @@ const options = {
     app: "src/client/app.ts",
     styles: "styles.css",
     theme: "src/client/theme.ts",
+    "window-controls": "src/client/window-controls.ts",
   },
   external: ["/assets/*"],
   format: "esm",

@@ -1,4 +1,5 @@
 @import "./src/styles/base.css";
+@import "./src/styles/titlebar.css";
 @import "./src/styles/shell.css";
 @import "./src/styles/viewer.css";
 @import "./src/styles/dialogs.css";

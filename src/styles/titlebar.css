@@ -1,0 +1,87 @@
+.titlebar {
+  height: var(--titlebar-height);
+  display: flex;
+  align-items: stretch;
+  color: var(--ink);
+  background: var(--paper-deep);
+  border-bottom: 1px solid var(--line);
+  user-select: none;
+}
+
+.titlebar__drag-region {
+  min-width: 0;
+  padding-left: 16px;
+  display: flex;
+  flex: 1;
+  align-items: center;
+}
+
+.brand {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.brand svg {
+  width: 20px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.65;
+}
+
+.masthead-tools {
+  padding-inline: 8px;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.window-controls {
+  display: flex;
+  flex: 0 0 auto;
+}
+
+.window-control {
+  width: 46px;
+  height: var(--titlebar-height);
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  color: var(--ink);
+  background: transparent;
+  cursor: default;
+}
+
+.window-control:hover {
+  background: var(--key-surface);
+}
+
+.window-control--close:hover {
+  color: var(--white);
+  background: var(--close-hover);
+}
+
+.window-control svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+  stroke-width: 1;
+  shape-rendering: geometricPrecision;
+}
+
+:root[data-keyboard-navigation] .window-control:focus {
+  outline-width: 2px;
+  outline-offset: -3px;
+}

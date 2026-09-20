@@ -1,11 +1,7 @@
 @media (max-width: 720px) {
-  .masthead,
   main,
   footer {
     width: min(100% - 28px, 1480px);
-  }
-  .masthead {
-    height: 70px;
   }
   main {
     padding-top: 28px;
