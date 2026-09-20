@@ -32,6 +32,8 @@ function errorMessage(error: unknown): string {
 
 const storageKey = "prntsc-gallery-history";
 const entryStorageKey = "random-frame-risk-accepted";
+const thumbnailStorageKey = "prntsc-gallery-thumbnails";
+const THUMBNAIL_MAX_DIMENSION = 160;
 const history: HistoryItem[] = [];
 const blobs = new Map<string, CachedBlob>();
 let index = -1;
@@ -40,6 +42,48 @@ const viewingStats = createViewingStats(() => localStorage);
 
 function blobKey(source: string, id: string): string {
   return `${source}:${id}`;
+}
+
+function loadThumbnails(): Map<string, string> {
+  try {
+    const stored: unknown = JSON.parse(localStorage.getItem(thumbnailStorageKey) ?? "{}");
+    if (typeof stored !== "object" || stored === null) return new Map();
+    return new Map(Object.entries(stored as Record<string, string>));
+  } catch {
+    return new Map();
+  }
+}
+
+const thumbnails = loadThumbnails();
+
+function persistThumbnails(): void {
+  // ponytail: prunes to keys still in history, no LRU beyond that; add one if history grows unbounded
+  const keep = new Set(history.map((item) => blobKey(item.source, item.id)));
+  for (const key of thumbnails.keys()) if (!keep.has(key)) thumbnails.delete(key);
+  try {
+    localStorage.setItem(thumbnailStorageKey, JSON.stringify(Object.fromEntries(thumbnails)));
+  } catch {
+    // Storage quota exceeded; thumbnails simply stay in-memory for this session
+  }
+}
+
+async function cacheThumbnail(key: string, blob: Blob): Promise<void> {
+  if (thumbnails.has(key)) return;
+  try {
+    const bitmap = await createImageBitmap(blob);
+    const scale = Math.min(1, THUMBNAIL_MAX_DIMENSION / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    thumbnails.set(key, canvas.toDataURL("image/jpeg", 0.6));
+    persistThumbnails();
+  } catch {
+    // Thumbnail generation is best-effort; the grid falls back to a placeholder
+  }
 }
 
 function applyHistory(snapshot: HistorySnapshot): void {
@@ -98,7 +142,9 @@ function syncControls(): void {
 function showFrame(source: string, id: string, blob: Blob): void {
   const oldUrl = elements.image.src;
   const url = URL.createObjectURL(blob);
-  blobs.set(blobKey(source, id), { blob, url });
+  const key = blobKey(source, id);
+  blobs.set(key, { blob, url });
+  void cacheThumbnail(key, blob);
   elements.image.src = url;
   elements.image.alt = `Public image from Prnt.sc with identifier ${id}`;
   elements.image.style.animation = "none";
@@ -190,7 +236,10 @@ function openHistory(): void {
     button.type = "button";
     button.setAttribute("aria-label", `Show frame ${itemIndex + 1}, ${item.id}`);
     if (itemIndex === index) button.setAttribute("aria-current", "true");
-    image.src = blobs.get(blobKey(item.source, item.id))?.url ?? "";
+    const key = blobKey(item.source, item.id);
+    const thumbnailSrc = blobs.get(key)?.url ?? thumbnails.get(key) ?? "";
+    if (!thumbnailSrc) button.setAttribute("data-empty", "true");
+    image.src = thumbnailSrc;
     image.alt = "";
     image.loading = "lazy";
     label.textContent = `${itemIndex + 1} · ${item.id}`;
@@ -291,6 +340,8 @@ async function clearSavedHistory(): Promise<void> {
     viewingStats.reset();
     for (const { url } of blobs.values()) URL.revokeObjectURL(url);
     blobs.clear();
+    thumbnails.clear();
+    localStorage.removeItem(thumbnailStorageKey);
     elements.image.src = "";
     elements.image.alt = "";
     setState("empty");
@@ -446,13 +497,13 @@ window.addEventListener("pagehide", () => {
   for (const { url } of blobs.values()) URL.revokeObjectURL(url);
 });
 
-for (const link of document.querySelectorAll<HTMLAnchorElement>(".external-link")) {
+document.querySelectorAll<HTMLAnchorElement>(".external-link").forEach((link) => {
   link.addEventListener("click", (event) => {
     if (link.getAttribute("aria-disabled") === "true") return;
     event.preventDefault();
     void openUrl(link.href);
   });
-}
+});
 
 syncControls();
 void initialize();

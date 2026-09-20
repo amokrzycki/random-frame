@@ -34,6 +34,10 @@ class FakeElement extends EventTarget {
     return this.attributes.get(name) ?? null;
   }
 
+  removeAttribute(name) {
+    this.attributes.delete(name);
+  }
+
   focus() {
     this.document.activeElement = this;
   }

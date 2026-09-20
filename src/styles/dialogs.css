@@ -288,7 +288,7 @@
   overflow: hidden;
   color: var(--white);
   background: var(--stage);
-  border: 1px solid var(--stage-soft);
+  border: 1px solid var(--line);
   border-radius: 10px;
   cursor: pointer;
   text-align: left;
@@ -309,6 +309,14 @@
   display: block;
   object-fit: contain;
   background: var(--stage-soft);
+}
+
+.history-item[data-empty="true"] img {
+  visibility: hidden;
+}
+
+.history-item[data-empty="true"] {
+  background: repeating-linear-gradient(135deg, var(--stage) 0 10px, var(--stage-soft) 10px 20px);
 }
 
 .history-item span {
