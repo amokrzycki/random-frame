@@ -1,8 +1,6 @@
-import { Image } from "@tauri-apps/api/image";
-import { writeImage } from "@tauri-apps/plugin-clipboard-manager";
-import { save } from "@tauri-apps/plugin-dialog";
-import { writeFile } from "@tauri-apps/plugin-fs";
 import { getFrameById, getRandomFrame } from "./api.js";
+import { elements } from "./elements.js";
+import { copyImage, saveImage } from "./image-actions.js";
 import {
   adjacentPrntscId,
   frameNumberToIndex,
@@ -11,6 +9,7 @@ import {
   nextHistoryIndex,
   shouldShowEntryDialog,
 } from "./navigation.js";
+import { createViewingStats } from "./statistics.js";
 import { toast } from "./toast.js";
 
 interface HistoryItem {
@@ -22,19 +21,7 @@ interface CachedBlob {
   url: string;
 }
 
-interface ViewingStats {
-  day: string;
-  today: number;
-  total: number;
-}
-
 type ViewState = "empty" | "loading" | "error" | "image";
-
-function element<T extends Element>(selector: string): T {
-  const result = document.querySelector<T>(selector);
-  if (!result) throw new Error(`Missing required element: ${selector}`);
-  return result;
-}
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "The image could not be loaded";
@@ -42,94 +29,13 @@ function errorMessage(error: unknown): string {
 
 const storageKey = "prntsc-gallery-history";
 const entryStorageKey = "random-frame-risk-accepted";
-const statsStorageKey = "random-frame-viewing-stats";
 const navigation = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
 const storedHistory = historyFromStorage(navigation?.type === "reload" ? null : sessionStorage.getItem(storageKey));
 const history: HistoryItem[] = [...storedHistory.history];
 const blobs = new Map<string, CachedBlob>();
 let index = -1;
 let loading = false;
-
-function currentDay(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-}
-
-function readStats(): ViewingStats {
-  const day = currentDay();
-  try {
-    const stored: unknown = JSON.parse(localStorage.getItem(statsStorageKey) ?? "");
-    if (
-      typeof stored === "object" &&
-      stored !== null &&
-      "day" in stored &&
-      "today" in stored &&
-      "total" in stored &&
-      typeof stored.day === "string" &&
-      typeof stored.today === "number" &&
-      Number.isInteger(stored.today) &&
-      stored.today >= 0 &&
-      typeof stored.total === "number" &&
-      Number.isInteger(stored.total) &&
-      stored.total >= stored.today
-    )
-      return { day, today: stored.day === day ? stored.today : 0, total: stored.total };
-  } catch {
-    // Use fresh in-memory statistics when browser storage is unavailable or invalid
-  }
-  return { day, today: 0, total: 0 };
-}
-
-let stats = readStats();
-
-function recordView(): void {
-  if (stats.day !== currentDay()) stats = { ...stats, day: currentDay(), today: 0 };
-  stats.today += 1;
-  stats.total += 1;
-  try {
-    localStorage.setItem(statsStorageKey, JSON.stringify(stats));
-  } catch {
-    // Keep counting in memory for this page view
-  }
-}
-
-const elements = {
-  image: element<HTMLImageElement>("#image"),
-  empty: element<HTMLElement>("#empty-state"),
-  loading: element<HTMLElement>("#loading-state"),
-  error: element<HTMLElement>("#error-state"),
-  errorMessage: element<HTMLElement>("#error-message"),
-  start: element<HTMLButtonElement>("#start-button"),
-  retry: element<HTMLButtonElement>("#retry-button"),
-  previous: element<HTMLButtonElement>("#previous-button"),
-  next: element<HTMLButtonElement>("#next-button"),
-  save: element<HTMLButtonElement>("#save-button"),
-  copyImage: element<HTMLButtonElement>("#copy-image-button"),
-  copyLink: element<HTMLButtonElement>("#copy-link-button"),
-  source: element<HTMLAnchorElement>("#source-link"),
-  imageId: element<HTMLElement>("#image-id"),
-  previousId: element<HTMLButtonElement>("#previous-id-button"),
-  nextId: element<HTMLButtonElement>("#next-id-button"),
-  jumpForm: element<HTMLFormElement>("#jump-form"),
-  jumpInput: element<HTMLInputElement>("#jump-input"),
-  jumpButton: element<HTMLButtonElement>("#jump-button"),
-  historyTotal: element<HTMLOutputElement>("#history-total"),
-  historyButton: element<HTMLButtonElement>("#history-button"),
-  historyDialog: element<HTMLDialogElement>("#history-dialog"),
-  historyClose: element<HTMLButtonElement>("#history-close-button"),
-  historyGrid: element<HTMLElement>("#history-grid"),
-  historyEmpty: element<HTMLElement>("#history-empty"),
-  statsButton: element<HTMLButtonElement>("#stats-button"),
-  statsDialog: element<HTMLDialogElement>("#stats-dialog"),
-  statsClose: element<HTMLButtonElement>("#stats-close-button"),
-  statsToday: element<HTMLElement>("#stats-today"),
-  statsTotal: element<HTMLElement>("#stats-total"),
-  meta: element<HTMLElement>("#frame-meta"),
-  announcer: element<HTMLElement>("#announcer"),
-  entryDialog: element<HTMLDialogElement>("#entry-dialog"),
-  entryConsent: element<HTMLInputElement>("#entry-consent"),
-  entryButton: element<HTMLButtonElement>("#entry-button"),
-};
+const viewingStats = createViewingStats(() => localStorage);
 
 try {
   if (shouldShowEntryDialog(localStorage.getItem(entryStorageKey))) elements.entryDialog.showModal();
@@ -202,7 +108,7 @@ async function loadRandom(): Promise<void> {
     const frame = await getRandomFrame();
     history.push({ id: frame.id });
     index = history.length - 1;
-    recordView();
+    viewingStats.recordView();
     showFrame(frame.id, frame.blob);
   } catch (error) {
     const message = errorMessage(error);
@@ -262,13 +168,33 @@ function openHistory(): void {
     label.textContent = `${itemIndex + 1} · ${item.id}`;
     button.append(image, label);
     button.addEventListener("click", () => {
-      elements.historyDialog.close();
+      closeDialog(elements.historyDialog);
       void goTo(itemIndex);
     });
     elements.historyGrid.append(button);
   }
 
   elements.historyDialog.showModal();
+}
+
+function closeDialog(dialog: HTMLDialogElement): void {
+  const classList = (dialog as unknown as { classList?: DOMTokenList }).classList;
+  if (!classList) {
+    dialog.close();
+    return;
+  }
+  if (classList.contains("is-closing")) return;
+  classList.add("is-closing");
+  const fallback = setTimeout(() => dialog.close(), 250);
+  dialog.addEventListener(
+    "transitionend",
+    (event) => {
+      if (event.target !== dialog || event.propertyName !== "opacity") return;
+      clearTimeout(fallback);
+      dialog.close();
+    },
+    { once: true },
+  );
 }
 
 function goBack(): void {
@@ -294,7 +220,7 @@ async function loadAdjacent(offset: -1 | 1): Promise<void> {
     const frame = await getFrameById(id);
     history.push({ id: frame.id });
     index = history.length - 1;
-    recordView();
+    viewingStats.recordView();
     showFrame(frame.id, frame.blob);
   } catch (error) {
     const message = errorMessage(error);
@@ -306,59 +232,18 @@ async function loadAdjacent(offset: -1 | 1): Promise<void> {
   }
 }
 
-function imageExtension(mimeType: string): string {
-  const subtype =
-    mimeType
-      .split(";", 1)[0]
-      ?.trim()
-      .toLowerCase()
-      .replace(/^image\//, "") ?? "";
-  const aliases: Record<string, string> = { jpeg: "jpg", "svg+xml": "svg", tiff: "tif", "x-icon": "ico" };
-  return aliases[subtype] ?? (subtype.replace(/[^a-z0-9]/g, "") || "img");
-}
-
 async function saveCurrent(): Promise<void> {
   const current = history[index];
   const cached = current && blobs.get(current.id);
   if (!current || !cached) return;
-  const extension = imageExtension(cached.blob.type);
-  try {
-    const path = await save({
-      title: "Save image",
-      defaultPath: `random-frame-prntsc-${current.id}.${extension}`,
-      filters: [{ name: "Image", extensions: [extension] }],
-    });
-    if (!path) return;
-    await writeFile(path, new Uint8Array(await cached.blob.arrayBuffer()));
-    elements.announcer.textContent = `Saved frame ${current.id}`;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "The image could not be saved";
-    toast.error(message);
-    elements.announcer.textContent = `Error: ${message}`;
-  }
+  await saveImage(current.id, cached.blob, elements.announcer);
 }
 
-async function copyImage(): Promise<void> {
+async function copyCurrentImage(): Promise<void> {
   const current = history[index];
   const cached = current && blobs.get(current.id);
   if (!current || !cached) return;
-  try {
-    const bitmap = await createImageBitmap(cached.blob);
-    const canvas = document.createElement("canvas");
-    canvas.width = bitmap.width;
-    canvas.height = bitmap.height;
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("Canvas is not available");
-    context.drawImage(bitmap, 0, 0);
-    const { data } = context.getImageData(0, 0, bitmap.width, bitmap.height);
-    const image = await Image.new(new Uint8Array(data.buffer), bitmap.width, bitmap.height);
-    await writeImage(image);
-    toast.success("Copied image to clipboard");
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "The image could not be copied";
-    toast.error(message);
-    elements.announcer.textContent = `Error: ${message}`;
-  }
+  await copyImage(cached.blob, elements.announcer);
 }
 
 async function copySourceLink(): Promise<void> {
@@ -377,25 +262,39 @@ elements.previous.addEventListener("click", goBack);
 elements.previousId.addEventListener("click", () => void loadAdjacent(-1));
 elements.nextId.addEventListener("click", () => void loadAdjacent(1));
 elements.save.addEventListener("click", () => void saveCurrent());
-elements.copyImage.addEventListener("click", () => void copyImage());
+elements.copyImage.addEventListener("click", () => void copyCurrentImage());
 elements.copyLink.addEventListener("click", () => void copySourceLink());
 elements.historyButton.addEventListener("click", openHistory);
-elements.historyClose.addEventListener("click", () => elements.historyDialog.close());
+elements.historyClose.addEventListener("click", () => closeDialog(elements.historyDialog));
 elements.historyDialog.addEventListener("click", (event) => {
-  if (event.target === elements.historyDialog) elements.historyDialog.close();
+  if (event.target === elements.historyDialog) closeDialog(elements.historyDialog);
 });
-elements.historyDialog.addEventListener("close", () => elements.historyButton.focus());
+elements.historyDialog.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  closeDialog(elements.historyDialog);
+});
+elements.historyDialog.addEventListener("close", () => {
+  elements.historyDialog.classList?.remove("is-closing");
+  elements.historyButton.focus();
+});
 elements.statsButton.addEventListener("click", () => {
-  if (stats.day !== currentDay()) stats = { ...stats, day: currentDay(), today: 0 };
+  const stats = viewingStats.current();
   elements.statsToday.textContent = String(stats.today);
   elements.statsTotal.textContent = String(stats.total);
   elements.statsDialog.showModal();
 });
-elements.statsClose.addEventListener("click", () => elements.statsDialog.close());
+elements.statsClose.addEventListener("click", () => closeDialog(elements.statsDialog));
 elements.statsDialog.addEventListener("click", (event) => {
-  if (event.target === elements.statsDialog) elements.statsDialog.close();
+  if (event.target === elements.statsDialog) closeDialog(elements.statsDialog);
 });
-elements.statsDialog.addEventListener("close", () => elements.statsButton.focus());
+elements.statsDialog.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  closeDialog(elements.statsDialog);
+});
+elements.statsDialog.addEventListener("close", () => {
+  elements.statsDialog.classList?.remove("is-closing");
+  elements.statsButton.focus();
+});
 elements.entryConsent.addEventListener("change", () => {
   elements.entryButton.disabled = !elements.entryConsent.checked;
 });

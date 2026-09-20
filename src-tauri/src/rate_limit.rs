@@ -52,17 +52,20 @@ mod tests {
         for _ in 0..8 {
             assert!(limiter.take_at(start).is_ok());
         }
-        assert_eq!(
-            limiter.take_at(start).unwrap_err().kind,
-            ErrorKind::RateLimited
-        );
+        assert!(matches!(
+            limiter.take_at(start),
+            Err(AppError {
+                kind: ErrorKind::RateLimited,
+                ..
+            })
+        ));
         assert!(limiter.take_at(start + Duration::from_millis(334)).is_ok());
-        assert_eq!(
-            limiter
-                .take_at(start + Duration::from_millis(334))
-                .unwrap_err()
-                .kind,
-            ErrorKind::RateLimited
-        );
+        assert!(matches!(
+            limiter.take_at(start + Duration::from_millis(334)),
+            Err(AppError {
+                kind: ErrorKind::RateLimited,
+                ..
+            })
+        ));
     }
 }

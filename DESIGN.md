@@ -51,10 +51,13 @@ typography:
 rounded:
   compact: "5px"
   inset: "8px"
-  control: "10px"
-  stage: "14px"
+  control: "8px"
+  action: "9px"
+  primary: "10px"
+  dialog: "14px"
 spacing:
   xs: "8px"
+  shell-top: "14px"
   sm: "16px"
   md: "24px"
   lg: "48px"
@@ -72,21 +75,21 @@ components:
   button-secondary:
     backgroundColor: "transparent"
     textColor: "{colors.graphite-ink}"
-    rounded: "9px"
-    padding: "0 14px"
-    height: "40px"
+    rounded: "{rounded.action}"
+    padding: "0 11px"
+    height: "34px"
   button-icon:
     backgroundColor: "{colors.mineral-paper-deep}"
     textColor: "{colors.graphite-ink}"
     rounded: "{rounded.control}"
-    width: "40px"
-    height: "40px"
+    width: "34px"
+    height: "34px"
   navigation-button:
     backgroundColor: "rgba(249, 248, 244, 0.94)"
     textColor: "{colors.graphite-ink}"
-    rounded: "11px"
-    width: "48px"
-    height: "64px"
+    rounded: "{rounded.control}"
+    width: "38px"
+    height: "52px"
 ---
 
 # Design System: Random Frame
@@ -95,13 +98,14 @@ components:
 
 **Creative North Star: "The Archive Inspection Table"**
 
-The interface treats each public image as a single archival print under inspection. Warm mineral paper surrounds a deep graphite viewing stage; restrained cobalt actions and compact machined controls provide precision without competing with the image.
+The interface treats each public image as a single archival print under inspection inside a compact desktop workbench. Warm mineral paper frames a deep graphite viewing stage; restrained cobalt actions and compact machined controls provide precision without competing with the image.
 
-The system is quiet, lightly premium, and intentionally sparse. Typography and framing establish hierarchy, while temporary-session cues and public-source warnings remain visible but secondary.
+The system is quiet, lightly premium, and intentionally sparse. A fixed application toolbar and status bar hold persistent context while the flexible central work area gives the current frame all remaining space. Typography and framing establish hierarchy, while temporary-session cues and public-source warnings remain visible but secondary.
 
 **Key Characteristics:**
 
 - One oversized image stage is the visual anchor.
+- A fixed desktop frame keeps tools, source actions, and session status continuously available without page scrolling.
 - Warm paper, dark graphite, and one cobalt action color define the palette.
 - Editorial serif headings sit beside neutral sans-serif controls and metadata.
 - Controls are compact, tactile, and visibly keyboard-focusable.
@@ -154,42 +158,44 @@ Light mode uses the original warm mineral paper. Dark mode keeps the archival ch
 
 ## Layout
 
-The page uses a centered fluid shell capped at 1480px, with the viewer capped at 1240px. A slim 84px masthead leads into a 48px top gap and one stage whose height is `clamp(420px, calc(100dvh - 432px), 720px)`. The viewer header and lower rail align title, count, source, shortcuts, and save action around that stage, keeping the frame responsive to the available viewport rather than relying on a fixed percentage height.
+The Tauri window is a full-height desktop workbench. The body fills `100dvh` and uses three rows: a 56px application toolbar, a flexible `minmax(0, 1fr)` work area, and a 34px status bar. The main work area is inset 14px from the toolbar and 16px from each side, with overflow clipped so the application chrome never becomes a scrolling web page.
 
-At 720px and below, outer gutters tighten, the stage becomes 58vh tall, secondary header copy and keyboard hints disappear, and previous/next controls move to a two-column bottom dock. At 430px and below, labels compact further, dialogs tighten their internal padding, and the footer stacks.
+The viewer fills the available work area and repeats the same fixed-flex-fixed rhythm: a 50px header, the flexible graphite stage, and a 52px docked source/action rail. The stage absorbs window resizing while the toolbar, title, history jump, source tools, shortcuts, and file actions remain stable. The shipped window opens at 1440×900 and may resize down to 800×600; both sizes must show the complete workbench without document scrolling.
 
 **The Single Frame Rule.** Never turn the experience into a grid: one image owns the viewing stage at a time.
 
+**The Desktop Frame Rule.** Treat 800×600 as the compact floor: preserve all three application rows and let the stage flex before hiding persistent controls.
+
 ## Elevation & Depth
 
-Depth is concentrated on the viewing stage and floating controls. The paper shell stays flat; the stage receives a broad warm ambient shadow, while primary and navigation buttons use smaller shadows to read as tangible controls.
+Depth is concentrated on the viewing stage and floating controls. The toolbar, rails, and status bar stay flat; the stage receives a compact ambient shadow suited to an inset desktop canvas, while primary and navigation buttons use smaller shadows to read as tangible controls.
 
 ### Shadow Vocabulary
 
-- **Stage Ambient:** A broad two-layer shadow that lifts the dark stage from the mineral paper.
+- **Stage Ambient:** A compact two-layer shadow (`0 12px 32px` and `0 2px 6px`) that separates the graphite stage from the surrounding workbench without making it float like a web card.
 - **Cobalt Lift:** A colored soft shadow below the primary action.
 - **Control Lift:** A compact neutral shadow below previous/next controls.
 
-**The Flat Surround Rule.** Keep masthead, rails, and footer flat; reserve elevation for the image stage and controls floating over it.
+**The Flat Surround Rule.** Keep the application toolbar, rails, and status bar flat; reserve elevation for the image stage and controls floating over it.
 
 ## Shapes
 
-The stage and dialogs use gently rounded outer frames, with the stage carrying a smaller inset hairline. Controls use compact rounded rectangles; the session indicator and loading spinner are circular. Thin strokes and open SVG icons preserve the technical, machined feel.
+The stage uses an 8px outer radius and an 8px inset hairline, matching the compact toolbar and navigation controls. Secondary actions use 9px corners, the primary action uses 10px, and dialogs retain their softer 14px outer frames. The session indicator and loading spinner are circular. Thin strokes and open SVG icons preserve the technical, machined feel.
 
 ## Components
 
 ### Buttons
 
 - **Primary:** Cobalt, semibold, compact, and paired with a forward arrow; it is the single dominant call to action.
-- **Secondary:** Transparent with a graphite outline; hover inverts to graphite with archival-white text.
+- **Secondary:** Transparent, 34px tall, and outlined in graphite; hover inverts to graphite with archival-white text.
 - **Text action:** Unboxed archival-white text with a thin underline, used only inside the dark error state.
 - **Hover / Focus:** Hover changes color or inverts the surface. Keyboard focus uses a high-contrast cobalt outline offset from the component.
-- **Icon controls:** Forty-pixel paper-deep squares in the masthead; hover inverts to graphite and active state compresses slightly.
+- **Icon controls:** 34px paper-deep squares in the application toolbar; hover inverts to graphite and active state compresses slightly.
 
 ### Cards / Containers
 
-- **Viewing stage:** Near-black surface, gently rounded outer frame, faint inset line, and deep ambient shadow.
-- **Internal spacing:** Images retain generous breathing room; mobile reserves extra bottom space for the docked navigation controls.
+- **Viewing stage:** Near-black flexible surface with an 8px outer frame, faint 10px inset line, and compact ambient shadow.
+- **Internal spacing:** Images use 24px vertical and 62px horizontal padding so one frame remains fully visible without displacing the surrounding rails.
 
 ### Dialogs
 
@@ -200,9 +206,10 @@ The stage and dialogs use gently rounded outer frames, with the stage carrying a
 
 ### Navigation
 
-- **Masthead:** Brand mark and title on the left, compact statistics and theme controls plus temporary-session status on the right, divided from content by one stone hairline.
-- **Frame navigation:** Archival-white floating edge controls on desktop; equal-width docked controls on mobile. Disabled buttons remain visible at reduced opacity.
-- **Lower rail:** Monospace source link on the left; shortcut hint and save action on the right.
+- **Application toolbar:** A fixed 56px strip with brand mark and title on the left, compact statistics and theme controls plus temporary-session status on the right, divided from the work area by one stone hairline.
+- **Frame navigation:** 38×52px archival-white controls float 16px from the stage edges. Disabled buttons remain visible at reduced opacity.
+- **Lower rail:** A fixed 52px row docks the monospace source link and provider controls on the left, with shortcut hint, history, copy, and save actions on the right.
+- **Status bar:** A fixed 34px strip carries the temporary-history notice, version, privacy, and provider attribution without competing with the frame.
 - **Provider-specific browsing:** When a source exposes sequential identifiers, compact −1/+1 controls sit beside its source link, visually separated from the large history navigation. Omit this control group for providers without meaningful adjacency.
 - **History jump:** A compact native number field in the viewer header shows the current position and accepts direct jumps within the temporary history.
 
@@ -221,6 +228,7 @@ The stage and dialogs use gently rounded outer frames, with the stage carrying a
 - **Do** preserve visible keyboard focus and the reduced-motion override.
 - **Do** retain the warm paper surround and graphite stage contrast.
 - **Do** keep provider identity and attribution legible without giving any provider visual ownership of the interface.
+- **Do** preserve the 56px / flexible / 34px application frame and the 50px / flexible / 52px viewer frame at every supported desktop size.
 
 ### Don't:
 
@@ -229,3 +237,4 @@ The stage and dialogs use gently rounded outer frames, with the stage carrying a
 - **Don't** use the serif for controls, metadata, or long operational copy.
 - **Don't** hide unavailable navigation; show it disabled so session position remains legible.
 - **Don't** encode provider-specific controls into the global visual system; reveal them only when the active source supports them.
+- **Don't** reintroduce centered page containers, large top gaps, or document scrolling into the desktop workbench.

@@ -2,7 +2,8 @@
 .Trash-*
 .DS_Store
 .agents
-.zed
+.zed/*
+!.zed/settings.json
 dist/
 node_modules/
 .codegraph

@@ -1,6 +1,7 @@
 pub mod prntsc;
 
 use crate::error::{AppError, ErrorKind};
+use rand::{seq::IteratorRandom, Rng};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Source {
@@ -24,23 +25,22 @@ impl Source {
 const SOURCES: [Source; 2] = [Source::Prntsc, Source::InternetArchive];
 
 pub fn select_source(requested: &str) -> Result<Source, AppError> {
-    select_source_with(requested, rand::random())
+    select_source_with(requested, &mut rand::thread_rng())
 }
 
-fn select_source_with(requested: &str, random: f64) -> Result<Source, AppError> {
+fn select_source_with(requested: &str, random: &mut impl Rng) -> Result<Source, AppError> {
     if requested == "mixed" {
-        let available: Vec<_> = SOURCES
+        return SOURCES
             .iter()
             .copied()
             .filter(|source| source.available())
-            .collect();
-        if available.is_empty() {
-            return Err(AppError::new(
-                ErrorKind::UnavailableSource,
-                "No sources are currently available",
-            ));
-        }
-        return Ok(available[((random * available.len() as f64) as usize).min(available.len() - 1)]);
+            .choose(random)
+            .ok_or_else(|| {
+                AppError::new(
+                    ErrorKind::UnavailableSource,
+                    "No sources are currently available",
+                )
+            });
     }
 
     let source = SOURCES
@@ -65,25 +65,41 @@ fn select_source_with(requested: &str, random: f64) -> Result<Source, AppError> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::rngs::mock::StepRng;
 
     #[test]
     fn selects_explicit_unknown_and_unavailable_sources() {
-        assert_eq!(select_source_with("prntsc", 0.5).unwrap(), Source::Prntsc);
-        assert_eq!(
-            select_source_with("unknown", 0.5).unwrap_err().kind,
-            ErrorKind::UnknownSource
-        );
-        assert_eq!(
-            select_source_with("internet-archive", 0.5)
-                .unwrap_err()
-                .kind,
-            ErrorKind::UnavailableSource
-        );
+        let mut random = StepRng::new(0, 0);
+        assert!(matches!(
+            select_source_with("prntsc", &mut random),
+            Ok(Source::Prntsc)
+        ));
+        assert!(matches!(
+            select_source_with("unknown", &mut random),
+            Err(AppError {
+                kind: ErrorKind::UnknownSource,
+                ..
+            })
+        ));
+        assert!(matches!(
+            select_source_with("internet-archive", &mut random),
+            Err(AppError {
+                kind: ErrorKind::UnavailableSource,
+                ..
+            })
+        ));
     }
 
     #[test]
     fn mixed_selects_only_available_sources() {
-        assert_eq!(select_source_with("mixed", 0.0).unwrap(), Source::Prntsc);
-        assert_eq!(select_source_with("mixed", 0.99).unwrap(), Source::Prntsc);
+        let mut random = StepRng::new(0, 1);
+        assert!(matches!(
+            select_source_with("mixed", &mut random),
+            Ok(Source::Prntsc)
+        ));
+        assert!(matches!(
+            select_source_with("mixed", &mut random),
+            Ok(Source::Prntsc)
+        ));
     }
 }
