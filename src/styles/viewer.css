@@ -1,6 +1,10 @@
 .viewer {
-  max-width: 1240px;
+  width: 100%;
+  height: 100%;
+  max-width: none;
   margin-inline: auto;
+  display: grid;
+  grid-template-rows: 50px minmax(0, 1fr) 52px;
 }
 
 .viewer-head,
@@ -12,19 +16,19 @@
 }
 
 .viewer-head {
-  margin-bottom: 18px;
+  align-items: flex-start;
 }
 .viewer-head h1 {
-  margin: 0 0 5px;
+  margin: 0;
   font-family: "Archive Serif", serif;
-  font-size: clamp(26px, 3vw, 42px);
+  font-size: 22px;
   font-weight: 400;
   letter-spacing: -0.035em;
 }
 .viewer-head p {
-  margin: 0;
+  margin: 1px 0 0;
   color: var(--muted);
-  font-size: 14px;
+  font-size: 12px;
 }
 .jump-form {
   display: flex;
@@ -37,7 +41,7 @@
 }
 .jump-form input {
   width: 58px;
-  height: 36px;
+  height: 30px;
   padding: 0 6px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -48,7 +52,7 @@
   text-align: center;
 }
 .jump-form button {
-  height: 36px;
+  height: 30px;
   padding: 0 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -75,22 +79,23 @@
 
 .stage {
   position: relative;
-  min-height: clamp(420px, calc(100dvh - 432px), 720px);
+  min-height: 0;
+  height: 100%;
   display: grid;
   place-items: center;
   overflow: hidden;
   background: var(--stage);
-  border-radius: 14px;
+  border-radius: 8px;
   box-shadow:
-    0 28px 70px var(--stage-shadow),
-    0 3px 10px var(--stage-shadow-small);
+    0 12px 32px var(--stage-shadow),
+    0 2px 6px var(--stage-shadow-small);
   isolation: isolate;
 }
 
 .stage::before {
   content: "";
   position: absolute;
-  inset: 16px;
+  inset: 10px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
   pointer-events: none;
@@ -205,8 +210,9 @@
   position: relative;
   z-index: 1;
   width: 100%;
-  height: clamp(420px, calc(100dvh - 432px), 720px);
-  padding: 34px 72px;
+  height: 100%;
+  min-height: 0;
+  padding: 24px 62px;
   object-fit: contain;
   animation: reveal 0.62s var(--ease-out) both;
 }
@@ -215,12 +221,12 @@
   position: absolute;
   top: 50%;
   z-index: 4;
-  width: 48px;
-  height: 64px;
+  width: 38px;
+  height: 52px;
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: 11px;
+  border-radius: 8px;
   color: var(--nav-ink);
   background: var(--nav-surface);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
@@ -249,9 +255,9 @@
 }
 
 .viewer-foot {
-  min-height: 70px;
+  min-height: 52px;
   align-items: center;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 0;
 }
 .source-tools {
   display: flex;
@@ -342,7 +348,7 @@
 .actions {
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: 10px;
 }
 .key-hint {
   display: flex;
@@ -362,8 +368,8 @@ kbd {
 }
 
 .save-button {
-  min-height: 40px;
-  padding: 0 14px;
+  min-height: 34px;
+  padding: 0 11px;
   display: inline-flex;
   align-items: center;
   gap: 9px;
@@ -392,13 +398,15 @@ kbd {
 }
 
 footer {
-  min-height: 92px;
+  min-height: 34px;
+  padding: 0 16px;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 32px;
-  padding-top: 22px;
+  gap: 24px;
   color: var(--muted);
+  background: var(--paper-deep);
+  border-top: 1px solid var(--line);
   font-size: 12px;
-  line-height: 1.55;
+  line-height: 1;
 }

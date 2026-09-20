@@ -4,11 +4,11 @@
 
 ## Platform
 
-web
+desktop (Tauri with a web UI)
 
 ## Stack
 
-Delegated: plain HTML, CSS and JavaScript with a dependency-free Node.js server. The current proof of concept proxies Prnt.sc because that source blocks cross-origin framing.
+Tauri 2 desktop application with a plain HTML, CSS and TypeScript interface and a Rust backend. The backend resolves public Prnt.sc images because the source blocks cross-origin framing.
 
 ## Users
 
@@ -24,7 +24,7 @@ Instead of an endless feed, Random Frame offers one deliberate draw at a time ac
 
 ## Operating Context
 
-The gallery is used in a browser with keyboard, mouse, or touch. Its browsing history is intentionally temporary and is cleared on reload.
+The gallery is used as a focused desktop utility in a resizable window, primarily with keyboard and mouse. Its browsing history is intentionally temporary and is cleared when the application reloads.
 
 ## Capabilities and Constraints
 

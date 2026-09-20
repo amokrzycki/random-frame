@@ -66,9 +66,16 @@ body {
   min-height: 100vh;
   margin: 0;
   color: var(--ink);
-  background: radial-gradient(circle at 50% -20%, var(--page-glow), transparent 42rem), var(--paper);
+  background: var(--paper);
   font-family: "Avenir Next", Avenir, "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+body.app-shell {
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: 56px minmax(0, 1fr) 34px;
+  overflow: hidden;
 }
 
 button,
@@ -93,7 +100,7 @@ button {
 .masthead,
 main,
 footer {
-  width: min(1480px, calc(100% - 48px));
+  width: 100%;
   margin-inline: auto;
 }
 
