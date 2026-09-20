@@ -15,6 +15,20 @@ export interface HistorySnapshot {
 export interface ExplorationStats {
   explored: number;
   total: number;
+  // Unique-id counts classified since tracking began; see formatExploredBreakdown.
+  viewable: number;
+  unavailable: number;
+}
+
+export interface DailyActivity {
+  date: string;
+  viewed: number;
+  rejected: number;
+}
+
+export interface ViewingActivity {
+  viewedTotal: number;
+  days: DailyActivity[];
 }
 
 export function getHistory(): Promise<HistorySnapshot> {
@@ -35,4 +49,12 @@ export function clearHistory(): Promise<void> {
 
 export function getExplorationStats(): Promise<ExplorationStats> {
   return invoke("get_exploration_stats");
+}
+
+export function getViewingActivity(): Promise<ViewingActivity> {
+  return invoke("get_viewing_activity");
+}
+
+export function migrateViewingStats(legacyDay: string, legacyToday: number, legacyTotal: number): Promise<void> {
+  return invoke("migrate_viewing_stats", { legacyDay, legacyToday, legacyTotal });
 }

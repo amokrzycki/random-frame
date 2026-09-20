@@ -164,11 +164,15 @@
 }
 
 .stats-dialog {
-  width: min(560px, calc(100% - 32px));
+  width: min(640px, calc(100% - 32px));
 }
 
 .stats-dialog__body {
+  min-height: 0;
+  flex: 1;
   padding: 12px 28px 28px;
+  overflow: auto;
+  scrollbar-color: var(--muted) var(--paper-deep);
 }
 
 .stats-list {
@@ -200,9 +204,11 @@
 
 .stats-list .stats-list__explored {
   min-height: 116px;
+  padding-block: 10px;
   display: grid;
   grid-template-columns: auto 1fr;
   align-content: center;
+  row-gap: 3px;
 }
 
 .stats-list__explored dd {
@@ -215,6 +221,90 @@
   color: var(--muted);
   font-size: 13px;
   text-align: right;
+}
+
+.stats-subhead {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.stats-heatmap {
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.stats-heatmap__header {
+  margin-bottom: 12px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.stats-heatmap__range {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.heatmap-grid {
+  width: fit-content;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(7, 12px);
+  gap: 3px;
+  border: 0;
+}
+
+.heatmap-cell {
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: var(--paper-deep);
+  cursor: pointer;
+}
+
+.heatmap-cell--empty {
+  visibility: hidden;
+  cursor: default;
+}
+
+.heatmap-cell[data-level="1"] {
+  background: color-mix(in srgb, var(--blue) 25%, var(--paper-deep));
+}
+
+.heatmap-cell[data-level="2"] {
+  background: color-mix(in srgb, var(--blue) 48%, var(--paper-deep));
+}
+
+.heatmap-cell[data-level="3"] {
+  background: color-mix(in srgb, var(--blue) 71%, var(--paper-deep));
+}
+
+.heatmap-cell[data-level="4"] {
+  background: var(--blue);
+}
+
+.heatmap-cell:hover {
+  outline: 1px solid var(--muted);
+  outline-offset: 1px;
+}
+
+:root[data-keyboard-navigation] .heatmap-cell:focus {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.heatmap-detail {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
 }
 
 .lightbox-dialog {

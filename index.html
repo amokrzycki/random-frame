@@ -86,19 +86,31 @@
         <div class="stats-dialog__body">
           <dl class="stats-list">
             <div>
-              <dt>Today</dt>
+              <dt>Viewed today</dt>
               <dd id="stats-today">0</dd>
             </div>
             <div>
-              <dt>All time</dt>
+              <dt>Viewed all time</dt>
               <dd id="stats-total">0</dd>
             </div>
             <div class="stats-list__explored">
               <dt>Prnt.sc explored</dt>
               <dd id="stats-explored">0 / 4,773,622,240</dd>
               <small id="stats-explored-percent">0% of known legacy ID space</small>
+              <small id="stats-explored-breakdown">0 viewable · 0 unavailable</small>
             </div>
           </dl>
+          <div class="stats-heatmap">
+            <div class="stats-heatmap__header">
+              <span class="stats-subhead">Viewing activity</span>
+              <span class="stats-heatmap__range">Last 6 months</span>
+            </div>
+            <fieldset
+              class="heatmap-grid"
+              id="stats-heatmap-grid"
+              aria-label="Daily viewed images, last 6 months"></fieldset>
+            <p class="heatmap-detail" id="stats-heatmap-detail" aria-live="polite">Hover or focus a day for details.</p>
+          </div>
           <p>Stored only on this device. No viewing statistics leave your device.</p>
         </div>
       </div>
