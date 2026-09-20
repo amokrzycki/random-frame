@@ -1,13 +1,21 @@
 mod error;
+mod persistence;
 mod rate_limit;
 mod sources;
 
 use error::{AppError, ErrorKind};
+use persistence::{ExplorationStore, HistoryItem, HistorySnapshot, HistoryStore};
 use rate_limit::RateLimiter;
 use reqwest::StatusCode;
+use serde::Serialize;
 use sources::{prntsc, prntsc::FetchedFrame, prntsc::Prntsc, select_source, Source};
-use std::{error::Error, sync::Mutex, time::Duration};
-use tauri::{ipc::Response, State};
+use std::{
+    error::Error,
+    path::Path,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
+use tauri::{ipc::Response, Manager, State};
 
 struct PendingFrame {
     source: String,
@@ -17,15 +25,20 @@ struct PendingFrame {
 
 struct AppState {
     prntsc: Prntsc,
+    history: HistoryStore,
+    explored: Arc<ExplorationStore>,
     rate_limiter: Mutex<RateLimiter>,
     // ponytail: the UI loads one frame at a time; use a bounded keyed cache if concurrent consumers are added.
     pending: Mutex<Option<PendingFrame>>,
 }
 
 impl AppState {
-    fn new() -> Result<Self, AppError> {
+    fn new(data_directory: &Path) -> Result<Self, AppError> {
+        let explored = Arc::new(ExplorationStore::new(data_directory)?);
         Ok(Self {
-            prntsc: Prntsc::new()?,
+            prntsc: Prntsc::new(Arc::clone(&explored))?,
+            history: HistoryStore::new(data_directory)?,
+            explored,
             rate_limiter: Mutex::new(RateLimiter::new()),
             pending: Mutex::new(None),
         })
@@ -64,6 +77,15 @@ impl AppState {
             None
         }
     }
+}
+
+const LEGACY_ID_SPACE_SIZE: u64 = 4_773_622_240;
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExplorationStats {
+    explored: usize,
+    total: u64,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -169,6 +191,64 @@ async fn get_frame_image(
     Ok(Response::new(frame.bytes))
 }
 
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command state extractors must be passed by value"
+)]
+fn get_history(state: State<'_, AppState>) -> HistorySnapshot {
+    state.history.snapshot()
+}
+
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command state extractors must be passed by value"
+)]
+fn record_history_item(
+    item: HistoryItem,
+    state: State<'_, AppState>,
+) -> Result<HistorySnapshot, AppError> {
+    let source = select_source(&item.source)?;
+    if source == Source::Prntsc {
+        prntsc::validate_item_id(&item.id)?;
+    }
+    state.history.record(item)
+}
+
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command state extractors must be passed by value"
+)]
+fn select_history_item(
+    index: usize,
+    state: State<'_, AppState>,
+) -> Result<HistorySnapshot, AppError> {
+    state.history.select(index)
+}
+
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command state extractors must be passed by value"
+)]
+fn clear_history(state: State<'_, AppState>) -> Result<(), AppError> {
+    state.history.clear()
+}
+
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command state extractors must be passed by value"
+)]
+fn get_exploration_stats(state: State<'_, AppState>) -> ExplorationStats {
+    ExplorationStats {
+        explored: state.explored.count(),
+        total: LEGACY_ID_SPACE_SIZE,
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// Starts the application.
 ///
@@ -176,16 +256,24 @@ async fn get_frame_image(
 ///
 /// Returns an error when the HTTP client or Tauri runtime cannot be initialized.
 pub fn run() -> Result<(), Box<dyn Error>> {
-    let state = AppState::new()?;
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .manage(state)
+        .setup(|app| {
+            let data_directory = app.path().app_data_dir()?;
+            app.manage(AppState::new(&data_directory)?);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             get_random_frame,
             get_frame_by_id,
-            get_frame_image
+            get_frame_image,
+            get_history,
+            record_history_item,
+            select_history_item,
+            clear_history,
+            get_exploration_stats
         ])
         .run(tauri::generate_context!())?;
     Ok(())

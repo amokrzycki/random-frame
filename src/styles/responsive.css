@@ -7,9 +7,6 @@
   .masthead {
     height: 70px;
   }
-  .session-mark {
-    font-size: 10px;
-  }
   main {
     padding-top: 28px;
   }
@@ -135,10 +132,6 @@
   }
   .brand span {
     font-size: 14px;
-  }
-  .session-mark {
-    max-width: 78px;
-    line-height: 1.2;
   }
   .viewer-head {
     gap: 10px;

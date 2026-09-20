@@ -1,17 +1,18 @@
 use crate::error::{AppError, ErrorKind};
+use crate::persistence::ExplorationStore;
 use reqwest::{redirect::Policy, Client};
 use serde::Serialize;
 use std::{
     collections::{HashMap, VecDeque},
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
 mod id;
 mod parser;
 
-use id::make_id;
 pub use id::validate_item_id;
+use id::{item_id_value, make_id};
 pub use parser::{extract_image_url, is_allowed_image_url};
 
 const MAX_IMAGE_BYTES: usize = 15_000_000;
@@ -61,11 +62,12 @@ impl ResolvedCache {
 
 pub struct Prntsc {
     client: Client,
+    explored: Arc<ExplorationStore>,
     resolved: Mutex<ResolvedCache>,
 }
 
 impl Prntsc {
-    pub fn new() -> Result<Self, AppError> {
+    pub fn new(explored: Arc<ExplorationStore>) -> Result<Self, AppError> {
         let client = Client::builder()
             .user_agent(USER_AGENT)
             .redirect(Policy::none())
@@ -73,18 +75,25 @@ impl Prntsc {
             .map_err(AppError::network)?;
         Ok(Self {
             client,
+            explored,
             resolved: Mutex::new(ResolvedCache::default()),
         })
     }
 
     pub async fn get_random_frame(&self) -> Result<FetchedFrame, AppError> {
-        let item = self.resolve_item(&make_id()).await?;
-        self.fetch_asset(item).await
+        self.get_frame(&make_id()).await
     }
 
     pub async fn get_frame(&self, id: &str) -> Result<FetchedFrame, AppError> {
-        let item = self.resolve_item(id).await?;
-        self.fetch_asset(item).await
+        let value = item_id_value(id)?;
+        let result = match self.resolve_item(id).await {
+            Ok(item) => self.fetch_asset(item).await,
+            Err(error) => Err(error),
+        };
+        if outcome_is_explored(&result) {
+            self.explored.mark(value)?;
+        }
+        result
     }
 
     async fn resolve_item(&self, id: &str) -> Result<ResolvedItem, AppError> {
@@ -191,6 +200,12 @@ impl Prntsc {
     }
 }
 
+fn outcome_is_explored<T>(result: &Result<T, AppError>) -> bool {
+    result
+        .as_ref()
+        .map_or_else(AppError::is_classified_source_outcome, |_| true)
+}
+
 fn validate_image_size(size: usize) -> Result<(), AppError> {
     if size > MAX_IMAGE_BYTES {
         Err(image_too_large())
@@ -231,5 +246,32 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn counts_classified_results_but_not_transient_failures() {
+        let valid: Result<(), AppError> = Ok(());
+        let rejected: Result<(), AppError> = Err(AppError::new(
+            ErrorKind::InvalidResponse,
+            "rejected by parser",
+        ));
+        let placeholder: Result<(), AppError> =
+            Err(AppError::new(ErrorKind::NotFound, "placeholder"));
+        let timeout: Result<(), AppError> = Err(AppError::new(ErrorKind::Timeout, "timeout"));
+        let limited: Result<(), AppError> = Err(AppError::upstream(
+            "Prnt.sc",
+            reqwest::StatusCode::TOO_MANY_REQUESTS,
+        ));
+        let server_error: Result<(), AppError> = Err(AppError::upstream(
+            "Prnt.sc",
+            reqwest::StatusCode::BAD_GATEWAY,
+        ));
+
+        assert!(outcome_is_explored(&valid));
+        assert!(outcome_is_explored(&rejected));
+        assert!(outcome_is_explored(&placeholder));
+        assert!(!outcome_is_explored(&timeout));
+        assert!(!outcome_is_explored(&limited));
+        assert!(!outcome_is_explored(&server_error));
     }
 }

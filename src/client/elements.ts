@@ -6,6 +6,9 @@ function element<T extends Element>(selector: string): T {
 
 export const elements = {
   image: element<HTMLImageElement>("#image"),
+  imageZoom: element<HTMLButtonElement>("#image-zoom"),
+  lightboxDialog: element<HTMLDialogElement>("#lightbox-dialog"),
+  lightboxImage: element<HTMLImageElement>("#lightbox-image"),
   empty: element<HTMLElement>("#empty-state"),
   loading: element<HTMLElement>("#loading-state"),
   error: element<HTMLElement>("#error-state"),
@@ -28,6 +31,7 @@ export const elements = {
   historyButton: element<HTMLButtonElement>("#history-button"),
   historyDialog: element<HTMLDialogElement>("#history-dialog"),
   historyClose: element<HTMLButtonElement>("#history-close-button"),
+  historyClear: element<HTMLButtonElement>("#history-clear-button"),
   historyGrid: element<HTMLElement>("#history-grid"),
   historyEmpty: element<HTMLElement>("#history-empty"),
   statsButton: element<HTMLButtonElement>("#stats-button"),
@@ -35,6 +39,8 @@ export const elements = {
   statsClose: element<HTMLButtonElement>("#stats-close-button"),
   statsToday: element<HTMLElement>("#stats-today"),
   statsTotal: element<HTMLElement>("#stats-total"),
+  statsExplored: element<HTMLElement>("#stats-explored"),
+  statsExploredPercent: element<HTMLElement>("#stats-explored-percent"),
   meta: element<HTMLElement>("#frame-meta"),
   announcer: element<HTMLElement>("#announcer"),
   entryDialog: element<HTMLDialogElement>("#entry-dialog"),

@@ -57,15 +57,18 @@
     <dialog class="history-dialog" id="history-dialog" aria-labelledby="history-title">
       <div class="history-dialog__content">
         <header class="history-dialog__header">
-          <h2 id="history-title">Session history</h2>
-          <button class="history-close" id="history-close-button" type="button" aria-label="Close history" autofocus>
-            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
-          </button>
+          <h2 id="history-title">History</h2>
+          <div class="history-dialog__actions">
+            <button class="history-clear" id="history-clear-button" type="button">Clear history</button>
+            <button class="history-close" id="history-close-button" type="button" aria-label="Close history" autofocus>
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
+            </button>
+          </div>
         </header>
         <div class="history-dialog__body">
           <div class="history-grid" id="history-grid"></div>
           <div class="history-empty" id="history-empty" hidden>
-            <p>No frames in this session yet.</p>
+            <p>No saved frames yet.</p>
             <span>Draw a frame to begin your history.</span>
           </div>
         </div>
@@ -90,10 +93,22 @@
               <dt>All time</dt>
               <dd id="stats-total">0</dd>
             </div>
+            <div class="stats-list__explored">
+              <dt>Prnt.sc explored</dt>
+              <dd id="stats-explored">0 / 4,773,622,240</dd>
+              <small id="stats-explored-percent">0% of known legacy ID space</small>
+            </div>
           </dl>
-          <p>Stored only in this browser. No viewing statistics leave your device.</p>
+          <p>Stored only on this device. No viewing statistics leave your device.</p>
         </div>
       </div>
+    </dialog>
+
+    <dialog class="lightbox-dialog" id="lightbox-dialog" aria-label="Enlarged image">
+      <img
+        id="lightbox-image"
+        src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'/%3E"
+        alt="">
     </dialog>
 
     <header class="masthead">
@@ -128,10 +143,6 @@
             </span>
           </span>
         </button>
-        <div class="session-mark">
-          <span class="status-dot"></span>
-          Session only
-        </div>
       </div>
     </header>
 
@@ -184,11 +195,12 @@
             <button class="text-action" id="retry-button" type="button">Try another</button>
           </div>
 
-          <img
-            id="image"
-            src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'/%3E"
-            alt=""
-            hidden>
+          <button class="image-zoom" id="image-zoom" type="button" aria-label="Enlarge current image" hidden>
+            <img
+              id="image"
+              src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'/%3E"
+              alt="">
+          </button>
 
           <button
             class="nav-button previous"
@@ -270,7 +282,8 @@
 
     <footer>
       <p class="footer-copy">
-        History clears on refresh. Respect the privacy of people whose information may appear in public uploads.
+        History stays on this device until you clear it. Respect the privacy of people whose information may appear in
+        public uploads.
       </p>
       <div class="footer-meta">
         <span>v{{VERSION}}</span>

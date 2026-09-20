@@ -16,6 +16,7 @@ pub enum ErrorKind {
     Network,
     InvalidResponse,
     ImageTooLarge,
+    Persistence,
 }
 
 #[derive(Debug, Serialize)]
@@ -34,6 +35,15 @@ impl AppError {
             message: message.into(),
             upstream_status: None,
         }
+    }
+
+    pub fn invalid_input(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::InvalidInput, message)
+    }
+
+    pub fn persistence(error: impl fmt::Display) -> Self {
+        let message = format!("Application data could not be saved: {error}");
+        Self::new(ErrorKind::Persistence, message)
     }
 
     pub fn upstream(context: &str, status: StatusCode) -> Self {
@@ -62,6 +72,11 @@ impl AppError {
 
     pub fn is_upstream_status(&self, status: StatusCode) -> bool {
         self.upstream_status == Some(status)
+    }
+
+    pub fn is_classified_source_outcome(&self) -> bool {
+        matches!(self.kind, ErrorKind::NotFound | ErrorKind::ImageTooLarge)
+            || (self.kind == ErrorKind::InvalidResponse && self.upstream_status.is_none())
     }
 }
 

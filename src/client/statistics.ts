@@ -5,6 +5,14 @@ interface ViewingStats {
 }
 
 const storageKey = "random-frame-viewing-stats";
+export const LEGACY_ID_SPACE_SIZE = 4_773_622_240;
+
+export function formatExploredPercent(explored: number, total = LEGACY_ID_SPACE_SIZE): string {
+  if (explored <= 0 || total <= 0) return "0%";
+  const percent = (explored / total) * 100;
+  const decimals = Math.min(12, Math.max(2, Math.ceil(-Math.log10(percent)) + 3));
+  return `${percent.toFixed(decimals)}%`;
+}
 
 function currentDay(): string {
   const now = new Date();

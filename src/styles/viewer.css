@@ -206,14 +206,32 @@
   color: #aabcf4;
 }
 
-#image {
+.image-zoom {
   position: relative;
   z-index: 1;
   width: 100%;
   height: 100%;
   min-height: 0;
+  padding: 0;
+  display: grid;
+  place-items: stretch;
+  overflow: hidden;
+  background: transparent;
+  border: 0;
+  cursor: zoom-in;
+}
+
+.image-zoom[hidden] {
+  display: none;
+}
+
+#image {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
   padding: 24px 62px;
   object-fit: contain;
+  cursor: zoom-in;
   animation: reveal 0.62s var(--ease-out) both;
 }
 

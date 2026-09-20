@@ -4,7 +4,7 @@
 
 ## Platform
 
-desktop (Tauri with a web UI)
+web
 
 ## Stack
 
@@ -24,7 +24,7 @@ Instead of an endless feed, Random Frame offers one deliberate draw at a time ac
 
 ## Operating Context
 
-The gallery is used as a focused desktop utility in a resizable window, primarily with keyboard and mouse. Its browsing history is intentionally temporary and is cleared when the application reloads.
+The gallery is used as a focused desktop utility in a resizable window, primarily with keyboard and mouse. Browsing history and exploration statistics stay locally on the device until the user clears the history.
 
 ## Capabilities and Constraints
 
@@ -33,7 +33,7 @@ The gallery is used as a focused desktop utility in a resizable window, primaril
 - Wikimedia Commons, Internet Archive, and other sources with accessible APIs remain candidates; provider choice, selection rules, attribution, moderation, and mixed-source behavior are open decisions for the next planning phase.
 - Prnt.sc blocks cross-origin framing, so the current app resolves and proxies its public image through the server.
 - Previous/next navigation and direct image download are required.
-- The current Prnt.sc mode can inspect the immediately adjacent base-36 identifiers; successful results join the temporary history.
+- The current Prnt.sc mode can inspect the immediately adjacent base-36 identifiers; successful results join local history.
 - The upstream service may rate-limit or block repeated requests; errors must be recoverable without losing earlier history.
 
 ## Brand Commitments
@@ -48,7 +48,7 @@ The supplied Chris Hannah implementation establishes the current Prnt.sc identif
 
 - The displayed media is always the focal point.
 - One clear action advances exploration; history stays effortless.
-- Temporary means temporary: no durable browsing record.
+- Browsing records and exploration statistics stay local to the device.
 - Every item keeps a clear link to its source.
 - Upstream failures are explained plainly and recover gracefully.
 

@@ -1,6 +1,6 @@
 # Random Frame
 
-A minimalist gallery for viewing random public images, one at a time. Browse the current session history, visit the source, or download the displayed image.
+A minimalist gallery for viewing random public images, one at a time. Browse local history, visit the source, or download the displayed image.
 
 Images are fetched from [prnt.sc](https://prnt.sc/) by the native Rust backend.
 
