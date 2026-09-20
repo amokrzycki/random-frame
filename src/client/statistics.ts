@@ -11,10 +11,10 @@ function currentDay(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
-function readStats(storage: Storage): ViewingStats {
+function readStats(getStorage: () => Storage): ViewingStats {
   const day = currentDay();
   try {
-    const stored: unknown = JSON.parse(storage.getItem(storageKey) ?? "");
+    const stored: unknown = JSON.parse(getStorage().getItem(storageKey) ?? "");
     if (
       typeof stored === "object" &&
       stored !== null &&
@@ -36,8 +36,8 @@ function readStats(storage: Storage): ViewingStats {
   return { day, today: 0, total: 0 };
 }
 
-export function createViewingStats(storage: Storage) {
-  let stats = readStats(storage);
+export function createViewingStats(getStorage: () => Storage) {
+  let stats = readStats(getStorage);
 
   function refreshDay(): void {
     if (stats.day !== currentDay()) stats = { ...stats, day: currentDay(), today: 0 };
@@ -49,7 +49,7 @@ export function createViewingStats(storage: Storage) {
       stats.today += 1;
       stats.total += 1;
       try {
-        storage.setItem(storageKey, JSON.stringify(stats));
+        getStorage().setItem(storageKey, JSON.stringify(stats));
       } catch {
         // Keep counting in memory for this page view
       }

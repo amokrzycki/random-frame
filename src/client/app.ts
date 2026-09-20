@@ -35,7 +35,7 @@ const history: HistoryItem[] = [...storedHistory.history];
 const blobs = new Map<string, CachedBlob>();
 let index = -1;
 let loading = false;
-const viewingStats = createViewingStats(localStorage);
+const viewingStats = createViewingStats(() => localStorage);
 
 try {
   if (shouldShowEntryDialog(localStorage.getItem(entryStorageKey))) elements.entryDialog.showModal();
