@@ -162,6 +162,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(AppState::new().expect("failed to initialize the HTTP client"))
         .invoke_handler(tauri::generate_handler![
             get_random_frame,

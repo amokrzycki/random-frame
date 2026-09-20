@@ -1,3 +1,5 @@
+import { Image } from "@tauri-apps/api/image";
+import { writeImage } from "@tauri-apps/plugin-clipboard-manager";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
 import { getFrameById, getRandomFrame } from "./api.js";
@@ -102,6 +104,7 @@ const elements = {
   previous: element<HTMLButtonElement>("#previous-button"),
   next: element<HTMLButtonElement>("#next-button"),
   save: element<HTMLButtonElement>("#save-button"),
+  copyImage: element<HTMLButtonElement>("#copy-image-button"),
   copyLink: element<HTMLButtonElement>("#copy-link-button"),
   source: element<HTMLAnchorElement>("#source-link"),
   imageId: element<HTMLElement>("#image-id"),
@@ -152,6 +155,7 @@ function syncControls(): void {
   elements.previous.disabled = loading || index <= 0;
   elements.next.disabled = loading || index < 0;
   elements.save.disabled = loading || !current || !blobs.has(current.id);
+  elements.copyImage.disabled = loading || !current || !blobs.has(current.id);
   elements.copyLink.disabled = loading || !current;
   elements.previousId.disabled = loading || !current || adjacentPrntscId(current.id, -1) === null;
   elements.nextId.disabled = loading || !current || adjacentPrntscId(current.id, 1) === null;
@@ -334,6 +338,29 @@ async function saveCurrent(): Promise<void> {
   }
 }
 
+async function copyImage(): Promise<void> {
+  const current = history[index];
+  const cached = current && blobs.get(current.id);
+  if (!current || !cached) return;
+  try {
+    const bitmap = await createImageBitmap(cached.blob);
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Canvas is not available");
+    context.drawImage(bitmap, 0, 0);
+    const { data } = context.getImageData(0, 0, bitmap.width, bitmap.height);
+    const image = await Image.new(new Uint8Array(data.buffer), bitmap.width, bitmap.height);
+    await writeImage(image);
+    toast.success("Copied image to clipboard");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "The image could not be copied";
+    toast.error(message);
+    elements.announcer.textContent = `Error: ${message}`;
+  }
+}
+
 async function copySourceLink(): Promise<void> {
   try {
     await navigator.clipboard.writeText(elements.source.href);
@@ -350,6 +377,7 @@ elements.previous.addEventListener("click", goBack);
 elements.previousId.addEventListener("click", () => void loadAdjacent(-1));
 elements.nextId.addEventListener("click", () => void loadAdjacent(1));
 elements.save.addEventListener("click", () => void saveCurrent());
+elements.copyImage.addEventListener("click", () => void copyImage());
 elements.copyLink.addEventListener("click", () => void copySourceLink());
 elements.historyButton.addEventListener("click", openHistory);
 elements.historyClose.addEventListener("click", () => elements.historyDialog.close());

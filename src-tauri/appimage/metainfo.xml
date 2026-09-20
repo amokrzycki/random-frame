@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>dev.randomframe.desktop</id>
+  <name>Random Frame</name>
+  <summary>Random public images, one frame at a time</summary>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <developer id="dev.randomframe">
+    <name>Adrian Mokrzycki</name>
+  </developer>
+  <description>
+    <p>Random Frame shows a random public image pulled from the web each time you open it, one frame at a time.</p>
+  </description>
+  <launchable type="desktop-id">Random Frame.desktop</launchable>
+  <releases>
+    <release version="0.3.0" date="2026-09-20" />
+  </releases>
+</component>
