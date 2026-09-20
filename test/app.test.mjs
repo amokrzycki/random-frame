@@ -76,6 +76,10 @@ class FakeDocument extends EventTarget {
     return this.elements.get(selector) ?? null;
   }
 
+  querySelectorAll() {
+    return [];
+  }
+
   createElement() {
     return new FakeElement(this);
   }
@@ -99,6 +103,10 @@ class FakeStorage {
 
 const ids = [
   "image",
+  "image-zoom",
+  "lightbox-dialog",
+  "lightbox-image",
+  "lightbox-close-button",
   "empty-state",
   "loading-state",
   "error-state",
@@ -121,6 +129,7 @@ const ids = [
   "history-button",
   "history-dialog",
   "history-close-button",
+  "history-clear-button",
   "history-grid",
   "history-empty",
   "stats-button",
@@ -128,6 +137,8 @@ const ids = [
   "stats-close-button",
   "stats-today",
   "stats-total",
+  "stats-explored",
+  "stats-explored-percent",
   "frame-meta",
   "announcer",
   "entry-dialog",
@@ -137,7 +148,7 @@ const ids = [
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
-test("history dialog uses session history and the existing jump path", async (t) => {
+test("persistent history keeps the existing jump path and the main image opens a lightbox", async (t) => {
   const document = new FakeDocument(ids);
   const sessionStorage = new FakeStorage();
   const localStorage = new FakeStorage();
@@ -155,9 +166,31 @@ test("history dialog uses session history and the existing jump path", async (t)
   let draw = 0;
   let savePath = null;
   const invocations = [];
+  let persisted = { history: [], index: -1 };
   window.__TAURI_INTERNALS__ = {
     async invoke(command, args, options) {
       invocations.push({ command, args, options });
+      if (command === "get_history") return structuredClone(persisted);
+      if (command === "record_history_item") {
+        let itemIndex = persisted.history.findIndex(
+          (item) => item.source === args.item.source && item.id === args.item.id,
+        );
+        if (itemIndex === -1) {
+          persisted.history.push(args.item);
+          itemIndex = persisted.history.length - 1;
+        }
+        persisted.index = itemIndex;
+        return structuredClone(persisted);
+      }
+      if (command === "select_history_item") {
+        persisted.index = args.index;
+        return structuredClone(persisted);
+      }
+      if (command === "clear_history") {
+        persisted = { history: [], index: -1 };
+        return null;
+      }
+      if (command === "get_exploration_stats") return { explored: 12_483, total: 4_773_622_240 };
       if (command === "get_random_frame") {
         draw += 1;
         const id = draw === 1 ? "abc123" : "def456";
@@ -188,6 +221,7 @@ test("history dialog uses session history and the existing jump path", async (t)
   const get = (id) => document.querySelector(`#${id}`);
   await flush();
   await flush();
+  await flush();
 
   get("history-button").click();
   assert.equal(get("history-dialog").open, true);
@@ -206,9 +240,12 @@ test("history dialog uses session history and the existing jump path", async (t)
   await flush();
 
   get("stats-button").click();
+  await flush();
   assert.equal(get("stats-dialog").open, true);
   assert.equal(get("stats-today").textContent, "2");
   assert.equal(get("stats-total").textContent, "2");
+  assert.equal(get("stats-explored").textContent, "12,483 / 4,773,622,240");
+  assert.equal(get("stats-explored-percent").textContent, "0.0002615% of known legacy ID space");
   assert.deepEqual(JSON.parse(localStorage.getItem("random-frame-viewing-stats")), {
     day: new Date().toLocaleDateString("en-CA"),
     today: 2,
@@ -220,10 +257,16 @@ test("history dialog uses session history and the existing jump path", async (t)
   get("history-button").click();
   assert.equal(get("history-grid").children.length, 4);
   assert.equal(get("history-grid").children[3].getAttribute("aria-current"), "true");
-  assert.deepEqual(JSON.parse(sessionStorage.getItem("prntsc-gallery-history")), {
-    history: [{ id: "saved1" }, { id: "saved2" }, { id: "abc123" }, { id: "def456" }],
-    index: 3,
-  });
+  assert.equal(sessionStorage.getItem("prntsc-gallery-history"), null);
+  assert.deepEqual(
+    persisted.history.map(({ source, id }) => ({ source, id })),
+    [
+      { source: "prntsc", id: "saved1" },
+      { source: "prntsc", id: "saved2" },
+      { source: "prntsc", id: "abc123" },
+      { source: "prntsc", id: "def456" },
+    ],
+  );
 
   get("history-dialog").click();
   assert.equal(get("history-dialog").open, false);
@@ -250,5 +293,24 @@ test("history dialog uses session history and the existing jump path", async (t)
 
   get("jump-input").value = "4";
   get("jump-form").dispatchEvent(new Event("submit", { cancelable: true }));
+  await flush();
   assert.match(get("image").alt, /def456/);
+
+  get("image-zoom").click();
+  assert.equal(get("lightbox-dialog").open, true);
+  get("lightbox-dialog").dispatchEvent(new Event("cancel", { cancelable: true }));
+  assert.equal(get("lightbox-dialog").open, false);
+  get("image-zoom").click();
+  get("lightbox-dialog").click();
+  assert.equal(get("lightbox-dialog").open, false);
+
+  get("history-button").click();
+  get("history-clear-button").click();
+  await flush();
+  assert.deepEqual(persisted, { history: [], index: -1 });
+  assert.equal(get("history-total").textContent, "0");
+  assert.equal(get("history-clear-button").disabled, false);
+  get("history-clear-button").click();
+  await flush();
+  assert.equal(invocations.filter(({ command }) => command === "clear_history").length, 2);
 });

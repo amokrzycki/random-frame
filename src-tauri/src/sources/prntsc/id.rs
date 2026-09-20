@@ -41,17 +41,19 @@ fn base36_to_value(id: &str) -> Option<u64> {
 }
 
 pub fn validate_item_id(id: &str) -> Result<(), AppError> {
-    let in_legacy_namespace = !id.is_empty()
-        && id.len() <= LEGACY_MAX_ID.len()
-        && base36_to_value(id).is_some_and(|value| value <= LEGACY_MAX_VALUE);
-    if in_legacy_namespace {
-        Ok(())
-    } else {
-        Err(AppError::new(
-            ErrorKind::InvalidInput,
-            "Invalid image identifier",
-        ))
+    item_id_value(id).map(drop)
+}
+
+pub(super) fn item_id_value(id: &str) -> Result<u64, AppError> {
+    if !id.is_empty() && id.len() <= LEGACY_MAX_ID.len() {
+        if let Some(value) = base36_to_value(id).filter(|value| *value <= LEGACY_MAX_VALUE) {
+            return Ok(value);
+        }
     }
+    Err(AppError::new(
+        ErrorKind::InvalidInput,
+        "Invalid image identifier",
+    ))
 }
 
 #[cfg(test)]

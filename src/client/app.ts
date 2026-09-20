@@ -1,3 +1,5 @@
+import { openUrl } from "@tauri-apps/plugin-opener";
+import type { Frame } from "./api.js";
 import { getFrameById, getRandomFrame } from "./api.js";
 import { elements } from "./elements.js";
 import { copyImage, saveImage } from "./image-actions.js";
@@ -9,12 +11,10 @@ import {
   nextHistoryIndex,
   shouldShowEntryDialog,
 } from "./navigation.js";
-import { createViewingStats } from "./statistics.js";
+import type { HistoryItem, HistorySnapshot } from "./persistence.js";
+import { clearHistory, getExplorationStats, getHistory, recordHistoryItem, selectHistoryItem } from "./persistence.js";
+import { createViewingStats, formatExploredPercent } from "./statistics.js";
 import { toast } from "./toast.js";
-
-interface HistoryItem {
-  id: string;
-}
 
 interface CachedBlob {
   blob: Blob;
@@ -24,18 +24,27 @@ interface CachedBlob {
 type ViewState = "empty" | "loading" | "error" | "image";
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "The image could not be loaded";
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  return "The image could not be loaded";
 }
 
 const storageKey = "prntsc-gallery-history";
 const entryStorageKey = "random-frame-risk-accepted";
-const navigation = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
-const storedHistory = historyFromStorage(navigation?.type === "reload" ? null : sessionStorage.getItem(storageKey));
-const history: HistoryItem[] = [...storedHistory.history];
+const history: HistoryItem[] = [];
 const blobs = new Map<string, CachedBlob>();
 let index = -1;
-let loading = false;
+let loading = true;
 const viewingStats = createViewingStats(() => localStorage);
+
+function blobKey(source: string, id: string): string {
+  return `${source}:${id}`;
+}
+
+function applyHistory(snapshot: HistorySnapshot): void {
+  history.splice(0, history.length, ...snapshot.history);
+  index = snapshot.index;
+}
 
 try {
   if (shouldShowEntryDialog(localStorage.getItem(entryStorageKey))) elements.entryDialog.showModal();
@@ -48,7 +57,7 @@ function setState(state: ViewState, message = ""): void {
     empty: elements.empty,
     loading: elements.loading,
     error: elements.error,
-    image: elements.image,
+    image: elements.imageZoom,
   })) {
     target.hidden = name !== state;
   }
@@ -60,33 +69,35 @@ function syncControls(): void {
   const current = history[index];
   elements.previous.disabled = loading || index <= 0;
   elements.next.disabled = loading || index < 0;
-  elements.save.disabled = loading || !current || !blobs.has(current.id);
-  elements.copyImage.disabled = loading || !current || !blobs.has(current.id);
+  const currentBlob = current && blobs.has(blobKey(current.source, current.id));
+  elements.save.disabled = loading || !currentBlob;
+  elements.copyImage.disabled = loading || !currentBlob;
   elements.copyLink.disabled = loading || !current;
-  elements.previousId.disabled = loading || !current || adjacentPrntscId(current.id, -1) === null;
-  elements.nextId.disabled = loading || !current || adjacentPrntscId(current.id, 1) === null;
+  elements.previousId.disabled = loading || current?.source !== "prntsc" || adjacentPrntscId(current.id, -1) === null;
+  elements.nextId.disabled = loading || current?.source !== "prntsc" || adjacentPrntscId(current.id, 1) === null;
   elements.jumpInput.disabled = loading || !history.length;
   elements.jumpButton.disabled = loading || !history.length;
   elements.jumpInput.max = String(history.length);
   if (document.activeElement !== elements.jumpInput) elements.jumpInput.value = String(history.length ? index + 1 : 0);
   elements.historyTotal.textContent = String(history.length);
+  elements.historyButton.disabled = loading;
+  elements.historyClear.disabled = loading;
   elements.next.setAttribute(
     "aria-label",
     index < history.length - 1 ? "Show the next saved frame" : "Draw a new frame",
   );
-  elements.imageId.textContent = current ? `prnt.sc/${current.id}` : "prnt.sc/———";
-  elements.source.href = current ? `https://prnt.sc/${current.id}` : "https://prnt.sc/";
+  elements.imageId.textContent = current ? `${current.source}/${current.id}` : "prnt.sc/———";
+  elements.source.href = current?.sourcePageUrl ?? "https://prnt.sc/";
   elements.source.setAttribute("aria-disabled", String(!current));
   elements.meta.textContent = current
     ? `Source: Prnt.sc · frame ${current.id}`
     : "One public image. No feed, no profile.";
-  sessionStorage.setItem(storageKey, JSON.stringify({ history, index }));
 }
 
-function showFrame(id: string, blob: Blob): void {
+function showFrame(source: string, id: string, blob: Blob): void {
   const oldUrl = elements.image.src;
   const url = URL.createObjectURL(blob);
-  blobs.set(id, { blob, url });
+  blobs.set(blobKey(source, id), { blob, url });
   elements.image.src = url;
   elements.image.alt = `Public image from Prnt.sc with identifier ${id}`;
   elements.image.style.animation = "none";
@@ -99,6 +110,19 @@ function showFrame(id: string, blob: Blob): void {
     URL.revokeObjectURL(oldUrl);
 }
 
+async function recordFrame(frame: Frame): Promise<void> {
+  applyHistory(
+    await recordHistoryItem({
+      source: frame.source,
+      id: frame.id,
+      sourcePageUrl: frame.sourcePageUrl,
+      viewedAt: Date.now(),
+    }),
+  );
+  viewingStats.recordView();
+  showFrame(frame.source, frame.id, frame.blob);
+}
+
 async function loadRandom(): Promise<void> {
   if (loading) return;
   loading = true;
@@ -106,10 +130,7 @@ async function loadRandom(): Promise<void> {
   syncControls();
   try {
     const frame = await getRandomFrame();
-    history.push({ id: frame.id });
-    index = history.length - 1;
-    viewingStats.recordView();
-    showFrame(frame.id, frame.blob);
+    await recordFrame(frame);
   } catch (error) {
     const message = errorMessage(error);
     setState("error", message);
@@ -126,43 +147,49 @@ async function goTo(targetIndex: number): Promise<void> {
   if (!current) return;
   loading = true;
   const previousIndex = index;
-  index = targetIndex;
-  const cached = blobs.get(current.id);
-  if (cached) {
-    elements.image.src = cached.url;
-    elements.image.alt = `Public image from Prnt.sc with identifier ${current.id}`;
-    setState("image");
-    elements.announcer.textContent = `Showing frame ${current.id}`;
-  } else {
-    setState("loading");
-    syncControls();
-    try {
-      const frame = await getFrameById(current.id);
-      showFrame(current.id, frame.blob);
-    } catch (error) {
-      index = previousIndex;
-      setState("error", errorMessage(error));
+  const cached = blobs.get(blobKey(current.source, current.id));
+  try {
+    if (!cached) {
+      setState("loading");
+      syncControls();
+      const frame = await getFrameById(current.id, current.source);
+      showFrame(frame.source, frame.id, frame.blob);
+    } else {
+      elements.image.src = cached.url;
+      elements.image.alt = `Public image from Prnt.sc with identifier ${current.id}`;
+      setState("image");
+      elements.announcer.textContent = `Showing frame ${current.id}`;
     }
+    applyHistory(await selectHistoryItem(targetIndex));
+  } catch (error) {
+    index = previousIndex;
+    setState("error", errorMessage(error));
   }
   loading = false;
   syncControls();
 }
 
-function openHistory(): void {
-  const stored = historyFromStorage(sessionStorage.getItem(storageKey));
-  elements.historyGrid.replaceChildren();
-  elements.historyGrid.hidden = !stored.history.length;
-  elements.historyEmpty.hidden = Boolean(stored.history.length);
+// renders only the most recent tiles so the dialog never lays out
+// thousands of DOM nodes; virtualize the grid if this cap needs raising.
+const MAX_HISTORY_TILES = 300;
 
-  for (const [itemIndex, item] of stored.history.entries()) {
+function openHistory(): void {
+  elements.historyGrid.replaceChildren();
+  elements.historyGrid.hidden = !history.length;
+  elements.historyEmpty.hidden = Boolean(history.length);
+  elements.historyClear.disabled = false;
+
+  const startIndex = Math.max(0, history.length - MAX_HISTORY_TILES);
+  for (const [offset, item] of history.slice(startIndex).entries()) {
+    const itemIndex = startIndex + offset;
     const button = document.createElement("button");
     const image = document.createElement("img");
     const label = document.createElement("span");
     button.className = "history-item";
     button.type = "button";
     button.setAttribute("aria-label", `Show frame ${itemIndex + 1}, ${item.id}`);
-    if (itemIndex === stored.index) button.setAttribute("aria-current", "true");
-    image.src = blobs.get(item.id)?.url ?? "";
+    if (itemIndex === index) button.setAttribute("aria-current", "true");
+    image.src = blobs.get(blobKey(item.source, item.id))?.url ?? "";
     image.alt = "";
     image.loading = "lazy";
     label.textContent = `${itemIndex + 1} · ${item.id}`;
@@ -218,10 +245,7 @@ async function loadAdjacent(offset: -1 | 1): Promise<void> {
   syncControls();
   try {
     const frame = await getFrameById(id);
-    history.push({ id: frame.id });
-    index = history.length - 1;
-    viewingStats.recordView();
-    showFrame(frame.id, frame.blob);
+    await recordFrame(frame);
   } catch (error) {
     const message = errorMessage(error);
     setState("error", message);
@@ -234,14 +258,14 @@ async function loadAdjacent(offset: -1 | 1): Promise<void> {
 
 async function saveCurrent(): Promise<void> {
   const current = history[index];
-  const cached = current && blobs.get(current.id);
+  const cached = current && blobs.get(blobKey(current.source, current.id));
   if (!current || !cached) return;
   await saveImage(current.id, cached.blob, elements.announcer);
 }
 
 async function copyCurrentImage(): Promise<void> {
   const current = history[index];
-  const cached = current && blobs.get(current.id);
+  const cached = current && blobs.get(blobKey(current.source, current.id));
   if (!current || !cached) return;
   await copyImage(cached.blob, elements.announcer);
 }
@@ -252,6 +276,66 @@ async function copySourceLink(): Promise<void> {
     toast.success("Copied to clipboard");
   } catch {
     elements.announcer.textContent = "Could not copy the source link";
+  }
+}
+
+async function clearSavedHistory(): Promise<void> {
+  if (loading) return;
+  loading = true;
+  syncControls();
+  try {
+    await clearHistory();
+    history.length = 0;
+    index = -1;
+    viewingStats.reset();
+    for (const { url } of blobs.values()) URL.revokeObjectURL(url);
+    blobs.clear();
+    elements.image.src = "";
+    elements.image.alt = "";
+    setState("empty");
+    closeDialog(elements.historyDialog);
+    elements.announcer.textContent = "History cleared";
+  } catch (error) {
+    elements.announcer.textContent = `Error: ${errorMessage(error)}`;
+  } finally {
+    loading = false;
+    syncControls();
+  }
+}
+
+function openLightbox(): void {
+  if (elements.imageZoom.hidden || !elements.image.src) return;
+  elements.lightboxImage.src = elements.image.src;
+  elements.lightboxImage.alt = elements.image.alt;
+  elements.lightboxDialog.showModal();
+}
+
+async function initialize(): Promise<void> {
+  try {
+    let snapshot = await getHistory();
+    const legacy = historyFromStorage(sessionStorage.getItem(storageKey));
+    if (!snapshot.history.length && legacy.history.length) {
+      for (const item of legacy.history) {
+        snapshot = await recordHistoryItem({
+          source: "prntsc",
+          id: item.id,
+          sourcePageUrl: `https://prnt.sc/${item.id}`,
+          viewedAt: Date.now(),
+        });
+      }
+      if (legacy.index >= 0) snapshot = await selectHistoryItem(legacy.index);
+    }
+    sessionStorage.removeItem(storageKey);
+    applyHistory({ ...snapshot, index: -1 });
+    loading = false;
+    syncControls();
+    if (snapshot.index >= 0) await goTo(snapshot.index);
+  } catch (error) {
+    loading = false;
+    const message = errorMessage(error);
+    setState("error", message);
+    elements.announcer.textContent = `Error: ${message}`;
+    syncControls();
   }
 }
 
@@ -266,6 +350,7 @@ elements.copyImage.addEventListener("click", () => void copyCurrentImage());
 elements.copyLink.addEventListener("click", () => void copySourceLink());
 elements.historyButton.addEventListener("click", openHistory);
 elements.historyClose.addEventListener("click", () => closeDialog(elements.historyDialog));
+elements.historyClear.addEventListener("click", () => void clearSavedHistory());
 elements.historyDialog.addEventListener("click", (event) => {
   if (event.target === elements.historyDialog) closeDialog(elements.historyDialog);
 });
@@ -277,10 +362,18 @@ elements.historyDialog.addEventListener("close", () => {
   elements.historyDialog.classList?.remove("is-closing");
   elements.historyButton.focus();
 });
-elements.statsButton.addEventListener("click", () => {
+elements.statsButton.addEventListener("click", async () => {
   const stats = viewingStats.current();
   elements.statsToday.textContent = String(stats.today);
   elements.statsTotal.textContent = String(stats.total);
+  try {
+    const exploration = await getExplorationStats();
+    elements.statsExplored.textContent = `${exploration.explored.toLocaleString("en-US")} / ${exploration.total.toLocaleString("en-US")}`;
+    elements.statsExploredPercent.textContent = `${formatExploredPercent(exploration.explored, exploration.total)} of known legacy ID space`;
+  } catch {
+    elements.statsExplored.textContent = "Unavailable";
+    elements.statsExploredPercent.textContent = "Could not read local exploration data";
+  }
   elements.statsDialog.showModal();
 });
 elements.statsClose.addEventListener("click", () => closeDialog(elements.statsDialog));
@@ -295,6 +388,17 @@ elements.statsDialog.addEventListener("close", () => {
   elements.statsDialog.classList?.remove("is-closing");
   elements.statsButton.focus();
 });
+elements.imageZoom.addEventListener("click", openLightbox);
+elements.lightboxDialog.addEventListener("click", () => elements.lightboxDialog.close());
+elements.lightboxClose.addEventListener("click", (event) => {
+  event.stopPropagation();
+  elements.lightboxDialog.close();
+});
+elements.lightboxDialog.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  elements.lightboxDialog.close();
+});
+elements.lightboxDialog.addEventListener("close", () => elements.imageZoom.focus());
 elements.entryConsent.addEventListener("change", () => {
   elements.entryButton.disabled = !elements.entryConsent.checked;
 });
@@ -329,6 +433,7 @@ document.addEventListener("keydown", (event) => {
     event.metaKey ||
     elements.historyDialog.open ||
     elements.statsDialog.open ||
+    elements.lightboxDialog.open ||
     elements.entryDialog.open
   )
     return;
@@ -340,5 +445,13 @@ window.addEventListener("pagehide", () => {
   for (const { url } of blobs.values()) URL.revokeObjectURL(url);
 });
 
+for (const link of document.querySelectorAll<HTMLAnchorElement>(".external-link")) {
+  link.addEventListener("click", (event) => {
+    if (link.getAttribute("aria-disabled") === "true") return;
+    event.preventDefault();
+    void openUrl(link.href);
+  });
+}
+
 syncControls();
-if (storedHistory.index >= 0) void goTo(storedHistory.index);
+void initialize();

@@ -1,17 +1,18 @@
 use crate::error::{AppError, ErrorKind};
+use crate::persistence::ExplorationStore;
 use reqwest::{redirect::Policy, Client};
 use serde::Serialize;
 use std::{
     collections::{HashMap, VecDeque},
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
 mod id;
 mod parser;
 
-use id::make_id;
 pub use id::validate_item_id;
+use id::{item_id_value, make_id};
 pub use parser::{extract_image_url, is_allowed_image_url};
 
 const MAX_IMAGE_BYTES: usize = 15_000_000;
@@ -61,11 +62,12 @@ impl ResolvedCache {
 
 pub struct Prntsc {
     client: Client,
+    explored: Arc<ExplorationStore>,
     resolved: Mutex<ResolvedCache>,
 }
 
 impl Prntsc {
-    pub fn new() -> Result<Self, AppError> {
+    pub fn new(explored: Arc<ExplorationStore>) -> Result<Self, AppError> {
         let client = Client::builder()
             .user_agent(USER_AGENT)
             .redirect(Policy::none())
@@ -73,18 +75,26 @@ impl Prntsc {
             .map_err(AppError::network)?;
         Ok(Self {
             client,
+            explored,
             resolved: Mutex::new(ResolvedCache::default()),
         })
     }
 
     pub async fn get_random_frame(&self) -> Result<FetchedFrame, AppError> {
-        let item = self.resolve_item(&make_id()).await?;
-        self.fetch_asset(item).await
+        self.get_frame(&pick_unexplored_id(&self.explored, make_id))
+            .await
     }
 
     pub async fn get_frame(&self, id: &str) -> Result<FetchedFrame, AppError> {
-        let item = self.resolve_item(id).await?;
-        self.fetch_asset(item).await
+        let value = item_id_value(id)?;
+        let result = match self.resolve_item(id).await {
+            Ok(item) => self.fetch_asset(item).await,
+            Err(error) => Err(error),
+        };
+        if outcome_is_explored(&result) {
+            self.explored.mark(value)?;
+        }
+        result
     }
 
     async fn resolve_item(&self, id: &str) -> Result<ResolvedItem, AppError> {
@@ -191,6 +201,29 @@ impl Prntsc {
     }
 }
 
+// 32 retries covers reroll odds until the space is nearly exhausted;
+// falls back to the last rolled candidate rather than looping forever.
+fn pick_unexplored_id(
+    explored: &ExplorationStore,
+    mut make_candidate: impl FnMut() -> String,
+) -> String {
+    let mut candidate = String::new();
+    for _ in 0..32 {
+        candidate = make_candidate();
+        match item_id_value(&candidate) {
+            Ok(value) if !explored.contains(value) => return candidate,
+            _ => {}
+        }
+    }
+    candidate
+}
+
+fn outcome_is_explored<T>(result: &Result<T, AppError>) -> bool {
+    result
+        .as_ref()
+        .map_or_else(AppError::is_classified_source_outcome, |_| true)
+}
+
 fn validate_image_size(size: usize) -> Result<(), AppError> {
     if size > MAX_IMAGE_BYTES {
         Err(image_too_large())
@@ -231,5 +264,92 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn counts_classified_results_but_not_transient_failures() {
+        let valid: Result<(), AppError> = Ok(());
+        let rejected: Result<(), AppError> = Err(AppError::new(
+            ErrorKind::InvalidResponse,
+            "rejected by parser",
+        ));
+        let placeholder: Result<(), AppError> =
+            Err(AppError::new(ErrorKind::NotFound, "placeholder"));
+        let timeout: Result<(), AppError> = Err(AppError::new(ErrorKind::Timeout, "timeout"));
+        let limited: Result<(), AppError> = Err(AppError::upstream(
+            "Prnt.sc",
+            reqwest::StatusCode::TOO_MANY_REQUESTS,
+        ));
+        let server_error: Result<(), AppError> = Err(AppError::upstream(
+            "Prnt.sc",
+            reqwest::StatusCode::BAD_GATEWAY,
+        ));
+
+        assert!(outcome_is_explored(&valid));
+        assert!(outcome_is_explored(&rejected));
+        assert!(outcome_is_explored(&placeholder));
+        assert!(!outcome_is_explored(&timeout));
+        assert!(!outcome_is_explored(&limited));
+        assert!(!outcome_is_explored(&server_error));
+    }
+
+    fn temp_explored_store(name: &str) -> Result<ExplorationStore, AppError> {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .map_or(0, |duration| duration.as_nanos());
+        let directory = std::env::temp_dir().join(format!(
+            "random-frame-prntsc-{name}-{}-{nonce}",
+            std::process::id()
+        ));
+        ExplorationStore::new(&directory)
+    }
+
+    fn pick_from(candidates: &[&str]) -> impl FnMut() -> String {
+        let mut index = 0;
+        let candidates: Vec<String> = candidates.iter().map(|value| (*value).to_owned()).collect();
+        move || {
+            let candidate = candidates.get(index).cloned().unwrap_or_default();
+            index += 1;
+            candidate
+        }
+    }
+
+    #[test]
+    fn skips_already_explored_candidates_before_returning_one() -> Result<(), AppError> {
+        let store = temp_explored_store("skip")?;
+        store.mark(item_id_value("abc123")?)?;
+        store.mark(item_id_value("abc124")?)?;
+
+        let picked = pick_unexplored_id(&store, pick_from(&["abc123", "abc124", "abc125"]));
+
+        assert_eq!(picked, "abc125");
+        Ok(())
+    }
+
+    #[test]
+    fn returns_first_candidate_immediately_when_it_is_unexplored() -> Result<(), AppError> {
+        let store = temp_explored_store("first")?;
+
+        let picked = pick_unexplored_id(&store, pick_from(&["abc123", "abc124"]));
+
+        assert_eq!(picked, "abc123");
+        Ok(())
+    }
+
+    #[test]
+    fn falls_back_to_last_candidate_after_32_attempts_when_all_are_explored() -> Result<(), AppError>
+    {
+        let store = temp_explored_store("exhausted")?;
+        store.mark(item_id_value("abc123")?)?;
+
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let picked = pick_unexplored_id(&store, || {
+            calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            "abc123".to_owned()
+        });
+
+        assert_eq!(picked, "abc123");
+        assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 32);
+        Ok(())
     }
 }

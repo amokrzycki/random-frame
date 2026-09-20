@@ -57,15 +57,18 @@
     <dialog class="history-dialog" id="history-dialog" aria-labelledby="history-title">
       <div class="history-dialog__content">
         <header class="history-dialog__header">
-          <h2 id="history-title">Session history</h2>
-          <button class="history-close" id="history-close-button" type="button" aria-label="Close history" autofocus>
-            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
-          </button>
+          <h2 id="history-title">History</h2>
+          <div class="history-dialog__actions">
+            <button class="history-clear" id="history-clear-button" type="button">Clear history</button>
+            <button class="history-close" id="history-close-button" type="button" aria-label="Close history" autofocus>
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
+            </button>
+          </div>
         </header>
         <div class="history-dialog__body">
           <div class="history-grid" id="history-grid"></div>
           <div class="history-empty" id="history-empty" hidden>
-            <p>No frames in this session yet.</p>
+            <p>No saved frames yet.</p>
             <span>Draw a frame to begin your history.</span>
           </div>
         </div>
@@ -90,19 +93,34 @@
               <dt>All time</dt>
               <dd id="stats-total">0</dd>
             </div>
+            <div class="stats-list__explored">
+              <dt>Prnt.sc explored</dt>
+              <dd id="stats-explored">0 / 4,773,622,240</dd>
+              <small id="stats-explored-percent">0% of known legacy ID space</small>
+            </div>
           </dl>
-          <p>Stored only in this browser. No viewing statistics leave your device.</p>
+          <p>Stored only on this device. No viewing statistics leave your device.</p>
         </div>
       </div>
     </dialog>
 
+    <dialog class="lightbox-dialog" id="lightbox-dialog" aria-label="Enlarged image">
+      <button class="lightbox-close" id="lightbox-close-button" type="button" aria-label="Close enlarged image">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
+      </button>
+      <img
+        id="lightbox-image"
+        src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'/%3E"
+        alt="">
+    </dialog>
+
     <header class="masthead">
-      <a class="brand" href="index.html" aria-label="Random Frame — home">
+      <div class="brand">
         <svg viewBox="0 0 28 28" aria-hidden="true">
           <path d="M4.5 8.5V4.5h4M19.5 4.5h4v4M23.5 19.5v4h-4M8.5 23.5h-4v-4M9 10.5h10v7H9z" />
         </svg>
         <span>Random Frame</span>
-      </a>
+      </div>
       <div class="masthead-tools">
         <button
           class="stats-button"
@@ -128,10 +146,6 @@
             </span>
           </span>
         </button>
-        <div class="session-mark">
-          <span class="status-dot"></span>
-          Session only
-        </div>
       </div>
     </header>
 
@@ -184,11 +198,12 @@
             <button class="text-action" id="retry-button" type="button">Try another</button>
           </div>
 
-          <img
-            id="image"
-            src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'/%3E"
-            alt=""
-            hidden>
+          <button class="image-zoom" id="image-zoom" type="button" aria-label="Enlarge current image" hidden>
+            <img
+              id="image"
+              src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'/%3E"
+              alt="">
+          </button>
 
           <button
             class="nav-button previous"
@@ -218,7 +233,7 @@
               </button>
               <a
                 id="source-link"
-                class="source-icon"
+                class="source-icon external-link"
                 href="https://prnt.sc/"
                 target="_blank"
                 rel="noopener noreferrer"
@@ -229,25 +244,27 @@
                 <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M7 4H4v10h10v-3M9 4h5v5m0-5L8 10" /></svg>
               </a>
             </div>
-            <fieldset class="id-sequence">
-              <legend>Adjacent ID</legend>
-              <button
-                id="previous-id-button"
-                type="button"
-                aria-label="Load the previous Prnt.sc identifier"
-                title="Previous Prnt.sc ID"
-                disabled>
-                −1
-              </button>
-              <button
-                id="next-id-button"
-                type="button"
-                aria-label="Load the next Prnt.sc identifier"
-                title="Next Prnt.sc ID"
-                disabled>
-                +1
-              </button>
-            </fieldset>
+            <div class="id-sequence">
+              <span class="id-sequence__label">Adjacent ID</span>
+              <div class="id-sequence__buttons">
+                <button
+                  id="previous-id-button"
+                  type="button"
+                  aria-label="Load the previous Prnt.sc identifier"
+                  title="Previous Prnt.sc ID"
+                  disabled>
+                  −1
+                </button>
+                <button
+                  id="next-id-button"
+                  type="button"
+                  aria-label="Load the next Prnt.sc identifier"
+                  title="Next Prnt.sc ID"
+                  disabled>
+                  +1
+                </button>
+              </div>
+            </div>
           </div>
           <div class="actions">
             <span class="key-hint" aria-hidden="true"><kbd>←</kbd><kbd>→</kbd> navigate</span>
@@ -270,12 +287,13 @@
 
     <footer>
       <p class="footer-copy">
-        History clears on refresh. Respect the privacy of people whose information may appear in public uploads.
+        History stays on this device until you clear it. Respect the privacy of people whose information may appear in
+        public uploads.
       </p>
       <div class="footer-meta">
         <span>v{{VERSION}}</span>
         <a href="privacy.html">Privacy</a>
-        <a class="footer-link" href="https://prnt.sc/" target="_blank" rel="noopener noreferrer">
+        <a class="footer-link external-link" href="https://prnt.sc/" target="_blank" rel="noopener noreferrer">
           Prnt.sc
           <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M7 4H4v10h10v-3M9 4h5v5m0-5L8 10" /></svg>
         </a>

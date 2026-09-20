@@ -91,7 +91,7 @@ mod tests {
     }
 
     #[test]
-    fn mixed_selects_only_available_sources() {
+    fn mixed_routes_only_to_the_prntsc_exploration_pipeline() {
         let mut random = StepRng::new(0, 1);
         assert!(matches!(
             select_source_with("mixed", &mut random),

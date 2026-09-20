@@ -92,6 +92,35 @@
   border-bottom: 1px solid var(--line);
 }
 
+.history-dialog__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.history-clear {
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.history-clear:hover:not(:disabled) {
+  color: var(--control-fill-text);
+  background: var(--control-fill);
+}
+
+.history-clear:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .history-dialog h2 {
   margin: 0;
   font-family: "Archive Serif", serif;
@@ -167,6 +196,77 @@
   font-size: clamp(38px, 8vw, 58px);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.035em;
+}
+
+.stats-list .stats-list__explored {
+  min-height: 116px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-content: center;
+}
+
+.stats-list__explored dd {
+  font-size: clamp(26px, 5vw, 38px);
+  text-align: right;
+}
+
+.stats-list__explored small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: right;
+}
+
+.lightbox-dialog {
+  width: 100vw;
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  padding: 24px;
+  overflow: hidden;
+  background: rgba(10, 10, 10, 0.94);
+  border: 0;
+  cursor: zoom-out;
+}
+
+.lightbox-dialog::backdrop {
+  background: rgba(10, 10, 10, 0.94);
+}
+
+.lightbox-dialog img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  cursor: zoom-out;
+}
+
+.lightbox-close {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  z-index: 1;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 9px;
+  color: var(--white);
+  background: rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+}
+
+.lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.lightbox-close svg {
+  width: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
 }
 
 .stats-dialog__body > p {

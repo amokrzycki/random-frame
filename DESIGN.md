@@ -100,7 +100,7 @@ components:
 
 The interface treats each public image as a single archival print under inspection inside a compact desktop workbench. Warm mineral paper frames a deep graphite viewing stage; restrained cobalt actions and compact machined controls provide precision without competing with the image.
 
-The system is quiet, lightly premium, and intentionally sparse. A fixed application toolbar and status bar hold persistent context while the flexible central work area gives the current frame all remaining space. Typography and framing establish hierarchy, while temporary-session cues and public-source warnings remain visible but secondary.
+The system is quiet, lightly premium, and intentionally sparse. A fixed application toolbar and status bar hold persistent context while the flexible central work area gives the current frame all remaining space. Typography and framing establish hierarchy, while local-history cues and public-source warnings remain visible but secondary.
 
 **Key Characteristics:**
 
@@ -152,7 +152,7 @@ Light mode uses the original warm mineral paper. Dark mode keeps the archival ch
 - **Body:** Compact sans-serif for descriptions and warnings, with generous leading inside the dark stage.
 - **Label:** Semibold sans-serif for controls and terse interface labels.
 - **Metadata:** Small muted sans-serif or tabular/monospace figures for counters, shortcuts, and source IDs.
-- **Metric:** Large tabular serif numerals for the two viewing-stat totals inside their focused dialog.
+- **Metric:** Large tabular serif numerals for viewing and exploration totals inside their focused dialog.
 
 **The Serif Sparingly Rule.** Reserve Archive Serif for the viewer title and state headlines; actions and operational copy stay sans-serif.
 
@@ -206,12 +206,12 @@ The stage uses an 8px outer radius and an 8px inset hairline, matching the compa
 
 ### Navigation
 
-- **Application toolbar:** A fixed 56px strip with brand mark and title on the left, compact statistics and theme controls plus temporary-session status on the right, divided from the work area by one stone hairline.
+- **Application toolbar:** A fixed 56px strip with brand mark and title on the left, compact statistics and theme controls plus local-history status on the right, divided from the work area by one stone hairline.
 - **Frame navigation:** 38×52px archival-white controls float 16px from the stage edges. Disabled buttons remain visible at reduced opacity.
 - **Lower rail:** A fixed 52px row docks the monospace source link and provider controls on the left, with shortcut hint, history, copy, and save actions on the right.
-- **Status bar:** A fixed 34px strip carries the temporary-history notice, version, privacy, and provider attribution without competing with the frame.
+- **Status bar:** A fixed 34px strip carries the local-history notice, version, privacy, and provider attribution without competing with the frame.
 - **Provider-specific browsing:** When a source exposes sequential identifiers, compact −1/+1 controls sit beside its source link, visually separated from the large history navigation. Omit this control group for providers without meaningful adjacency.
-- **History jump:** A compact native number field in the viewer header shows the current position and accepts direct jumps within the temporary history.
+- **History jump:** A compact native number field in the viewer header shows the current position and accepts direct jumps within local history.
 
 ### Status States
 
@@ -232,7 +232,7 @@ The stage uses an 8px outer radius and an 8px inset hairline, matching the compa
 
 ### Don't:
 
-- **Don't** introduce dashboard panels, card grids, or persistent browsing history.
+- **Don't** introduce dashboard panels or card grids; persistent history remains a focused navigation aid.
 - **Don't** add decorative color, gradients, or shadows outside the established restrained roles.
 - **Don't** use the serif for controls, metadata, or long operational copy.
 - **Don't** hide unavailable navigation; show it disabled so session position remains legible.
