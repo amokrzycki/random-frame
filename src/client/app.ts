@@ -15,6 +15,7 @@ import type { HistoryItem, HistorySnapshot } from "./persistence.js";
 import { clearHistory, getExplorationStats, getHistory, recordHistoryItem, selectHistoryItem } from "./persistence.js";
 import { createViewingStats, formatExploredPercent } from "./statistics.js";
 import { toast } from "./toast.js";
+import { checkForUpdate } from "./update.js";
 
 interface CachedBlob {
   blob: Blob;
@@ -455,3 +456,4 @@ for (const link of document.querySelectorAll<HTMLAnchorElement>(".external-link"
 
 syncControls();
 void initialize();
+void checkForUpdate();

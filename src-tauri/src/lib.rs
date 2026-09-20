@@ -262,6 +262,8 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let data_directory = app.path().app_data_dir()?;
             app.manage(AppState::new(&data_directory)?);
