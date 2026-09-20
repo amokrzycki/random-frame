@@ -1,0 +1,43 @@
+function element<T extends Element>(selector: string): T {
+  const result = document.querySelector<T>(selector);
+  if (!result) throw new Error(`Missing required element: ${selector}`);
+  return result;
+}
+
+export const elements = {
+  image: element<HTMLImageElement>("#image"),
+  empty: element<HTMLElement>("#empty-state"),
+  loading: element<HTMLElement>("#loading-state"),
+  error: element<HTMLElement>("#error-state"),
+  errorMessage: element<HTMLElement>("#error-message"),
+  start: element<HTMLButtonElement>("#start-button"),
+  retry: element<HTMLButtonElement>("#retry-button"),
+  previous: element<HTMLButtonElement>("#previous-button"),
+  next: element<HTMLButtonElement>("#next-button"),
+  save: element<HTMLButtonElement>("#save-button"),
+  copyImage: element<HTMLButtonElement>("#copy-image-button"),
+  copyLink: element<HTMLButtonElement>("#copy-link-button"),
+  source: element<HTMLAnchorElement>("#source-link"),
+  imageId: element<HTMLElement>("#image-id"),
+  previousId: element<HTMLButtonElement>("#previous-id-button"),
+  nextId: element<HTMLButtonElement>("#next-id-button"),
+  jumpForm: element<HTMLFormElement>("#jump-form"),
+  jumpInput: element<HTMLInputElement>("#jump-input"),
+  jumpButton: element<HTMLButtonElement>("#jump-button"),
+  historyTotal: element<HTMLOutputElement>("#history-total"),
+  historyButton: element<HTMLButtonElement>("#history-button"),
+  historyDialog: element<HTMLDialogElement>("#history-dialog"),
+  historyClose: element<HTMLButtonElement>("#history-close-button"),
+  historyGrid: element<HTMLElement>("#history-grid"),
+  historyEmpty: element<HTMLElement>("#history-empty"),
+  statsButton: element<HTMLButtonElement>("#stats-button"),
+  statsDialog: element<HTMLDialogElement>("#stats-dialog"),
+  statsClose: element<HTMLButtonElement>("#stats-close-button"),
+  statsToday: element<HTMLElement>("#stats-today"),
+  statsTotal: element<HTMLElement>("#stats-total"),
+  meta: element<HTMLElement>("#frame-meta"),
+  announcer: element<HTMLElement>("#announcer"),
+  entryDialog: element<HTMLDialogElement>("#entry-dialog"),
+  entryConsent: element<HTMLInputElement>("#entry-consent"),
+  entryButton: element<HTMLButtonElement>("#entry-button"),
+};
