@@ -121,4 +121,63 @@ mod tests {
             "expected at least one 7-char id in 2000 samples"
         );
     }
+
+    #[test]
+    fn round_trips_value_through_base36_at_key_boundaries() {
+        let six_digit_max = 36u64.pow(6) - 1;
+        let seven_digit_min = 36u64.pow(6);
+        for value in [0, 35, 36, six_digit_max, seven_digit_min, LEGACY_MAX_VALUE] {
+            assert_eq!(base36_to_value(&value_to_base36(value)), Some(value));
+        }
+    }
+
+    #[test]
+    fn never_generates_a_value_above_the_legacy_max() {
+        for _ in 0..100_000 {
+            assert!(matches!(base36_to_value(&make_id()), Some(value) if value <= LEGACY_MAX_VALUE));
+        }
+    }
+
+    // Uniform sampling over 0..=LEGACY_MAX_VALUE, converted straight to base36
+    // with no padding, means string length is a deterministic function of the
+    // sampled integer rather than something chosen separately. Since
+    // 2 * 36^6 - 1 < LEGACY_MAX_VALUE < 3 * 36^6, the "<= zzzzzz" and "1xxxxxx"
+    // buckets are each exactly one full 36^6-sized block (~45.6%), and the
+    // remaining "2xxxxxx..26y3ahr" partial block is ~8.8%. Frequent 1xxxxxx
+    // ids are an expected consequence of the range, not a distribution bug.
+    #[test]
+    fn generated_ids_match_the_expected_length_bucket_distribution() {
+        const SAMPLES: u32 = 200_000;
+        let six_digit_max = 36u64.pow(6) - 1; // "zzzzzz"
+        let leading_one_max = 2 * 36u64.pow(6) - 1; // "1zzzzzz"
+
+        let mut short = 0u32;
+        let mut leading_one = 0u32;
+        let mut leading_high = 0u32;
+
+        for _ in 0..SAMPLES {
+            // make_id() only ever emits BASE36_ALPHABET bytes, so this is always Some;
+            // unwrap_or(0) sidesteps the crate's expect_used/unwrap_used lints.
+            let value = base36_to_value(&make_id()).unwrap_or(0);
+            if value <= six_digit_max {
+                short += 1;
+            } else if value <= leading_one_max {
+                leading_one += 1;
+            } else {
+                leading_high += 1;
+            }
+        }
+
+        let assert_share = |count: u32, expected: f64, label: &str| {
+            let share = f64::from(count) / f64::from(SAMPLES);
+            let tolerance = 0.01; // ~9 sigma at 200k samples, generous but bug-sensitive
+            assert!(
+                (share - expected).abs() < tolerance,
+                "{label} share {share:.4} not within tolerance of expected {expected:.4}"
+            );
+        };
+        assert_share(short, 0.4561, "<= zzzzzz");
+        assert_share(leading_one, 0.4561, "1xxxxxx");
+        assert_share(leading_high, 0.0878, "2xxxxxx..26y3ahr");
+    }
 }
