@@ -8,6 +8,8 @@
     "dialog:allow-save",
     "fs:allow-write-file",
     "clipboard-manager:allow-write-image",
-    "opener:default"
+    "opener:default",
+    "updater:default",
+    "process:allow-restart"
   ]
 }
