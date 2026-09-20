@@ -17,6 +17,7 @@
         "minWidth": 800,
         "minHeight": 600,
         "center": true,
+        "decorations": false,
         "resizable": true,
         "fullscreen": false
       }
@@ -55,7 +56,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ1NkRBMTdERUFEODRCM0IKUldRN1M5anFmYUZ0UmJOdEtoUEQzU3AybTBZa2R5ZEZRYjJFRXl3RW9jUlFvaW1TWDVuYVNIQUcK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU0RjM3MjlBQjc5N0ZCMUIKUldRYis1ZTNtbkx6Vk1wUkEwSmdybHJLcUNZVDJBYWxqY1ZrV092MW9lNnhVaFRVZzJqYnB5RmoK",
       "endpoints": ["https://github.com/amokrzycki/random-frame/releases/latest/download/latest.json"]
     }
   }

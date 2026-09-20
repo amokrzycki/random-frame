@@ -1,36 +1,3 @@
-.masthead {
-  height: 56px;
-  padding: 0 18px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: var(--paper-deep);
-  border-bottom: 1px solid var(--line);
-}
-
-.brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  color: inherit;
-  font-size: 15px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
-}
-
-.brand svg {
-  width: 22px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.65;
-}
-
-.masthead-tools {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
 .theme-toggle {
   padding: 0;
   display: inline-flex;
