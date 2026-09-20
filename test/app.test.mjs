@@ -108,6 +108,7 @@ const ids = [
   "previous-button",
   "next-button",
   "save-button",
+  "copy-image-button",
   "copy-link-button",
   "source-link",
   "image-id",
