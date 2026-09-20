@@ -42,7 +42,20 @@ impl HistoryStore {
         let path = directory.join("history.json");
         let data = match fs::read(&path) {
             Ok(bytes) => serde_json::from_slice(&bytes).map_err(AppError::persistence)?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => HistoryData::default(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let temporary = path.with_extension("json.tmp");
+                match fs::read(&temporary) {
+                    Ok(bytes) => {
+                        let data = serde_json::from_slice(&bytes).map_err(AppError::persistence)?;
+                        fs::rename(temporary, &path).map_err(AppError::persistence)?;
+                        data
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        HistoryData::default()
+                    }
+                    Err(error) => return Err(AppError::persistence(error)),
+                }
+            }
             Err(error) => return Err(AppError::persistence(error)),
         };
         Ok(Self {
@@ -65,18 +78,20 @@ impl HistoryStore {
             .data
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let index = data
+        let mut next = data.clone();
+        let index = next
             .history
             .iter()
             .position(|saved| saved.source == item.source && saved.id == item.id);
-        data.index = Some(if let Some(index) = index {
-            data.history[index].viewed_at = item.viewed_at;
+        next.index = Some(if let Some(index) = index {
+            next.history[index].viewed_at = item.viewed_at;
             index
         } else {
-            data.history.push(item);
-            data.history.len() - 1
+            next.history.push(item);
+            next.history.len() - 1
         });
-        self.save(&data)?;
+        self.save(&next)?;
+        *data = next;
         let result = snapshot(&data);
         drop(data);
         Ok(result)
@@ -90,8 +105,10 @@ impl HistoryStore {
         if index >= data.history.len() {
             return Err(AppError::invalid_input("Invalid history position"));
         }
-        data.index = Some(index);
-        self.save(&data)?;
+        let mut next = data.clone();
+        next.index = Some(index);
+        self.save(&next)?;
+        *data = next;
         let result = snapshot(&data);
         drop(data);
         Ok(result)
@@ -102,15 +119,25 @@ impl HistoryStore {
             .data
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        *data = HistoryData::default();
-        let result = self.save(&data);
+        let next = HistoryData::default();
+        self.save(&next)?;
+        *data = next;
         drop(data);
-        result
+        Ok(())
     }
 
     fn save(&self, data: &HistoryData) -> Result<(), AppError> {
         let bytes = serde_json::to_vec(data).map_err(AppError::persistence)?;
-        fs::write(&self.path, bytes).map_err(AppError::persistence)
+        let temporary = self.path.with_extension("json.tmp");
+        if let Err(error) = fs::write(&temporary, bytes) {
+            let _ = fs::remove_file(&temporary);
+            return Err(AppError::persistence(error));
+        }
+        #[cfg(windows)]
+        if self.path.exists() {
+            fs::remove_file(&self.path).map_err(AppError::persistence)?;
+        }
+        fs::rename(&temporary, &self.path).map_err(AppError::persistence)
     }
 }
 
@@ -183,6 +210,21 @@ impl ExplorationStore {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .contains(&id)
     }
+
+    pub fn clear(&self) -> Result<(), AppError> {
+        let mut ids = self
+            .ids
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match fs::remove_file(&self.path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(AppError::persistence(error)),
+        }
+        ids.clear();
+        drop(ids);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -223,6 +265,12 @@ mod tests {
         assert_eq!(reloaded.snapshot().history[0].viewed_at, 84);
         reloaded.clear()?;
         assert!(HistoryStore::new(&directory)?.snapshot().history.is_empty());
+        fs::rename(
+            directory.join("history.json"),
+            directory.join("history.json.tmp"),
+        )
+        .map_err(AppError::persistence)?;
+        assert!(HistoryStore::new(&directory)?.snapshot().history.is_empty());
         fs::remove_dir_all(directory).map_err(AppError::persistence)
     }
 
@@ -240,8 +288,42 @@ mod tests {
             assert!(worker.join().is_ok_and(|result| result.is_ok()));
         }
         assert_eq!(store.count(), 1);
+        store.clear()?;
+        assert_eq!(store.count(), 0);
         drop(store);
-        assert_eq!(ExplorationStore::new(&directory)?.count(), 1);
+        assert_eq!(ExplorationStore::new(&directory)?.count(), 0);
         fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+
+    #[test]
+    fn failed_history_saves_do_not_change_memory() -> Result<(), AppError> {
+        let directory = test_directory("failed-history");
+        fs::write(&directory, []).map_err(AppError::persistence)?;
+        let item = HistoryItem {
+            source: "prntsc".to_owned(),
+            id: "abc123".to_owned(),
+            source_page_url: "https://prnt.sc/abc123".to_owned(),
+            viewed_at: 42,
+        };
+        let store = HistoryStore {
+            path: directory.join("history.json"),
+            data: Mutex::new(HistoryData::default()),
+        };
+
+        assert!(store.record(item.clone()).is_err());
+        assert!(store.snapshot().history.is_empty());
+
+        *store
+            .data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = HistoryData {
+            history: vec![item],
+            index: None,
+        };
+        assert!(store.select(0).is_err());
+        assert_eq!(store.snapshot().index, -1);
+        assert!(store.clear().is_err());
+        assert_eq!(store.snapshot().history.len(), 1);
+        fs::remove_file(directory).map_err(AppError::persistence)
     }
 }

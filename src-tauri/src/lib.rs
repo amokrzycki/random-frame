@@ -234,6 +234,7 @@ fn select_history_item(
     reason = "Tauri command state extractors must be passed by value"
 )]
 fn clear_history(state: State<'_, AppState>) -> Result<(), AppError> {
+    state.explored.clear()?;
     state.history.clear()
 }
 

@@ -81,7 +81,7 @@ function syncControls(): void {
   if (document.activeElement !== elements.jumpInput) elements.jumpInput.value = String(history.length ? index + 1 : 0);
   elements.historyTotal.textContent = String(history.length);
   elements.historyButton.disabled = loading;
-  elements.historyClear.disabled = loading || !history.length;
+  elements.historyClear.disabled = loading;
   elements.next.setAttribute(
     "aria-label",
     index < history.length - 1 ? "Show the next saved frame" : "Draw a new frame",
@@ -177,7 +177,7 @@ function openHistory(): void {
   elements.historyGrid.replaceChildren();
   elements.historyGrid.hidden = !history.length;
   elements.historyEmpty.hidden = Boolean(history.length);
-  elements.historyClear.disabled = !history.length;
+  elements.historyClear.disabled = false;
 
   const startIndex = Math.max(0, history.length - MAX_HISTORY_TILES);
   for (const [offset, item] of history.slice(startIndex).entries()) {
@@ -280,7 +280,7 @@ async function copySourceLink(): Promise<void> {
 }
 
 async function clearSavedHistory(): Promise<void> {
-  if (loading || !history.length) return;
+  if (loading) return;
   loading = true;
   syncControls();
   try {

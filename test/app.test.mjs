@@ -309,4 +309,8 @@ test("persistent history keeps the existing jump path and the main image opens a
   await flush();
   assert.deepEqual(persisted, { history: [], index: -1 });
   assert.equal(get("history-total").textContent, "0");
+  assert.equal(get("history-clear-button").disabled, false);
+  get("history-clear-button").click();
+  await flush();
+  assert.equal(invocations.filter(({ command }) => command === "clear_history").length, 2);
 });
