@@ -169,7 +169,7 @@ async function goTo(targetIndex: number): Promise<void> {
   syncControls();
 }
 
-// ponytail: renders only the most recent tiles so the dialog never lays out
+// renders only the most recent tiles so the dialog never lays out
 // thousands of DOM nodes; virtualize the grid if this cap needs raising.
 const MAX_HISTORY_TILES = 300;
 

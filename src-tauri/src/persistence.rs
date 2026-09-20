@@ -176,6 +176,13 @@ impl ExplorationStore {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .len()
     }
+
+    pub fn contains(&self, id: u64) -> bool {
+        self.ids
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .contains(&id)
+    }
 }
 
 #[cfg(test)]

@@ -81,7 +81,8 @@ impl Prntsc {
     }
 
     pub async fn get_random_frame(&self) -> Result<FetchedFrame, AppError> {
-        self.get_frame(&make_id()).await
+        self.get_frame(&pick_unexplored_id(&self.explored, make_id))
+            .await
     }
 
     pub async fn get_frame(&self, id: &str) -> Result<FetchedFrame, AppError> {
@@ -200,6 +201,23 @@ impl Prntsc {
     }
 }
 
+// 32 retries covers reroll odds until the space is nearly exhausted;
+// falls back to the last rolled candidate rather than looping forever.
+fn pick_unexplored_id(
+    explored: &ExplorationStore,
+    mut make_candidate: impl FnMut() -> String,
+) -> String {
+    let mut candidate = String::new();
+    for _ in 0..32 {
+        candidate = make_candidate();
+        match item_id_value(&candidate) {
+            Ok(value) if !explored.contains(value) => return candidate,
+            _ => {}
+        }
+    }
+    candidate
+}
+
 fn outcome_is_explored<T>(result: &Result<T, AppError>) -> bool {
     result
         .as_ref()
@@ -273,5 +291,65 @@ mod tests {
         assert!(!outcome_is_explored(&timeout));
         assert!(!outcome_is_explored(&limited));
         assert!(!outcome_is_explored(&server_error));
+    }
+
+    fn temp_explored_store(name: &str) -> Result<ExplorationStore, AppError> {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .map_or(0, |duration| duration.as_nanos());
+        let directory = std::env::temp_dir().join(format!(
+            "random-frame-prntsc-{name}-{}-{nonce}",
+            std::process::id()
+        ));
+        ExplorationStore::new(&directory)
+    }
+
+    fn pick_from(candidates: &[&str]) -> impl FnMut() -> String {
+        let mut index = 0;
+        let candidates: Vec<String> = candidates.iter().map(|value| (*value).to_owned()).collect();
+        move || {
+            let candidate = candidates.get(index).cloned().unwrap_or_default();
+            index += 1;
+            candidate
+        }
+    }
+
+    #[test]
+    fn skips_already_explored_candidates_before_returning_one() -> Result<(), AppError> {
+        let store = temp_explored_store("skip")?;
+        store.mark(item_id_value("abc123")?)?;
+        store.mark(item_id_value("abc124")?)?;
+
+        let picked = pick_unexplored_id(&store, pick_from(&["abc123", "abc124", "abc125"]));
+
+        assert_eq!(picked, "abc125");
+        Ok(())
+    }
+
+    #[test]
+    fn returns_first_candidate_immediately_when_it_is_unexplored() -> Result<(), AppError> {
+        let store = temp_explored_store("first")?;
+
+        let picked = pick_unexplored_id(&store, pick_from(&["abc123", "abc124"]));
+
+        assert_eq!(picked, "abc123");
+        Ok(())
+    }
+
+    #[test]
+    fn falls_back_to_last_candidate_after_32_attempts_when_all_are_explored() -> Result<(), AppError>
+    {
+        let store = temp_explored_store("exhausted")?;
+        store.mark(item_id_value("abc123")?)?;
+
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let picked = pick_unexplored_id(&store, || {
+            calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            "abc123".to_owned()
+        });
+
+        assert_eq!(picked, "abc123");
+        assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 32);
+        Ok(())
     }
 }

@@ -28,7 +28,7 @@ struct AppState {
     history: HistoryStore,
     explored: Arc<ExplorationStore>,
     rate_limiter: Mutex<RateLimiter>,
-    // ponytail: the UI loads one frame at a time; use a bounded keyed cache if concurrent consumers are added.
+    // the UI loads one frame at a time; use a bounded keyed cache if concurrent consumers are added.
     pending: Mutex<Option<PendingFrame>>,
 }
 
