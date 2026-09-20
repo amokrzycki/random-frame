@@ -9,6 +9,7 @@ export const elements = {
   imageZoom: element<HTMLButtonElement>("#image-zoom"),
   lightboxDialog: element<HTMLDialogElement>("#lightbox-dialog"),
   lightboxImage: element<HTMLImageElement>("#lightbox-image"),
+  lightboxClose: element<HTMLButtonElement>("#lightbox-close-button"),
   empty: element<HTMLElement>("#empty-state"),
   loading: element<HTMLElement>("#loading-state"),
   error: element<HTMLElement>("#error-state"),

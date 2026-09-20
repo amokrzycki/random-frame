@@ -105,6 +105,9 @@
     </dialog>
 
     <dialog class="lightbox-dialog" id="lightbox-dialog" aria-label="Enlarged image">
+      <button class="lightbox-close" id="lightbox-close-button" type="button" aria-label="Close enlarged image">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
+      </button>
       <img
         id="lightbox-image"
         src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'/%3E"
@@ -112,12 +115,12 @@
     </dialog>
 
     <header class="masthead">
-      <a class="brand" href="index.html" aria-label="Random Frame — home">
+      <div class="brand">
         <svg viewBox="0 0 28 28" aria-hidden="true">
           <path d="M4.5 8.5V4.5h4M19.5 4.5h4v4M23.5 19.5v4h-4M8.5 23.5h-4v-4M9 10.5h10v7H9z" />
         </svg>
         <span>Random Frame</span>
-      </a>
+      </div>
       <div class="masthead-tools">
         <button
           class="stats-button"
@@ -230,7 +233,7 @@
               </button>
               <a
                 id="source-link"
-                class="source-icon"
+                class="source-icon external-link"
                 href="https://prnt.sc/"
                 target="_blank"
                 rel="noopener noreferrer"
@@ -241,25 +244,27 @@
                 <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M7 4H4v10h10v-3M9 4h5v5m0-5L8 10" /></svg>
               </a>
             </div>
-            <fieldset class="id-sequence">
-              <legend>Adjacent ID</legend>
-              <button
-                id="previous-id-button"
-                type="button"
-                aria-label="Load the previous Prnt.sc identifier"
-                title="Previous Prnt.sc ID"
-                disabled>
-                −1
-              </button>
-              <button
-                id="next-id-button"
-                type="button"
-                aria-label="Load the next Prnt.sc identifier"
-                title="Next Prnt.sc ID"
-                disabled>
-                +1
-              </button>
-            </fieldset>
+            <div class="id-sequence">
+              <span class="id-sequence__label">Adjacent ID</span>
+              <div class="id-sequence__buttons">
+                <button
+                  id="previous-id-button"
+                  type="button"
+                  aria-label="Load the previous Prnt.sc identifier"
+                  title="Previous Prnt.sc ID"
+                  disabled>
+                  −1
+                </button>
+                <button
+                  id="next-id-button"
+                  type="button"
+                  aria-label="Load the next Prnt.sc identifier"
+                  title="Next Prnt.sc ID"
+                  disabled>
+                  +1
+                </button>
+              </div>
+            </div>
           </div>
           <div class="actions">
             <span class="key-hint" aria-hidden="true"><kbd>←</kbd><kbd>→</kbd> navigate</span>
@@ -288,7 +293,7 @@
       <div class="footer-meta">
         <span>v{{VERSION}}</span>
         <a href="privacy.html">Privacy</a>
-        <a class="footer-link" href="https://prnt.sc/" target="_blank" rel="noopener noreferrer">
+        <a class="footer-link external-link" href="https://prnt.sc/" target="_blank" rel="noopener noreferrer">
           Prnt.sc
           <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M7 4H4v10h10v-3M9 4h5v5m0-5L8 10" /></svg>
         </a>

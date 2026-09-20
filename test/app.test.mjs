@@ -76,6 +76,10 @@ class FakeDocument extends EventTarget {
     return this.elements.get(selector) ?? null;
   }
 
+  querySelectorAll() {
+    return [];
+  }
+
   createElement() {
     return new FakeElement(this);
   }
@@ -102,6 +106,7 @@ const ids = [
   "image-zoom",
   "lightbox-dialog",
   "lightbox-image",
+  "lightbox-close-button",
   "empty-state",
   "loading-state",
   "error-state",

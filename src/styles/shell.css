@@ -16,7 +16,6 @@
   font-size: 15px;
   font-weight: 650;
   letter-spacing: -0.01em;
-  text-decoration: none;
 }
 
 .brand svg {
@@ -141,7 +140,6 @@
   opacity: 1;
   transform: translate(-50%, -50%) rotate(0deg) scale(1);
 }
-
 
 .app-shell main {
   min-height: 0;

@@ -50,6 +50,14 @@
   font: inherit;
   font-size: 16px;
   text-align: center;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.jump-form input::-webkit-outer-spin-button,
+.jump-form input::-webkit-inner-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
 }
 .jump-form button {
   height: 30px;
@@ -325,19 +333,21 @@
 .id-sequence {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 10px;
   min-width: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
   color: var(--muted);
   font-size: 11px;
   font-weight: 650;
   letter-spacing: 0.025em;
   text-transform: uppercase;
 }
-.id-sequence legend {
-  padding: 0;
+.id-sequence__label {
+  white-space: nowrap;
+}
+.id-sequence__buttons {
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 .id-sequence button {
   width: 34px;
@@ -387,14 +397,14 @@ kbd {
 
 .save-button {
   min-height: 34px;
-  padding: 0 11px;
+  padding: 0 12px;
   display: inline-flex;
   align-items: center;
   gap: 9px;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--line);
   border-radius: 9px;
   color: var(--ink);
-  background: transparent;
+  background: var(--paper-deep);
   cursor: pointer;
   font-size: 13px;
   font-weight: 650;

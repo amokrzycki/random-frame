@@ -1,3 +1,4 @@
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Frame } from "./api.js";
 import { getFrameById, getRandomFrame } from "./api.js";
 import { elements } from "./elements.js";
@@ -168,13 +169,19 @@ async function goTo(targetIndex: number): Promise<void> {
   syncControls();
 }
 
+// ponytail: renders only the most recent tiles so the dialog never lays out
+// thousands of DOM nodes; virtualize the grid if this cap needs raising.
+const MAX_HISTORY_TILES = 300;
+
 function openHistory(): void {
   elements.historyGrid.replaceChildren();
   elements.historyGrid.hidden = !history.length;
   elements.historyEmpty.hidden = Boolean(history.length);
   elements.historyClear.disabled = !history.length;
 
-  for (const [itemIndex, item] of history.entries()) {
+  const startIndex = Math.max(0, history.length - MAX_HISTORY_TILES);
+  for (const [offset, item] of history.slice(startIndex).entries()) {
+    const itemIndex = startIndex + offset;
     const button = document.createElement("button");
     const image = document.createElement("img");
     const label = document.createElement("span");
@@ -280,6 +287,7 @@ async function clearSavedHistory(): Promise<void> {
     await clearHistory();
     history.length = 0;
     index = -1;
+    viewingStats.reset();
     for (const { url } of blobs.values()) URL.revokeObjectURL(url);
     blobs.clear();
     elements.image.src = "";
@@ -381,10 +389,11 @@ elements.statsDialog.addEventListener("close", () => {
   elements.statsButton.focus();
 });
 elements.imageZoom.addEventListener("click", openLightbox);
-elements.lightboxDialog.addEventListener("click", (event) => {
-  if (event.target === elements.lightboxDialog) elements.lightboxDialog.close();
+elements.lightboxDialog.addEventListener("click", () => elements.lightboxDialog.close());
+elements.lightboxClose.addEventListener("click", (event) => {
+  event.stopPropagation();
+  elements.lightboxDialog.close();
 });
-elements.lightboxImage.addEventListener("click", (event) => event.stopPropagation());
 elements.lightboxDialog.addEventListener("cancel", (event) => {
   event.preventDefault();
   elements.lightboxDialog.close();
@@ -435,6 +444,14 @@ document.addEventListener("keydown", (event) => {
 window.addEventListener("pagehide", () => {
   for (const { url } of blobs.values()) URL.revokeObjectURL(url);
 });
+
+for (const link of document.querySelectorAll<HTMLAnchorElement>(".external-link")) {
+  link.addEventListener("click", (event) => {
+    if (link.getAttribute("aria-disabled") === "true") return;
+    event.preventDefault();
+    void openUrl(link.href);
+  });
+}
 
 syncControls();
 void initialize();

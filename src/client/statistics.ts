@@ -66,5 +66,13 @@ export function createViewingStats(getStorage: () => Storage) {
       refreshDay();
       return stats;
     },
+    reset(): void {
+      stats = { day: currentDay(), today: 0, total: 0 };
+      try {
+        getStorage().setItem(storageKey, JSON.stringify(stats));
+      } catch {
+        // Keep the in-memory reset even if storage is unavailable
+      }
+    },
   };
 }
