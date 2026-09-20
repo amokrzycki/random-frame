@@ -134,7 +134,9 @@ mod tests {
     #[test]
     fn never_generates_a_value_above_the_legacy_max() {
         for _ in 0..100_000 {
-            assert!(matches!(base36_to_value(&make_id()), Some(value) if value <= LEGACY_MAX_VALUE));
+            assert!(
+                matches!(base36_to_value(&make_id()), Some(value) if value <= LEGACY_MAX_VALUE)
+            );
         }
     }
 
