@@ -261,6 +261,8 @@ fn get_exploration_stats(state: State<'_, AppState>) -> ExplorationStats {
 }
 
 // Half a year keeps the heatmap compact; a full year would force tiny cells or widen the dialog.
+// Acts as a rolling-window cap, not a fixed size: `ActivityStore::recent_days` never renders days
+// before tracking started, so a fresh install shows fewer days until it grows into this window.
 const ACTIVITY_WINDOW_DAYS: u32 = 183;
 
 #[derive(Serialize)]

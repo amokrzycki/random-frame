@@ -280,6 +280,18 @@
   cursor: default;
 }
 
+/* Decorative filler for short tracking windows, not a real day: visible but flat, never mistaken
+   for a level-0 day or an interactive cell. */
+.heatmap-cell--placeholder {
+  background: transparent;
+  border: 1px dashed var(--line);
+  cursor: default;
+}
+
+.heatmap-cell--placeholder:hover {
+  outline: none;
+}
+
 .heatmap-cell[data-level="1"] {
   background: color-mix(in srgb, var(--blue) 25%, var(--paper-deep));
 }
