@@ -412,25 +412,28 @@ impl ActivityStore {
         today: NaiveDate,
         max_days: u32,
     ) -> Vec<(String, DailyActivitySnapshot)> {
-        let recorded_days = self
+        if max_days == 0 {
+            return Vec::new();
+        }
+        let data = self
             .data
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let tracking_start = data
             .days
-            .clone();
-        let tracking_start = recorded_days
             .keys()
-            .next()
-            .and_then(|key| NaiveDate::parse_from_str(key, "%Y-%m-%d").ok());
+            .find_map(|key| NaiveDate::parse_from_str(key, "%Y-%m-%d").ok());
         let earliest_allowed =
-            today - chrono::Duration::days(i64::from(max_days.saturating_sub(1)));
-        let start = tracking_start.map_or(today, |date| date.max(earliest_allowed));
+            today - chrono::Duration::days(i64::from(max_days - 1));
+        let start = tracking_start
+            .map_or(today, |date| date.max(earliest_allowed))
+            .min(today);
 
         let mut days = Vec::new();
         let mut cursor = start;
         while cursor <= today {
             let key = cursor.to_string();
-            let daily = recorded_days.get(&key).copied().unwrap_or_default();
+            let daily = data.days.get(&key).copied().unwrap_or_default();
             days.push((
                 key,
                 DailyActivitySnapshot {
@@ -443,6 +446,7 @@ impl ActivityStore {
                 None => break,
             }
         }
+        drop(data);
         days
     }
 
@@ -805,6 +809,28 @@ mod tests {
             days.last().map(|(date, _)| date.as_str()),
             Some("2026-09-20")
         );
+        fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+
+    #[test]
+    fn recent_days_with_zero_max_days_returns_empty() -> Result<(), AppError> {
+        let directory = test_directory("activity-window-zero");
+        let store = ActivityStore::new(&directory)?;
+        let today = NaiveDate::from_ymd_opt(2026, 9, 20).unwrap_or_default();
+        store.record(ExplorationOutcome::Viewed, "2026-09-20")?;
+        assert!(store.recent_days(today, 0).is_empty());
+        fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+
+    #[test]
+    fn recent_days_with_future_tracking_start_clamps_to_today() -> Result<(), AppError> {
+        let directory = test_directory("activity-window-future");
+        let store = ActivityStore::new(&directory)?;
+        let today = NaiveDate::from_ymd_opt(2026, 9, 20).unwrap_or_default();
+        store.record(ExplorationOutcome::Viewed, "2026-09-25")?;
+        let days = store.recent_days(today, 183);
+        assert_eq!(days.len(), 1);
+        assert_eq!(days[0].0, "2026-09-20");
         fs::remove_dir_all(directory).map_err(AppError::persistence)
     }
 }

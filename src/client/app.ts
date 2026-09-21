@@ -443,12 +443,9 @@ function renderHeatmap(days: DailyActivity[]): void {
   const grid = elements.statsHeatmapGrid;
   grid.replaceChildren();
   elements.statsHeatmapDetail.textContent = days.length ? HEATMAP_DEFAULT_DETAIL : "No activity data yet.";
-  const rangeLabel = days.length ? heatmapRangeLabel(days) : "";
+  const rangeLabel = heatmapRangeLabel(days);
   elements.statsHeatmapRange.textContent = rangeLabel;
-  grid.setAttribute(
-    "aria-label",
-    rangeLabel ? `Daily viewed images, ${rangeLabel.toLowerCase()}` : "Daily viewed images",
-  );
+  grid.setAttribute("aria-label", `Daily viewed images, ${rangeLabel.toLowerCase()}`);
   if (!days.length) return;
 
   const maxViewed = Math.max(1, ...days.map((day) => day.viewed));
