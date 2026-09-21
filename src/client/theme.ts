@@ -20,7 +20,9 @@ function setTheme(theme: Theme): void {
   if (toggle) toggle.title = `Switch to ${dark ? "light" : "dark"} mode`;
 }
 
+root.classList.add("theme-init");
 setTheme(root.dataset.theme === "dark" ? "dark" : "light");
+requestAnimationFrame(() => root.classList.remove("theme-init"));
 
 toggle?.addEventListener("click", () => {
   const theme = root.dataset.theme === "dark" ? "light" : "dark";

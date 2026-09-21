@@ -108,9 +108,9 @@ function applyHistory(snapshot: HistorySnapshot): void {
 }
 
 try {
-  if (shouldShowEntryDialog(localStorage.getItem(entryStorageKey))) elements.entryDialog.showModal();
+  if (shouldShowEntryDialog(localStorage.getItem(entryStorageKey))) openDialog(elements.entryDialog);
 } catch {
-  elements.entryDialog.showModal();
+  openDialog(elements.entryDialog);
 }
 
 function setState(state: ViewState, message = ""): void {
@@ -266,8 +266,58 @@ function openHistory(): void {
     elements.historyGrid.append(button);
   }
 
-  elements.historyDialog.showModal();
+  openDialog(elements.historyDialog);
 }
+
+// showModal() makes the rest of the document inert, including the titlebar,
+// which blocks window drag/controls; show() plus manual inert on main/footer
+// keeps the titlebar usable while a dialog is open.
+const dialogs = [elements.entryDialog, elements.historyDialog, elements.statsDialog, elements.lightboxDialog];
+
+function openDialog(dialog: HTMLDialogElement, variant?: "dark"): void {
+  elements.main.inert = true;
+  elements.footer.inert = true;
+  if (variant) elements.dialogBackdrop.dataset.variant = variant;
+  else delete elements.dialogBackdrop.dataset.variant;
+  elements.dialogBackdrop.hidden = false;
+  void elements.dialogBackdrop.offsetWidth;
+  elements.dialogBackdrop.dataset.open = "";
+  dialog.show();
+}
+
+function onDialogClosed(): void {
+  if (dialogs.some((dialog) => dialog.open)) return;
+  elements.main.inert = false;
+  elements.footer.inert = false;
+  const backdrop = elements.dialogBackdrop;
+  delete backdrop.dataset.open;
+  const fallback = setTimeout(() => (backdrop.hidden = true), 250);
+  backdrop.addEventListener(
+    "transitionend",
+    (event) => {
+      if (event.target !== backdrop || event.propertyName !== "opacity") return;
+      clearTimeout(fallback);
+      backdrop.hidden = true;
+    },
+    { once: true },
+  );
+}
+
+// The entry dialog can only be dismissed by accepting; it never closes on backdrop click or Escape.
+function dismissibleOpenDialog(): HTMLDialogElement | undefined {
+  return dialogs.find((dialog) => dialog.open && dialog !== elements.entryDialog);
+}
+
+elements.dialogBackdrop.addEventListener("click", () => {
+  const dialog = dismissibleOpenDialog();
+  if (dialog) closeDialog(dialog);
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  const dialog = dismissibleOpenDialog();
+  if (dialog) closeDialog(dialog);
+});
 
 function closeDialog(dialog: HTMLDialogElement): void {
   const classList = (dialog as unknown as { classList?: DOMTokenList }).classList;
@@ -373,7 +423,7 @@ function openLightbox(): void {
   if (elements.imageZoom.hidden || !elements.image.src) return;
   elements.lightboxImage.src = elements.image.src;
   elements.lightboxImage.alt = elements.image.alt;
-  elements.lightboxDialog.showModal();
+  openDialog(elements.lightboxDialog, "dark");
 }
 
 async function migrateLegacyStats(): Promise<void> {
@@ -456,16 +506,10 @@ elements.copyLink.addEventListener("click", () => void copySourceLink());
 elements.historyButton.addEventListener("click", openHistory);
 elements.historyClose.addEventListener("click", () => closeDialog(elements.historyDialog));
 elements.historyClear.addEventListener("click", () => void clearSavedHistory());
-elements.historyDialog.addEventListener("click", (event) => {
-  if (event.target === elements.historyDialog) closeDialog(elements.historyDialog);
-});
-elements.historyDialog.addEventListener("cancel", (event) => {
-  event.preventDefault();
-  closeDialog(elements.historyDialog);
-});
 elements.historyDialog.addEventListener("close", () => {
   elements.historyDialog.classList?.remove("is-closing");
   elements.historyButton.focus();
+  onDialogClosed();
 });
 elements.statsButton.addEventListener("click", async () => {
   try {
@@ -488,7 +532,7 @@ elements.statsButton.addEventListener("click", async () => {
     elements.statsExploredBreakdown.textContent = "";
     renderHeatmap([]);
   }
-  elements.statsDialog.showModal();
+  openDialog(elements.statsDialog);
 });
 function showHeatmapDetail(event: Event): void {
   const label = (event.target as HTMLElement).getAttribute?.("aria-label");
@@ -503,16 +547,10 @@ elements.statsHeatmapGrid.addEventListener("focusout", () => {
   elements.statsHeatmapDetail.textContent = HEATMAP_DEFAULT_DETAIL;
 });
 elements.statsClose.addEventListener("click", () => closeDialog(elements.statsDialog));
-elements.statsDialog.addEventListener("click", (event) => {
-  if (event.target === elements.statsDialog) closeDialog(elements.statsDialog);
-});
-elements.statsDialog.addEventListener("cancel", (event) => {
-  event.preventDefault();
-  closeDialog(elements.statsDialog);
-});
 elements.statsDialog.addEventListener("close", () => {
   elements.statsDialog.classList?.remove("is-closing");
   elements.statsButton.focus();
+  onDialogClosed();
 });
 elements.imageZoom.addEventListener("click", openLightbox);
 elements.lightboxDialog.addEventListener("click", () => elements.lightboxDialog.close());
@@ -520,15 +558,14 @@ elements.lightboxClose.addEventListener("click", (event) => {
   event.stopPropagation();
   elements.lightboxDialog.close();
 });
-elements.lightboxDialog.addEventListener("cancel", (event) => {
-  event.preventDefault();
-  elements.lightboxDialog.close();
+elements.lightboxDialog.addEventListener("close", () => {
+  elements.imageZoom.focus();
+  onDialogClosed();
 });
-elements.lightboxDialog.addEventListener("close", () => elements.imageZoom.focus());
 elements.entryConsent.addEventListener("change", () => {
   elements.entryButton.disabled = !elements.entryConsent.checked;
 });
-elements.entryDialog.addEventListener("cancel", (event) => event.preventDefault());
+elements.entryDialog.addEventListener("close", onDialogClosed);
 elements.entryButton.addEventListener("click", () => {
   if (!elements.entryConsent.checked) return;
   try {

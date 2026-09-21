@@ -9,6 +9,7 @@ class FakeElement extends EventTarget {
     this.attributes = new Map();
     this.children = [];
     this.style = {};
+    this.dataset = {};
     this.hidden = false;
     this.disabled = false;
     this.open = false;
@@ -45,6 +46,10 @@ class FakeElement extends EventTarget {
 
   click() {
     this.dispatchEvent(new Event("click"));
+  }
+
+  show() {
+    this.open = true;
   }
 
   showModal() {
@@ -152,6 +157,9 @@ const ids = [
   "entry-dialog",
   "entry-consent",
   "entry-button",
+  "main-content",
+  "app-footer",
+  "dialog-backdrop",
 ];
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
@@ -281,7 +289,7 @@ test("persistent history keeps the existing jump path and the main image opens a
     ],
   );
 
-  get("history-dialog").click();
+  get("dialog-backdrop").click();
   assert.equal(get("history-dialog").open, false);
 
   get("history-button").click();
@@ -311,7 +319,9 @@ test("persistent history keeps the existing jump path and the main image opens a
 
   get("image-zoom").click();
   assert.equal(get("lightbox-dialog").open, true);
-  get("lightbox-dialog").dispatchEvent(new Event("cancel", { cancelable: true }));
+  const escapeKey = new Event("keydown");
+  Object.defineProperty(escapeKey, "key", { value: "Escape" });
+  document.dispatchEvent(escapeKey);
   assert.equal(get("lightbox-dialog").open, false);
   get("image-zoom").click();
   get("lightbox-dialog").click();

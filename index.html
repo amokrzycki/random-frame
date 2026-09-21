@@ -126,6 +126,8 @@
         alt="">
     </dialog>
 
+    <div class="dialog-backdrop" id="dialog-backdrop" hidden></div>
+
     <header class="titlebar">
       <div class="titlebar__drag-region" data-tauri-drag-region>
         <div class="brand">
@@ -184,7 +186,7 @@
       </div>
     </header>
 
-    <main>
+    <main id="main-content">
       <section class="viewer" aria-labelledby="frame-title">
         <div class="viewer-head">
           <div>
@@ -320,7 +322,7 @@
       </section>
     </main>
 
-    <footer>
+    <footer id="app-footer">
       <p class="footer-copy">
         History stays on this device until you clear it. Respect the privacy of people whose information may appear in
         public uploads.

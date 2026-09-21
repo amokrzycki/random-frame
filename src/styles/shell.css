@@ -143,3 +143,8 @@ footer a {
   stroke: currentColor;
   stroke-width: 1.4;
 }
+
+:root.theme-init .theme-toggle__knob,
+:root.theme-init .theme-toggle__icon svg {
+  transition: none;
+}
