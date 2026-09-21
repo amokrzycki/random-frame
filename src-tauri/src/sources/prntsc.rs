@@ -1,5 +1,6 @@
 use crate::error::{AppError, ErrorKind};
-use crate::persistence::ExplorationStore;
+use crate::persistence::{ActivityStore, ExplorationOutcome, ExplorationStore};
+use chrono::Local;
 use reqwest::{redirect::Policy, Client};
 use serde::Serialize;
 use std::{
@@ -63,11 +64,15 @@ impl ResolvedCache {
 pub struct Prntsc {
     client: Client,
     explored: Arc<ExplorationStore>,
+    activity: Arc<ActivityStore>,
     resolved: Mutex<ResolvedCache>,
 }
 
 impl Prntsc {
-    pub fn new(explored: Arc<ExplorationStore>) -> Result<Self, AppError> {
+    pub fn new(
+        explored: Arc<ExplorationStore>,
+        activity: Arc<ActivityStore>,
+    ) -> Result<Self, AppError> {
         let client = Client::builder()
             .user_agent(USER_AGENT)
             .redirect(Policy::none())
@@ -76,6 +81,7 @@ impl Prntsc {
         Ok(Self {
             client,
             explored,
+            activity,
             resolved: Mutex::new(ResolvedCache::default()),
         })
     }
@@ -91,8 +97,10 @@ impl Prntsc {
             Ok(item) => self.fetch_asset(item).await,
             Err(error) => Err(error),
         };
-        if outcome_is_explored(&result) {
-            self.explored.mark(value)?;
+        if let Some(outcome) = classify_outcome(&result) {
+            self.explored.mark(value, outcome)?;
+            self.activity
+                .record(outcome, &Local::now().date_naive().to_string())?;
         }
         result
     }
@@ -167,6 +175,7 @@ impl Prntsc {
             .unwrap_or_default()
             .to_owned();
         if !mime_type.to_ascii_lowercase().starts_with("image/") {
+            // Terminal rejection: assumes a non-image response is permanent, not a transient CDN hiccup.
             return Err(AppError::new(
                 ErrorKind::InvalidResponse,
                 "The source did not return a valid image",
@@ -218,10 +227,18 @@ fn pick_unexplored_id(
     candidate
 }
 
+/// Classifies a fetch outcome as an activity event, or `None` for transient errors that get retried.
+fn classify_outcome<T>(result: &Result<T, AppError>) -> Option<ExplorationOutcome> {
+    match result {
+        Ok(_) => Some(ExplorationOutcome::Viewed),
+        Err(error) if error.is_classified_source_outcome() => Some(ExplorationOutcome::Rejected),
+        Err(_) => None,
+    }
+}
+
+#[cfg(test)]
 fn outcome_is_explored<T>(result: &Result<T, AppError>) -> bool {
-    result
-        .as_ref()
-        .map_or_else(AppError::is_classified_source_outcome, |_| true)
+    classify_outcome(result).is_some()
 }
 
 fn validate_image_size(size: usize) -> Result<(), AppError> {
@@ -293,6 +310,21 @@ mod tests {
         assert!(!outcome_is_explored(&server_error));
     }
 
+    #[test]
+    fn classifies_viewed_and_rejected_outcomes_distinctly() {
+        let valid: Result<(), AppError> = Ok(());
+        let placeholder: Result<(), AppError> =
+            Err(AppError::new(ErrorKind::NotFound, "placeholder"));
+        let timeout: Result<(), AppError> = Err(AppError::new(ErrorKind::Timeout, "timeout"));
+
+        assert_eq!(classify_outcome(&valid), Some(ExplorationOutcome::Viewed));
+        assert_eq!(
+            classify_outcome(&placeholder),
+            Some(ExplorationOutcome::Rejected)
+        );
+        assert_eq!(classify_outcome(&timeout), None);
+    }
+
     fn temp_explored_store(name: &str) -> Result<ExplorationStore, AppError> {
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::SystemTime::UNIX_EPOCH)
@@ -317,8 +349,8 @@ mod tests {
     #[test]
     fn skips_already_explored_candidates_before_returning_one() -> Result<(), AppError> {
         let store = temp_explored_store("skip")?;
-        store.mark(item_id_value("abc123")?)?;
-        store.mark(item_id_value("abc124")?)?;
+        store.mark(item_id_value("abc123")?, ExplorationOutcome::Viewed)?;
+        store.mark(item_id_value("abc124")?, ExplorationOutcome::Rejected)?;
 
         let picked = pick_unexplored_id(&store, pick_from(&["abc123", "abc124", "abc125"]));
 
@@ -340,7 +372,7 @@ mod tests {
     fn falls_back_to_last_candidate_after_32_attempts_when_all_are_explored() -> Result<(), AppError>
     {
         let store = temp_explored_store("exhausted")?;
-        store.mark(item_id_value("abc123")?)?;
+        store.mark(item_id_value("abc123")?, ExplorationOutcome::Viewed)?;
 
         let calls = std::sync::atomic::AtomicUsize::new(0);
         let picked = pick_unexplored_id(&store, || {

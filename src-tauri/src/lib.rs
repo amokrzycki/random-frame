@@ -3,8 +3,9 @@ mod persistence;
 mod rate_limit;
 mod sources;
 
+use chrono::Local;
 use error::{AppError, ErrorKind};
-use persistence::{ExplorationStore, HistoryItem, HistorySnapshot, HistoryStore};
+use persistence::{ActivityStore, ExplorationStore, HistoryItem, HistorySnapshot, HistoryStore};
 use rate_limit::RateLimiter;
 use reqwest::StatusCode;
 use serde::Serialize;
@@ -27,18 +28,21 @@ struct AppState {
     prntsc: Prntsc,
     history: HistoryStore,
     explored: Arc<ExplorationStore>,
+    activity: Arc<ActivityStore>,
     rate_limiter: Mutex<RateLimiter>,
-    // the UI loads one frame at a time; use a bounded keyed cache if concurrent consumers are added.
+    // UI loads one frame at a time; use a keyed cache if concurrent consumers are added.
     pending: Mutex<Option<PendingFrame>>,
 }
 
 impl AppState {
     fn new(data_directory: &Path) -> Result<Self, AppError> {
         let explored = Arc::new(ExplorationStore::new(data_directory)?);
+        let activity = Arc::new(ActivityStore::new(data_directory)?);
         Ok(Self {
-            prntsc: Prntsc::new(Arc::clone(&explored))?,
+            prntsc: Prntsc::new(Arc::clone(&explored), Arc::clone(&activity))?,
             history: HistoryStore::new(data_directory)?,
             explored,
+            activity,
             rate_limiter: Mutex::new(RateLimiter::new()),
             pending: Mutex::new(None),
         })
@@ -86,6 +90,9 @@ const LEGACY_ID_SPACE_SIZE: u64 = 4_773_622_240;
 struct ExplorationStats {
     explored: usize,
     total: u64,
+    // Classified since tracking began; may not sum to `explored` on upgraded installs.
+    viewable: usize,
+    unavailable: usize,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -235,6 +242,7 @@ fn select_history_item(
 )]
 fn clear_history(state: State<'_, AppState>) -> Result<(), AppError> {
     state.explored.clear()?;
+    state.activity.clear()?;
     state.history.clear()
 }
 
@@ -247,7 +255,68 @@ fn get_exploration_stats(state: State<'_, AppState>) -> ExplorationStats {
     ExplorationStats {
         explored: state.explored.count(),
         total: LEGACY_ID_SPACE_SIZE,
+        viewable: state.explored.viewable_count(),
+        unavailable: state.explored.unavailable_count(),
     }
+}
+
+// Half a year keeps the heatmap compact; a full year would force tiny cells or widen the dialog.
+const ACTIVITY_WINDOW_DAYS: u32 = 183;
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DailyActivity {
+    date: String,
+    viewed: u64,
+    rejected: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ViewingActivity {
+    viewed_total: u64,
+    days: Vec<DailyActivity>,
+}
+
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command state extractors must be passed by value"
+)]
+fn get_viewing_activity(state: State<'_, AppState>) -> ViewingActivity {
+    let today = Local::now().date_naive();
+    let days = state
+        .activity
+        .recent_days(today, ACTIVITY_WINDOW_DAYS)
+        .into_iter()
+        .map(|(date, daily)| DailyActivity {
+            date,
+            viewed: daily.viewed,
+            rejected: daily.rejected,
+        })
+        .collect();
+    ViewingActivity {
+        viewed_total: state.activity.viewed_total(),
+        days,
+    }
+}
+
+/// One-shot migration of the legacy client-side viewing counter into the backend store.
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command state extractors must be passed by value"
+)]
+fn migrate_viewing_stats(
+    legacy_day: String,
+    legacy_today: u64,
+    legacy_total: u64,
+    state: State<'_, AppState>,
+) -> Result<(), AppError> {
+    let today = Local::now().date_naive().to_string();
+    state
+        .activity
+        .migrate(&legacy_day, legacy_today, legacy_total, &today)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -277,7 +346,9 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             record_history_item,
             select_history_item,
             clear_history,
-            get_exploration_stats
+            get_exploration_stats,
+            get_viewing_activity,
+            migrate_viewing_stats
         ])
         .run(tauri::generate_context!())?;
     Ok(())
@@ -302,5 +373,36 @@ mod tests {
             RetryDecision::RetryAfter(Duration::from_millis(450))
         );
         assert_eq!(retry_decision(19, &missing), RetryDecision::Abort);
+    }
+
+    fn test_state_directory(name: &str) -> std::path::PathBuf {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .map_or(0, |duration| duration.as_nanos());
+        std::env::temp_dir().join(format!(
+            "random-frame-lib-{name}-{}-{nonce}",
+            std::process::id()
+        ))
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn internet_archive_source_never_touches_exploration_or_activity_state(
+    ) -> Result<(), AppError> {
+        // InternetArchive must short-circuit before state.prntsc, or its ids leak into Prnt.sc counters.
+        let directory = test_state_directory("internet-archive");
+        let state = AppState::new(&directory)?;
+
+        let result = random_frame(Source::InternetArchive, &state).await;
+
+        assert!(matches!(
+            result,
+            Err(AppError {
+                kind: ErrorKind::UnavailableSource,
+                ..
+            })
+        ));
+        assert_eq!(state.explored.count(), 0);
+        assert_eq!(state.activity.viewed_total(), 0);
+        std::fs::remove_dir_all(directory).map_err(AppError::persistence)
     }
 }

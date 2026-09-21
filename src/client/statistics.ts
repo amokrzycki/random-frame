@@ -1,10 +1,5 @@
-interface ViewingStats {
-  day: string;
-  today: number;
-  total: number;
-}
+import type { DailyActivity } from "./persistence.js";
 
-const storageKey = "random-frame-viewing-stats";
 export const LEGACY_ID_SPACE_SIZE = 4_773_622_240;
 
 export function formatExploredPercent(explored: number, total = LEGACY_ID_SPACE_SIZE): string {
@@ -14,15 +9,26 @@ export function formatExploredPercent(explored: number, total = LEGACY_ID_SPACE_
   return `${percent.toFixed(decimals)}%`;
 }
 
-function currentDay(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+// viewable/unavailable are unique-id counts from ExplorationStore, not derived from the activity counter.
+// Sum may be less than explored on upgraded installs with unclassified legacy ids.
+export function formatExploredBreakdown(explored: number, viewable: number, unavailable: number): string {
+  const classified = viewable + unavailable;
+  const breakdown = `${viewable.toLocaleString("en-US")} viewable · ${unavailable.toLocaleString("en-US")} unavailable`;
+  return classified < explored ? `${breakdown} since tracking began` : breakdown;
 }
 
-function readStats(getStorage: () => Storage): ViewingStats {
-  const day = currentDay();
+export const LEGACY_STATS_STORAGE_KEY = "random-frame-viewing-stats";
+
+export interface LegacyStats {
+  day: string;
+  today: number;
+  total: number;
+}
+
+// Reads the legacy client-side counter for one-time hand-off to the backend; malformed input yields null.
+export function parseLegacyStats(raw: string | null): LegacyStats | null {
   try {
-    const stored: unknown = JSON.parse(getStorage().getItem(storageKey) ?? "");
+    const stored: unknown = JSON.parse(raw ?? "");
     if (
       typeof stored === "object" &&
       stored !== null &&
@@ -37,42 +43,44 @@ function readStats(getStorage: () => Storage): ViewingStats {
       Number.isInteger(stored.total) &&
       stored.total >= stored.today
     )
-      return { day, today: stored.day === day ? stored.today : 0, total: stored.total };
+      return { day: stored.day, today: stored.today, total: stored.total };
   } catch {
-    // Use fresh in-memory statistics when browser storage is unavailable or invalid
+    // No usable legacy statistics to migrate
   }
-  return { day, today: 0, total: 0 };
+  return null;
 }
 
-export function createViewingStats(getStorage: () => Storage) {
-  let stats = readStats(getStorage);
+export const HEATMAP_LEVELS = 4;
 
-  function refreshDay(): void {
-    if (stats.day !== currentDay()) stats = { ...stats, day: currentDay(), today: 0 };
-  }
+// Buckets a day's viewed count into 0..HEATMAP_LEVELS, scaled against the busiest day in the window.
+export function intensityLevel(viewed: number, maxViewed: number): number {
+  if (viewed <= 0 || maxViewed <= 0) return 0;
+  const ratio = viewed / maxViewed;
+  return Math.min(HEATMAP_LEVELS, Math.max(1, Math.ceil(ratio * HEATMAP_LEVELS)));
+}
 
-  return {
-    recordView(): void {
-      refreshDay();
-      stats.today += 1;
-      stats.total += 1;
-      try {
-        getStorage().setItem(storageKey, JSON.stringify(stats));
-      } catch {
-        // Keep counting in memory for this page view
-      }
-    },
-    current(): Readonly<ViewingStats> {
-      refreshDay();
-      return stats;
-    },
-    reset(): void {
-      stats = { day: currentDay(), today: 0, total: 0 };
-      try {
-        getStorage().setItem(storageKey, JSON.stringify(stats));
-      } catch {
-        // Keep the in-memory reset even if storage is unavailable
-      }
-    },
-  };
+// Avoids `new Date(string)` UTC-midnight parsing, which can shift the day in negative-offset zones.
+function parseLocalDate(iso: string): Date {
+  const [year = 0, month = 1, day = 1] = iso.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+export function formatDayLabel(iso: string): string {
+  return parseLocalDate(iso).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
+}
+
+// Weekday of the window's first day, Monday-indexed, for padding leading empty cells.
+export function leadingBlankCount(firstDayIso: string): number {
+  const jsWeekday = parseLocalDate(firstDayIso).getDay();
+  return (jsWeekday + 6) % 7;
+}
+
+// Single line serving both the accessible name and visible hover/focus readout for a heatmap day.
+export function describeDay(day: DailyActivity): string {
+  const label = formatDayLabel(day.date);
+  const explored = day.viewed + day.rejected;
+  if (explored <= 0) return `${label} · No activity`;
+  const parts = [label, `${day.viewed.toLocaleString("en-US")} viewed`, `${explored.toLocaleString("en-US")} explored`];
+  if (day.rejected > 0) parts.push(`${day.rejected.toLocaleString("en-US")} unavailable`);
+  return parts.join(" · ");
 }

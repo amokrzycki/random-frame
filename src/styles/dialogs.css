@@ -1,3 +1,36 @@
+/* Dialogs open via show(), not showModal(): showModal() makes the rest of
+   the document (including the titlebar) inert, which blocks window drag and
+   the window controls. app.ts inerts main/footer instead and drives a plain
+   backdrop element so the titlebar stays interactive. */
+.entry-dialog,
+.history-dialog,
+.lightbox-dialog {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  z-index: 41;
+}
+
+.dialog-backdrop {
+  position: fixed;
+  top: var(--titlebar-height);
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 40;
+  opacity: 0;
+  background: rgba(21, 22, 20, 0.76);
+  transition: opacity 220ms var(--ease-out);
+}
+
+.dialog-backdrop[data-variant="dark"] {
+  background: rgba(10, 10, 10, 0.94);
+}
+
+.dialog-backdrop[data-open] {
+  opacity: 1;
+}
+
 .entry-dialog {
   width: min(560px, calc(100% - 32px));
   max-width: none;
@@ -10,10 +43,6 @@
   box-shadow:
     0 28px 70px rgba(35, 32, 25, 0.18),
     0 3px 10px rgba(35, 32, 25, 0.1);
-}
-
-.entry-dialog::backdrop {
-  background: rgba(21, 22, 20, 0.76);
 }
 
 .history-dialog {
@@ -38,41 +67,20 @@
     display 220ms var(--ease-out) allow-discrete;
 }
 
-.history-dialog::backdrop {
-  opacity: 0;
-  background: rgba(21, 22, 20, 0.76);
-  transition:
-    opacity 220ms var(--ease-out),
-    overlay 220ms var(--ease-out) allow-discrete,
-    display 220ms var(--ease-out) allow-discrete;
-}
-
-.history-dialog:modal {
+.history-dialog[open] {
   opacity: 1;
   transform: scale(1);
 }
 
-.history-dialog:modal::backdrop {
-  opacity: 1;
-}
-
-.history-dialog:modal.is-closing {
+.history-dialog[open].is-closing {
   opacity: 0;
   transform: scale(0.97);
 }
 
-.history-dialog:modal.is-closing::backdrop {
-  opacity: 0;
-}
-
 @starting-style {
-  .history-dialog:modal {
+  .history-dialog[open] {
     opacity: 0;
     transform: scale(0.97);
-  }
-
-  .history-dialog:modal::backdrop {
-    opacity: 0;
   }
 }
 
@@ -164,11 +172,15 @@
 }
 
 .stats-dialog {
-  width: min(560px, calc(100% - 32px));
+  width: min(640px, calc(100% - 32px));
 }
 
 .stats-dialog__body {
+  min-height: 0;
+  flex: 1;
   padding: 12px 28px 28px;
+  overflow: auto;
+  scrollbar-color: var(--muted) var(--paper-deep);
 }
 
 .stats-list {
@@ -200,9 +212,11 @@
 
 .stats-list .stats-list__explored {
   min-height: 116px;
+  padding-block: 10px;
   display: grid;
   grid-template-columns: auto 1fr;
   align-content: center;
+  row-gap: 3px;
 }
 
 .stats-list__explored dd {
@@ -217,20 +231,99 @@
   text-align: right;
 }
 
+.stats-subhead {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.stats-heatmap {
+  padding-top: 20px;
+}
+
+.stats-heatmap__header {
+  margin-bottom: 12px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.stats-heatmap__range {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.heatmap-grid {
+  width: fit-content;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(7, 12px);
+  gap: 3px;
+  border: 0;
+}
+
+.heatmap-cell {
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: var(--paper-deep);
+  cursor: pointer;
+}
+
+.heatmap-cell--empty {
+  visibility: hidden;
+  cursor: default;
+}
+
+.heatmap-cell[data-level="1"] {
+  background: color-mix(in srgb, var(--blue) 25%, var(--paper-deep));
+}
+
+.heatmap-cell[data-level="2"] {
+  background: color-mix(in srgb, var(--blue) 48%, var(--paper-deep));
+}
+
+.heatmap-cell[data-level="3"] {
+  background: color-mix(in srgb, var(--blue) 71%, var(--paper-deep));
+}
+
+.heatmap-cell[data-level="4"] {
+  background: var(--blue);
+}
+
+.heatmap-cell:hover {
+  outline: 1px solid var(--muted);
+  outline-offset: 1px;
+}
+
+:root[data-keyboard-navigation] .heatmap-cell:focus {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.heatmap-detail {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
 .lightbox-dialog {
+  top: var(--titlebar-height);
   width: 100vw;
   max-width: none;
-  height: 100dvh;
+  height: calc(100dvh - var(--titlebar-height));
   max-height: none;
   padding: 24px;
   overflow: hidden;
   background: rgba(10, 10, 10, 0.94);
   border: 0;
   cursor: zoom-out;
-}
-
-.lightbox-dialog::backdrop {
-  background: rgba(10, 10, 10, 0.94);
 }
 
 .lightbox-dialog img {
@@ -407,9 +500,31 @@
 .entry-consent input {
   width: 19px;
   height: 19px;
-  margin: 0;
+  margin: 2px 0 0;
   flex: 0 0 auto;
-  accent-color: var(--blue);
+  appearance: none;
+  display: grid;
+  place-content: center;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--paper);
+  cursor: pointer;
+}
+.entry-consent input::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+  background: var(--white);
+  transform: scale(0);
+  transition: transform 0.12s var(--ease-out);
+}
+.entry-consent input:checked {
+  border-color: var(--blue);
+  background: var(--blue);
+}
+.entry-consent input:checked::before {
+  transform: scale(1);
 }
 :root[data-keyboard-navigation] .entry-consent input:focus {
   outline: 0;

@@ -1,7 +1,8 @@
 use crate::error::AppError;
+use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashMap},
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
@@ -151,9 +152,42 @@ fn snapshot(data: &HistoryData) -> HistorySnapshot {
     }
 }
 
+/// Classification recorded by `ExplorationStore`. `Unknown` marks legacy ids whose outcome can't be reconstructed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExplorationClass {
+    Unknown,
+    Viewed,
+    Rejected,
+}
+
+impl ExplorationClass {
+    fn marker(self) -> Option<char> {
+        match self {
+            Self::Unknown => None,
+            Self::Viewed => Some('v'),
+            Self::Rejected => Some('r'),
+        }
+    }
+
+    fn from_marker(marker: &str) -> Self {
+        match marker {
+            "v" => Self::Viewed,
+            "r" => Self::Rejected,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+fn parse_exploration_line(line: &str) -> Result<(u64, ExplorationClass), std::num::ParseIntError> {
+    match line.split_once(',') {
+        Some((id, marker)) => Ok((id.parse()?, ExplorationClass::from_marker(marker))),
+        None => Ok((line.parse()?, ExplorationClass::Unknown)),
+    }
+}
+
 pub struct ExplorationStore {
     path: PathBuf,
-    ids: Mutex<HashSet<u64>>,
+    ids: Mutex<HashMap<u64, ExplorationClass>>,
 }
 
 impl ExplorationStore {
@@ -163,10 +197,10 @@ impl ExplorationStore {
         let ids = match fs::read_to_string(&path) {
             Ok(contents) => contents
                 .lines()
-                .map(str::parse)
+                .map(parse_exploration_line)
                 .collect::<Result<_, _>>()
                 .map_err(AppError::persistence)?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => HashSet::new(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => HashMap::new(),
             Err(error) => return Err(AppError::persistence(error)),
         };
         Ok(Self {
@@ -175,24 +209,30 @@ impl ExplorationStore {
         })
     }
 
-    pub fn mark(&self, id: u64) -> Result<bool, AppError> {
+    /// Marks a unique Prnt.sc id as explored under `outcome`. No-op if already recorded.
+    pub fn mark(&self, id: u64, outcome: ExplorationOutcome) -> Result<bool, AppError> {
         let mut ids = self
             .ids
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if !ids.insert(id) {
+        if ids.contains_key(&id) {
             return Ok(false);
         }
+        let class = match outcome {
+            ExplorationOutcome::Viewed => ExplorationClass::Viewed,
+            ExplorationOutcome::Rejected => ExplorationClass::Rejected,
+        };
+        let marker = class.marker().unwrap_or('?');
         let result = OpenOptions::new()
             .create(true)
             .append(true)
             .open(&self.path)
-            .and_then(|mut file| writeln!(file, "{id}"));
+            .and_then(|mut file| writeln!(file, "{id},{marker}"));
         if let Err(error) = result {
-            ids.remove(&id);
             drop(ids);
             return Err(AppError::persistence(error));
         }
+        ids.insert(id, class);
         drop(ids);
         Ok(true)
     }
@@ -204,11 +244,31 @@ impl ExplorationStore {
             .len()
     }
 
+    /// Unique Prnt.sc ids classified as viewed since tracking began. Excludes legacy ids.
+    pub fn viewable_count(&self) -> usize {
+        self.ids
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .values()
+            .filter(|class| **class == ExplorationClass::Viewed)
+            .count()
+    }
+
+    /// Unique Prnt.sc ids classified as rejected since tracking began. Excludes legacy ids.
+    pub fn unavailable_count(&self) -> usize {
+        self.ids
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .values()
+            .filter(|class| **class == ExplorationClass::Rejected)
+            .count()
+    }
+
     pub fn contains(&self, id: u64) -> bool {
         self.ids
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .contains(&id)
+            .contains_key(&id)
     }
 
     pub fn clear(&self) -> Result<(), AppError> {
@@ -224,6 +284,185 @@ impl ExplorationStore {
         ids.clear();
         drop(ids);
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExplorationOutcome {
+    Viewed,
+    Rejected,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+struct DailyActivity {
+    viewed: u64,
+    rejected: u64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+struct ActivityData {
+    migrated: bool,
+    viewed_total: u64,
+    days: BTreeMap<String, DailyActivity>,
+}
+
+/// A single day's recorded activity, keyed by the user's local date (`YYYY-MM-DD`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DailyActivitySnapshot {
+    pub viewed: u64,
+    pub rejected: u64,
+}
+
+pub struct ActivityStore {
+    path: PathBuf,
+    data: Mutex<ActivityData>,
+}
+
+impl ActivityStore {
+    pub fn new(directory: &Path) -> Result<Self, AppError> {
+        fs::create_dir_all(directory).map_err(AppError::persistence)?;
+        let path = directory.join("activity.json");
+        let data = match fs::read(&path) {
+            Ok(bytes) => serde_json::from_slice(&bytes).map_err(AppError::persistence)?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let temporary = path.with_extension("json.tmp");
+                match fs::read(&temporary) {
+                    Ok(bytes) => {
+                        let data = serde_json::from_slice(&bytes).map_err(AppError::persistence)?;
+                        fs::rename(temporary, &path).map_err(AppError::persistence)?;
+                        data
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        ActivityData::default()
+                    }
+                    Err(error) => return Err(AppError::persistence(error)),
+                }
+            }
+            Err(error) => return Err(AppError::persistence(error)),
+        };
+        Ok(Self {
+            path,
+            data: Mutex::new(data),
+        })
+    }
+
+    /// Records one checked candidate for the given local day (`YYYY-MM-DD`).
+    pub fn record(&self, outcome: ExplorationOutcome, day: &str) -> Result<(), AppError> {
+        let mut data = self
+            .data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut next = data.clone();
+        let entry = next.days.entry(day.to_owned()).or_default();
+        match outcome {
+            ExplorationOutcome::Viewed => {
+                entry.viewed += 1;
+                next.viewed_total += 1;
+            }
+            ExplorationOutcome::Rejected => entry.rejected += 1,
+        }
+        self.save(&next)?;
+        *data = next;
+        drop(data);
+        Ok(())
+    }
+
+    pub fn viewed_total(&self) -> u64 {
+        self.data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .viewed_total
+    }
+
+    /// One-shot fold-in of lifetime totals from the legacy client-side counter; no-op once `migrated`.
+    pub fn migrate(
+        &self,
+        legacy_day: &str,
+        legacy_today: u64,
+        legacy_total: u64,
+        today: &str,
+    ) -> Result<(), AppError> {
+        let mut data = self
+            .data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if data.migrated {
+            return Ok(());
+        }
+        let mut next = data.clone();
+        next.migrated = true;
+        next.viewed_total = next.viewed_total.saturating_add(legacy_total);
+        if legacy_day == today && legacy_today > 0 {
+            let entry = next.days.entry(today.to_owned()).or_default();
+            entry.viewed = entry.viewed.saturating_add(legacy_today);
+        }
+        self.save(&next)?;
+        *data = next;
+        drop(data);
+        Ok(())
+    }
+
+    /// Returns the last `count` local days ending on `today`, oldest first, zero-filled.
+    pub fn recent_days(
+        &self,
+        today: NaiveDate,
+        count: u32,
+    ) -> Vec<(String, DailyActivitySnapshot)> {
+        let data = self
+            .data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut dates = Vec::with_capacity(count as usize);
+        let mut cursor = today;
+        for _ in 0..count {
+            dates.push(cursor);
+            match cursor.pred_opt() {
+                Some(previous) => cursor = previous,
+                None => break,
+            }
+        }
+        dates
+            .into_iter()
+            .rev()
+            .map(|date| {
+                let key = date.to_string();
+                let daily = data.days.get(&key).copied().unwrap_or_default();
+                (
+                    key,
+                    DailyActivitySnapshot {
+                        viewed: daily.viewed,
+                        rejected: daily.rejected,
+                    },
+                )
+            })
+            .collect()
+    }
+
+    pub fn clear(&self) -> Result<(), AppError> {
+        let mut data = self
+            .data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let next = ActivityData::default();
+        self.save(&next)?;
+        *data = next;
+        drop(data);
+        Ok(())
+    }
+
+    fn save(&self, data: &ActivityData) -> Result<(), AppError> {
+        let bytes = serde_json::to_vec(data).map_err(AppError::persistence)?;
+        let temporary = self.path.with_extension("json.tmp");
+        if let Err(error) = fs::write(&temporary, bytes) {
+            let _ = fs::remove_file(&temporary);
+            return Err(AppError::persistence(error));
+        }
+        #[cfg(windows)]
+        if self.path.exists() {
+            fs::remove_file(&self.path).map_err(AppError::persistence)?;
+        }
+        fs::rename(&temporary, &self.path).map_err(AppError::persistence)
     }
 }
 
@@ -281,7 +520,7 @@ mod tests {
         let threads: Vec<_> = (0..8)
             .map(|_| {
                 let store = Arc::clone(&store);
-                thread::spawn(move || store.mark(42))
+                thread::spawn(move || store.mark(42, ExplorationOutcome::Viewed))
             })
             .collect();
         for worker in threads {
@@ -292,6 +531,84 @@ mod tests {
         assert_eq!(store.count(), 0);
         drop(store);
         assert_eq!(ExplorationStore::new(&directory)?.count(), 0);
+        fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+
+    #[test]
+    fn repeated_views_of_the_same_id_never_move_the_independent_rejected_count(
+    ) -> Result<(), AppError> {
+        // Regression: unavailable was once derived as explored - viewedTotal, wrong under revisits.
+        let directory = test_directory("explored-repeat-views");
+        let store = ExplorationStore::new(&directory)?;
+
+        store.mark(7, ExplorationOutcome::Rejected)?;
+        assert_eq!(store.unavailable_count(), 1);
+
+        // Same id shown many times (e.g. adjacent-id jump): only the first mark is recorded.
+        for _ in 0..25 {
+            store.mark(1, ExplorationOutcome::Viewed)?;
+        }
+
+        assert_eq!(store.count(), 2);
+        assert_eq!(store.viewable_count(), 1);
+        assert_eq!(
+            store.unavailable_count(),
+            1,
+            "rejected count must not decay from repeat views"
+        );
+        fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+
+    #[test]
+    fn explored_unique_equals_viewable_plus_unavailable_once_fully_classified(
+    ) -> Result<(), AppError> {
+        let directory = test_directory("explored-equation");
+        let store = ExplorationStore::new(&directory)?;
+        store.mark(1, ExplorationOutcome::Viewed)?;
+        store.mark(2, ExplorationOutcome::Viewed)?;
+        store.mark(3, ExplorationOutcome::Rejected)?;
+
+        assert_eq!(
+            store.count(),
+            store.viewable_count() + store.unavailable_count()
+        );
+        fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+
+    #[test]
+    fn a_second_mark_of_a_different_class_is_ignored_and_keeps_the_first_classification(
+    ) -> Result<(), AppError> {
+        let directory = test_directory("explored-reclassify");
+        let store = ExplorationStore::new(&directory)?;
+        assert!(store.mark(9, ExplorationOutcome::Viewed)?);
+        assert!(!store.mark(9, ExplorationOutcome::Rejected)?);
+
+        assert_eq!(store.viewable_count(), 1);
+        assert_eq!(store.unavailable_count(), 0);
+        fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+
+    #[test]
+    fn legacy_plain_id_lines_are_counted_as_explored_but_not_classified() -> Result<(), AppError> {
+        // Legacy ids (bare numbers, no comma) still count toward explored but never viewable/rejected.
+        let directory = test_directory("explored-legacy");
+        fs::create_dir_all(&directory).map_err(AppError::persistence)?;
+        fs::write(directory.join("prntsc-explored.txt"), "10\n11\n")
+            .map_err(AppError::persistence)?;
+
+        let store = ExplorationStore::new(&directory)?;
+        assert_eq!(store.count(), 2);
+        assert_eq!(store.viewable_count(), 0);
+        assert_eq!(store.unavailable_count(), 0);
+
+        store.mark(12, ExplorationOutcome::Viewed)?;
+        assert_eq!(store.count(), 3);
+        assert_eq!(store.viewable_count(), 1);
+        assert_eq!(
+            store.viewable_count() + store.unavailable_count(),
+            1,
+            "classified subset must stay smaller than the explored total while legacy ids remain"
+        );
         fs::remove_dir_all(directory).map_err(AppError::persistence)
     }
 
@@ -325,5 +642,106 @@ mod tests {
         assert!(store.clear().is_err());
         assert_eq!(store.snapshot().history.len(), 1);
         fs::remove_file(directory).map_err(AppError::persistence)
+    }
+
+    #[test]
+    fn activity_records_viewed_and_rejected_into_the_right_day_and_persists() -> Result<(), AppError>
+    {
+        let directory = test_directory("activity");
+        let store = ActivityStore::new(&directory)?;
+        store.record(ExplorationOutcome::Viewed, "2026-09-19")?;
+        store.record(ExplorationOutcome::Rejected, "2026-09-19")?;
+        store.record(ExplorationOutcome::Rejected, "2026-09-19")?;
+        store.record(ExplorationOutcome::Viewed, "2026-09-20")?;
+
+        assert_eq!(store.viewed_total(), 2);
+        let today = NaiveDate::from_ymd_opt(2026, 9, 20).unwrap_or_default();
+        let days = store.recent_days(today, 3);
+        assert_eq!(
+            days,
+            vec![
+                ("2026-09-18".to_owned(), DailyActivitySnapshot::default()),
+                (
+                    "2026-09-19".to_owned(),
+                    DailyActivitySnapshot {
+                        viewed: 1,
+                        rejected: 2
+                    }
+                ),
+                (
+                    "2026-09-20".to_owned(),
+                    DailyActivitySnapshot {
+                        viewed: 1,
+                        rejected: 0
+                    }
+                ),
+            ]
+        );
+
+        let reloaded = ActivityStore::new(&directory)?;
+        assert_eq!(reloaded.viewed_total(), 2);
+        fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+
+    #[test]
+    fn activity_clear_resets_totals_and_days() -> Result<(), AppError> {
+        let directory = test_directory("activity-clear");
+        let store = ActivityStore::new(&directory)?;
+        store.record(ExplorationOutcome::Viewed, "2026-09-20")?;
+        store.clear()?;
+        assert_eq!(store.viewed_total(), 0);
+        let today = NaiveDate::from_ymd_opt(2026, 9, 20).unwrap_or_default();
+        assert_eq!(
+            store.recent_days(today, 1),
+            vec![("2026-09-20".to_owned(), DailyActivitySnapshot::default())]
+        );
+        fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+
+    #[test]
+    fn activity_migration_runs_once_and_only_folds_today_when_the_legacy_day_matches(
+    ) -> Result<(), AppError> {
+        let directory = test_directory("activity-migrate");
+        let store = ActivityStore::new(&directory)?;
+
+        store.migrate("2026-09-19", 5, 101, "2026-09-20")?;
+        assert_eq!(store.viewed_total(), 101);
+        let today = NaiveDate::from_ymd_opt(2026, 9, 20).unwrap_or_default();
+        assert_eq!(
+            store.recent_days(today, 1),
+            vec![("2026-09-20".to_owned(), DailyActivitySnapshot::default())],
+            "legacy day differs from today, so today's bucket stays untouched"
+        );
+
+        // A second migration attempt must not double-count the lifetime total.
+        store.migrate("2026-09-20", 3, 101, "2026-09-20")?;
+        assert_eq!(store.viewed_total(), 101);
+        assert_eq!(
+            store.recent_days(today, 1),
+            vec![("2026-09-20".to_owned(), DailyActivitySnapshot::default())]
+        );
+        fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+
+    #[test]
+    fn activity_migration_folds_todays_partial_count_when_the_legacy_day_matches(
+    ) -> Result<(), AppError> {
+        let directory = test_directory("activity-migrate-today");
+        let store = ActivityStore::new(&directory)?;
+
+        store.migrate("2026-09-20", 7, 42, "2026-09-20")?;
+        assert_eq!(store.viewed_total(), 42);
+        let today = NaiveDate::from_ymd_opt(2026, 9, 20).unwrap_or_default();
+        assert_eq!(
+            store.recent_days(today, 1),
+            vec![(
+                "2026-09-20".to_owned(),
+                DailyActivitySnapshot {
+                    viewed: 7,
+                    rejected: 0
+                }
+            )]
+        );
+        fs::remove_dir_all(directory).map_err(AppError::persistence)
     }
 }

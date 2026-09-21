@@ -86,19 +86,31 @@
         <div class="stats-dialog__body">
           <dl class="stats-list">
             <div>
-              <dt>Today</dt>
+              <dt>Viewed today</dt>
               <dd id="stats-today">0</dd>
             </div>
             <div>
-              <dt>All time</dt>
+              <dt>Viewed all time</dt>
               <dd id="stats-total">0</dd>
             </div>
             <div class="stats-list__explored">
               <dt>Prnt.sc explored</dt>
               <dd id="stats-explored">0 / 4,773,622,240</dd>
               <small id="stats-explored-percent">0% of known legacy ID space</small>
+              <small id="stats-explored-breakdown">0 viewable · 0 unavailable</small>
             </div>
           </dl>
+          <div class="stats-heatmap">
+            <div class="stats-heatmap__header">
+              <span class="stats-subhead">Viewing activity</span>
+              <span class="stats-heatmap__range">Last 6 months</span>
+            </div>
+            <fieldset
+              class="heatmap-grid"
+              id="stats-heatmap-grid"
+              aria-label="Daily viewed images, last 6 months"></fieldset>
+            <p class="heatmap-detail" id="stats-heatmap-detail" aria-live="polite">Hover or focus a day for details.</p>
+          </div>
           <p>Stored only on this device. No viewing statistics leave your device.</p>
         </div>
       </div>
@@ -113,6 +125,8 @@
         src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'/%3E"
         alt="">
     </dialog>
+
+    <div class="dialog-backdrop" id="dialog-backdrop" hidden></div>
 
     <header class="titlebar">
       <div class="titlebar__drag-region" data-tauri-drag-region>
@@ -172,7 +186,7 @@
       </div>
     </header>
 
-    <main>
+    <main id="main-content">
       <section class="viewer" aria-labelledby="frame-title">
         <div class="viewer-head">
           <div>
@@ -308,7 +322,7 @@
       </section>
     </main>
 
-    <footer>
+    <footer id="app-footer">
       <p class="footer-copy">
         History stays on this device until you clear it. Respect the privacy of people whose information may appear in
         public uploads.

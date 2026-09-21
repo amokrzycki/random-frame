@@ -11,9 +11,25 @@ import {
   nextHistoryIndex,
   shouldShowEntryDialog,
 } from "./navigation.js";
-import type { HistoryItem, HistorySnapshot } from "./persistence.js";
-import { clearHistory, getExplorationStats, getHistory, recordHistoryItem, selectHistoryItem } from "./persistence.js";
-import { createViewingStats, formatExploredPercent } from "./statistics.js";
+import type { DailyActivity, HistoryItem, HistorySnapshot } from "./persistence.js";
+import {
+  clearHistory,
+  getExplorationStats,
+  getHistory,
+  getViewingActivity,
+  migrateViewingStats,
+  recordHistoryItem,
+  selectHistoryItem,
+} from "./persistence.js";
+import {
+  describeDay,
+  formatExploredBreakdown,
+  formatExploredPercent,
+  intensityLevel,
+  LEGACY_STATS_STORAGE_KEY,
+  leadingBlankCount,
+  parseLegacyStats,
+} from "./statistics.js";
 import { toast } from "./toast.js";
 import { checkForUpdate } from "./update.js";
 
@@ -38,7 +54,7 @@ const history: HistoryItem[] = [];
 const blobs = new Map<string, CachedBlob>();
 let index = -1;
 let loading = true;
-const viewingStats = createViewingStats(() => localStorage);
+const HEATMAP_DEFAULT_DETAIL = "Hover or focus a day for details.";
 
 function blobKey(source: string, id: string): string {
   return `${source}:${id}`;
@@ -92,9 +108,9 @@ function applyHistory(snapshot: HistorySnapshot): void {
 }
 
 try {
-  if (shouldShowEntryDialog(localStorage.getItem(entryStorageKey))) elements.entryDialog.showModal();
+  if (shouldShowEntryDialog(localStorage.getItem(entryStorageKey))) openDialog(elements.entryDialog);
 } catch {
-  elements.entryDialog.showModal();
+  openDialog(elements.entryDialog);
 }
 
 function setState(state: ViewState, message = ""): void {
@@ -166,7 +182,6 @@ async function recordFrame(frame: Frame): Promise<void> {
       viewedAt: Date.now(),
     }),
   );
-  viewingStats.recordView();
   showFrame(frame.source, frame.id, frame.blob);
 }
 
@@ -251,8 +266,58 @@ function openHistory(): void {
     elements.historyGrid.append(button);
   }
 
-  elements.historyDialog.showModal();
+  openDialog(elements.historyDialog);
 }
+
+// showModal() makes the rest of the document inert, including the titlebar,
+// which blocks window drag/controls; show() plus manual inert on main/footer
+// keeps the titlebar usable while a dialog is open.
+const dialogs = [elements.entryDialog, elements.historyDialog, elements.statsDialog, elements.lightboxDialog];
+
+function openDialog(dialog: HTMLDialogElement, variant?: "dark"): void {
+  elements.main.inert = true;
+  elements.footer.inert = true;
+  if (variant) elements.dialogBackdrop.dataset.variant = variant;
+  else delete elements.dialogBackdrop.dataset.variant;
+  elements.dialogBackdrop.hidden = false;
+  void elements.dialogBackdrop.offsetWidth;
+  elements.dialogBackdrop.dataset.open = "";
+  dialog.show();
+}
+
+function onDialogClosed(): void {
+  if (dialogs.some((dialog) => dialog.open)) return;
+  elements.main.inert = false;
+  elements.footer.inert = false;
+  const backdrop = elements.dialogBackdrop;
+  delete backdrop.dataset.open;
+  const fallback = setTimeout(() => (backdrop.hidden = true), 250);
+  backdrop.addEventListener(
+    "transitionend",
+    (event) => {
+      if (event.target !== backdrop || event.propertyName !== "opacity") return;
+      clearTimeout(fallback);
+      backdrop.hidden = true;
+    },
+    { once: true },
+  );
+}
+
+// The entry dialog can only be dismissed by accepting; it never closes on backdrop click or Escape.
+function dismissibleOpenDialog(): HTMLDialogElement | undefined {
+  return dialogs.find((dialog) => dialog.open && dialog !== elements.entryDialog);
+}
+
+elements.dialogBackdrop.addEventListener("click", () => {
+  const dialog = dismissibleOpenDialog();
+  if (dialog) closeDialog(dialog);
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  const dialog = dismissibleOpenDialog();
+  if (dialog) closeDialog(dialog);
+});
 
 function closeDialog(dialog: HTMLDialogElement): void {
   const classList = (dialog as unknown as { classList?: DOMTokenList }).classList;
@@ -337,7 +402,6 @@ async function clearSavedHistory(): Promise<void> {
     await clearHistory();
     history.length = 0;
     index = -1;
-    viewingStats.reset();
     for (const { url } of blobs.values()) URL.revokeObjectURL(url);
     blobs.clear();
     thumbnails.clear();
@@ -359,7 +423,46 @@ function openLightbox(): void {
   if (elements.imageZoom.hidden || !elements.image.src) return;
   elements.lightboxImage.src = elements.image.src;
   elements.lightboxImage.alt = elements.image.alt;
-  elements.lightboxDialog.showModal();
+  openDialog(elements.lightboxDialog, "dark");
+}
+
+async function migrateLegacyStats(): Promise<void> {
+  const legacy = parseLegacyStats(localStorage.getItem(LEGACY_STATS_STORAGE_KEY));
+  if (!legacy) return;
+  try {
+    await migrateViewingStats(legacy.day, legacy.today, legacy.total);
+    localStorage.removeItem(LEGACY_STATS_STORAGE_KEY);
+  } catch {
+    // Best-effort; retried on the next launch if it failed this time
+  }
+}
+
+function renderHeatmap(days: DailyActivity[]): void {
+  const grid = elements.statsHeatmapGrid;
+  grid.replaceChildren();
+  elements.statsHeatmapDetail.textContent = days.length ? HEATMAP_DEFAULT_DETAIL : "No activity data yet.";
+  if (!days.length) return;
+
+  const maxViewed = Math.max(1, ...days.map((day) => day.viewed));
+  const firstDay = days[0];
+  if (firstDay) {
+    for (let blank = 0; blank < leadingBlankCount(firstDay.date); blank += 1) {
+      const filler = document.createElement("span");
+      filler.className = "heatmap-cell heatmap-cell--empty";
+      filler.setAttribute("aria-hidden", "true");
+      grid.append(filler);
+    }
+  }
+  for (const day of days) {
+    const cell = document.createElement("button");
+    cell.type = "button";
+    cell.className = "heatmap-cell";
+    cell.setAttribute("data-level", String(intensityLevel(day.viewed, maxViewed)));
+    const description = describeDay(day);
+    cell.setAttribute("aria-label", description);
+    cell.title = description;
+    grid.append(cell);
+  }
 }
 
 async function initialize(): Promise<void> {
@@ -403,42 +506,51 @@ elements.copyLink.addEventListener("click", () => void copySourceLink());
 elements.historyButton.addEventListener("click", openHistory);
 elements.historyClose.addEventListener("click", () => closeDialog(elements.historyDialog));
 elements.historyClear.addEventListener("click", () => void clearSavedHistory());
-elements.historyDialog.addEventListener("click", (event) => {
-  if (event.target === elements.historyDialog) closeDialog(elements.historyDialog);
-});
-elements.historyDialog.addEventListener("cancel", (event) => {
-  event.preventDefault();
-  closeDialog(elements.historyDialog);
-});
 elements.historyDialog.addEventListener("close", () => {
   elements.historyDialog.classList?.remove("is-closing");
   elements.historyButton.focus();
+  onDialogClosed();
 });
 elements.statsButton.addEventListener("click", async () => {
-  const stats = viewingStats.current();
-  elements.statsToday.textContent = String(stats.today);
-  elements.statsTotal.textContent = String(stats.total);
   try {
-    const exploration = await getExplorationStats();
+    const [exploration, activity] = await Promise.all([getExplorationStats(), getViewingActivity()]);
+    elements.statsToday.textContent = String(activity.days.at(-1)?.viewed ?? 0);
+    elements.statsTotal.textContent = activity.viewedTotal.toLocaleString("en-US");
     elements.statsExplored.textContent = `${exploration.explored.toLocaleString("en-US")} / ${exploration.total.toLocaleString("en-US")}`;
     elements.statsExploredPercent.textContent = `${formatExploredPercent(exploration.explored, exploration.total)} of known legacy ID space`;
+    elements.statsExploredBreakdown.textContent = formatExploredBreakdown(
+      exploration.explored,
+      exploration.viewable,
+      exploration.unavailable,
+    );
+    renderHeatmap(activity.days);
   } catch {
+    elements.statsToday.textContent = "0";
+    elements.statsTotal.textContent = "0";
     elements.statsExplored.textContent = "Unavailable";
     elements.statsExploredPercent.textContent = "Could not read local exploration data";
+    elements.statsExploredBreakdown.textContent = "";
+    renderHeatmap([]);
   }
-  elements.statsDialog.showModal();
+  openDialog(elements.statsDialog);
+});
+function showHeatmapDetail(event: Event): void {
+  const label = (event.target as HTMLElement).getAttribute?.("aria-label");
+  if (label) elements.statsHeatmapDetail.textContent = label;
+}
+elements.statsHeatmapGrid.addEventListener("mouseover", showHeatmapDetail);
+elements.statsHeatmapGrid.addEventListener("focusin", showHeatmapDetail);
+elements.statsHeatmapGrid.addEventListener("mouseleave", () => {
+  elements.statsHeatmapDetail.textContent = HEATMAP_DEFAULT_DETAIL;
+});
+elements.statsHeatmapGrid.addEventListener("focusout", () => {
+  elements.statsHeatmapDetail.textContent = HEATMAP_DEFAULT_DETAIL;
 });
 elements.statsClose.addEventListener("click", () => closeDialog(elements.statsDialog));
-elements.statsDialog.addEventListener("click", (event) => {
-  if (event.target === elements.statsDialog) closeDialog(elements.statsDialog);
-});
-elements.statsDialog.addEventListener("cancel", (event) => {
-  event.preventDefault();
-  closeDialog(elements.statsDialog);
-});
 elements.statsDialog.addEventListener("close", () => {
   elements.statsDialog.classList?.remove("is-closing");
   elements.statsButton.focus();
+  onDialogClosed();
 });
 elements.imageZoom.addEventListener("click", openLightbox);
 elements.lightboxDialog.addEventListener("click", () => elements.lightboxDialog.close());
@@ -446,15 +558,14 @@ elements.lightboxClose.addEventListener("click", (event) => {
   event.stopPropagation();
   elements.lightboxDialog.close();
 });
-elements.lightboxDialog.addEventListener("cancel", (event) => {
-  event.preventDefault();
-  elements.lightboxDialog.close();
+elements.lightboxDialog.addEventListener("close", () => {
+  elements.imageZoom.focus();
+  onDialogClosed();
 });
-elements.lightboxDialog.addEventListener("close", () => elements.imageZoom.focus());
 elements.entryConsent.addEventListener("change", () => {
   elements.entryButton.disabled = !elements.entryConsent.checked;
 });
-elements.entryDialog.addEventListener("cancel", (event) => event.preventDefault());
+elements.entryDialog.addEventListener("close", onDialogClosed);
 elements.entryButton.addEventListener("click", () => {
   if (!elements.entryConsent.checked) return;
   try {
@@ -508,3 +619,4 @@ document.querySelectorAll<HTMLAnchorElement>(".external-link").forEach((link) =>
 syncControls();
 void initialize();
 void checkForUpdate();
+void migrateLegacyStats();

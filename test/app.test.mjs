@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { leadingBlankCount } from "../dist/test-client/statistics.js";
 
 class FakeElement extends EventTarget {
   constructor(document) {
@@ -8,6 +9,7 @@ class FakeElement extends EventTarget {
     this.attributes = new Map();
     this.children = [];
     this.style = {};
+    this.dataset = {};
     this.hidden = false;
     this.disabled = false;
     this.open = false;
@@ -44,6 +46,10 @@ class FakeElement extends EventTarget {
 
   click() {
     this.dispatchEvent(new Event("click"));
+  }
+
+  show() {
+    this.open = true;
   }
 
   showModal() {
@@ -143,11 +149,17 @@ const ids = [
   "stats-total",
   "stats-explored",
   "stats-explored-percent",
+  "stats-explored-breakdown",
+  "stats-heatmap-grid",
+  "stats-heatmap-detail",
   "frame-meta",
   "announcer",
   "entry-dialog",
   "entry-consent",
   "entry-button",
+  "main-content",
+  "app-footer",
+  "dialog-backdrop",
 ];
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
@@ -167,6 +179,7 @@ test("persistent history keeps the existing jump path and the main image opens a
   );
 
   Object.assign(globalThis, { document, localStorage, performance, sessionStorage, window });
+  const todayIso = new Date().toLocaleDateString("en-CA");
   let draw = 0;
   let savePath = null;
   const invocations = [];
@@ -194,7 +207,13 @@ test("persistent history keeps the existing jump path and the main image opens a
         persisted = { history: [], index: -1 };
         return null;
       }
-      if (command === "get_exploration_stats") return { explored: 12_483, total: 4_773_622_240 };
+      if (command === "get_exploration_stats") {
+        return { explored: 12_483, total: 4_773_622_240, viewable: 8_000, unavailable: 4_483 };
+      }
+      if (command === "get_viewing_activity") {
+        return { viewedTotal: 2, days: [{ date: todayIso, viewed: 2, rejected: 0 }] };
+      }
+      if (command === "migrate_viewing_stats") return null;
       if (command === "get_random_frame") {
         draw += 1;
         const id = draw === 1 ? "abc123" : "def456";
@@ -250,11 +269,9 @@ test("persistent history keeps the existing jump path and the main image opens a
   assert.equal(get("stats-total").textContent, "2");
   assert.equal(get("stats-explored").textContent, "12,483 / 4,773,622,240");
   assert.equal(get("stats-explored-percent").textContent, "0.0002615% of known legacy ID space");
-  assert.deepEqual(JSON.parse(localStorage.getItem("random-frame-viewing-stats")), {
-    day: new Date().toLocaleDateString("en-CA"),
-    today: 2,
-    total: 2,
-  });
+  assert.equal(get("stats-explored-breakdown").textContent, "8,000 viewable · 4,483 unavailable");
+  assert.equal(get("stats-heatmap-detail").textContent, "Hover or focus a day for details.");
+  assert.equal(get("stats-heatmap-grid").children.length, leadingBlankCount(todayIso) + 1);
   get("stats-close-button").click();
   assert.equal(document.activeElement, get("stats-button"));
 
@@ -272,7 +289,7 @@ test("persistent history keeps the existing jump path and the main image opens a
     ],
   );
 
-  get("history-dialog").click();
+  get("dialog-backdrop").click();
   assert.equal(get("history-dialog").open, false);
 
   get("history-button").click();
@@ -302,7 +319,9 @@ test("persistent history keeps the existing jump path and the main image opens a
 
   get("image-zoom").click();
   assert.equal(get("lightbox-dialog").open, true);
-  get("lightbox-dialog").dispatchEvent(new Event("cancel", { cancelable: true }));
+  const escapeKey = new Event("keydown");
+  Object.defineProperty(escapeKey, "key", { value: "Escape" });
+  document.dispatchEvent(escapeKey);
   assert.equal(get("lightbox-dialog").open, false);
   get("image-zoom").click();
   get("lightbox-dialog").click();
@@ -317,4 +336,41 @@ test("persistent history keeps the existing jump path and the main image opens a
   get("history-clear-button").click();
   await flush();
   assert.equal(invocations.filter(({ command }) => command === "clear_history").length, 2);
+});
+
+test("migrates the legacy localStorage counter once on startup and clears it", async (t) => {
+  const document = new FakeDocument(ids);
+  const sessionStorage = new FakeStorage();
+  const localStorage = new FakeStorage();
+  const window = new EventTarget();
+  const performance = { getEntriesByType: () => [{ type: "back_forward" }] };
+  const globalNames = ["document", "localStorage", "performance", "sessionStorage", "window"];
+  const originalGlobals = new Map(globalNames.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+  localStorage.setItem("random-frame-risk-accepted", "accepted");
+  const legacyDay = new Date().toLocaleDateString("en-CA");
+  localStorage.setItem("random-frame-viewing-stats", JSON.stringify({ day: legacyDay, today: 5, total: 42 }));
+
+  Object.assign(globalThis, { document, localStorage, performance, sessionStorage, window });
+  const invocations = [];
+  window.__TAURI_INTERNALS__ = {
+    async invoke(command, args) {
+      invocations.push({ command, args });
+      if (command === "get_history") return { history: [], index: -1 };
+      if (command === "migrate_viewing_stats") return null;
+      throw new Error(`Unexpected command: ${command}`);
+    },
+  };
+  t.after(() => {
+    for (const [name, descriptor] of originalGlobals) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else delete globalThis[name];
+    }
+  });
+
+  await import(`../dist/test-client/app.js?test=${Date.now()}`);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const migration = invocations.find(({ command }) => command === "migrate_viewing_stats");
+  assert.deepEqual(migration?.args, { legacyDay, legacyToday: 5, legacyTotal: 42 });
+  assert.equal(localStorage.getItem("random-frame-viewing-stats"), null);
 });
