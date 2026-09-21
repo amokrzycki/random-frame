@@ -25,6 +25,8 @@ import {
   describeDay,
   formatExploredBreakdown,
   formatExploredPercent,
+  heatmapPlaceholderCount,
+  heatmapRangeLabel,
   intensityLevel,
   LEGACY_STATS_STORAGE_KEY,
   leadingBlankCount,
@@ -441,6 +443,12 @@ function renderHeatmap(days: DailyActivity[]): void {
   const grid = elements.statsHeatmapGrid;
   grid.replaceChildren();
   elements.statsHeatmapDetail.textContent = days.length ? HEATMAP_DEFAULT_DETAIL : "No activity data yet.";
+  const rangeLabel = days.length ? heatmapRangeLabel(days) : "";
+  elements.statsHeatmapRange.textContent = rangeLabel;
+  grid.setAttribute(
+    "aria-label",
+    rangeLabel ? `Daily viewed images, ${rangeLabel.toLowerCase()}` : "Daily viewed images",
+  );
   if (!days.length) return;
 
   const maxViewed = Math.max(1, ...days.map((day) => day.viewed));
@@ -462,6 +470,12 @@ function renderHeatmap(days: DailyActivity[]): void {
     cell.setAttribute("aria-label", description);
     cell.title = description;
     grid.append(cell);
+  }
+  for (let i = 0; i < heatmapPlaceholderCount(days.length); i += 1) {
+    const placeholder = document.createElement("span");
+    placeholder.className = "heatmap-cell heatmap-cell--placeholder";
+    placeholder.setAttribute("aria-hidden", "true");
+    grid.append(placeholder);
   }
 }
 

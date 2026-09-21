@@ -1,14 +1,26 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  ACTIVITY_WINDOW_DAYS,
   describeDay,
   formatDayLabel,
   formatExploredBreakdown,
   formatExploredPercent,
+  HEATMAP_MIN_VISIBLE_CELLS,
+  heatmapPlaceholderCount,
+  heatmapRangeLabel,
   intensityLevel,
   leadingBlankCount,
   parseLegacyStats,
 } from "../dist/test-client/statistics.js";
+
+function daysOf(count) {
+  return Array.from({ length: count }, (_, index) => ({
+    date: `2026-01-${String(index + 1).padStart(2, "0")}`,
+    viewed: 0,
+    rejected: 0,
+  }));
+}
 
 test("keeps tiny explored percentages visible", () => {
   assert.equal(formatExploredPercent(0), "0%");
@@ -64,4 +76,27 @@ test("describes a day's activity, distinguishing no activity from real counts", 
     "Sep 20, 2026 · 350 viewed · 1,284 explored · 934 unavailable",
   );
   assert.equal(describeDay({ date: "2026-09-20", viewed: 5, rejected: 0 }), "Sep 20, 2026 · 5 viewed · 5 explored");
+});
+
+test("labels a growing window by its actual start until it fills the 6-month cap", () => {
+  assert.equal(heatmapRangeLabel([{ date: "2026-09-20", viewed: 0, rejected: 0 }]), "Since Sep 20");
+  assert.equal(heatmapRangeLabel(daysOf(8)), "Since Jan 1");
+  assert.equal(heatmapRangeLabel(daysOf(ACTIVITY_WINDOW_DAYS)), "Last 6 months");
+  assert.equal(heatmapRangeLabel(daysOf(ACTIVITY_WINDOW_DAYS + 1)), "Last 6 months");
+});
+
+test("returns the fallback label for an empty window", () => {
+  assert.equal(heatmapRangeLabel([]), "Last 6 months");
+});
+
+test("pads short windows with decorative placeholders up to the visible minimum", () => {
+  assert.equal(heatmapPlaceholderCount(1), HEATMAP_MIN_VISIBLE_CELLS - 1);
+  assert.equal(heatmapPlaceholderCount(2), HEATMAP_MIN_VISIBLE_CELLS - 2);
+  assert.equal(heatmapPlaceholderCount(0), HEATMAP_MIN_VISIBLE_CELLS);
+});
+
+test("stops padding once real days reach or pass the visible minimum", () => {
+  assert.equal(heatmapPlaceholderCount(HEATMAP_MIN_VISIBLE_CELLS), 0);
+  assert.equal(heatmapPlaceholderCount(HEATMAP_MIN_VISIBLE_CELLS + 1), 0);
+  assert.equal(heatmapPlaceholderCount(183), 0);
 });

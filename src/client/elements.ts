@@ -44,6 +44,7 @@ export const elements = {
   statsExploredPercent: element<HTMLElement>("#stats-explored-percent"),
   statsExploredBreakdown: element<HTMLElement>("#stats-explored-breakdown"),
   statsHeatmapGrid: element<HTMLElement>("#stats-heatmap-grid"),
+  statsHeatmapRange: element<HTMLElement>("#stats-heatmap-range"),
   statsHeatmapDetail: element<HTMLElement>("#stats-heatmap-detail"),
   meta: element<HTMLElement>("#frame-meta"),
   main: element<HTMLElement>("#main-content"),

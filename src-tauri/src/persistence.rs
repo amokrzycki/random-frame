@@ -403,40 +403,47 @@ impl ActivityStore {
         Ok(())
     }
 
-    /// Returns the last `count` local days ending on `today`, oldest first, zero-filled.
+    /// Returns local days from the start of tracking through `today`, oldest first, capped at
+    /// `max_days`. Tracking start is the earliest day with a recorded bucket (there is no reliable
+    /// data before it, so it is never zero-filled as "0 activity"); with no recorded bucket at all,
+    /// only `today` is returned.
     pub fn recent_days(
         &self,
         today: NaiveDate,
-        count: u32,
+        max_days: u32,
     ) -> Vec<(String, DailyActivitySnapshot)> {
-        let data = self
+        let recorded_days = self
             .data
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let mut dates = Vec::with_capacity(count as usize);
-        let mut cursor = today;
-        for _ in 0..count {
-            dates.push(cursor);
-            match cursor.pred_opt() {
-                Some(previous) => cursor = previous,
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .days
+            .clone();
+        let tracking_start = recorded_days
+            .keys()
+            .next()
+            .and_then(|key| NaiveDate::parse_from_str(key, "%Y-%m-%d").ok());
+        let earliest_allowed =
+            today - chrono::Duration::days(i64::from(max_days.saturating_sub(1)));
+        let start = tracking_start.map_or(today, |date| date.max(earliest_allowed));
+
+        let mut days = Vec::new();
+        let mut cursor = start;
+        while cursor <= today {
+            let key = cursor.to_string();
+            let daily = recorded_days.get(&key).copied().unwrap_or_default();
+            days.push((
+                key,
+                DailyActivitySnapshot {
+                    viewed: daily.viewed,
+                    rejected: daily.rejected,
+                },
+            ));
+            match cursor.succ_opt() {
+                Some(next) => cursor = next,
                 None => break,
             }
         }
-        dates
-            .into_iter()
-            .rev()
-            .map(|date| {
-                let key = date.to_string();
-                let daily = data.days.get(&key).copied().unwrap_or_default();
-                (
-                    key,
-                    DailyActivitySnapshot {
-                        viewed: daily.viewed,
-                        rejected: daily.rejected,
-                    },
-                )
-            })
-            .collect()
+        days
     }
 
     pub fn clear(&self) -> Result<(), AppError> {
@@ -660,7 +667,6 @@ mod tests {
         assert_eq!(
             days,
             vec![
-                ("2026-09-18".to_owned(), DailyActivitySnapshot::default()),
                 (
                     "2026-09-19".to_owned(),
                     DailyActivitySnapshot {
@@ -675,7 +681,8 @@ mod tests {
                         rejected: 0
                     }
                 ),
-            ]
+            ],
+            "2026-09-18 predates the first recorded activity and must not be zero-filled"
         );
 
         let reloaded = ActivityStore::new(&directory)?;
@@ -741,6 +748,62 @@ mod tests {
                     rejected: 0
                 }
             )]
+        );
+        fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+
+    #[test]
+    fn recent_days_with_no_recorded_activity_returns_only_today() -> Result<(), AppError> {
+        let directory = test_directory("activity-window-empty");
+        let store = ActivityStore::new(&directory)?;
+        let today = NaiveDate::from_ymd_opt(2026, 9, 20).unwrap_or_default();
+        assert_eq!(
+            store.recent_days(today, 183),
+            vec![("2026-09-20".to_owned(), DailyActivitySnapshot::default())]
+        );
+        fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+
+    #[test]
+    fn recent_days_stops_at_the_first_recorded_day_short_of_the_window_cap() -> Result<(), AppError>
+    {
+        let directory = test_directory("activity-window-partial");
+        let store = ActivityStore::new(&directory)?;
+        let today = NaiveDate::from_ymd_opt(2026, 9, 20).unwrap_or_default();
+        // Tracking started 7 days ago: exactly 8 days (2026-09-13 .. 2026-09-20) should render.
+        store.record(ExplorationOutcome::Viewed, "2026-09-13")?;
+
+        let days = store.recent_days(today, 183);
+        assert_eq!(days.len(), 8);
+        assert_eq!(
+            days.first().map(|(date, _)| date.as_str()),
+            Some("2026-09-13")
+        );
+        assert_eq!(
+            days.last().map(|(date, _)| date.as_str()),
+            Some("2026-09-20")
+        );
+        fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+
+    #[test]
+    fn recent_days_caps_long_running_history_to_a_rolling_window() -> Result<(), AppError> {
+        let directory = test_directory("activity-window-rolling");
+        let store = ActivityStore::new(&directory)?;
+        let today = NaiveDate::from_ymd_opt(2026, 9, 20).unwrap_or_default();
+        // Tracking started a year ago, far past the 183-day cap.
+        store.record(ExplorationOutcome::Viewed, "2025-09-20")?;
+
+        let days = store.recent_days(today, 183);
+        assert_eq!(days.len(), 183);
+        assert_eq!(
+            days.first().map(|(date, _)| date.as_str()),
+            Some("2026-03-22"),
+            "window must start exactly 182 days before today, not at the true tracking start"
+        );
+        assert_eq!(
+            days.last().map(|(date, _)| date.as_str()),
+            Some("2026-09-20")
         );
         fs::remove_dir_all(directory).map_err(AppError::persistence)
     }

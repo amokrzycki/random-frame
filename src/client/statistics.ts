@@ -52,6 +52,9 @@ export function parseLegacyStats(raw: string | null): LegacyStats | null {
 
 export const HEATMAP_LEVELS = 4;
 
+// Mirrors the backend's rolling-window cap (`ACTIVITY_WINDOW_DAYS` in src-tauri/src/lib.rs).
+export const ACTIVITY_WINDOW_DAYS = 183;
+
 // Buckets a day's viewed count into 0..HEATMAP_LEVELS, scaled against the busiest day in the window.
 export function intensityLevel(viewed: number, maxViewed: number): number {
   if (viewed <= 0 || maxViewed <= 0) return 0;
@@ -69,10 +72,28 @@ export function formatDayLabel(iso: string): string {
   return parseLocalDate(iso).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
 }
 
+// The backend never renders days before tracking started, so the window's actual length tells us
+// whether it's still growing ("Since ...") or has reached the full rolling 6-month cap.
+export function heatmapRangeLabel(days: DailyActivity[]): string {
+  const firstDay = days[0];
+  if (!firstDay || days.length >= ACTIVITY_WINDOW_DAYS) return "Last 6 months";
+  const label = parseLocalDate(firstDay.date).toLocaleDateString("en-US", { day: "numeric", month: "short" });
+  return `Since ${label}`;
+}
+
 // Weekday of the window's first day, Monday-indexed, for padding leading empty cells.
 export function leadingBlankCount(firstDayIso: string): number {
   const jsWeekday = parseLocalDate(firstDayIso).getDay();
   return (jsWeekday + 6) % 7;
+}
+
+export const HEATMAP_MIN_VISIBLE_CELLS = 7;
+
+// A one- or two-day-old window renders as a lonely cell in an otherwise empty grid. Padding it
+// with decorative (non-day) placeholders keeps the heatmap looking intact while it's still short;
+// these are never real days and shrink to zero once tracking has enough history of its own.
+export function heatmapPlaceholderCount(dayCount: number): number {
+  return Math.max(0, HEATMAP_MIN_VISIBLE_CELLS - dayCount);
 }
 
 // Single line serving both the accessible name and visible hover/focus readout for a heatmap day.
