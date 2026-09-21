@@ -423,8 +423,7 @@ impl ActivityStore {
             .days
             .keys()
             .find_map(|key| NaiveDate::parse_from_str(key, "%Y-%m-%d").ok());
-        let earliest_allowed =
-            today - chrono::Duration::days(i64::from(max_days - 1));
+        let earliest_allowed = today - chrono::Duration::days(i64::from(max_days - 1));
         let start = tracking_start
             .map_or(today, |date| date.max(earliest_allowed))
             .min(today);

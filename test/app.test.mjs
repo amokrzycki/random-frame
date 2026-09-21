@@ -274,7 +274,10 @@ test("persistent history keeps the existing jump path and the main image opens a
   assert.equal(get("stats-heatmap-detail").textContent, "Hover or focus a day for details.");
   const expectedRange = heatmapRangeLabel([{ date: todayIso, viewed: 2, rejected: 0 }]);
   assert.equal(get("stats-heatmap-range").textContent, expectedRange);
-  assert.equal(get("stats-heatmap-grid").getAttribute("aria-label"), `Daily viewed images, ${expectedRange.toLowerCase()}`);
+  assert.equal(
+    get("stats-heatmap-grid").getAttribute("aria-label"),
+    `Daily viewed images, ${expectedRange.toLowerCase()}`,
+  );
   assert.equal(get("stats-heatmap-grid").children.length, leadingBlankCount(todayIso) + 1 + heatmapPlaceholderCount(1));
   get("stats-close-button").click();
   assert.equal(document.activeElement, get("stats-button"));
