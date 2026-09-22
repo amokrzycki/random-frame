@@ -178,15 +178,45 @@ test("persistent history keeps the existing jump path and the main image opens a
   get("lightbox-dialog").click();
   assert.equal(get("lightbox-dialog").open, false);
 
+  // Clearing is hold-to-confirm: the completed fill transition clears, releasing early does not.
+  const clearButton = get("history-clear-button");
+  const clears = () => invocations.filter(({ command }) => command === "clear_history").length;
+  const press = () => {
+    const event = new Event("pointerdown");
+    Object.defineProperty(event, "button", { value: 0 });
+    clearButton.dispatchEvent(event);
+  };
+  const release = () => {
+    clearButton.dispatchEvent(new Event("pointerup"));
+    clearButton.click();
+  };
+  const fill = () => {
+    const event = new Event("transitionend");
+    Object.defineProperty(event, "pseudoElement", { value: "::before" });
+    clearButton.dispatchEvent(event);
+  };
+  window.setTimeout = () => 0;
   get("history-button").click();
-  get("history-clear-button").click();
+  press();
+  release();
+  fill();
+  await flush();
+  assert.equal(clears(), 0);
+  press();
+  fill();
+  release();
   await flush();
   assert.deepEqual(persisted, { history: [], index: -1 });
   assert.equal(get("history-total").textContent, "0");
-  assert.equal(get("history-clear-button").disabled, false);
-  get("history-clear-button").click();
+  assert.equal(clearButton.disabled, false);
+  // Assistive tech clicks without a press: the first activation arms, the second clears.
+  clearButton.click();
   await flush();
-  assert.equal(invocations.filter(({ command }) => command === "clear_history").length, 2);
+  assert.equal(clears(), 1);
+  assert.equal(get("announcer").textContent, "Activate again to clear history");
+  clearButton.click();
+  await flush();
+  assert.equal(clears(), 2);
 });
 
 test("migrates the legacy localStorage counter once on startup and clears it", async (t) => {

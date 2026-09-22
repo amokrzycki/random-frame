@@ -21,7 +21,7 @@ function show(message: string, tone: ToastTone): void {
   window.setTimeout(() => {
     notification.classList.add("toast--leaving");
     notification.addEventListener(
-      "animationend",
+      "transitionend",
       () => {
         const parent = notification.parentElement;
         notification.remove();

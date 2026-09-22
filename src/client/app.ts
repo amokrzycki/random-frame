@@ -326,18 +326,9 @@ function onDialogClosed(): void {
   if (dialogs.some((dialog) => dialog.open)) return;
   elements.main.inert = false;
   elements.footer.inert = false;
-  const backdrop = elements.dialogBackdrop;
-  delete backdrop.dataset.open;
-  const fallback = setTimeout(() => (backdrop.hidden = true), 250);
-  backdrop.addEventListener(
-    "transitionend",
-    (event) => {
-      if (event.target !== backdrop || event.propertyName !== "opacity") return;
-      clearTimeout(fallback);
-      backdrop.hidden = true;
-    },
-    { once: true },
-  );
+  // closeDialog already faded the backdrop alongside the dialog.
+  delete elements.dialogBackdrop.dataset.open;
+  elements.dialogBackdrop.hidden = true;
 }
 
 // The entry dialog can only be dismissed by accepting; it never closes on backdrop click or Escape.
@@ -364,16 +355,20 @@ function closeDialog(dialog: HTMLDialogElement): void {
   }
   if (classList.contains("is-closing")) return;
   classList.add("is-closing");
-  const fallback = setTimeout(() => dialog.close(), 250);
-  dialog.addEventListener(
-    "transitionend",
-    (event) => {
-      if (event.target !== dialog || event.propertyName !== "opacity") return;
-      clearTimeout(fallback);
-      dialog.close();
-    },
-    { once: true },
-  );
+  if (!dialogs.some((other) => other !== dialog && other.open)) delete elements.dialogBackdrop.dataset.open;
+  // Not `once`: children's transitionend events bubble here first and would consume the listener.
+  const onTransitionEnd = (event: TransitionEvent): void => {
+    if (event.target !== dialog || event.propertyName !== "opacity") return;
+    clearTimeout(fallback);
+    finish();
+  };
+  const finish = (): void => {
+    dialog.removeEventListener("transitionend", onTransitionEnd);
+    dialog.close();
+    classList.remove("is-closing");
+  };
+  const fallback = setTimeout(finish, 180);
+  dialog.addEventListener("transitionend", onTransitionEnd);
 }
 
 function goBack(): void {
@@ -551,12 +546,55 @@ elements.copyImage.addEventListener("click", () => void copyCurrentImage());
 elements.copyLink.addEventListener("click", () => void copySourceLink());
 elements.historyButton.addEventListener("click", openHistory);
 elements.historyClose.addEventListener("click", () => closeDialog(elements.historyDialog));
-elements.historyClear.addEventListener("click", () => void clearSavedHistory());
+// Hold-to-confirm: the fill's transitionend (dialogs.css) is the confirmation; releasing early cancels.
+let clearPressed = false;
+let clearArmedUntil = 0;
+function startClearHold(): void {
+  clearPressed = true;
+  if (loading || elements.historyClear.disabled) return;
+  elements.historyClear.dataset.holding = "";
+}
+function stopClearHold(): boolean {
+  if (!("holding" in elements.historyClear.dataset)) return false;
+  delete elements.historyClear.dataset.holding;
+  return true;
+}
+elements.historyClear.addEventListener("pointerdown", (event) => {
+  if (event.button === 0) startClearHold();
+});
+elements.historyClear.addEventListener("keydown", (event) => {
+  if (!event.repeat && (event.key === " " || event.key === "Enter")) startClearHold();
+});
+for (const type of ["pointerup", "pointerleave", "pointercancel", "keyup", "blur"]) {
+  elements.historyClear.addEventListener(type, () => {
+    if (stopClearHold()) toast.success("Hold to clear history");
+  });
+}
+elements.historyClear.addEventListener("transitionend", (event) => {
+  if (event.pseudoElement !== "::before" || !stopClearHold()) return;
+  void clearSavedHistory();
+});
+// Assistive tech activates with a bare click (no pointer or key press first) and can't hold,
+// so a second activation within 5s confirms instead.
+elements.historyClear.addEventListener("click", () => {
+  if (clearPressed) {
+    clearPressed = false;
+    return;
+  }
+  if (Date.now() < clearArmedUntil) {
+    clearArmedUntil = 0;
+    void clearSavedHistory();
+    return;
+  }
+  clearArmedUntil = Date.now() + 5000;
+  elements.announcer.textContent = "Activate again to clear history";
+});
 elements.historyPagePrevious.addEventListener("click", () => showHistoryPage(pageIndex - 1));
 elements.historyPageNext.addEventListener("click", () => showHistoryPage(pageIndex + 1));
 elements.historyPageSize.addEventListener("change", changePageSize);
 elements.historyDialog.addEventListener("close", () => {
-  elements.historyDialog.classList?.remove("is-closing");
+  // Hiding mid-hold cancels the fill without a transitionend; drop the hold silently.
+  stopClearHold();
   elements.historyButton.focus();
   onDialogClosed();
 });
@@ -597,15 +635,14 @@ elements.statsHeatmapGrid.addEventListener("focusout", () => {
 });
 elements.statsClose.addEventListener("click", () => closeDialog(elements.statsDialog));
 elements.statsDialog.addEventListener("close", () => {
-  elements.statsDialog.classList?.remove("is-closing");
   elements.statsButton.focus();
   onDialogClosed();
 });
 elements.imageZoom.addEventListener("click", openLightbox);
-elements.lightboxDialog.addEventListener("click", () => elements.lightboxDialog.close());
+elements.lightboxDialog.addEventListener("click", () => closeDialog(elements.lightboxDialog));
 elements.lightboxClose.addEventListener("click", (event) => {
   event.stopPropagation();
-  elements.lightboxDialog.close();
+  closeDialog(elements.lightboxDialog);
 });
 elements.lightboxDialog.addEventListener("close", () => {
   elements.imageZoom.focus();
@@ -614,7 +651,10 @@ elements.lightboxDialog.addEventListener("close", () => {
 elements.entryConsent.addEventListener("change", () => {
   elements.entryButton.disabled = !elements.entryConsent.checked;
 });
-elements.entryDialog.addEventListener("close", onDialogClosed);
+elements.entryDialog.addEventListener("close", () => {
+  onDialogClosed();
+  elements.start.focus();
+});
 elements.entryButton.addEventListener("click", () => {
   if (!elements.entryConsent.checked) return;
   try {
@@ -622,8 +662,7 @@ elements.entryButton.addEventListener("click", () => {
   } catch {
     // Ignore errors, the dialog will just show again next time
   }
-  elements.entryDialog.close();
-  elements.start.focus();
+  closeDialog(elements.entryDialog);
 });
 elements.jumpInput.addEventListener("input", () => elements.jumpInput.setCustomValidity(""));
 elements.jumpForm.addEventListener("submit", (event) => {

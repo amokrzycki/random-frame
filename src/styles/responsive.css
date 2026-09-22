@@ -201,14 +201,63 @@
     animation-iteration-count: 1 !important;
   }
 
+  .entry-dialog,
   .history-dialog,
-  .history-dialog:modal {
+  .lightbox-dialog,
+  :is(.entry-dialog, .history-dialog, .lightbox-dialog)[open],
+  :is(.entry-dialog, .history-dialog, .lightbox-dialog)[open].is-closing {
     transform: none;
-    transition-duration: 200ms;
   }
 
-  .theme-toggle__icon svg {
-    transition-duration: 0.01ms;
+  @starting-style {
+    :is(.entry-dialog, .history-dialog, .lightbox-dialog)[open] {
+      transform: none;
+    }
+  }
+
+  .update-banner,
+  .update-banner--leaving {
+    transform: translateX(-50%);
+  }
+
+  @starting-style {
+    .update-banner {
+      transform: translateX(-50%);
+    }
+  }
+
+  /* The hold still gates clearing; the fill fades in instead of sweeping. */
+  .history-clear::before {
+    clip-path: none;
+    opacity: 0;
+    transition: opacity 200ms var(--ease-out);
+  }
+
+  .history-clear[data-holding]::before {
+    clip-path: none;
+    opacity: 1;
+    transition: opacity 1500ms linear;
+  }
+
+  .toast,
+  .toast--leaving,
+  .entry-consent input::before,
+  .entry-consent input:checked::before {
+    transform: none;
+  }
+
+  @starting-style {
+    .toast {
+      transform: none;
+    }
+  }
+
+  /* Icons crossfade in place; no spin or scale. */
+  .theme-toggle__sun,
+  .theme-toggle__icon .theme-toggle__moon,
+  .theme-toggle[aria-pressed="true"] .theme-toggle__sun,
+  .theme-toggle[aria-pressed="true"] .theme-toggle__moon {
+    transform: translate(-50%, -50%);
   }
 
   .theme-toggle:active .theme-toggle__knob {
@@ -217,7 +266,12 @@
 
   .stats-button:active,
   .history-pager__step:active:not(:disabled),
-  .history-pager__select select:active {
+  .history-pager__select select:active,
+  .history-close:active,
+  .primary-action:active:not(:disabled),
+  .source-icon:active:not(:disabled),
+  .id-sequence button:active:not(:disabled),
+  .save-button:active:not(:disabled) {
     transform: none;
   }
 }
