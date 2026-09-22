@@ -1,5 +1,5 @@
 use crate::error::AppError;
-use chrono::NaiveDate;
+use chrono::{Local, NaiveDate, TimeZone};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap},
@@ -96,6 +96,26 @@ impl HistoryStore {
         let result = snapshot(&data);
         drop(data);
         Ok(result)
+    }
+
+    /// Prnt.sc frames first shown per local day (`YYYY-MM-DD`); revisits never touch `viewed_at`.
+    pub fn prntsc_views_per_day(&self) -> BTreeMap<String, u64> {
+        let data = self
+            .data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut days = BTreeMap::new();
+        for item in data.history.iter().filter(|item| item.source == "prntsc") {
+            let Some(viewed_at) = i64::try_from(item.viewed_at)
+                .ok()
+                .and_then(|millis| Local.timestamp_millis_opt(millis).single())
+            else {
+                continue;
+            };
+            *days.entry(viewed_at.date_naive().to_string()).or_insert(0) += 1;
+        }
+        drop(data);
+        days
     }
 
     pub fn select(&self, index: usize) -> Result<HistorySnapshot, AppError> {
@@ -303,6 +323,7 @@ struct DailyActivity {
 #[serde(default)]
 struct ActivityData {
     migrated: bool,
+    revisit_views_repaired: bool,
     viewed_total: u64,
     days: BTreeMap<String, DailyActivity>,
 }
@@ -347,7 +368,7 @@ impl ActivityStore {
         })
     }
 
-    /// Records one checked candidate for the given local day (`YYYY-MM-DD`).
+    /// Records one newly classified unique id for the local day (`YYYY-MM-DD`).
     pub fn record(&self, outcome: ExplorationOutcome, day: &str) -> Result<(), AppError> {
         let mut data = self
             .data
@@ -396,6 +417,33 @@ impl ActivityStore {
         if legacy_day == today && legacy_today > 0 {
             let entry = next.days.entry(today.to_owned()).or_default();
             entry.viewed = entry.viewed.saturating_add(legacy_today);
+        }
+        self.save(&next)?;
+        *data = next;
+        drop(data);
+        Ok(())
+    }
+
+    /// One-shot clamp of each day's `viewed` (and `viewed_total`) to first views; never raises a count.
+    pub fn repair_revisit_views(
+        &self,
+        first_views: &BTreeMap<String, u64>,
+    ) -> Result<(), AppError> {
+        let mut data = self
+            .data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if data.revisit_views_repaired {
+            return Ok(());
+        }
+        let mut next = data.clone();
+        next.revisit_views_repaired = true;
+        for (day, entry) in &mut next.days {
+            let excess = entry
+                .viewed
+                .saturating_sub(first_views.get(day).copied().unwrap_or(0));
+            entry.viewed -= excess;
+            next.viewed_total = next.viewed_total.saturating_sub(excess);
         }
         self.save(&next)?;
         *data = next;
@@ -752,6 +800,86 @@ mod tests {
                 }
             )]
         );
+        fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+
+    #[test]
+    fn history_views_per_day_counts_only_prntsc_entries_by_local_day() -> Result<(), AppError> {
+        let directory = test_directory("history-views-per-day");
+        let store = HistoryStore::new(&directory)?;
+        let viewed_at: u64 = 1_789_000_000_000;
+        for (source, id) in [
+            ("prntsc", "abc123"),
+            ("prntsc", "abc124"),
+            ("other", "abc125"),
+        ] {
+            store.record(HistoryItem {
+                source: source.to_owned(),
+                id: id.to_owned(),
+                source_page_url: format!("https://prnt.sc/{id}"),
+                viewed_at,
+            })?;
+        }
+        let day = Local
+            .timestamp_millis_opt(1_789_000_000_000)
+            .single()
+            .map(|time| time.date_naive().to_string())
+            .unwrap_or_default();
+        assert_eq!(store.prntsc_views_per_day(), BTreeMap::from([(day, 2)]));
+        fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+
+    #[test]
+    fn revisit_repair_only_lowers_overcounted_days_runs_once_and_persists() -> Result<(), AppError>
+    {
+        let directory = test_directory("activity-repair");
+        let store = ActivityStore::new(&directory)?;
+        // Migrated legacy views match history, so they survive.
+        store.migrate("2026-09-21", 3, 100, "2026-09-21")?;
+        // 2 revisits on top of 4 first views.
+        for _ in 0..6 {
+            store.record(ExplorationOutcome::Viewed, "2026-09-22")?;
+        }
+        store.record(ExplorationOutcome::Rejected, "2026-09-22")?;
+        let first_views = BTreeMap::from([
+            ("2026-09-20".to_owned(), 9),
+            ("2026-09-21".to_owned(), 3),
+            ("2026-09-22".to_owned(), 4),
+        ]);
+
+        store.repair_revisit_views(&first_views)?;
+        store.repair_revisit_views(&BTreeMap::new())?;
+
+        let expected = vec![
+            (
+                "2026-09-21".to_owned(),
+                DailyActivitySnapshot {
+                    viewed: 3,
+                    rejected: 0,
+                },
+            ),
+            (
+                "2026-09-22".to_owned(),
+                DailyActivitySnapshot {
+                    viewed: 4,
+                    rejected: 1,
+                },
+            ),
+        ];
+        let today = NaiveDate::from_ymd_opt(2026, 9, 22).unwrap_or_default();
+        assert_eq!(
+            store.recent_days(today, 183),
+            expected,
+            "days before tracking stay absent"
+        );
+        assert_eq!(
+            store.viewed_total(),
+            104,
+            "legacy total survives the repair"
+        );
+        let reloaded = ActivityStore::new(&directory)?;
+        assert_eq!(reloaded.recent_days(today, 183), expected);
+        assert_eq!(reloaded.viewed_total(), 104);
         fs::remove_dir_all(directory).map_err(AppError::persistence)
     }
 

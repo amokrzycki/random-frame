@@ -98,9 +98,13 @@ impl Prntsc {
             Err(error) => Err(error),
         };
         if let Some(outcome) = classify_outcome(&result) {
-            self.explored.mark(value, outcome)?;
-            self.activity
-                .record(outcome, &Local::now().date_naive().to_string())?;
+            record_exploration(
+                &self.explored,
+                &self.activity,
+                value,
+                outcome,
+                &Local::now().date_naive().to_string(),
+            )?;
         }
         result
     }
@@ -236,6 +240,20 @@ fn classify_outcome<T>(result: &Result<T, AppError>) -> Option<ExplorationOutcom
     }
 }
 
+/// Counts an outcome once per unique id, so revisits re-fetched via `get_frame` never reach activity.
+fn record_exploration(
+    explored: &ExplorationStore,
+    activity: &ActivityStore,
+    value: u64,
+    outcome: ExplorationOutcome,
+    day: &str,
+) -> Result<(), AppError> {
+    if explored.mark(value, outcome)? {
+        activity.record(outcome, day)?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 fn outcome_is_explored<T>(result: &Result<T, AppError>) -> bool {
     classify_outcome(result).is_some()
@@ -334,6 +352,56 @@ mod tests {
             std::process::id()
         ));
         ExplorationStore::new(&directory)
+    }
+
+    #[test]
+    fn revisits_navigation_and_restart_reloads_never_count_as_new_activity() -> Result<(), AppError>
+    {
+        use crate::persistence::DailyActivitySnapshot;
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .map_or(0, |duration| duration.as_nanos());
+        let directory = std::env::temp_dir().join(format!(
+            "random-frame-prntsc-activity-once-{}-{nonce}",
+            std::process::id()
+        ));
+        let day = "2026-09-22";
+        let explored = ExplorationStore::new(&directory)?;
+        let activity = ActivityStore::new(&directory)?;
+
+        // First view and one unavailable id.
+        record_exploration(&explored, &activity, 1, ExplorationOutcome::Viewed, day)?;
+        record_exploration(&explored, &activity, 2, ExplorationOutcome::Rejected, day)?;
+        // Uncached back/forward or history jump re-fetches; may later fail.
+        record_exploration(&explored, &activity, 1, ExplorationOutcome::Viewed, day)?;
+        record_exploration(&explored, &activity, 1, ExplorationOutcome::Rejected, day)?;
+        record_exploration(&explored, &activity, 2, ExplorationOutcome::Rejected, day)?;
+
+        // Restart reloads state, then re-fetches the selected frame.
+        drop((explored, activity));
+        let explored = ExplorationStore::new(&directory)?;
+        let activity = ActivityStore::new(&directory)?;
+        record_exploration(&explored, &activity, 1, ExplorationOutcome::Viewed, day)?;
+
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 9, 22).unwrap_or_default();
+        assert_eq!(
+            activity.recent_days(today, 1),
+            vec![(
+                day.to_owned(),
+                DailyActivitySnapshot {
+                    viewed: 1,
+                    rejected: 1
+                }
+            )]
+        );
+        assert_eq!(explored.count(), 2);
+        assert_eq!(explored.viewable_count(), 1);
+        assert_eq!(explored.unavailable_count(), 1);
+        assert_eq!(
+            usize::try_from(activity.viewed_total()).ok(),
+            Some(explored.viewable_count())
+        );
+        std::fs::remove_dir_all(directory).map_err(AppError::persistence)
     }
 
     fn pick_from(candidates: &[&str]) -> impl FnMut() -> String {

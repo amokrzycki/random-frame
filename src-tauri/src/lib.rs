@@ -38,9 +38,12 @@ impl AppState {
     fn new(data_directory: &Path) -> Result<Self, AppError> {
         let explored = Arc::new(ExplorationStore::new(data_directory)?);
         let activity = Arc::new(ActivityStore::new(data_directory)?);
+        let history = HistoryStore::new(data_directory)?;
+        // Best-effort; retried next launch if the write fails.
+        let _ = activity.repair_revisit_views(&history.prntsc_views_per_day());
         Ok(Self {
             prntsc: Prntsc::new(Arc::clone(&explored), Arc::clone(&activity))?,
-            history: HistoryStore::new(data_directory)?,
+            history,
             explored,
             activity,
             rate_limiter: Mutex::new(RateLimiter::new()),
@@ -385,6 +388,60 @@ mod tests {
             "random-frame-lib-{name}-{}-{nonce}",
             std::process::id()
         ))
+    }
+
+    #[test]
+    fn startup_repairs_revisit_overcount_from_older_builds_without_touching_other_data(
+    ) -> Result<(), AppError> {
+        // Pre-fix shape: activity counted 2 uncached revisits on top of 3 first views.
+        let directory = test_state_directory("revisit-repair");
+        std::fs::create_dir_all(&directory).map_err(AppError::persistence)?;
+        let now = Local::now();
+        let today = now.date_naive().to_string();
+        let viewed_at = u64::try_from(now.timestamp_millis()).unwrap_or_default();
+        let history: Vec<_> = ["abc123", "abc124", "abc125"]
+            .iter()
+            .map(|id| {
+                serde_json::json!({
+                    "source": "prntsc",
+                    "id": id,
+                    "sourcePageUrl": format!("https://prnt.sc/{id}"),
+                    "viewedAt": viewed_at,
+                })
+            })
+            .collect();
+        let write = |name: &str, contents: String| {
+            std::fs::write(directory.join(name), contents).map_err(AppError::persistence)
+        };
+        write(
+            "history.json",
+            serde_json::json!({ "history": history, "index": 1 }).to_string(),
+        )?;
+        write(
+            "activity.json",
+            serde_json::json!({
+                "migrated": false,
+                "viewed_total": 5,
+                "days": { &today: { "viewed": 5, "rejected": 2 } },
+            })
+            .to_string(),
+        )?;
+        write(
+            "prntsc-explored.txt",
+            "1,v\n2,v\n3,v\n4,r\n5,r\n".to_owned(),
+        )?;
+
+        for _ in 0..2 {
+            let state = AppState::new(&directory)?;
+            let days = state.activity.recent_days(now.date_naive(), 1);
+            assert_eq!(days[0].1.viewed, 3);
+            assert_eq!(days[0].1.rejected, 2);
+            assert_eq!(state.activity.viewed_total(), 3);
+            assert_eq!(state.explored.viewable_count(), 3);
+            assert_eq!(state.explored.unavailable_count(), 2);
+            assert_eq!(state.history.snapshot().history.len(), 3);
+        }
+        std::fs::remove_dir_all(directory).map_err(AppError::persistence)
     }
 
     #[tokio::test(start_paused = true)]
