@@ -5,7 +5,7 @@
   text-underline-offset: 5px;
 }
 
-.privacy-main {
+.app-shell .privacy-main {
   max-width: 760px;
   height: 100%;
   padding-bottom: 72px;
@@ -16,8 +16,8 @@
   line-height: 1.75;
 }
 .privacy-page header {
-  margin-bottom: 48px;
-  padding-bottom: 32px;
+  margin-bottom: 24px;
+  padding-bottom: 24px;
   border-bottom: 1px solid var(--line);
 }
 .privacy-page h1,
@@ -35,9 +35,6 @@
   margin: 48px 0 14px;
   font-size: 26px;
   line-height: 1.2;
-}
-.privacy-page p {
-  margin: 0 0 16px;
 }
 .privacy-page header p {
   color: var(--muted);
