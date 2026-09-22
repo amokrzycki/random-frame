@@ -105,6 +105,15 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
   }
+  .history-pager {
+    padding: 10px 14px 12px 20px;
+  }
+  .history-pager__range {
+    width: 100%;
+  }
+  .history-pager__step span {
+    display: none;
+  }
   .entry-dialog__content {
     padding: 30px 24px 26px;
   }
@@ -206,7 +215,9 @@
     transform: none;
   }
 
-  .stats-button:active {
+  .stats-button:active,
+  .history-pager__step:active:not(:disabled),
+  .history-pager__select select:active {
     transform: none;
   }
 }
