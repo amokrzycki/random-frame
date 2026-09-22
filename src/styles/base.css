@@ -127,3 +127,15 @@ footer {
     transform: rotate(1turn);
   }
 }
+@keyframes reveal {
+  from {
+    opacity: 0.25;
+    filter: blur(8px);
+    clip-path: inset(0 48%);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    clip-path: inset(0);
+  }
+}
