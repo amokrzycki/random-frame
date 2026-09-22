@@ -353,20 +353,19 @@ function closeDialog(dialog: HTMLDialogElement): void {
   if (classList.contains("is-closing")) return;
   classList.add("is-closing");
   if (!dialogs.some((other) => other !== dialog && other.open)) delete elements.dialogBackdrop.dataset.open;
+  // Not `once`: children's transitionend events bubble here first and would consume the listener.
+  const onTransitionEnd = (event: TransitionEvent): void => {
+    if (event.target !== dialog || event.propertyName !== "opacity") return;
+    clearTimeout(fallback);
+    finish();
+  };
   const finish = (): void => {
+    dialog.removeEventListener("transitionend", onTransitionEnd);
     dialog.close();
     classList.remove("is-closing");
   };
   const fallback = setTimeout(finish, 180);
-  dialog.addEventListener(
-    "transitionend",
-    (event) => {
-      if (event.target !== dialog || event.propertyName !== "opacity") return;
-      clearTimeout(fallback);
-      finish();
-    },
-    { once: true },
-  );
+  dialog.addEventListener("transitionend", onTransitionEnd);
 }
 
 function goBack(): void {
@@ -545,14 +544,17 @@ elements.copyLink.addEventListener("click", () => void copySourceLink());
 elements.historyButton.addEventListener("click", openHistory);
 elements.historyClose.addEventListener("click", () => closeDialog(elements.historyDialog));
 // Hold-to-confirm: the fill's transitionend (dialogs.css) is the confirmation; releasing early cancels.
+let clearPressed = false;
+let clearArmedUntil = 0;
 function startClearHold(): void {
+  clearPressed = true;
   if (loading || elements.historyClear.disabled) return;
   elements.historyClear.dataset.holding = "";
 }
-function cancelClearHold(): void {
-  if (!("holding" in elements.historyClear.dataset)) return;
+function stopClearHold(): boolean {
+  if (!("holding" in elements.historyClear.dataset)) return false;
   delete elements.historyClear.dataset.holding;
-  toast.success("Hold to clear history");
+  return true;
 }
 elements.historyClear.addEventListener("pointerdown", (event) => {
   if (event.button === 0) startClearHold();
@@ -561,17 +563,35 @@ elements.historyClear.addEventListener("keydown", (event) => {
   if (!event.repeat && (event.key === " " || event.key === "Enter")) startClearHold();
 });
 for (const type of ["pointerup", "pointerleave", "pointercancel", "keyup", "blur"]) {
-  elements.historyClear.addEventListener(type, cancelClearHold);
+  elements.historyClear.addEventListener(type, () => {
+    if (stopClearHold()) toast.success("Hold to clear history");
+  });
 }
 elements.historyClear.addEventListener("transitionend", (event) => {
-  if (!("holding" in elements.historyClear.dataset) || event.pseudoElement !== "::before") return;
-  delete elements.historyClear.dataset.holding;
+  if (event.pseudoElement !== "::before" || !stopClearHold()) return;
   void clearSavedHistory();
+});
+// Assistive tech activates with a bare click (no pointer or key press first) and can't hold,
+// so a second activation within 5s confirms instead.
+elements.historyClear.addEventListener("click", () => {
+  if (clearPressed) {
+    clearPressed = false;
+    return;
+  }
+  if (Date.now() < clearArmedUntil) {
+    clearArmedUntil = 0;
+    void clearSavedHistory();
+    return;
+  }
+  clearArmedUntil = Date.now() + 5000;
+  elements.announcer.textContent = "Activate again to clear history";
 });
 elements.historyPagePrevious.addEventListener("click", () => showHistoryPage(pageIndex - 1));
 elements.historyPageNext.addEventListener("click", () => showHistoryPage(pageIndex + 1));
 elements.historyPageSize.addEventListener("change", changePageSize);
 elements.historyDialog.addEventListener("close", () => {
+  // Hiding mid-hold cancels the fill without a transitionend; drop the hold silently.
+  stopClearHold();
   elements.historyButton.focus();
   onDialogClosed();
 });
