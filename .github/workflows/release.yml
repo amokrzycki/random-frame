@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.4.0)"
+        required: false
+        default: "v0.4.0"
 
 permissions:
   contents: write
@@ -16,9 +22,11 @@ jobs:
         include:
           - platform: ubuntu-22.04
             args: "--bundles deb,appimage"
+            tauriScript: "tauri-build-wrapper"
 
           - platform: windows-latest
             args: "--bundles nsis,msi"
+            tauriScript: ""
 
     runs-on: ${{ matrix.platform }}
 
@@ -72,16 +80,138 @@ jobs:
       - name: Rust tests
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml --workspace --all-features
 
+      # Workaround for upstream Tauri AppImage bundler over-bundling display-stack libraries:
+      # - https://github.com/tauri-apps/tauri/issues/15665
+      # - https://github.com/tauri-apps/tauri/issues/15976
+      # - https://github.com/tauri-apps/tauri/pull/15662
+      # Older bundled display-stack libraries can conflict with newer host Mesa/Wayland stacks.
+      # Temporary workaround: remove once official `bundle.linux.appimage.excludeLibraries` is available.
+      - name: Patch linuxdeploy GTK plugin to exclude display-stack libraries
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          mkdir -p ~/.cache/tauri
+          PLUGIN_URL="https://raw.githubusercontent.com/tauri-apps/linuxdeploy-plugin-gtk/b5eb8d05b4c0ed40107fe2158c5d8527f94568ef/linuxdeploy-plugin-gtk.sh"
+          EXPECTED_SHA256="cb379f9b0733e9ad9f8bd78f8c2fa038aef2478523bb7d4c8e64ff6a1ea3501a"
+          PLUGIN_PATH="$HOME/.cache/tauri/linuxdeploy-plugin-gtk.sh"
+
+          curl -fsSL "$PLUGIN_URL" -o "$PLUGIN_PATH"
+          echo "${EXPECTED_SHA256}  ${PLUGIN_PATH}" | sha256sum --check --strict -
+          chmod +x "$PLUGIN_PATH"
+
+          cat << 'EOF' >> "$PLUGIN_PATH"
+
+          # Upstream workaround: Remove display-stack libraries so host system libraries are used
+          rm -f "$APPDIR"/usr/lib*/libwayland-*.so*
+          rm -f "$APPDIR"/usr/lib*/libxkbcommon*.so*
+          rm -f "$APPDIR"/usr/lib*/libxcb-*.so*
+          rm -f "$APPDIR"/usr/lib*/libXau.so*
+          rm -f "$APPDIR"/usr/lib*/libXdmcp.so*
+          EOF
+
+      # Wraps Tauri build to ensure AppImage verification occurs BEFORE tauri-action can upload any assets
+      - name: Setup Tauri build wrapper with pre-upload verification
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          cat << 'EOF' > "$HOME/.local/bin/tauri-build-wrapper"
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          # 1. Run the actual Tauri build with all passed arguments
+          npx tauri "$@"
+
+          # 2. Safely locate built AppImage using nullglob
+          shopt -s nullglob
+          appimages=(src-tauri/target/release/bundle/appimage/*.AppImage)
+          shopt -u nullglob
+
+          if [ ${#appimages[@]} -eq 0 ]; then
+            echo "::error::AppImage artifact not found in target directory after build!"
+            exit 1
+          fi
+
+          APPIMAGE="$(realpath "${appimages[0]}")"
+          echo "Verifying AppImage before release upload: $APPIMAGE"
+          VERIFY_DIR=$(mktemp -d)
+          trap 'rm -rf "$VERIFY_DIR"' EXIT
+
+          (
+            cd "$VERIFY_DIR"
+            chmod +x "$APPIMAGE"
+            "$APPIMAGE" --appimage-extract > /dev/null
+
+            # Ensure none of the excluded display-stack libraries remain bundled
+            FORBIDDEN_LIBS=$(find squashfs-root/usr/lib* -type f \( \
+              -name "libwayland-*.so*" -o \
+              -name "libxkbcommon*.so*" -o \
+              -name "libxcb-*.so*" -o \
+              -name "libXau.so*" -o \
+              -name "libXdmcp.so*" \
+            \) 2>/dev/null)
+
+            if [ -n "$FORBIDDEN_LIBS" ]; then
+              echo "::error::Forbidden display-stack libraries detected in AppImage:"
+              echo "$FORBIDDEN_LIBS"
+              exit 1
+            fi
+          )
+
+          echo "AppImage verification passed: No conflicting display-stack libraries found."
+          EOF
+          chmod +x "$HOME/.local/bin/tauri-build-wrapper"
+
       - name: Build and publish
-        uses: tauri-apps/tauri-action@action-v1.0.0
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name }}
+          tagName: ${{ inputs.tag || github.ref_name }}
           generateReleaseNotes: true
           releaseName: "Random Frame __VERSION__"
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+          tauriScript: ${{ matrix.tauriScript }}
+
+      - name: Verify AppImage bundled libraries
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          shopt -s nullglob
+          appimages=(src-tauri/target/release/bundle/appimage/*.AppImage)
+          shopt -u nullglob
+
+          if [ ${#appimages[@]} -eq 0 ]; then
+            echo "::error::AppImage artifact not found in target directory!"
+            exit 1
+          fi
+
+          APPIMAGE="$(realpath "${appimages[0]}")"
+          echo "Verifying AppImage: $APPIMAGE"
+          VERIFY_DIR=$(mktemp -d)
+          trap 'rm -rf "$VERIFY_DIR"' EXIT
+
+          (
+            cd "$VERIFY_DIR"
+            chmod +x "$APPIMAGE"
+            "$APPIMAGE" --appimage-extract > /dev/null
+
+            # Ensure none of the excluded display-stack libraries remain bundled
+            FORBIDDEN_LIBS=$(find squashfs-root/usr/lib* -type f \( \
+              -name "libwayland-*.so*" -o \
+              -name "libxkbcommon*.so*" -o \
+              -name "libxcb-*.so*" -o \
+              -name "libXau.so*" -o \
+              -name "libXdmcp.so*" \
+            \) 2>/dev/null)
+
+            if [ -n "$FORBIDDEN_LIBS" ]; then
+              echo "::error::Forbidden display-stack libraries detected in AppImage:"
+              echo "$FORBIDDEN_LIBS"
+              exit 1
+            fi
+          )
+
+          echo "AppImage verification passed: No conflicting display-stack libraries found."
