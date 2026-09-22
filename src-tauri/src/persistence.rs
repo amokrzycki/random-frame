@@ -1,5 +1,5 @@
 use crate::error::AppError;
-use chrono::NaiveDate;
+use chrono::{DateTime, Local, NaiveDate, TimeZone};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap},
@@ -96,6 +96,26 @@ impl HistoryStore {
         let result = snapshot(&data);
         drop(data);
         Ok(result)
+    }
+
+    /// Prnt.sc frames first shown per local day (`YYYY-MM-DD`); revisits never touch `viewed_at`.
+    pub fn prntsc_views_per_day(&self) -> BTreeMap<String, u64> {
+        let data = self
+            .data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut days = BTreeMap::new();
+        for item in data.history.iter().filter(|item| item.source == "prntsc") {
+            let Some(viewed_at) = i64::try_from(item.viewed_at)
+                .ok()
+                .and_then(|millis| Local.timestamp_millis_opt(millis).single())
+            else {
+                continue;
+            };
+            *days.entry(day_key(activity_day(&viewed_at))).or_insert(0) += 1;
+        }
+        drop(data);
+        days
     }
 
     pub fn select(&self, index: usize) -> Result<HistorySnapshot, AppError> {
@@ -303,8 +323,22 @@ struct DailyActivity {
 #[serde(default)]
 struct ActivityData {
     migrated: bool,
+    revisit_views_repaired: bool,
     viewed_total: u64,
     days: BTreeMap<String, DailyActivity>,
+}
+
+const DAY_KEY_FORMAT: &str = "%Y-%m-%d";
+
+/// Activity's single definition of a day: the calendar date on `instant`'s own wall clock, never
+/// its UTC date. Production callers pass `Local` times, so days follow the user's local calendar.
+pub fn activity_day<Tz: TimeZone>(instant: &DateTime<Tz>) -> NaiveDate {
+    instant.date_naive()
+}
+
+/// `YYYY-MM-DD` bucket key for an activity day; `recent_days` parses keys back with the same format.
+pub fn day_key(day: NaiveDate) -> String {
+    day.format(DAY_KEY_FORMAT).to_string()
 }
 
 /// A single day's recorded activity, keyed by the user's local date (`YYYY-MM-DD`).
@@ -347,7 +381,7 @@ impl ActivityStore {
         })
     }
 
-    /// Records one checked candidate for the given local day (`YYYY-MM-DD`).
+    /// Records one newly classified unique id for the local day (`YYYY-MM-DD`).
     pub fn record(&self, outcome: ExplorationOutcome, day: &str) -> Result<(), AppError> {
         let mut data = self
             .data
@@ -403,6 +437,33 @@ impl ActivityStore {
         Ok(())
     }
 
+    /// One-shot clamp of each day's `viewed` (and `viewed_total`) to first views; never raises a count.
+    pub fn repair_revisit_views(
+        &self,
+        first_views: &BTreeMap<String, u64>,
+    ) -> Result<(), AppError> {
+        let mut data = self
+            .data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if data.revisit_views_repaired {
+            return Ok(());
+        }
+        let mut next = data.clone();
+        next.revisit_views_repaired = true;
+        for (day, entry) in &mut next.days {
+            let excess = entry
+                .viewed
+                .saturating_sub(first_views.get(day).copied().unwrap_or(0));
+            entry.viewed -= excess;
+            next.viewed_total = next.viewed_total.saturating_sub(excess);
+        }
+        self.save(&next)?;
+        *data = next;
+        drop(data);
+        Ok(())
+    }
+
     /// Returns local days from the start of tracking through `today`, oldest first, capped at
     /// `max_days`. Tracking start is the earliest day with a recorded bucket (there is no reliable
     /// data before it, so it is never zero-filled as "0 activity"); with no recorded bucket at all,
@@ -422,7 +483,7 @@ impl ActivityStore {
         let tracking_start = data
             .days
             .keys()
-            .find_map(|key| NaiveDate::parse_from_str(key, "%Y-%m-%d").ok());
+            .find_map(|key| NaiveDate::parse_from_str(key, DAY_KEY_FORMAT).ok());
         let earliest_allowed = today - chrono::Duration::days(i64::from(max_days - 1));
         let start = tracking_start
             .map_or(today, |date| date.max(earliest_allowed))
@@ -431,7 +492,7 @@ impl ActivityStore {
         let mut days = Vec::new();
         let mut cursor = start;
         while cursor <= today {
-            let key = cursor.to_string();
+            let key = day_key(cursor);
             let daily = data.days.get(&key).copied().unwrap_or_default();
             days.push((
                 key,
@@ -489,6 +550,12 @@ mod tests {
             "random-frame-{name}-{}-{nonce}",
             std::process::id()
         ))
+    }
+
+    fn day_at(rfc3339: &str) -> Result<NaiveDate, AppError> {
+        DateTime::parse_from_rfc3339(rfc3339)
+            .map(|instant| activity_day(&instant))
+            .map_err(AppError::persistence)
     }
 
     #[test]
@@ -756,6 +823,86 @@ mod tests {
     }
 
     #[test]
+    fn history_views_per_day_counts_only_prntsc_entries_by_local_day() -> Result<(), AppError> {
+        let directory = test_directory("history-views-per-day");
+        let store = HistoryStore::new(&directory)?;
+        let viewed_at: u64 = 1_789_000_000_000;
+        for (source, id) in [
+            ("prntsc", "abc123"),
+            ("prntsc", "abc124"),
+            ("other", "abc125"),
+        ] {
+            store.record(HistoryItem {
+                source: source.to_owned(),
+                id: id.to_owned(),
+                source_page_url: format!("https://prnt.sc/{id}"),
+                viewed_at,
+            })?;
+        }
+        let day = Local
+            .timestamp_millis_opt(1_789_000_000_000)
+            .single()
+            .map(|time| day_key(activity_day(&time)))
+            .unwrap_or_default();
+        assert_eq!(store.prntsc_views_per_day(), BTreeMap::from([(day, 2)]));
+        fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+
+    #[test]
+    fn revisit_repair_only_lowers_overcounted_days_runs_once_and_persists() -> Result<(), AppError>
+    {
+        let directory = test_directory("activity-repair");
+        let store = ActivityStore::new(&directory)?;
+        // Migrated legacy views match history, so they survive.
+        store.migrate("2026-09-21", 3, 100, "2026-09-21")?;
+        // 2 revisits on top of 4 first views.
+        for _ in 0..6 {
+            store.record(ExplorationOutcome::Viewed, "2026-09-22")?;
+        }
+        store.record(ExplorationOutcome::Rejected, "2026-09-22")?;
+        let first_views = BTreeMap::from([
+            ("2026-09-20".to_owned(), 9),
+            ("2026-09-21".to_owned(), 3),
+            ("2026-09-22".to_owned(), 4),
+        ]);
+
+        store.repair_revisit_views(&first_views)?;
+        store.repair_revisit_views(&BTreeMap::new())?;
+
+        let expected = vec![
+            (
+                "2026-09-21".to_owned(),
+                DailyActivitySnapshot {
+                    viewed: 3,
+                    rejected: 0,
+                },
+            ),
+            (
+                "2026-09-22".to_owned(),
+                DailyActivitySnapshot {
+                    viewed: 4,
+                    rejected: 1,
+                },
+            ),
+        ];
+        let today = NaiveDate::from_ymd_opt(2026, 9, 22).unwrap_or_default();
+        assert_eq!(
+            store.recent_days(today, 183),
+            expected,
+            "days before tracking stay absent"
+        );
+        assert_eq!(
+            store.viewed_total(),
+            104,
+            "legacy total survives the repair"
+        );
+        let reloaded = ActivityStore::new(&directory)?;
+        assert_eq!(reloaded.recent_days(today, 183), expected);
+        assert_eq!(reloaded.viewed_total(), 104);
+        fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+
+    #[test]
     fn recent_days_with_no_recorded_activity_returns_only_today() -> Result<(), AppError> {
         let directory = test_directory("activity-window-empty");
         let store = ActivityStore::new(&directory)?;
@@ -831,5 +978,88 @@ mod tests {
         assert_eq!(days.len(), 1);
         assert_eq!(days[0].0, "2026-09-20");
         fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+
+    #[test]
+    fn activity_day_is_the_local_calendar_day_not_the_utc_day() -> Result<(), AppError> {
+        // UTC+2: just after local midnight the UTC date is still the previous day.
+        assert_eq!(day_key(day_at("2026-09-22T00:30:00+02:00")?), "2026-09-22");
+        assert_eq!(day_key(day_at("2026-09-22T23:59:59+02:00")?), "2026-09-22");
+        // UTC-5: late in the local evening the UTC date is already the next day.
+        assert_eq!(day_key(day_at("2026-09-22T00:00:00-05:00")?), "2026-09-22");
+        assert_eq!(day_key(day_at("2026-09-22T22:30:00-05:00")?), "2026-09-22");
+        Ok(())
+    }
+
+    #[test]
+    fn activity_days_follow_the_local_offset_across_dst_changes() -> Result<(), AppError> {
+        // Europe/Warsaw enters DST on 2026-03-29 (+01:00 -> +02:00) and leaves it on 2026-10-25.
+        assert_eq!(day_key(day_at("2026-03-29T00:30:00+01:00")?), "2026-03-29");
+        assert_eq!(day_key(day_at("2026-03-29T23:30:00+02:00")?), "2026-03-29");
+        assert_eq!(day_key(day_at("2026-10-25T00:30:00+02:00")?), "2026-10-25");
+        assert_eq!(day_key(day_at("2026-10-25T23:30:00+01:00")?), "2026-10-25");
+
+        let directory = test_directory("activity-window-dst");
+        let store = ActivityStore::new(&directory)?;
+        store.record(
+            ExplorationOutcome::Viewed,
+            &day_key(day_at("2026-10-24T12:00:00+02:00")?),
+        )?;
+        let dates: Vec<String> = store
+            .recent_days(day_at("2026-10-26T00:30:00+01:00")?, 183)
+            .into_iter()
+            .map(|(date, _)| date)
+            .collect();
+        assert_eq!(
+            dates,
+            ["2026-10-24", "2026-10-25", "2026-10-26"],
+            "the 25-hour DST day appears exactly once, with no skipped or duplicated day"
+        );
+        fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+
+    #[test]
+    fn first_local_day_of_use_starts_the_window_and_local_today_ends_it() -> Result<(), AppError> {
+        // First use whose UTC date differs from the local date, on both sides of UTC.
+        for (zone, first_use, later) in [
+            (
+                "utc-plus-2",
+                "2026-09-22T00:30:00+02:00",
+                "2026-09-24T01:00:00+02:00",
+            ),
+            (
+                "utc-minus-5",
+                "2026-09-22T22:30:00-05:00",
+                "2026-09-24T21:00:00-05:00",
+            ),
+        ] {
+            let directory = test_directory(&format!("activity-first-day-{zone}"));
+            let store = ActivityStore::new(&directory)?;
+            let first_day = day_at(first_use)?;
+            store.record(ExplorationOutcome::Viewed, &day_key(first_day))?;
+
+            assert_eq!(
+                store.recent_days(first_day, 183),
+                vec![(
+                    "2026-09-22".to_owned(),
+                    DailyActivitySnapshot {
+                        viewed: 1,
+                        rejected: 0,
+                    },
+                )],
+                "{zone}: the first local day is today and nothing before it is rendered"
+            );
+
+            let days = store.recent_days(day_at(later)?, 183);
+            let dates: Vec<&str> = days.iter().map(|(date, _)| date.as_str()).collect();
+            assert_eq!(
+                dates,
+                ["2026-09-22", "2026-09-23", "2026-09-24"],
+                "{zone}: window runs from the first local day through local today"
+            );
+            assert_eq!(days[2].1, DailyActivitySnapshot::default());
+            fs::remove_dir_all(directory).map_err(AppError::persistence)?;
+        }
+        Ok(())
     }
 }
