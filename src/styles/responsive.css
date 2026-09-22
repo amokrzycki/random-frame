@@ -80,7 +80,7 @@
   footer {
     min-height: 110px;
   }
-  .privacy-main {
+  .app-shell .privacy-main {
     padding-top: 36px;
     padding-bottom: 56px;
   }
