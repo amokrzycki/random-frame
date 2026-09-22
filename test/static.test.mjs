@@ -23,6 +23,7 @@ test("builds static Tauri assets with the package version", async () => {
   assert.match(index, /src="window-controls\.js"/);
   assert.match(index, /href="privacy\.html">Privacy<\/a>/);
   assert.match(privacy, /<h1>Privacy policy<\/h1>/);
+  assert.match(privacy, /src="privacy\.js"/);
   assert.doesNotMatch(index + privacy, /{{[A-Z_]+}}/);
   assert.match(index, /data-tauri-drag-region/);
   assert.match(styles, /\.app-shell \.privacy-main\{[^}]*overflow-y:auto/);

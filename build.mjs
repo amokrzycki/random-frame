@@ -14,7 +14,8 @@ async function copyHtml() {
         .replace("{{STYLES_CSS}}", "styles.css")
         .replace("{{THEME_JS}}", "theme.js")
         .replace("{{WINDOW_CONTROLS_JS}}", "window-controls.js")
-        .replace("{{APP_JS}}", "app.js");
+        .replace("{{APP_JS}}", "app.js")
+        .replace("{{PRIVACY_JS}}", "privacy.js");
       await writeFile(`dist/${name}`, html);
     }),
   );
@@ -33,6 +34,7 @@ const options = {
   entryNames: "[name]",
   entryPoints: {
     app: "src/client/app.ts",
+    privacy: "src/client/privacy.ts",
     styles: "styles.css",
     theme: "src/client/theme.ts",
     "window-controls": "src/client/window-controls.ts",
