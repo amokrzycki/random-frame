@@ -201,10 +201,43 @@
     animation-iteration-count: 1 !important;
   }
 
+  .entry-dialog,
   .history-dialog,
-  .history-dialog:modal {
+  .lightbox-dialog,
+  :is(.entry-dialog, .history-dialog, .lightbox-dialog)[open],
+  :is(.entry-dialog, .history-dialog, .lightbox-dialog)[open].is-closing {
     transform: none;
     transition-duration: 200ms;
+  }
+
+  @starting-style {
+    :is(.entry-dialog, .history-dialog, .lightbox-dialog)[open] {
+      transform: none;
+    }
+  }
+
+  .update-banner,
+  .update-banner--leaving {
+    transform: translateX(-50%);
+  }
+
+  @starting-style {
+    .update-banner {
+      transform: translateX(-50%);
+    }
+  }
+
+  /* The hold still gates clearing; the fill fades in instead of sweeping. */
+  .history-clear::before {
+    clip-path: none;
+    opacity: 0;
+    transition: opacity 200ms var(--ease-out);
+  }
+
+  .history-clear[data-holding]::before {
+    clip-path: none;
+    opacity: 1;
+    transition: opacity 1500ms linear;
   }
 
   .theme-toggle__icon svg {
@@ -217,7 +250,12 @@
 
   .stats-button:active,
   .history-pager__step:active:not(:disabled),
-  .history-pager__select select:active {
+  .history-pager__select select:active,
+  .history-close:active,
+  .primary-action:active:not(:disabled),
+  .source-icon:active:not(:disabled),
+  .id-sequence button:active:not(:disabled),
+  .save-button:active:not(:disabled) {
     transform: none;
   }
 }

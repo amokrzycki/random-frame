@@ -425,6 +425,20 @@ kbd {
   cursor: not-allowed;
 }
 
+.primary-action,
+.source-icon,
+.id-sequence button,
+.save-button {
+  transition: transform 140ms var(--ease-out);
+}
+
+.primary-action:active:not(:disabled),
+.source-icon:active:not(:disabled),
+.id-sequence button:active:not(:disabled),
+.save-button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
 footer {
   min-height: 34px;
   padding: 0 16px;

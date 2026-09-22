@@ -9,6 +9,30 @@
   inset: 0;
   margin: auto;
   z-index: 41;
+  opacity: 0;
+  transform: scale(0.97);
+  transition:
+    opacity 220ms var(--ease-out),
+    transform 220ms var(--ease-out),
+    overlay 220ms var(--ease-out) allow-discrete,
+    display 220ms var(--ease-out) allow-discrete;
+}
+
+:is(.entry-dialog, .history-dialog, .lightbox-dialog)[open] {
+  opacity: 1;
+  transform: scale(1);
+}
+
+:is(.entry-dialog, .history-dialog, .lightbox-dialog)[open].is-closing {
+  opacity: 0;
+  transform: scale(0.97);
+}
+
+@starting-style {
+  :is(.entry-dialog, .history-dialog, .lightbox-dialog)[open] {
+    opacity: 0;
+    transform: scale(0.97);
+  }
 }
 
 .dialog-backdrop {
@@ -51,7 +75,6 @@
   max-height: min(82dvh, 760px);
   padding: 0;
   overflow: hidden;
-  opacity: 0;
   color: var(--ink);
   background: var(--paper);
   border: 0;
@@ -59,29 +82,6 @@
   box-shadow:
     0 28px 70px rgba(35, 32, 25, 0.22),
     0 3px 10px rgba(35, 32, 25, 0.12);
-  transform: scale(0.97);
-  transition:
-    opacity 220ms var(--ease-out),
-    transform 220ms var(--ease-out),
-    overlay 220ms var(--ease-out) allow-discrete,
-    display 220ms var(--ease-out) allow-discrete;
-}
-
-.history-dialog[open] {
-  opacity: 1;
-  transform: scale(1);
-}
-
-.history-dialog[open].is-closing {
-  opacity: 0;
-  transform: scale(0.97);
-}
-
-@starting-style {
-  .history-dialog[open] {
-    opacity: 0;
-    transform: scale(0.97);
-  }
 }
 
 .history-dialog__content {
@@ -107,8 +107,11 @@
 }
 
 .history-clear {
+  position: relative;
   min-height: 38px;
   padding: 0 12px;
+  overflow: hidden;
+  isolation: isolate;
   border: 1px solid var(--line);
   border-radius: 8px;
   color: var(--ink);
@@ -117,6 +120,22 @@
   font: inherit;
   font-size: 13px;
   font-weight: 650;
+}
+
+/* Hold-to-confirm: app.ts clears history on this fill's transitionend; release snaps it back. */
+.history-clear::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: color-mix(in srgb, var(--danger) 40%, transparent);
+  clip-path: inset(0 100% 0 0);
+  transition: clip-path 200ms var(--ease-out);
+}
+
+.history-clear[data-holding]::before {
+  clip-path: inset(0);
+  transition: clip-path 1500ms linear;
 }
 
 .history-clear:hover:not(:disabled) {
@@ -149,6 +168,11 @@
   color: var(--ink);
   background: transparent;
   cursor: pointer;
+  transition: transform 140ms var(--ease-out);
+}
+
+.history-close:active {
+  transform: scale(0.97);
 }
 
 .history-close:hover {

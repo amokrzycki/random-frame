@@ -46,7 +46,10 @@ export async function checkForUpdate(): Promise<void> {
   dismissButton.type = "button";
   dismissButton.className = "update-banner__dismiss";
   dismissButton.textContent = "Dismiss";
-  dismissButton.addEventListener("click", () => banner.remove());
+  dismissButton.addEventListener("click", () => {
+    banner.classList.add("update-banner--leaving");
+    banner.addEventListener("transitionend", () => banner.remove(), { once: true });
+  });
 
   banner.append(message, installButton, dismissButton);
   document.body.append(banner);

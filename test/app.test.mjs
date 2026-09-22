@@ -178,13 +178,25 @@ test("persistent history keeps the existing jump path and the main image opens a
   get("lightbox-dialog").click();
   assert.equal(get("lightbox-dialog").open, false);
 
+  // Clearing is hold-to-confirm: a plain click does nothing, the completed fill transition clears.
+  const holdClear = () => {
+    const press = new Event("pointerdown");
+    Object.defineProperty(press, "button", { value: 0 });
+    get("history-clear-button").dispatchEvent(press);
+    const filled = new Event("transitionend");
+    Object.defineProperty(filled, "pseudoElement", { value: "::before" });
+    get("history-clear-button").dispatchEvent(filled);
+  };
   get("history-button").click();
   get("history-clear-button").click();
+  await flush();
+  assert.equal(invocations.filter(({ command }) => command === "clear_history").length, 0);
+  holdClear();
   await flush();
   assert.deepEqual(persisted, { history: [], index: -1 });
   assert.equal(get("history-total").textContent, "0");
   assert.equal(get("history-clear-button").disabled, false);
-  get("history-clear-button").click();
+  holdClear();
   await flush();
   assert.equal(invocations.filter(({ command }) => command === "clear_history").length, 2);
 });
