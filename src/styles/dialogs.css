@@ -13,9 +13,7 @@
   transform: scale(0.97);
   transition:
     opacity 220ms var(--ease-out),
-    transform 220ms var(--ease-out),
-    overlay 220ms var(--ease-out) allow-discrete,
-    display 220ms var(--ease-out) allow-discrete;
+    transform 220ms var(--ease-out);
 }
 
 :is(.entry-dialog, .history-dialog, .lightbox-dialog)[open] {
@@ -26,6 +24,7 @@
 :is(.entry-dialog, .history-dialog, .lightbox-dialog)[open].is-closing {
   opacity: 0;
   transform: scale(0.97);
+  transition-duration: 150ms;
 }
 
 @starting-style {
@@ -44,7 +43,7 @@
   z-index: 40;
   opacity: 0;
   background: rgba(21, 22, 20, 0.76);
-  transition: opacity 220ms var(--ease-out);
+  transition: opacity 150ms var(--ease-out);
 }
 
 .dialog-backdrop[data-variant="dark"] {
@@ -53,6 +52,7 @@
 
 .dialog-backdrop[data-open] {
   opacity: 1;
+  transition-duration: 220ms;
 }
 
 .entry-dialog {
@@ -538,10 +538,7 @@
   font: inherit;
   font-size: 13px;
   font-weight: 650;
-  transition:
-    color 140ms var(--ease-out),
-    background-color 140ms var(--ease-out),
-    transform 140ms var(--ease-out);
+  transition: transform 140ms var(--ease-out);
 }
 
 .history-pager__step {
@@ -712,6 +709,9 @@
   border-radius: 5px;
   background: var(--paper);
   cursor: pointer;
+  transition:
+    background-color 120ms var(--ease-out),
+    border-color 120ms var(--ease-out);
 }
 .entry-consent input::before {
   content: "";
@@ -719,14 +719,18 @@
   height: 10px;
   clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
   background: var(--white);
-  transform: scale(0);
-  transition: transform 0.12s var(--ease-out);
+  opacity: 0;
+  transform: scale(0.8);
+  transition:
+    opacity 120ms var(--ease-out),
+    transform 120ms var(--ease-out);
 }
 .entry-consent input:checked {
   border-color: var(--blue);
   background: var(--blue);
 }
 .entry-consent input:checked::before {
+  opacity: 1;
   transform: scale(1);
 }
 :root[data-keyboard-navigation] .entry-consent input:focus {

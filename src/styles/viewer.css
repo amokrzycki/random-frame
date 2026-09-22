@@ -240,7 +240,6 @@
   padding: 24px 62px;
   object-fit: contain;
   cursor: zoom-in;
-  animation: reveal 0.62s var(--ease-out) both;
 }
 
 .nav-button {

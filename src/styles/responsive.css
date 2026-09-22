@@ -207,7 +207,6 @@
   :is(.entry-dialog, .history-dialog, .lightbox-dialog)[open],
   :is(.entry-dialog, .history-dialog, .lightbox-dialog)[open].is-closing {
     transform: none;
-    transition-duration: 200ms;
   }
 
   @starting-style {
@@ -240,8 +239,25 @@
     transition: opacity 1500ms linear;
   }
 
-  .theme-toggle__icon svg {
-    transition-duration: 0.01ms;
+  .toast,
+  .toast--leaving,
+  .entry-consent input::before,
+  .entry-consent input:checked::before {
+    transform: none;
+  }
+
+  @starting-style {
+    .toast {
+      transform: none;
+    }
+  }
+
+  /* Icons crossfade in place; no spin or scale. */
+  .theme-toggle__sun,
+  .theme-toggle__icon .theme-toggle__moon,
+  .theme-toggle[aria-pressed="true"] .theme-toggle__sun,
+  .theme-toggle[aria-pressed="true"] .theme-toggle__moon {
+    transform: translate(-50%, -50%);
   }
 
   .theme-toggle:active .theme-toggle__knob {

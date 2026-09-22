@@ -30,7 +30,6 @@
   opacity: 0;
   transform: translate(-50%, -8px);
   transition-duration: 140ms;
-  transition-timing-function: cubic-bezier(0.4, 0, 1, 1);
 }
 
 .update-banner button {

@@ -18,10 +18,7 @@
   color: var(--ink);
   background: var(--paper-deep);
   cursor: pointer;
-  transition:
-    color 160ms ease,
-    background-color 160ms ease,
-    transform 120ms ease;
+  transition: transform 140ms var(--ease-out);
 }
 
 .stats-button:hover {
@@ -30,7 +27,7 @@
 }
 
 .stats-button:active {
-  transform: scale(0.94);
+  transform: scale(0.97);
 }
 
 .stats-button svg {
@@ -49,10 +46,7 @@
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--paper-deep);
-  transition:
-    color 160ms ease,
-    background-color 160ms ease,
-    transform 120ms ease;
+  transition: transform 140ms var(--ease-out);
 }
 
 .theme-toggle:hover .theme-toggle__knob {
@@ -61,7 +55,7 @@
 }
 
 .theme-toggle:active .theme-toggle__knob {
-  transform: scale(0.94);
+  transform: scale(0.97);
 }
 
 .theme-toggle__icon {
@@ -81,8 +75,8 @@
   stroke-linejoin: round;
   stroke-width: 2;
   transition:
-    opacity 260ms cubic-bezier(0.4, 0, 0.2, 1),
-    transform 280ms var(--ease-out);
+    opacity 200ms var(--ease-out),
+    transform 200ms var(--ease-out);
 }
 
 .theme-toggle__sun {
@@ -95,12 +89,12 @@
   fill: currentColor;
   stroke: none;
   opacity: 0;
-  transform: translate(-50%, -50%) rotate(-180deg) scale(0.4);
+  transform: translate(-50%, -50%) rotate(-90deg) scale(0.6);
 }
 
 .theme-toggle[aria-pressed="true"] .theme-toggle__sun {
   opacity: 0;
-  transform: translate(-50%, -50%) rotate(180deg) scale(0.4);
+  transform: translate(-50%, -50%) rotate(90deg) scale(0.6);
 }
 
 .theme-toggle[aria-pressed="true"] .theme-toggle__moon {

@@ -168,9 +168,6 @@ function showFrame(source: string, id: string, blob: Blob): void {
   void cacheThumbnail(key, blob);
   elements.image.src = url;
   elements.image.alt = `Public image from Prnt.sc with identifier ${id}`;
-  elements.image.style.animation = "none";
-  void elements.image.offsetWidth;
-  elements.image.style.animation = "";
   setState("image");
   syncControls();
   elements.announcer.textContent = `Showing frame ${id}`;
@@ -326,18 +323,9 @@ function onDialogClosed(): void {
   if (dialogs.some((dialog) => dialog.open)) return;
   elements.main.inert = false;
   elements.footer.inert = false;
-  const backdrop = elements.dialogBackdrop;
-  delete backdrop.dataset.open;
-  const fallback = setTimeout(() => (backdrop.hidden = true), 250);
-  backdrop.addEventListener(
-    "transitionend",
-    (event) => {
-      if (event.target !== backdrop || event.propertyName !== "opacity") return;
-      clearTimeout(fallback);
-      backdrop.hidden = true;
-    },
-    { once: true },
-  );
+  // closeDialog already faded the backdrop alongside the dialog.
+  delete elements.dialogBackdrop.dataset.open;
+  elements.dialogBackdrop.hidden = true;
 }
 
 // The entry dialog can only be dismissed by accepting; it never closes on backdrop click or Escape.
@@ -364,11 +352,12 @@ function closeDialog(dialog: HTMLDialogElement): void {
   }
   if (classList.contains("is-closing")) return;
   classList.add("is-closing");
+  if (!dialogs.some((other) => other !== dialog && other.open)) delete elements.dialogBackdrop.dataset.open;
   const finish = (): void => {
     dialog.close();
     classList.remove("is-closing");
   };
-  const fallback = setTimeout(finish, 250);
+  const fallback = setTimeout(finish, 180);
   dialog.addEventListener(
     "transitionend",
     (event) => {
