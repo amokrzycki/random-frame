@@ -131,10 +131,17 @@
               <span class="stats-subhead">Viewing activity</span>
               <span class="stats-heatmap__range" id="stats-heatmap-range">Last 6 months</span>
             </div>
-            <fieldset
-              class="heatmap-grid"
-              id="stats-heatmap-grid"
-              aria-label="Daily viewed images, last 6 months"></fieldset>
+            <div class="heatmap">
+              <div class="heatmap-weekdays" aria-hidden="true">
+                <span>Mon</span>
+                <span>Wed</span>
+                <span>Fri</span>
+              </div>
+              <fieldset
+                class="heatmap-grid"
+                id="stats-heatmap-grid"
+                aria-label="Daily viewed images, last 6 months"></fieldset>
+            </div>
             <p class="heatmap-detail" id="stats-heatmap-detail" aria-live="polite">Hover or focus a day for details.</p>
           </div>
           <p>Stored only on this device. No viewing statistics leave your device.</p>

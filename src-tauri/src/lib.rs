@@ -5,7 +5,10 @@ mod sources;
 
 use chrono::Local;
 use error::{AppError, ErrorKind};
-use persistence::{ActivityStore, ExplorationStore, HistoryItem, HistorySnapshot, HistoryStore};
+use persistence::{
+    activity_day, day_key, ActivityStore, ExplorationStore, HistoryItem, HistorySnapshot,
+    HistoryStore,
+};
 use rate_limit::RateLimiter;
 use reqwest::StatusCode;
 use serde::Serialize;
@@ -289,7 +292,7 @@ struct ViewingActivity {
     reason = "Tauri command state extractors must be passed by value"
 )]
 fn get_viewing_activity(state: State<'_, AppState>) -> ViewingActivity {
-    let today = Local::now().date_naive();
+    let today = activity_day(&Local::now());
     let days = state
         .activity
         .recent_days(today, ACTIVITY_WINDOW_DAYS)
@@ -318,7 +321,7 @@ fn migrate_viewing_stats(
     legacy_total: u64,
     state: State<'_, AppState>,
 ) -> Result<(), AppError> {
-    let today = Local::now().date_naive().to_string();
+    let today = day_key(activity_day(&Local::now()));
     state
         .activity
         .migrate(&legacy_day, legacy_today, legacy_total, &today)
@@ -397,7 +400,7 @@ mod tests {
         let directory = test_state_directory("revisit-repair");
         std::fs::create_dir_all(&directory).map_err(AppError::persistence)?;
         let now = Local::now();
-        let today = now.date_naive().to_string();
+        let today = day_key(activity_day(&now));
         let viewed_at = u64::try_from(now.timestamp_millis()).unwrap_or_default();
         let history: Vec<_> = ["abc123", "abc124", "abc125"]
             .iter()
@@ -433,7 +436,7 @@ mod tests {
 
         for _ in 0..2 {
             let state = AppState::new(&directory)?;
-            let days = state.activity.recent_days(now.date_naive(), 1);
+            let days = state.activity.recent_days(activity_day(&now), 1);
             assert_eq!(days[0].1.viewed, 3);
             assert_eq!(days[0].1.rejected, 2);
             assert_eq!(state.activity.viewed_total(), 3);

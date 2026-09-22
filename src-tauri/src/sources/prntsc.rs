@@ -1,5 +1,7 @@
 use crate::error::{AppError, ErrorKind};
-use crate::persistence::{ActivityStore, ExplorationOutcome, ExplorationStore};
+use crate::persistence::{
+    activity_day, day_key, ActivityStore, ExplorationOutcome, ExplorationStore,
+};
 use chrono::Local;
 use reqwest::{redirect::Policy, Client};
 use serde::Serialize;
@@ -103,7 +105,7 @@ impl Prntsc {
                 &self.activity,
                 value,
                 outcome,
-                &Local::now().date_naive().to_string(),
+                &day_key(activity_day(&Local::now())),
             )?;
         }
         result

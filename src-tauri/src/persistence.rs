@@ -1,5 +1,5 @@
 use crate::error::AppError;
-use chrono::{Local, NaiveDate, TimeZone};
+use chrono::{DateTime, Local, NaiveDate, TimeZone};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap},
@@ -112,7 +112,7 @@ impl HistoryStore {
             else {
                 continue;
             };
-            *days.entry(viewed_at.date_naive().to_string()).or_insert(0) += 1;
+            *days.entry(day_key(activity_day(&viewed_at))).or_insert(0) += 1;
         }
         drop(data);
         days
@@ -328,6 +328,19 @@ struct ActivityData {
     days: BTreeMap<String, DailyActivity>,
 }
 
+const DAY_KEY_FORMAT: &str = "%Y-%m-%d";
+
+/// Activity's single definition of a day: the calendar date on `instant`'s own wall clock, never
+/// its UTC date. Production callers pass `Local` times, so days follow the user's local calendar.
+pub fn activity_day<Tz: TimeZone>(instant: &DateTime<Tz>) -> NaiveDate {
+    instant.date_naive()
+}
+
+/// `YYYY-MM-DD` bucket key for an activity day; `recent_days` parses keys back with the same format.
+pub fn day_key(day: NaiveDate) -> String {
+    day.format(DAY_KEY_FORMAT).to_string()
+}
+
 /// A single day's recorded activity, keyed by the user's local date (`YYYY-MM-DD`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DailyActivitySnapshot {
@@ -470,7 +483,7 @@ impl ActivityStore {
         let tracking_start = data
             .days
             .keys()
-            .find_map(|key| NaiveDate::parse_from_str(key, "%Y-%m-%d").ok());
+            .find_map(|key| NaiveDate::parse_from_str(key, DAY_KEY_FORMAT).ok());
         let earliest_allowed = today - chrono::Duration::days(i64::from(max_days - 1));
         let start = tracking_start
             .map_or(today, |date| date.max(earliest_allowed))
@@ -479,7 +492,7 @@ impl ActivityStore {
         let mut days = Vec::new();
         let mut cursor = start;
         while cursor <= today {
-            let key = cursor.to_string();
+            let key = day_key(cursor);
             let daily = data.days.get(&key).copied().unwrap_or_default();
             days.push((
                 key,
@@ -537,6 +550,12 @@ mod tests {
             "random-frame-{name}-{}-{nonce}",
             std::process::id()
         ))
+    }
+
+    fn day_at(rfc3339: &str) -> Result<NaiveDate, AppError> {
+        DateTime::parse_from_rfc3339(rfc3339)
+            .map(|instant| activity_day(&instant))
+            .map_err(AppError::persistence)
     }
 
     #[test]
@@ -823,7 +842,7 @@ mod tests {
         let day = Local
             .timestamp_millis_opt(1_789_000_000_000)
             .single()
-            .map(|time| time.date_naive().to_string())
+            .map(|time| day_key(activity_day(&time)))
             .unwrap_or_default();
         assert_eq!(store.prntsc_views_per_day(), BTreeMap::from([(day, 2)]));
         fs::remove_dir_all(directory).map_err(AppError::persistence)
@@ -959,5 +978,88 @@ mod tests {
         assert_eq!(days.len(), 1);
         assert_eq!(days[0].0, "2026-09-20");
         fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+
+    #[test]
+    fn activity_day_is_the_local_calendar_day_not_the_utc_day() -> Result<(), AppError> {
+        // UTC+2: just after local midnight the UTC date is still the previous day.
+        assert_eq!(day_key(day_at("2026-09-22T00:30:00+02:00")?), "2026-09-22");
+        assert_eq!(day_key(day_at("2026-09-22T23:59:59+02:00")?), "2026-09-22");
+        // UTC-5: late in the local evening the UTC date is already the next day.
+        assert_eq!(day_key(day_at("2026-09-22T00:00:00-05:00")?), "2026-09-22");
+        assert_eq!(day_key(day_at("2026-09-22T22:30:00-05:00")?), "2026-09-22");
+        Ok(())
+    }
+
+    #[test]
+    fn activity_days_follow_the_local_offset_across_dst_changes() -> Result<(), AppError> {
+        // Europe/Warsaw enters DST on 2026-03-29 (+01:00 -> +02:00) and leaves it on 2026-10-25.
+        assert_eq!(day_key(day_at("2026-03-29T00:30:00+01:00")?), "2026-03-29");
+        assert_eq!(day_key(day_at("2026-03-29T23:30:00+02:00")?), "2026-03-29");
+        assert_eq!(day_key(day_at("2026-10-25T00:30:00+02:00")?), "2026-10-25");
+        assert_eq!(day_key(day_at("2026-10-25T23:30:00+01:00")?), "2026-10-25");
+
+        let directory = test_directory("activity-window-dst");
+        let store = ActivityStore::new(&directory)?;
+        store.record(
+            ExplorationOutcome::Viewed,
+            &day_key(day_at("2026-10-24T12:00:00+02:00")?),
+        )?;
+        let dates: Vec<String> = store
+            .recent_days(day_at("2026-10-26T00:30:00+01:00")?, 183)
+            .into_iter()
+            .map(|(date, _)| date)
+            .collect();
+        assert_eq!(
+            dates,
+            ["2026-10-24", "2026-10-25", "2026-10-26"],
+            "the 25-hour DST day appears exactly once, with no skipped or duplicated day"
+        );
+        fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+
+    #[test]
+    fn first_local_day_of_use_starts_the_window_and_local_today_ends_it() -> Result<(), AppError> {
+        // First use whose UTC date differs from the local date, on both sides of UTC.
+        for (zone, first_use, later) in [
+            (
+                "utc-plus-2",
+                "2026-09-22T00:30:00+02:00",
+                "2026-09-24T01:00:00+02:00",
+            ),
+            (
+                "utc-minus-5",
+                "2026-09-22T22:30:00-05:00",
+                "2026-09-24T21:00:00-05:00",
+            ),
+        ] {
+            let directory = test_directory(&format!("activity-first-day-{zone}"));
+            let store = ActivityStore::new(&directory)?;
+            let first_day = day_at(first_use)?;
+            store.record(ExplorationOutcome::Viewed, &day_key(first_day))?;
+
+            assert_eq!(
+                store.recent_days(first_day, 183),
+                vec![(
+                    "2026-09-22".to_owned(),
+                    DailyActivitySnapshot {
+                        viewed: 1,
+                        rejected: 0,
+                    },
+                )],
+                "{zone}: the first local day is today and nothing before it is rendered"
+            );
+
+            let days = store.recent_days(day_at(later)?, 183);
+            let dates: Vec<&str> = days.iter().map(|(date, _)| date.as_str()).collect();
+            assert_eq!(
+                dates,
+                ["2026-09-22", "2026-09-23", "2026-09-24"],
+                "{zone}: window runs from the first local day through local today"
+            );
+            assert_eq!(days[2].1, DailyActivitySnapshot::default());
+            fs::remove_dir_all(directory).map_err(AppError::persistence)?;
+        }
+        Ok(())
     }
 }

@@ -100,3 +100,32 @@ test("stops padding once real days reach or pass the visible minimum", () => {
   assert.equal(heatmapPlaceholderCount(HEATMAP_MIN_VISIBLE_CELLS + 1), 0);
   assert.equal(heatmapPlaceholderCount(183), 0);
 });
+
+// Day keys are local calendar days; the UI must render them as-is in any zone. `new Date(key)` or
+// `toISOString()` would shift them by a day on one side of UTC (e.g. 2026-09-22 -> Sep 21 in UTC+2).
+test("renders local day keys as the same calendar day in any timezone, including around DST", (t) => {
+  const originalTz = process.env.TZ;
+  t.after(() => {
+    if (originalTz === undefined) delete process.env.TZ;
+    else process.env.TZ = originalTz;
+  });
+  for (const zone of ["Europe/Warsaw", "Etc/GMT+5", "America/New_York", "Pacific/Kiritimati", "UTC"]) {
+    process.env.TZ = zone;
+    // First day of use and today are the same day: the window starts there, nothing before it.
+    const firstDay = [{ date: "2026-09-22", viewed: 3, rejected: 1 }];
+    assert.equal(heatmapRangeLabel(firstDay), "Since Sep 22", zone);
+    assert.equal(describeDay(firstDay[0]), "Sep 22, 2026 · 3 viewed · 4 explored · 1 unavailable", zone);
+    assert.equal(leadingBlankCount("2026-09-22"), 1, `${zone}: Tuesday`);
+    // DST transitions (Europe: Mar 29 / Oct 25, US: Mar 8 / Nov 1).
+    for (const [iso, label, blanks] of [
+      ["2026-03-29", "Mar 29, 2026", 6],
+      ["2026-10-25", "Oct 25, 2026", 6],
+      ["2026-03-08", "Mar 8, 2026", 6],
+      ["2026-11-01", "Nov 1, 2026", 6],
+      ["2026-10-26", "Oct 26, 2026", 0],
+    ]) {
+      assert.equal(formatDayLabel(iso), label, `${zone}: ${iso}`);
+      assert.equal(leadingBlankCount(iso), blanks, `${zone}: ${iso} weekday`);
+    }
+  }
+});
