@@ -2,6 +2,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Frame } from "./api.js";
 import { getFrameById, getRandomFrame } from "./api.js";
 import { elements } from "./elements.js";
+import { historyPage, loadPageSize, PAGE_SIZES, pageOf, parsePageSize, savePageSize } from "./history-pagination.js";
 import { copyImage, saveImage } from "./image-actions.js";
 import {
   adjacentPrntscId,
@@ -56,6 +57,8 @@ const history: HistoryItem[] = [];
 const blobs = new Map<string, CachedBlob>();
 let index = -1;
 let loading = true;
+let pageSize = loadPageSize(localStorage);
+let pageIndex = 0;
 const HEATMAP_DEFAULT_DETAIL = "Hover or focus a day for details.";
 
 function blobKey(source: string, id: string): string {
@@ -233,19 +236,32 @@ async function goTo(targetIndex: number): Promise<void> {
   syncControls();
 }
 
-// renders only the most recent tiles so the dialog never lays out
-// thousands of DOM nodes; virtualize the grid if this cap needs raising.
-const MAX_HISTORY_TILES = 300;
-
-function openHistory(): void {
+// Only the current page is laid out, so the dialog never builds thousands of DOM nodes.
+function renderHistoryPage(): void {
+  const view = historyPage(history.length, pageIndex, pageSize);
+  pageIndex = view.page;
   elements.historyGrid.replaceChildren();
   elements.historyGrid.hidden = !history.length;
   elements.historyEmpty.hidden = Boolean(history.length);
-  elements.historyClear.disabled = false;
+  elements.historyBody.scrollTop = 0;
 
-  const startIndex = Math.max(0, history.length - MAX_HISTORY_TILES);
-  for (const [offset, item] of history.slice(startIndex).entries()) {
-    const itemIndex = startIndex + offset;
+  // Below the smallest page size neither paging nor the size choice changes anything.
+  elements.historyPager.hidden = history.length <= PAGE_SIZES[0];
+  elements.historyPagerNav.hidden = view.pages === 1;
+  elements.historyRange.textContent = history.length
+    ? `Frames ${(view.start + 1).toLocaleString("en-US")}–${view.end.toLocaleString("en-US")} of ${history.length.toLocaleString("en-US")}`
+    : "";
+  elements.historyPage.textContent = `Page ${view.page + 1} of ${view.pages}`;
+  elements.historyPageSize.value = String(pageSize);
+  const focused = document.activeElement;
+  elements.historyPagePrevious.disabled = view.page === 0;
+  elements.historyPageNext.disabled = view.page === view.pages - 1;
+  // A focused step button that becomes disabled would drop keyboard focus to the document.
+  if (focused === elements.historyPagePrevious && view.page === 0) elements.historyPageNext.focus();
+  if (focused === elements.historyPageNext && view.page === view.pages - 1) elements.historyPagePrevious.focus();
+
+  for (const [offset, item] of history.slice(view.start, view.end).entries()) {
+    const itemIndex = view.start + offset;
     const button = document.createElement("button");
     const image = document.createElement("img");
     const label = document.createElement("span");
@@ -267,8 +283,27 @@ function openHistory(): void {
     });
     elements.historyGrid.append(button);
   }
+}
 
+function openHistory(): void {
+  elements.historyClear.disabled = false;
+  // Open where the visitor is: the page holding the shown frame, else the newest page.
+  pageIndex = pageOf(index >= 0 ? index : history.length - 1, pageSize);
+  renderHistoryPage();
   openDialog(elements.historyDialog);
+}
+
+function showHistoryPage(page: number): void {
+  pageIndex = page;
+  renderHistoryPage();
+}
+
+function changePageSize(): void {
+  // Keep the first frame of the current page in view across the size change.
+  const firstShown = historyPage(history.length, pageIndex, pageSize).start;
+  pageSize = parsePageSize(elements.historyPageSize.value);
+  savePageSize(localStorage, pageSize);
+  showHistoryPage(pageOf(firstShown, pageSize));
 }
 
 // showModal() makes the rest of the document inert, including the titlebar,
@@ -517,6 +552,9 @@ elements.copyLink.addEventListener("click", () => void copySourceLink());
 elements.historyButton.addEventListener("click", openHistory);
 elements.historyClose.addEventListener("click", () => closeDialog(elements.historyDialog));
 elements.historyClear.addEventListener("click", () => void clearSavedHistory());
+elements.historyPagePrevious.addEventListener("click", () => showHistoryPage(pageIndex - 1));
+elements.historyPageNext.addEventListener("click", () => showHistoryPage(pageIndex + 1));
+elements.historyPageSize.addEventListener("change", changePageSize);
 elements.historyDialog.addEventListener("close", () => {
   elements.historyDialog.classList?.remove("is-closing");
   elements.historyButton.focus();

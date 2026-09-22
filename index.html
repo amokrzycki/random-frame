@@ -65,13 +65,39 @@
             </button>
           </div>
         </header>
-        <div class="history-dialog__body">
+        <div class="history-dialog__body" id="history-body">
           <div class="history-grid" id="history-grid"></div>
           <div class="history-empty" id="history-empty" hidden>
             <p>No saved frames yet.</p>
             <span>Draw a frame to begin your history.</span>
           </div>
         </div>
+        <footer class="history-pager" id="history-pager" hidden>
+          <p class="history-pager__range" id="history-range" aria-live="polite"></p>
+          <nav class="history-pager__nav" id="history-pager-nav" aria-label="History pages">
+            <button class="history-pager__step" id="history-page-previous" type="button" aria-label="Previous page">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m12 5-5 5 5 5" /></svg>
+              <span>Previous</span>
+            </button>
+            <span class="history-pager__page" id="history-page"></span>
+            <button class="history-pager__step" id="history-page-next" type="button" aria-label="Next page">
+              <span>Next</span>
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m8 5 5 5-5 5" /></svg>
+            </button>
+          </nav>
+          <div class="history-pager__size">
+            <label for="history-page-size">Per page</label>
+            <span class="history-pager__select">
+              <select id="history-page-size">
+                <option value="10">10</option>
+                <option value="25">25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg>
+            </span>
+          </div>
+        </footer>
       </div>
     </dialog>
 

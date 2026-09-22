@@ -436,6 +436,145 @@
   white-space: nowrap;
 }
 
+.history-pager {
+  min-height: 62px;
+  padding: 11px 22px 11px 28px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  column-gap: 24px;
+  row-gap: 8px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.history-pager[hidden],
+.history-pager__nav[hidden] {
+  display: none;
+}
+
+.history-pager__range {
+  margin: 0;
+  margin-right: auto;
+  white-space: nowrap;
+}
+
+.history-pager__nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.history-pager__page {
+  min-width: 13ch;
+  color: var(--ink);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.history-pager__step,
+.history-pager__select select {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  transition:
+    color 140ms var(--ease-out),
+    background-color 140ms var(--ease-out),
+    transform 140ms var(--ease-out);
+}
+
+.history-pager__step {
+  min-width: 38px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.history-pager__step:first-child {
+  padding-left: 8px;
+}
+
+.history-pager__step:last-child {
+  padding-right: 8px;
+}
+
+.history-pager__step svg,
+.history-pager__select svg {
+  width: 16px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.history-pager__step:hover:not(:disabled),
+.history-pager__select select:hover {
+  color: var(--control-fill-text);
+  background-color: var(--control-fill);
+}
+
+.history-pager__step:active:not(:disabled),
+.history-pager__select select:active {
+  transform: scale(0.97);
+}
+
+.history-pager__step:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.history-pager__size {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.history-pager__select {
+  position: relative;
+  display: inline-flex;
+}
+
+/* appearance: none keeps the closed control on the palette in both WebView2
+   and WebKitGTK; the open list stays native and follows color-scheme. */
+.history-pager__select select {
+  width: 72px;
+  padding: 0 28px 0 12px;
+  appearance: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.history-pager__select option {
+  color: var(--ink);
+  background: var(--paper);
+}
+
+.history-pager__select svg {
+  position: absolute;
+  top: 50%;
+  right: 9px;
+  color: var(--muted);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.history-pager__select:hover svg {
+  color: var(--control-fill-text);
+}
+
 .history-empty {
   min-height: 260px;
   display: grid;
