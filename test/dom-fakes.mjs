@@ -1,3 +1,5 @@
+import { resolveObjectURL } from "node:buffer";
+
 // Minimal DOM and storage doubles for importing the client app under node:test.
 class FakeElement extends EventTarget {
   constructor(document) {
@@ -35,6 +37,12 @@ class FakeElement extends EventTarget {
 
   removeAttribute(name) {
     this.attributes.delete(name);
+  }
+
+  // Blobs whose first byte is 255 stand in for images that will not decode.
+  async decode() {
+    const [first] = new Uint8Array(await resolveObjectURL(this.src).arrayBuffer());
+    if (first === 255) throw new Error("EncodingError");
   }
 
   focus() {

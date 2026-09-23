@@ -30,6 +30,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   let draw = 0;
   let savePath = null;
   let failNextDraw = false;
+  let brokenNextImage = false;
   let failStats = false;
   const invocations = [];
   let persisted = { history: [], index: -1 };
@@ -81,7 +82,11 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
           mimeType: "image/png",
         };
       }
-      if (command === "get_frame_image") return new Uint8Array([draw]).buffer;
+      if (command === "get_frame_image") {
+        const byte = brokenNextImage ? 255 : draw;
+        brokenNextImage = false;
+        return new Uint8Array([byte]).buffer;
+      }
       if (command === "plugin:dialog|save") return savePath;
       if (command === "plugin:fs|write_file") return null;
       throw new Error(`Unexpected command: ${command}`);
@@ -278,6 +283,22 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.match(get("image").alt, /new3/);
   assert.equal(get("save-button").disabled, false);
 
+  // An image that will not decode stays out of history, so the counter keeps pointing at a frame that shows.
+  brokenNextImage = true;
+  get("draw-button").click();
+  await flush();
+  await flush();
+  await flush();
+  assert.equal(get("error-state").hidden, false);
+  assert.equal(get("error-title").textContent, "This frame would not open.");
+  assert.equal(get("position-current").textContent, "5");
+  assert.equal(get("history-total").textContent, "5");
+  assert.equal(persisted.history.length, 5);
+  get("back-button").click();
+  await flush();
+  await flush();
+  assert.match(get("image").alt, /new3/);
+
   // Clearing is hold-to-confirm: the completed fill transition clears, releasing early does not.
   const clearButton = get("history-clear-button");
   const clears = () => invocations.filter(({ command }) => command === "clear_history").length;
@@ -307,6 +328,9 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   await flush();
   assert.deepEqual(persisted, { history: [], index: -1 });
   assert.equal(get("history-total").textContent, "0");
+  // With history gone, focus lands on the next step rather than the History button.
+  assert.equal(document.activeElement, get("draw-button"));
+  assert.equal(get("source-link").getAttribute("href"), null);
   assert.equal(clearButton.disabled, true);
   get("draw-button").click();
   await flush();

@@ -66,6 +66,7 @@ let cooldownNoticeShown = false;
 let pageSize = loadPageSize(localStorage);
 let pageIndex = 0;
 let focusBeforeLoading: Element | null = null;
+let historyReturnFocus: HTMLElement = elements.historyButton;
 let ledger: LedgerDay[] = [];
 let ledgerShown = 0;
 
@@ -199,7 +200,9 @@ function syncControls(): void {
   elements.jumpInput.max = String(history.length);
   elements.historyClear.disabled = loading || !history.length;
   elements.imageIdValue.textContent = current?.id ?? "———";
-  elements.source.href = current?.sourcePageUrl ?? "https://prnt.sc/";
+  // Without an href the link leaves the tab order and Enter has nothing to follow.
+  if (current) elements.source.href = current.sourcePageUrl;
+  else elements.source.removeAttribute("href");
   elements.source.setAttribute("aria-disabled", String(!current));
   // aria-disabled rather than disabled, so a focused retry or Draw next keeps focus through the countdown.
   const waitSeconds = cooldownSeconds();
@@ -249,9 +252,22 @@ function showError(error: unknown): void {
   if (seconds) startCooldown(seconds);
 }
 
-function showFrame(source: string, id: string, blob: Blob): void {
-  const oldUrl = elements.image.src;
+// A blob that will not decode never reaches the stage or history, so the counter only claims frames that show.
+async function decodedUrl(blob: Blob): Promise<string> {
   const url = URL.createObjectURL(blob);
+  const probe = document.createElement("img");
+  probe.src = url;
+  try {
+    await probe.decode();
+  } catch {
+    URL.revokeObjectURL(url);
+    throw { kind: "invalid-response" };
+  }
+  return url;
+}
+
+function showFrame(source: string, id: string, blob: Blob, url: string): void {
+  const oldUrl = elements.image.src;
   const key = blobKey(source, id);
   blobs.set(key, { blob, url });
   void cacheThumbnail(key, blob);
@@ -286,6 +302,7 @@ function swapImage(url: string, id: string): void {
 }
 
 async function recordFrame(frame: Frame): Promise<void> {
+  const url = await decodedUrl(frame.blob);
   applyHistory(
     await recordHistoryItem({
       source: frame.source,
@@ -294,7 +311,7 @@ async function recordFrame(frame: Frame): Promise<void> {
       viewedAt: Date.now(),
     }),
   );
-  showFrame(frame.source, frame.id, frame.blob);
+  showFrame(frame.source, frame.id, frame.blob, url);
 }
 
 // Always a new frame, even mid-history: it joins the end of history and the view jumps to it.
@@ -330,7 +347,7 @@ async function goTo(targetIndex: number): Promise<void> {
       setState("loading");
       syncControls();
       const frame = await getFrameById(current.id, current.source);
-      showFrame(frame.source, frame.id, frame.blob);
+      showFrame(frame.source, frame.id, frame.blob, await decodedUrl(frame.blob));
     } else {
       swapImage(cached.url, current.id);
       elements.announcer.textContent = `Showing frame ${current.id}`;
@@ -644,6 +661,8 @@ async function clearSavedHistory(): Promise<void> {
     elements.image.src = "";
     elements.image.alt = "";
     setState("empty");
+    // The History button no longer leads anywhere useful; the next step is a draw.
+    historyReturnFocus = elements.draw;
     closeDialog(elements.historyDialog);
     toast.success("History cleared");
   } catch (error) {
@@ -784,7 +803,8 @@ elements.historyDialog.addEventListener("close", () => {
   stopClearHold();
   // Main is inert until onDialogClosed, and focus() on an inert element is ignored.
   onDialogClosed();
-  elements.historyButton.focus();
+  historyReturnFocus.focus();
+  historyReturnFocus = elements.historyButton;
 });
 async function loadStats(): Promise<void> {
   try {
@@ -956,9 +976,8 @@ window.addEventListener("pagehide", () => {
 
 document.querySelectorAll<HTMLAnchorElement>(".external-link").forEach((link) => {
   link.addEventListener("click", (event) => {
-    if (link.getAttribute("aria-disabled") === "true") return;
     event.preventDefault();
-    void openUrl(link.href);
+    if (link.getAttribute("aria-disabled") !== "true" && link.href) void openUrl(link.href);
   });
 });
 
