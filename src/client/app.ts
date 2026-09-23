@@ -12,6 +12,7 @@ import { getHistory, recordHistoryItem, selectHistoryItem } from "./persistence.
 import { bindShortcutsEvents } from "./shortcuts.js";
 import { bindStageEvents, setState, showError, syncControls } from "./stage.js";
 import { bindStatsDialogEvents, migrateLegacyStats } from "./stats-dialog.js";
+import { bindSyncDialogEvents, runStartupSync } from "./sync-dialog.js";
 import { checkForUpdate } from "./update.js";
 import { applyFavorites, applyHistory, state } from "./viewer-state.js";
 
@@ -55,6 +56,7 @@ async function initialize(): Promise<void> {
     showError(error, initialize);
     syncControls();
   }
+  void runStartupSync();
 }
 
 elements.leave.addEventListener("click", async () => {
@@ -97,6 +99,7 @@ bindNavigationEvents();
 bindFrameActionEvents();
 bindHistoryDialogEvents();
 bindStatsDialogEvents();
+bindSyncDialogEvents();
 bindShortcutsEvents();
 
 syncControls();

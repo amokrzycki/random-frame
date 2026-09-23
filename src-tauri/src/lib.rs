@@ -1,16 +1,26 @@
 mod error;
 mod persistence;
 mod rate_limit;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+mod secure_storage;
+mod snapshot;
 mod sources;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+mod sync;
+mod sync_crypto;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+mod sync_transport;
 
 use chrono::Local;
 use error::{AppError, ErrorKind};
 use persistence::{
     activity_day, day_key, ActivityStore, ExplorationStore, FavoriteItem, FavoriteStore,
-    HistoryItem, HistorySnapshot, HistoryStore,
+    HistoryItem, HistorySnapshot, HistoryStore, SeenStore,
 };
 use rate_limit::RateLimiter;
 use reqwest::StatusCode;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+use secure_storage::SecureStorage;
 use serde::Serialize;
 use sources::{prntsc, prntsc::FetchedFrame, prntsc::Prntsc, select_source, Source};
 use std::{
@@ -19,6 +29,8 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+use sync::{CreateSyncResult, SyncEngine, SyncError, SyncStatus};
 use tauri::{ipc::Response, Manager, State};
 
 struct PendingFrame {
@@ -32,6 +44,9 @@ struct AppState {
     history: HistoryStore,
     favorites: FavoriteStore,
     explored: Arc<ExplorationStore>,
+    seen: Arc<SeenStore>,
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    sync: SyncEngine<SecureStorage>,
     activity: Arc<ActivityStore>,
     rate_limiter: Mutex<RateLimiter>,
     // UI loads one frame at a time; use a keyed cache if concurrent consumers are added.
@@ -43,13 +58,32 @@ impl AppState {
         let explored = Arc::new(ExplorationStore::new(data_directory)?);
         let activity = Arc::new(ActivityStore::new(data_directory)?);
         let history = HistoryStore::new(data_directory)?;
+        let seen = Arc::new(SeenStore::new(data_directory)?);
+        reconcile_seen(&seen, &history, &explored)?;
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
+        let sync = SyncEngine::new(
+            data_directory,
+            Arc::clone(&seen),
+            SecureStorage::default(),
+            std::env::var("RANDOM_FRAME_SYNC_BASE_URL")
+                .ok()
+                .as_deref()
+                .or(option_env!("RANDOM_FRAME_SYNC_BASE_URL")),
+        );
         // Best-effort; retried next launch if the write fails.
         let _ = activity.repair_revisit_views(&history.prntsc_views_per_day());
         Ok(Self {
-            prntsc: Prntsc::new(Arc::clone(&explored), Arc::clone(&activity))?,
+            prntsc: Prntsc::new(
+                Arc::clone(&explored),
+                Arc::clone(&seen),
+                Arc::clone(&activity),
+            )?,
             history,
             favorites: FavoriteStore::new(data_directory)?,
             explored,
+            seen,
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            sync,
             activity,
             rate_limiter: Mutex::new(RateLimiter::new()),
             pending: Mutex::new(None),
@@ -91,6 +125,25 @@ impl AppState {
     }
 }
 
+fn reconcile_seen(
+    seen: &SeenStore,
+    history: &HistoryStore,
+    explored: &ExplorationStore,
+) -> Result<(), AppError> {
+    let from_history = history
+        .snapshot()
+        .history
+        .into_iter()
+        .filter(|item| item.source == "prntsc")
+        .filter_map(|item| prntsc::item_id_value(&item.id).ok());
+    let from_explored = explored
+        .viewed_ids()?
+        .into_iter()
+        .filter(|id| *id <= prntsc::LEGACY_MAX_VALUE);
+    seen.merge(from_history.chain(from_explored))?;
+    Ok(())
+}
+
 const LEGACY_ID_SPACE_SIZE: u64 = 4_773_622_240;
 
 #[derive(Serialize)]
@@ -116,7 +169,7 @@ fn retry_decision(attempt: usize, error: &AppError) -> RetryDecision {
         || error.is_upstream_status(StatusCode::TOO_MANY_REQUESTS)
     {
         RetryDecision::Abort
-    } else if error.kind == ErrorKind::NotFound {
+    } else if matches!(error.kind, ErrorKind::NotFound | ErrorKind::NoNewFrame) {
         RetryDecision::RetryNow
     } else {
         RetryDecision::RetryAfter(Duration::from_millis(150 * (attempt as u64 + 1)))
@@ -224,11 +277,22 @@ fn record_history_item(
     item: HistoryItem,
     state: State<'_, AppState>,
 ) -> Result<HistorySnapshot, AppError> {
+    record_accepted_frame(item, &state)
+}
+
+fn record_accepted_frame(item: HistoryItem, state: &AppState) -> Result<HistorySnapshot, AppError> {
     let source = select_source(&item.source)?;
-    if source == Source::Prntsc {
-        prntsc::validate_item_id(&item.id)?;
+    let legacy_id = if source == Source::Prntsc {
+        Some(prntsc::item_id_value(&item.id)?)
+    } else {
+        None
+    };
+    let snapshot = state.history.record(item)?;
+    if let Some(id) = legacy_id {
+        state.prntsc.record_viewed(id)?;
+        state.seen.insert(id)?;
     }
-    state.history.record(item)
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -248,8 +312,13 @@ fn select_history_item(
     clippy::needless_pass_by_value,
     reason = "Tauri command state extractors must be passed by value"
 )]
-// Favorites are deliberate curation, not browsing records, so they outlive a history clear.
+// Favorites and seen frames outlive a local history clear.
 fn clear_history(state: State<'_, AppState>) -> Result<(), AppError> {
+    clear_local_history(&state)
+}
+
+fn clear_local_history(state: &AppState) -> Result<(), AppError> {
+    reconcile_seen(&state.seen, &state.history, &state.explored)?;
     state.explored.clear()?;
     state.activity.clear()?;
     state.history.clear()
@@ -364,6 +433,45 @@ fn migrate_viewing_stats(
         .migrate(&legacy_day, legacy_today, legacy_total, &today)
 }
 
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[tauri::command]
+async fn get_sync_status(state: State<'_, AppState>) -> Result<SyncStatus, SyncError> {
+    state.sync.status().await
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[tauri::command]
+async fn create_sync(state: State<'_, AppState>) -> Result<CreateSyncResult, SyncError> {
+    state.sync.create().await
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[tauri::command]
+async fn join_sync(
+    recovery_key: String,
+    state: State<'_, AppState>,
+) -> Result<SyncStatus, SyncError> {
+    state.sync.join(&recovery_key).await
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[tauri::command]
+async fn sync_now(state: State<'_, AppState>) -> Result<SyncStatus, SyncError> {
+    state.sync.sync_now().await
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[tauri::command]
+async fn startup_sync(state: State<'_, AppState>) -> Result<SyncStatus, SyncError> {
+    state.sync.startup_sync().await
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[tauri::command]
+async fn leave_sync(state: State<'_, AppState>) -> Result<SyncStatus, SyncError> {
+    state.sync.leave().await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// Starts the application.
 ///
@@ -396,7 +504,19 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             clear_favorites,
             get_exploration_stats,
             get_viewing_activity,
-            migrate_viewing_stats
+            migrate_viewing_stats,
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            get_sync_status,
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            create_sync,
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            join_sync,
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            sync_now,
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            startup_sync,
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            leave_sync
         ])
         .run(tauri::generate_context!())?;
     Ok(())
@@ -421,6 +541,9 @@ mod tests {
             RetryDecision::RetryAfter(Duration::from_millis(450))
         );
         assert_eq!(retry_decision(19, &missing), RetryDecision::Abort);
+        let no_new_frame = AppError::new(ErrorKind::NoNewFrame, "No new frame");
+        assert_eq!(retry_decision(0, &no_new_frame), RetryDecision::RetryNow);
+        assert_eq!(retry_decision(19, &no_new_frame), RetryDecision::Abort);
     }
 
     fn test_state_directory(name: &str) -> std::path::PathBuf {
@@ -431,6 +554,98 @@ mod tests {
             "random-frame-lib-{name}-{}-{nonce}",
             std::process::id()
         ))
+    }
+
+    fn history_item(id: &str) -> HistoryItem {
+        HistoryItem {
+            source: "prntsc".to_owned(),
+            id: id.to_owned(),
+            source_page_url: format!("https://prnt.sc/{id}"),
+            viewed_at: 42,
+        }
+    }
+
+    #[test]
+    fn startup_merges_history_and_only_viewed_legacy_exploration() -> Result<(), AppError> {
+        let directory = test_state_directory("seen-migration");
+        let history = HistoryStore::new(&directory)?;
+        history.record(history_item("abc123"))?;
+        std::fs::write(
+            directory.join("prntsc-explored.txt"),
+            "1,v\n2,r\n3\n1,v\n4,v\n5,x\n",
+        )
+        .map_err(AppError::persistence)?;
+        // A prior launch may have saved only part of the migration.
+        SeenStore::new(&directory)?.insert(1)?;
+
+        for _ in 0..2 {
+            let state = AppState::new(&directory)?;
+            for id in [prntsc::item_id_value("abc123")?, 1, 4] {
+                assert!(state.seen.contains(id));
+            }
+            for id in [2, 3, 5] {
+                assert!(!state.seen.contains(id));
+            }
+            assert_eq!(state.explored.count(), 5);
+        }
+        std::fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+
+    #[test]
+    fn startup_repairs_history_saved_before_seen_and_clear_preserves_seen() -> Result<(), AppError>
+    {
+        let directory = test_state_directory("seen-repair-clear");
+        HistoryStore::new(&directory)?.record(history_item("abc123"))?;
+        let state = AppState::new(&directory)?;
+        let id = prntsc::item_id_value("abc123")?;
+        assert!(state.seen.contains(id));
+
+        record_accepted_frame(history_item("abc124"), &state)?;
+        record_accepted_frame(history_item("abc124"), &state)?;
+        assert!(state.seen.contains(prntsc::item_id_value("abc124")?));
+        assert_eq!(state.activity.viewed_total(), 1);
+        clear_local_history(&state)?;
+        assert!(state.history.snapshot().history.is_empty());
+        assert_eq!(state.explored.count(), 0);
+        assert_eq!(state.activity.viewed_total(), 0);
+        assert!(state.seen.contains(id));
+        drop(state);
+        assert!(AppState::new(&directory)?.seen.contains(id));
+        std::fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+
+    #[test]
+    fn accepted_manual_frame_is_seen_once_without_blocking_reopen() -> Result<(), AppError> {
+        let directory = test_state_directory("manual-seen");
+        let state = AppState::new(&directory)?;
+        let id = prntsc::item_id_value("abc123")?;
+        record_accepted_frame(history_item("abc123"), &state)?;
+        assert!(state.seen.contains(id));
+        assert_eq!(state.explored.viewable_count(), 1);
+        record_accepted_frame(history_item("abc123"), &state)?;
+        assert_eq!(state.history.snapshot().history.len(), 1);
+        assert_eq!(state.activity.viewed_total(), 1);
+        std::fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+
+    #[test]
+    fn remote_snapshot_changes_only_seen() -> Result<(), AppError> {
+        let directory = test_state_directory("remote-seen");
+        let state = AppState::new(&directory)?;
+        let history_before = state.history.snapshot();
+        let seen_bytes = snapshot::serialize_snapshot(&std::collections::HashSet::from([42_u64]))
+            .map_err(AppError::persistence)?;
+        assert_eq!(state.seen.merge_snapshot(&seen_bytes)?, 1);
+        assert!(state.seen.contains(42));
+        assert_eq!(state.explored.count(), 0);
+        assert_eq!(state.activity.viewed_total(), 0);
+        assert_eq!(
+            state.history.snapshot().history.len(),
+            history_before.history.len()
+        );
+        drop(state);
+        assert!(AppState::new(&directory)?.seen.contains(42));
+        std::fs::remove_dir_all(directory).map_err(AppError::persistence)
     }
 
     #[test]

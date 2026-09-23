@@ -1,6 +1,6 @@
 use crate::error::{AppError, ErrorKind};
 use crate::persistence::{
-    activity_day, day_key, ActivityStore, ExplorationOutcome, ExplorationStore,
+    activity_day, day_key, ActivityStore, ExplorationOutcome, ExplorationStore, SeenStore,
 };
 use chrono::Local;
 use reqwest::{redirect::Policy, Client};
@@ -14,8 +14,9 @@ use std::{
 mod id;
 mod parser;
 
+use id::make_id;
 pub use id::validate_item_id;
-use id::{item_id_value, make_id};
+pub(crate) use id::{item_id_value, LEGACY_MAX_VALUE};
 pub use parser::{extract_image_url, is_allowed_image_url};
 
 const MAX_IMAGE_BYTES: usize = 15_000_000;
@@ -66,6 +67,7 @@ impl ResolvedCache {
 pub struct Prntsc {
     client: Client,
     explored: Arc<ExplorationStore>,
+    seen: Arc<SeenStore>,
     activity: Arc<ActivityStore>,
     resolved: Mutex<ResolvedCache>,
 }
@@ -73,6 +75,7 @@ pub struct Prntsc {
 impl Prntsc {
     pub fn new(
         explored: Arc<ExplorationStore>,
+        seen: Arc<SeenStore>,
         activity: Arc<ActivityStore>,
     ) -> Result<Self, AppError> {
         let client = Client::builder()
@@ -83,14 +86,16 @@ impl Prntsc {
         Ok(Self {
             client,
             explored,
+            seen,
             activity,
             resolved: Mutex::new(ResolvedCache::default()),
         })
     }
 
     pub async fn get_random_frame(&self) -> Result<FetchedFrame, AppError> {
-        self.get_frame(&pick_unexplored_id(&self.explored, make_id))
-            .await
+        let id = pick_unexplored_id(&self.explored, &self.seen, make_id)?;
+        let result = self.get_frame(&id).await;
+        reject_newly_known(&self.explored, &self.seen, item_id_value(&id)?, result)
     }
 
     pub async fn get_frame(&self, id: &str) -> Result<FetchedFrame, AppError> {
@@ -99,16 +104,26 @@ impl Prntsc {
             Ok(item) => self.fetch_asset(item).await,
             Err(error) => Err(error),
         };
-        if let Some(outcome) = classify_outcome(&result) {
+        if classify_rejection(&result) {
             record_exploration(
                 &self.explored,
                 &self.activity,
                 value,
-                outcome,
+                ExplorationOutcome::Rejected,
                 &day_key(activity_day(&Local::now())),
             )?;
         }
         result
+    }
+
+    pub fn record_viewed(&self, id: u64) -> Result<(), AppError> {
+        record_exploration(
+            &self.explored,
+            &self.activity,
+            id,
+            ExplorationOutcome::Viewed,
+            &day_key(activity_day(&Local::now())),
+        )
     }
 
     async fn resolve_item(&self, id: &str) -> Result<ResolvedItem, AppError> {
@@ -216,30 +231,43 @@ impl Prntsc {
     }
 }
 
-// 32 retries covers reroll odds until the space is nearly exhausted;
-// falls back to the last rolled candidate rather than looping forever.
+// 32 retries covers reroll odds until the space is nearly exhausted.
 fn pick_unexplored_id(
     explored: &ExplorationStore,
+    seen: &SeenStore,
     mut make_candidate: impl FnMut() -> String,
-) -> String {
-    let mut candidate = String::new();
+) -> Result<String, AppError> {
     for _ in 0..32 {
-        candidate = make_candidate();
+        let candidate = make_candidate();
         match item_id_value(&candidate) {
-            Ok(value) if !explored.contains(value) => return candidate,
+            Ok(value) if !explored.contains(value) && !seen.contains(value) => {
+                return Ok(candidate)
+            }
             _ => {}
         }
     }
-    candidate
+    Err(no_new_frame())
 }
 
-/// Classifies a fetch outcome as an activity event, or `None` for transient errors that get retried.
-fn classify_outcome<T>(result: &Result<T, AppError>) -> Option<ExplorationOutcome> {
-    match result {
-        Ok(_) => Some(ExplorationOutcome::Viewed),
-        Err(error) if error.is_classified_source_outcome() => Some(ExplorationOutcome::Rejected),
-        Err(_) => None,
+fn reject_newly_known(
+    explored: &ExplorationStore,
+    seen: &SeenStore,
+    id: u64,
+    result: Result<FetchedFrame, AppError>,
+) -> Result<FetchedFrame, AppError> {
+    let frame = result?;
+    if explored.contains(id) || seen.contains(id) {
+        return Err(no_new_frame());
     }
+    Ok(frame)
+}
+
+fn no_new_frame() -> AppError {
+    AppError::new(ErrorKind::NoNewFrame, "No new frame was found; try again")
+}
+
+fn classify_rejection<T>(result: &Result<T, AppError>) -> bool {
+    matches!(result, Err(error) if error.is_classified_source_outcome())
 }
 
 /// Counts an outcome once per unique id, so revisits re-fetched via `get_frame` never reach activity.
@@ -258,7 +286,7 @@ fn record_exploration(
 
 #[cfg(test)]
 fn outcome_is_explored<T>(result: &Result<T, AppError>) -> bool {
-    classify_outcome(result).is_some()
+    classify_rejection(result)
 }
 
 fn validate_image_size(size: usize) -> Result<(), AppError> {
@@ -304,7 +332,7 @@ mod tests {
     }
 
     #[test]
-    fn counts_classified_results_but_not_transient_failures() {
+    fn records_rejections_but_not_fetch_success_or_transient_failures() {
         let valid: Result<(), AppError> = Ok(());
         let rejected: Result<(), AppError> = Err(AppError::new(
             ErrorKind::InvalidResponse,
@@ -322,7 +350,7 @@ mod tests {
             reqwest::StatusCode::BAD_GATEWAY,
         ));
 
-        assert!(outcome_is_explored(&valid));
+        assert!(!outcome_is_explored(&valid));
         assert!(outcome_is_explored(&rejected));
         assert!(outcome_is_explored(&placeholder));
         assert!(!outcome_is_explored(&timeout));
@@ -331,21 +359,18 @@ mod tests {
     }
 
     #[test]
-    fn classifies_viewed_and_rejected_outcomes_distinctly() {
+    fn only_classifies_rejections_during_fetch() {
         let valid: Result<(), AppError> = Ok(());
         let placeholder: Result<(), AppError> =
             Err(AppError::new(ErrorKind::NotFound, "placeholder"));
         let timeout: Result<(), AppError> = Err(AppError::new(ErrorKind::Timeout, "timeout"));
 
-        assert_eq!(classify_outcome(&valid), Some(ExplorationOutcome::Viewed));
-        assert_eq!(
-            classify_outcome(&placeholder),
-            Some(ExplorationOutcome::Rejected)
-        );
-        assert_eq!(classify_outcome(&timeout), None);
+        assert!(!classify_rejection(&valid));
+        assert!(classify_rejection(&placeholder));
+        assert!(!classify_rejection(&timeout));
     }
 
-    fn temp_explored_store(name: &str) -> Result<ExplorationStore, AppError> {
+    fn temp_store_directory(name: &str) -> std::path::PathBuf {
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::SystemTime::UNIX_EPOCH)
             .map_or(0, |duration| duration.as_nanos());
@@ -353,7 +378,7 @@ mod tests {
             "random-frame-prntsc-{name}-{}-{nonce}",
             std::process::id()
         ));
-        ExplorationStore::new(&directory)
+        directory
     }
 
     #[test]
@@ -418,40 +443,99 @@ mod tests {
 
     #[test]
     fn skips_already_explored_candidates_before_returning_one() -> Result<(), AppError> {
-        let store = temp_explored_store("skip")?;
+        let directory = temp_store_directory("skip");
+        let store = ExplorationStore::new(&directory)?;
+        let seen = SeenStore::new(&directory)?;
         store.mark(item_id_value("abc123")?, ExplorationOutcome::Viewed)?;
         store.mark(item_id_value("abc124")?, ExplorationOutcome::Rejected)?;
+        seen.insert(item_id_value("abc125")?)?;
+        store.mark(item_id_value("abc126")?, ExplorationOutcome::Rejected)?;
+        seen.insert(item_id_value("abc126")?)?;
 
-        let picked = pick_unexplored_id(&store, pick_from(&["abc123", "abc124", "abc125"]));
+        let picked = pick_unexplored_id(
+            &store,
+            &seen,
+            pick_from(&["abc123", "abc124", "abc125", "abc126", "abc127"]),
+        )?;
 
-        assert_eq!(picked, "abc125");
+        assert_eq!(picked, "abc127");
         Ok(())
     }
 
     #[test]
     fn returns_first_candidate_immediately_when_it_is_unexplored() -> Result<(), AppError> {
-        let store = temp_explored_store("first")?;
+        let directory = temp_store_directory("first");
+        let store = ExplorationStore::new(&directory)?;
+        let seen = SeenStore::new(&directory)?;
 
-        let picked = pick_unexplored_id(&store, pick_from(&["abc123", "abc124"]));
+        let picked = pick_unexplored_id(&store, &seen, pick_from(&["abc123", "abc124"]))?;
 
         assert_eq!(picked, "abc123");
         Ok(())
     }
 
     #[test]
-    fn falls_back_to_last_candidate_after_32_attempts_when_all_are_explored() -> Result<(), AppError>
-    {
-        let store = temp_explored_store("exhausted")?;
+    fn returns_typed_error_after_32_known_candidates() -> Result<(), AppError> {
+        let directory = temp_store_directory("exhausted");
+        let store = ExplorationStore::new(&directory)?;
+        let seen = SeenStore::new(&directory)?;
         store.mark(item_id_value("abc123")?, ExplorationOutcome::Viewed)?;
 
         let calls = std::sync::atomic::AtomicUsize::new(0);
-        let picked = pick_unexplored_id(&store, || {
+        let picked = pick_unexplored_id(&store, &seen, || {
             calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             "abc123".to_owned()
         });
 
-        assert_eq!(picked, "abc123");
+        assert!(matches!(
+            picked,
+            Err(AppError {
+                kind: ErrorKind::NoNewFrame,
+                ..
+            })
+        ));
         assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 32);
+        Ok(())
+    }
+
+    #[test]
+    fn newly_seen_frame_is_rejected_after_fetch() -> Result<(), AppError> {
+        let directory = temp_store_directory("race");
+        let explored = ExplorationStore::new(&directory)?;
+        let seen = SeenStore::new(&directory)?;
+        let id = item_id_value("abc123")?;
+        let frame = FetchedFrame {
+            item: RandomItem {
+                id: "abc123".to_owned(),
+                source: "prntsc".to_owned(),
+                source_page_url: "https://prnt.sc/abc123".to_owned(),
+                mime_type: "image/png".to_owned(),
+            },
+            bytes: vec![1],
+        };
+        seen.insert(id)?;
+        assert!(matches!(
+            reject_newly_known(&explored, &seen, id, Ok(frame)),
+            Err(AppError {
+                kind: ErrorKind::NoNewFrame,
+                ..
+            })
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn clearing_local_exploration_does_not_restore_seen_random_candidates() -> Result<(), AppError>
+    {
+        let directory = temp_store_directory("clear-seen");
+        let explored = ExplorationStore::new(&directory)?;
+        let seen = SeenStore::new(&directory)?;
+        let id = item_id_value("abc123")?;
+        explored.mark(id, ExplorationOutcome::Viewed)?;
+        seen.insert(id)?;
+        explored.clear()?;
+        let picked = pick_unexplored_id(&explored, &seen, pick_from(&["abc123", "abc124"]))?;
+        assert_eq!(picked, "abc124");
         Ok(())
     }
 }

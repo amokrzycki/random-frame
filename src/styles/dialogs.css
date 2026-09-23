@@ -240,6 +240,70 @@
   width: min(560px, calc(100% - 32px));
 }
 
+.sync-dialog {
+  width: min(560px, calc(100% - 32px));
+}
+
+.sync-dialog__body {
+  display: grid;
+  gap: 18px;
+}
+.sync-dialog__body p {
+  margin: 0;
+  line-height: 1.6;
+}
+.sync-dialog__body [hidden] {
+  display: none;
+}
+.sync-dialog__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+.sync-dialog__button {
+  min-height: 42px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  background: var(--paper);
+  font: inherit;
+  cursor: pointer;
+}
+.sync-dialog__button:hover {
+  color: var(--control-fill-text);
+  background: var(--control-fill);
+}
+.sync-dialog__button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+.sync-dialog__error {
+  color: var(--danger);
+}
+#sync-join-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+}
+#sync-recovery-input,
+#sync-recovery-key {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--field-line);
+  border-radius: 8px;
+  color: var(--ink);
+  background: var(--paper);
+  font: inherit;
+  overflow-wrap: anywhere;
+}
+#sync-recovery-key {
+  display: block;
+  margin: 12px 0;
+  user-select: all;
+}
+
 /* One ruled line per action, keys set right like the Draw next keycap. */
 .shortcuts {
   margin: 0;

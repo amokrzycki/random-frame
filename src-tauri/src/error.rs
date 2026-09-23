@@ -16,6 +16,7 @@ pub enum ErrorKind {
     Network,
     InvalidResponse,
     ImageTooLarge,
+    NoNewFrame,
     Persistence,
 }
 

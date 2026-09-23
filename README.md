@@ -14,6 +14,7 @@ Images come from [prnt.sc](https://prnt.sc/). The Rust backend resolves each ran
 - Light and dark themes
 - Custom title bar and window controls
 - Automatic updates from GitHub Releases
+- Optional Sync of seen progress between devices, using a recovery key
 
 ### Keyboard shortcuts
 
@@ -38,6 +39,8 @@ npx tauri dev
 
 `npm run dev` only watches and rebuilds the static frontend; Tauri runs the application.
 
+Sync needs a server endpoint. Set `RANDOM_FRAME_SYNC_BASE_URL` to a validated HTTPS URL for production, or a loopback HTTP URL for local testing, before launching or building the app. Without it, the gallery still works locally and Sync setup reports that the server is not configured. Sync is opt-in; history, favorites, settings and statistics remain local. Save the recovery key when enabling Sync: the app cannot show it again automatically.
+
 | Command             | Description                           |
 | ------------------- | ------------------------------------- |
 | `npm run build`     | Typecheck and build the frontend      |
@@ -56,7 +59,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 ## Privacy
 
-Random Frame collects no personal data and has no accounts, analytics, telemetry, or ads. It stores its settings, history, and statistics only on your device, in the application data directory. The app connects directly to prnt.sc for images and to GitHub to check for updates. Those services may see your IP address and request details. Files are saved only when you choose to save them, to a location you pick.
+Random Frame has no accounts, analytics, telemetry, or ads. Settings, history, favorites and statistics stay on your device. Optional Sync sends encrypted seen progress to a Sync server; its operator cannot read the plaintext ID list but can see connection metadata, sync ID, transfer size and timing. The app also connects to prnt.sc for images and GitHub for updates. Files are saved only where you choose.
 
 See the full [privacy policy](privacy.html), which is also available inside the app.
 
