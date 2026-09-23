@@ -602,7 +602,7 @@ async function saveCurrent(): Promise<void> {
   const current = history[index];
   const cached = current && blobs.get(blobKey(current.source, current.id));
   if (!current || !cached) return;
-  await saveImage(current.id, cached.blob, elements.announcer);
+  await saveImage(current.id, cached.blob);
 }
 
 async function copyCurrentImage(): Promise<void> {
@@ -639,7 +639,7 @@ async function clearSavedHistory(): Promise<void> {
     closeDialog(elements.historyDialog);
     toast.success("History cleared");
   } catch (error) {
-    elements.announcer.textContent = describeError(error).message;
+    toast.error(describeError(error, "History could not be cleared. Try again.").message);
   } finally {
     loading = false;
     syncControls();

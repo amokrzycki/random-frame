@@ -2,6 +2,7 @@ import { Image } from "@tauri-apps/api/image";
 import { writeImage } from "@tauri-apps/plugin-clipboard-manager";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
+import { describeError } from "./errors.js";
 import { toast } from "./toast.js";
 
 function imageExtension(mimeType: string): string {
@@ -15,7 +16,7 @@ function imageExtension(mimeType: string): string {
   return aliases[subtype] ?? (subtype.replace(/[^a-z0-9]/g, "") || "img");
 }
 
-export async function saveImage(id: string, blob: Blob, announcer: HTMLElement): Promise<void> {
+export async function saveImage(id: string, blob: Blob): Promise<void> {
   const extension = imageExtension(blob.type);
   try {
     const path = await save({
@@ -25,10 +26,9 @@ export async function saveImage(id: string, blob: Blob, announcer: HTMLElement):
     });
     if (!path) return;
     await writeFile(path, new Uint8Array(await blob.arrayBuffer()));
-    announcer.textContent = `Saved frame ${id}`;
+    toast.success("Saved image");
   } catch (error) {
-    const message = error instanceof Error ? error.message : "The image could not be saved";
-    toast.error(message);
+    toast.error(describeError(error, "The image could not be saved. Try again.").message);
   }
 }
 
@@ -46,7 +46,6 @@ export async function copyImage(blob: Blob): Promise<void> {
     await writeImage(image);
     toast.success("Copied image to clipboard");
   } catch (error) {
-    const message = error instanceof Error ? error.message : "The image could not be copied";
-    toast.error(message);
+    toast.error(describeError(error, "The image could not be copied. Try again.").message);
   }
 }
