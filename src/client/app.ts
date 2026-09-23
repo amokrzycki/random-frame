@@ -1,7 +1,9 @@
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Frame } from "./api.js";
 import { getFrameById, getRandomFrame } from "./api.js";
 import { elements } from "./elements.js";
+import { describeError } from "./errors.js";
 import { historyPage, loadPageSize, PAGE_SIZES, pageOf, parsePageSize, savePageSize } from "./history-pagination.js";
 import { copyImage, saveImage } from "./image-actions.js";
 import {
@@ -26,6 +28,7 @@ import {
   describeDay,
   formatExploredBreakdown,
   formatExploredPercent,
+  heatmapFocusTarget,
   heatmapPlaceholderCount,
   heatmapRangeLabel,
   intensityLevel,
@@ -43,22 +46,23 @@ interface CachedBlob {
 
 type ViewState = "empty" | "loading" | "error" | "image";
 
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "string") return error;
-  return "The image could not be loaded";
-}
-
 const storageKey = "prntsc-gallery-history";
 const entryStorageKey = "random-frame-risk-accepted";
 const thumbnailStorageKey = "prntsc-gallery-thumbnails";
 const THUMBNAIL_MAX_DIMENSION = 160;
+// ~5-8 KB each as base64 JPEG; 300 stays well inside the webview's ~5 MB localStorage quota.
+const THUMBNAIL_LIMIT = 300;
 const history: HistoryItem[] = [];
 const blobs = new Map<string, CachedBlob>();
 let index = -1;
 let loading = true;
+let viewState: ViewState = "empty";
+let cooldownUntil = 0;
+let cooldownTimer: ReturnType<typeof setInterval> | undefined;
+let cooldownNoticeShown = false;
 let pageSize = loadPageSize(localStorage);
 let pageIndex = 0;
+let focusBeforeLoading: Element | null = null;
 const HEATMAP_DEFAULT_DETAIL = "Hover or focus a day for details.";
 
 function blobKey(source: string, id: string): string {
@@ -78,8 +82,8 @@ function loadThumbnails(): Map<string, string> {
 const thumbnails = loadThumbnails();
 
 function persistThumbnails(): void {
-  // ponytail: prunes to keys still in history, no LRU beyond that; add one if history grows unbounded
-  const keep = new Set(history.map((item) => blobKey(item.source, item.id)));
+  // ponytail: keeps the newest THUMBNAIL_LIMIT history entries; older tiles fall back to the stripe placeholder
+  const keep = new Set(history.slice(-THUMBNAIL_LIMIT).map((item) => blobKey(item.source, item.id)));
   for (const key of thumbnails.keys()) if (!keep.has(key)) thumbnails.delete(key);
   try {
     localStorage.setItem(thumbnailStorageKey, JSON.stringify(Object.fromEntries(thumbnails)));
@@ -118,46 +122,124 @@ try {
   openDialog(elements.entryDialog);
 }
 
-function setState(state: ViewState, message = ""): void {
-  for (const [name, target] of Object.entries({
-    empty: elements.empty,
-    loading: elements.loading,
-    error: elements.error,
-    image: elements.imageZoom,
-  })) {
-    target.hidden = name !== state;
-  }
-  if (message) elements.errorMessage.textContent = message;
+const statePanels: Record<ViewState, HTMLElement> = {
+  empty: elements.empty,
+  loading: elements.loading,
+  error: elements.error,
+  image: elements.imageZoom,
+};
+
+function setState(state: ViewState): void {
+  // A draw from a shown frame keeps it on stage, dimmed under the loader, so the next one can crossfade in.
+  const keepFrame = state === "loading" && !elements.imageZoom.hidden;
+  viewState = state;
+  for (const [name, target] of Object.entries(statePanels))
+    target.hidden = name !== state && !(keepFrame && name === "image");
+  elements.imageZoom.inert = keepFrame;
+  if (keepFrame) elements.imageZoom.dataset.dimmed = "";
+  else delete elements.imageZoom.dataset.dimmed;
   if (state === "loading") elements.announcer.textContent = "Finding an available frame";
+}
+
+const stateControls: Record<ViewState, HTMLElement | null> = {
+  empty: elements.start,
+  loading: null,
+  error: elements.retry,
+  image: elements.next,
+};
+
+function startLoading(): void {
+  loading = true;
+  focusBeforeLoading = document.activeElement;
+}
+
+function focusLost(): boolean {
+  return !document.activeElement || document.activeElement === document.body;
+}
+
+// Loading hides or disables the control that started it, which drops focus to <body>. Hand it back,
+// or to the stage's own control when that one is gone (the start button, say), unless the visitor moved on.
+function finishLoading(): void {
+  loading = false;
+  syncControls();
+  const target = focusBeforeLoading as HTMLElement | null;
+  focusBeforeLoading = null;
+  if (!target || target === document.body || !focusLost()) return;
+  target.focus();
+  if (focusLost()) stateControls[viewState]?.focus();
 }
 
 function syncControls(): void {
   const current = history[index];
-  elements.previous.disabled = loading || index <= 0;
-  elements.next.disabled = loading || index < 0;
-  const currentBlob = current && blobs.has(blobKey(current.source, current.id));
+  elements.previous.setAttribute("aria-disabled", String(loading || index <= 0));
+  elements.next.setAttribute("aria-disabled", String(loading || index < 0));
+  // Copy and save act on the visible frame only, never on one hidden behind an error.
+  const currentBlob = viewState === "image" && current && blobs.has(blobKey(current.source, current.id));
   elements.save.disabled = loading || !currentBlob;
   elements.copyImage.disabled = loading || !currentBlob;
   elements.copyLink.disabled = loading || !current;
   elements.previousId.disabled = loading || current?.source !== "prntsc" || adjacentPrntscId(current.id, -1) === null;
   elements.nextId.disabled = loading || current?.source !== "prntsc" || adjacentPrntscId(current.id, 1) === null;
-  elements.jumpInput.disabled = loading || !history.length;
-  elements.jumpButton.disabled = loading || !history.length;
+  // History, jump, and the arrows stay enabled while loading (goTo ignores them), so they keep focus.
+  elements.jumpInput.disabled = !history.length;
+  elements.jumpButton.disabled = !history.length;
   elements.jumpInput.max = String(history.length);
   if (document.activeElement !== elements.jumpInput) elements.jumpInput.value = String(history.length ? index + 1 : 0);
   elements.historyTotal.textContent = String(history.length);
-  elements.historyButton.disabled = loading;
   elements.historyClear.disabled = loading;
   elements.next.setAttribute(
     "aria-label",
     index < history.length - 1 ? "Show the next saved frame" : "Draw a new frame",
   );
-  elements.imageId.textContent = current ? `${current.source}/${current.id}` : "prnt.sc/———";
+  elements.imageId.textContent = `prnt.sc/${current?.id ?? "———"}`;
   elements.source.href = current?.sourcePageUrl ?? "https://prnt.sc/";
   elements.source.setAttribute("aria-disabled", String(!current));
   elements.meta.textContent = current
     ? `Source: Prnt.sc · frame ${current.id}`
     : "One public image. No feed, no profile.";
+  // aria-disabled rather than disabled, so a focused retry keeps focus through the countdown.
+  const waitSeconds = cooldownSeconds();
+  elements.retry.setAttribute("aria-disabled", String(waitSeconds > 0));
+  elements.retry.textContent = waitSeconds ? `Try another in ${waitSeconds}s` : "Try another";
+  elements.back.hidden = !current;
+  elements.back.textContent = `Show frame ${index + 1}`;
+}
+
+function cooldownSeconds(): number {
+  return Math.max(0, Math.ceil((cooldownUntil - Date.now()) / 1000));
+}
+
+// Requesting again straight into a rate limit only extends it, so new draws pause while the retry counts down.
+function startCooldown(seconds: number): void {
+  cooldownUntil = Date.now() + seconds * 1000;
+  cooldownNoticeShown = false;
+  clearInterval(cooldownTimer);
+  cooldownTimer = setInterval(() => {
+    if (!cooldownSeconds()) clearInterval(cooldownTimer);
+    syncControls();
+  }, 1000);
+}
+
+// Returns true when a network draw has to wait; history already on the device stays reachable.
+function drawPaused(): boolean {
+  const seconds = cooldownSeconds();
+  if (!seconds) return false;
+  const notice = `Drawing resumes in ${seconds}s`;
+  // The countdown is already on stage in the error state; elsewhere one toast per pause, not one per key repeat.
+  if (viewState !== "error" && !cooldownNoticeShown) {
+    toast.error(notice);
+    cooldownNoticeShown = true;
+  } else elements.announcer.textContent = notice;
+  return true;
+}
+
+function showError(error: unknown): void {
+  const { title, message, cooldownSeconds: seconds } = describeError(error);
+  elements.errorTitle.textContent = title;
+  elements.errorMessage.textContent = message;
+  setState("error");
+  elements.announcer.textContent = `${title} ${message}`;
+  if (seconds) startCooldown(seconds);
 }
 
 function showFrame(source: string, id: string, blob: Blob): void {
@@ -166,16 +248,34 @@ function showFrame(source: string, id: string, blob: Blob): void {
   const key = blobKey(source, id);
   blobs.set(key, { blob, url });
   void cacheThumbnail(key, blob);
-  elements.image.src = url;
-  elements.image.alt = `Public image from Prnt.sc with identifier ${id}`;
-  elements.image.style.animation = "none";
-  void elements.image.offsetWidth;
-  elements.image.style.animation = "";
-  setState("image");
+  swapImage(url, id);
   syncControls();
   elements.announcer.textContent = `Showing frame ${id}`;
+  // The outgoing frame may still be fading out on the ghost, so release it after the crossfade.
   if (oldUrl.startsWith("blob:") && ![...blobs.values()].some((item) => item.url === oldUrl))
-    URL.revokeObjectURL(oldUrl);
+    setTimeout(() => URL.revokeObjectURL(oldUrl), 1000);
+}
+
+function restartAnimation(target: HTMLElement): void {
+  target.style.animation = "none";
+  void target.offsetWidth;
+  target.style.animation = "";
+}
+
+// The outgoing frame fades out beneath the incoming one, so a draw never cuts through an empty stage.
+function swapImage(url: string, id: string): void {
+  const { image, imageGhost: ghost } = elements;
+  const outgoing = image.src;
+  const crossfade = !elements.imageZoom.hidden && outgoing.startsWith("blob:") && outgoing !== url;
+  ghost.hidden = !crossfade;
+  if (crossfade) {
+    ghost.src = outgoing;
+    restartAnimation(ghost);
+  }
+  image.src = url;
+  image.alt = `Public image from Prnt.sc with identifier ${id}`;
+  restartAnimation(image);
+  setState("image");
 }
 
 async function recordFrame(frame: Frame): Promise<void> {
@@ -191,28 +291,27 @@ async function recordFrame(frame: Frame): Promise<void> {
 }
 
 async function loadRandom(): Promise<void> {
-  if (loading) return;
-  loading = true;
+  if (loading || drawPaused()) return;
+  startLoading();
   setState("loading");
   syncControls();
   try {
     const frame = await getRandomFrame();
     await recordFrame(frame);
   } catch (error) {
-    const message = errorMessage(error);
-    setState("error", message);
-    elements.announcer.textContent = `Error: ${message}`;
+    showError(error);
   } finally {
-    loading = false;
-    syncControls();
+    finishLoading();
   }
 }
 
 async function goTo(targetIndex: number): Promise<void> {
-  if (loading || targetIndex === index || targetIndex < 0 || targetIndex >= history.length) return;
+  // The shown index may be re-requested when an error covers it, so the frame can be recovered.
+  if (loading || (targetIndex === index && viewState === "image") || targetIndex < 0 || targetIndex >= history.length)
+    return;
   const current = history[targetIndex];
   if (!current) return;
-  loading = true;
+  startLoading();
   const previousIndex = index;
   const cached = blobs.get(blobKey(current.source, current.id));
   try {
@@ -222,18 +321,16 @@ async function goTo(targetIndex: number): Promise<void> {
       const frame = await getFrameById(current.id, current.source);
       showFrame(frame.source, frame.id, frame.blob);
     } else {
-      elements.image.src = cached.url;
-      elements.image.alt = `Public image from Prnt.sc with identifier ${current.id}`;
-      setState("image");
+      swapImage(cached.url, current.id);
       elements.announcer.textContent = `Showing frame ${current.id}`;
     }
     applyHistory(await selectHistoryItem(targetIndex));
   } catch (error) {
-    index = previousIndex;
-    setState("error", errorMessage(error));
+    // A failed restore at startup keeps the target, so "Show frame N" retries it.
+    index = previousIndex >= 0 ? previousIndex : targetIndex;
+    showError(error);
   }
-  loading = false;
-  syncControls();
+  finishLoading();
 }
 
 // Only the current page is laid out, so the dialog never builds thousands of DOM nodes.
@@ -286,6 +383,7 @@ function renderHistoryPage(): void {
 }
 
 function openHistory(): void {
+  if (loading) return;
   elements.historyClear.disabled = false;
   // Open where the visitor is: the page holding the shown frame, else the newest page.
   pageIndex = pageOf(index >= 0 ? index : history.length - 1, pageSize);
@@ -387,19 +485,17 @@ async function loadAdjacent(offset: -1 | 1): Promise<void> {
   if (loading || !id) return;
   const savedIndex = historyIndexForId(history, id);
   if (savedIndex !== -1) return void goTo(savedIndex);
-  loading = true;
+  if (drawPaused()) return;
+  startLoading();
   setState("loading");
   syncControls();
   try {
     const frame = await getFrameById(id);
     await recordFrame(frame);
   } catch (error) {
-    const message = errorMessage(error);
-    setState("error", message);
-    elements.announcer.textContent = `Error: ${message}`;
+    showError(error);
   } finally {
-    loading = false;
-    syncControls();
+    finishLoading();
   }
 }
 
@@ -414,13 +510,13 @@ async function copyCurrentImage(): Promise<void> {
   const current = history[index];
   const cached = current && blobs.get(blobKey(current.source, current.id));
   if (!current || !cached) return;
-  await copyImage(cached.blob, elements.announcer);
+  await copyImage(cached.blob);
 }
 
 async function copySourceLink(): Promise<void> {
   try {
     await navigator.clipboard.writeText(elements.source.href);
-    toast.success("Copied to clipboard");
+    toast.success("Copied source link");
   } catch {
     elements.announcer.textContent = "Could not copy the source link";
   }
@@ -442,9 +538,9 @@ async function clearSavedHistory(): Promise<void> {
     elements.image.alt = "";
     setState("empty");
     closeDialog(elements.historyDialog);
-    elements.announcer.textContent = "History cleared";
+    toast.success("History cleared");
   } catch (error) {
-    elements.announcer.textContent = `Error: ${errorMessage(error)}`;
+    elements.announcer.textContent = describeError(error).message;
   } finally {
     loading = false;
     syncControls();
@@ -488,10 +584,12 @@ function renderHeatmap(days: DailyActivity[]): void {
       grid.append(filler);
     }
   }
-  for (const day of days) {
+  for (const [dayIndex, day] of days.entries()) {
     const cell = document.createElement("button");
     cell.type = "button";
     cell.className = "heatmap-cell";
+    // One tab stop for the whole grid, on today; arrow keys move between days.
+    cell.tabIndex = dayIndex === days.length - 1 ? 0 : -1;
     cell.setAttribute("data-level", String(intensityLevel(day.viewed, maxViewed)));
     const description = describeDay(day);
     cell.setAttribute("aria-label", description);
@@ -525,19 +623,23 @@ async function initialize(): Promise<void> {
     applyHistory({ ...snapshot, index: -1 });
     loading = false;
     syncControls();
+    // The stage starts blank, so a restored frame never flashes the first-draw prompt on launch.
     if (snapshot.index >= 0) await goTo(snapshot.index);
+    else setState("empty");
   } catch (error) {
     loading = false;
-    const message = errorMessage(error);
-    setState("error", message);
-    elements.announcer.textContent = `Error: ${message}`;
+    showError(error);
     syncControls();
   }
 }
 
 elements.start.addEventListener("click", () => void loadRandom());
 elements.retry.addEventListener("click", () => void loadRandom());
-elements.next.addEventListener("click", goNext);
+elements.back.addEventListener("click", () => void goTo(index));
+// aria-disabled buttons still fire clicks; goTo and loadRandom already ignore them while loading.
+elements.next.addEventListener("click", () => {
+  if (index >= 0) goNext();
+});
 elements.previous.addEventListener("click", goBack);
 elements.previousId.addEventListener("click", () => void loadAdjacent(-1));
 elements.nextId.addEventListener("click", () => void loadAdjacent(1));
@@ -567,7 +669,7 @@ elements.historyClear.addEventListener("keydown", (event) => {
 });
 for (const type of ["pointerup", "pointerleave", "pointercancel", "keyup", "blur"]) {
   elements.historyClear.addEventListener(type, () => {
-    if (stopClearHold()) toast.success("Hold to clear history");
+    if (stopClearHold()) toast.info("Hold to clear history");
   });
 }
 elements.historyClear.addEventListener("transitionend", (event) => {
@@ -595,8 +697,9 @@ elements.historyPageSize.addEventListener("change", changePageSize);
 elements.historyDialog.addEventListener("close", () => {
   // Hiding mid-hold cancels the fill without a transitionend; drop the hold silently.
   stopClearHold();
-  elements.historyButton.focus();
+  // Main is inert until onDialogClosed, and focus() on an inert element is ignored.
   onDialogClosed();
+  elements.historyButton.focus();
 });
 elements.statsButton.addEventListener("click", async () => {
   try {
@@ -627,6 +730,19 @@ function showHeatmapDetail(event: Event): void {
 }
 elements.statsHeatmapGrid.addEventListener("mouseover", showHeatmapDetail);
 elements.statsHeatmapGrid.addEventListener("focusin", showHeatmapDetail);
+elements.statsHeatmapGrid.addEventListener("keydown", (event) => {
+  const cells = [...elements.statsHeatmapGrid.querySelectorAll<HTMLButtonElement>("button.heatmap-cell")];
+  const current = cells.indexOf(event.target as HTMLButtonElement);
+  const target = current === -1 ? null : heatmapFocusTarget(event.key, current, cells.length);
+  if (target === null) return;
+  event.preventDefault();
+  const from = cells[current];
+  const to = cells[target];
+  if (!from || !to || from === to) return;
+  from.tabIndex = -1;
+  to.tabIndex = 0;
+  to.focus();
+});
 elements.statsHeatmapGrid.addEventListener("mouseleave", () => {
   elements.statsHeatmapDetail.textContent = HEATMAP_DEFAULT_DETAIL;
 });
@@ -635,18 +751,28 @@ elements.statsHeatmapGrid.addEventListener("focusout", () => {
 });
 elements.statsClose.addEventListener("click", () => closeDialog(elements.statsDialog));
 elements.statsDialog.addEventListener("close", () => {
-  elements.statsButton.focus();
   onDialogClosed();
+  elements.statsButton.focus();
 });
 elements.imageZoom.addEventListener("click", openLightbox);
+elements.imageGhost.addEventListener("animationend", () => {
+  elements.imageGhost.hidden = true;
+});
 elements.lightboxDialog.addEventListener("click", () => closeDialog(elements.lightboxDialog));
 elements.lightboxClose.addEventListener("click", (event) => {
   event.stopPropagation();
   closeDialog(elements.lightboxDialog);
 });
 elements.lightboxDialog.addEventListener("close", () => {
-  elements.imageZoom.focus();
   onDialogClosed();
+  elements.imageZoom.focus();
+});
+elements.leave.addEventListener("click", async () => {
+  try {
+    await getCurrentWindow().close();
+  } catch {
+    elements.announcer.textContent = "Random Frame could not close the window";
+  }
 });
 elements.entryConsent.addEventListener("change", () => {
   elements.entryButton.disabled = !elements.entryConsent.checked;

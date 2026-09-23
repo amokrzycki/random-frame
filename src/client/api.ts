@@ -30,7 +30,9 @@ async function receiveFrame(
     });
     return { ...metadata, blob: new Blob([bytes], { type: metadata.mimeType }) };
   } catch (error) {
-    throw new Error(messageFrom(error));
+    // Keep the backend's error kind so the viewer can explain rate limits and outages plainly.
+    const kind = typeof error === "object" && error !== null && "kind" in error ? String(error.kind) : undefined;
+    throw Object.assign(new Error(messageFrom(error)), { kind });
   }
 }
 

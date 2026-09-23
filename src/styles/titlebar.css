@@ -81,7 +81,7 @@
   shape-rendering: geometricPrecision;
 }
 
-:root[data-keyboard-navigation] .window-control:focus {
+.window-control:focus-visible {
   outline-width: 2px;
   outline-offset: -3px;
 }

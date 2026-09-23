@@ -5,13 +5,14 @@ colors:
   mineral-paper: "#ebe8e1"
   mineral-paper-deep: "#dfdbd1"
   graphite-ink: "#191a18"
-  muted-olive-gray: "#66675f"
+  muted-olive-gray: "#5c5d56"
   viewing-stage: "#151614"
   viewing-stage-soft: "#22231f"
   archival-white: "#f9f8f4"
   action-cobalt: "#2759dc"
   action-cobalt-dark: "#1944b8"
   hairline-stone: "#c9c5bc"
+  field-stone: "#85827a"
   warning-terracotta: "#c86b55"
   window-close-red: "#c42b1c"
   dark-mineral-paper: "#171815"
@@ -23,6 +24,7 @@ colors:
   dark-action-cobalt: "#496adc"
   dark-action-cobalt-dark: "#3f63d7"
   dark-hairline-stone: "#3b3c36"
+  dark-field-stone: "#6f7068"
   dark-control-fill: "#343530"
   dark-floating-control: "#2b2c28"
   dark-warning-terracotta: "#e58b75"
@@ -131,6 +133,7 @@ The palette pairs warm archival neutrals with a near-black viewing environment a
 - **Viewing Stage Soft:** Supporting dark neutral for stage-adjacent layering.
 - **Archival White:** High-contrast copy and light control surfaces.
 - **Hairline Stone:** Dividers and keycap borders.
+- **Field Stone:** Text-input borders only, at 3:1 or better against the paper in both themes.
 - **Warning Terracotta:** Error icon only.
 - **Window Close Red:** Hover fill of the titlebar close control only, matching the native window-close convention in both themes.
 
@@ -166,9 +169,9 @@ The viewer fills the available work area and repeats the same fixed-flex-fixed r
 
 **The Single Frame Rule.** Never turn the viewing stage into a grid: one image owns it at a time. Thumbnail grids live only inside the history dialog, as a way back to a frame.
 
-The history dialog grid auto-fills 138px-minimum columns with 12px gaps, dropping to two columns under 430px. Transient notices float above the frame: toasts stack bottom-right 20px from the window edges, and the update banner centers 16px below the top edge.
+The history dialog grid auto-fills 138px-minimum columns with 12px gaps. Transient notices float above the frame: toasts stack bottom-right 20px from the window edges, and the update banner centers 16px below the top edge.
 
-**The Desktop Frame Rule.** Treat 800×600 as the compact floor: preserve all three application rows and let the stage flex before hiding persistent controls.
+**The Desktop Frame Rule.** Treat 800×600 as the compact floor: preserve all three application rows and let the stage flex before hiding persistent controls. The only width breakpoint is 1100px, where the lower rail drops the shortcut hint and the "Adjacent ID" label and collapses Copy and Save to titled 34px icon buttons; rail buttons never wrap. Windows 760px tall or less compress the statistics rows so the heatmap stays in view.
 
 ## Elevation & Depth
 
@@ -177,7 +180,8 @@ Depth is concentrated on the viewing stage and floating controls. The titlebar, 
 ### Shadow Vocabulary
 
 - **Stage Ambient:** A compact two-layer shadow (`0 12px 32px` and `0 2px 6px`) that separates the graphite stage from the surrounding workbench without making it float like a web card.
-- **Cobalt Lift:** A colored soft shadow below the primary action.
+- **Cobalt Lift:** A colored soft shadow below the primary action, mixed from the current theme's cobalt at 28%.
+- **Dark Hairline Ring:** In dark mode the stage, toasts, and update banner add a 1px warm-white ring at 10% so their edges survive on charcoal paper; light mode omits it.
 - **Control Lift:** A compact neutral shadow below previous/next controls.
 - **Notice Lift:** A soft `0 10px 28px` warm shadow under the dark toasts and update banner, so they read as momentary overlays.
 
@@ -207,7 +211,7 @@ The stage uses an 8px outer radius and an 8px inset hairline, matching the compa
 - **Shell:** Native modal behavior with mineral-paper surfaces, a graphite scrim, 14px corners, and the same ambient depth vocabulary as the stage.
 - **Header:** Serif title, close control, and one hairline divider.
 - **History grid:** Graphite thumbnail tiles with a 10px frame, a 4:3 contained image over Viewing Stage Soft, and a monospace ID caption. The current frame gets a cobalt double-weight border; frames without a stored thumbnail show a diagonal graphite stripe.
-- **History pager:** A flat 62px footer below one hairline: muted frame range on the left, outlined Previous/Next steps around a "Page n of m" label, and a native "Per page" select (10/25/50/100, default 25). Steps and select share a 38px outlined control that fills with graphite on hover. The footer is omitted when history fits the smallest page, and the step buttons are omitted when everything fits on one page. Under 720px the range takes its own row and the steps collapse to chevrons.
+- **History pager:** A flat 62px footer below one hairline: muted frame range on the left, outlined Previous/Next steps around a "Page n of m" label, and a native "Per page" select (10/25/50/100, default 25). Steps and select share a 38px outlined control that fills with graphite on hover. The footer is omitted when history fits the smallest page, and the step buttons are omitted when everything fits on one page.
 - **Statistics:** Two ruled definition rows pair muted labels with large tabular serif values; the supporting privacy note remains visually secondary.
 - **Heatmap:** A column-flow week grid of 12px cells with 3px gaps, empty days in Mineral Paper Deep and four cobalt intensity levels. Rows run Monday to Sunday; muted 10px Mon / Wed / Fri labels share the grid's row tracks on its left, so the hidden leading cells of a first partial week read as weekdays, not days. Placeholder days before tracking began are dashed and inert; the selected day's counts appear in a muted tabular line beneath.
 - **Lightbox:** Zooming opens the image edge to edge below the titlebar on a near-black 94% scrim with 24px padding and a zoom-out cursor.
@@ -218,7 +222,7 @@ The stage uses an 8px outer radius and an 8px inset hairline, matching the compa
 - **Titlebar:** A fixed 42px Mineral Paper Deep drag region with brand mark and title on the left, compact statistics and theme controls, then 46px-wide square-stroke window controls on the right, divided from the work area by one stone hairline. Close hovers to Window Close Red.
 - **Frame navigation:** 38×52px archival-white controls float 16px from the stage edges. Disabled buttons remain visible at reduced opacity.
 - **Lower rail:** A fixed 52px row docks the monospace source link and provider controls on the left, with shortcut hint, history, copy, and save actions on the right.
-- **Status bar:** A fixed 34px strip carries the local-history notice, version, privacy, and provider attribution without competing with the frame.
+- **Status bar:** A fixed 34px strip carries the local-history notice, version, privacy, and provider attribution without competing with the frame. Its muted text holds 4.5:1 or better on Mineral Paper Deep in both themes.
 - **Provider-specific browsing:** When a source exposes sequential identifiers, compact −1/+1 controls sit beside its source link, visually separated from the large history navigation. Omit this control group for providers without meaningful adjacency.
 - **History jump:** A compact native number field in the viewer header shows the current position and accepts direct jumps within local history.
 

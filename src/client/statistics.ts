@@ -5,7 +5,8 @@ export const LEGACY_ID_SPACE_SIZE = 4_773_622_240;
 export function formatExploredPercent(explored: number, total = LEGACY_ID_SPACE_SIZE): string {
   if (explored <= 0 || total <= 0) return "0%";
   const percent = (explored / total) * 100;
-  const decimals = Math.min(12, Math.max(2, Math.ceil(-Math.log10(percent)) + 3));
+  if (percent < 0.001) return "< 0.001%";
+  const decimals = Math.max(2, Math.ceil(-Math.log10(percent)) + 3);
   return `${percent.toFixed(decimals)}%`;
 }
 
@@ -104,4 +105,15 @@ export function describeDay(day: DailyActivity): string {
   const parts = [label, `${day.viewed.toLocaleString("en-US")} viewed`, `${explored.toLocaleString("en-US")} explored`];
   if (day.rejected > 0) parts.push(`${day.rejected.toLocaleString("en-US")} unavailable`);
   return parts.join(" · ");
+}
+
+// Days run down each week column, so Up/Down step one day and Left/Right one week.
+const HEATMAP_KEY_STEPS: Record<string, number> = { ArrowUp: -1, ArrowDown: 1, ArrowLeft: -7, ArrowRight: 7 };
+
+export function heatmapFocusTarget(key: string, current: number, count: number): number | null {
+  if (key === "Home") return 0;
+  if (key === "End") return count - 1;
+  const step = HEATMAP_KEY_STEPS[key];
+  if (step === undefined) return null;
+  return Math.min(count - 1, Math.max(0, current + step));
 }

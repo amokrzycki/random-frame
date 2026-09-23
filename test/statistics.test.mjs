@@ -7,6 +7,7 @@ import {
   formatExploredBreakdown,
   formatExploredPercent,
   HEATMAP_MIN_VISIBLE_CELLS,
+  heatmapFocusTarget,
   heatmapPlaceholderCount,
   heatmapRangeLabel,
   intensityLevel,
@@ -24,7 +25,7 @@ function daysOf(count) {
 
 test("keeps tiny explored percentages visible", () => {
   assert.equal(formatExploredPercent(0), "0%");
-  assert.equal(formatExploredPercent(12_483), "0.0002615%");
+  assert.equal(formatExploredPercent(12_483), "< 0.001%");
   assert.notEqual(formatExploredPercent(1), "0.00%");
 });
 
@@ -128,4 +129,15 @@ test("renders local day keys as the same calendar day in any timezone, including
       assert.equal(leadingBlankCount(iso), blanks, `${zone}: ${iso} weekday`);
     }
   }
+});
+
+test("moves heatmap focus a day vertically and a week horizontally, clamped to the grid", () => {
+  assert.equal(heatmapFocusTarget("ArrowDown", 3, 20), 4);
+  assert.equal(heatmapFocusTarget("ArrowUp", 3, 20), 2);
+  assert.equal(heatmapFocusTarget("ArrowRight", 3, 20), 10);
+  assert.equal(heatmapFocusTarget("ArrowLeft", 3, 20), 0);
+  assert.equal(heatmapFocusTarget("ArrowRight", 15, 20), 19);
+  assert.equal(heatmapFocusTarget("Home", 7, 20), 0);
+  assert.equal(heatmapFocusTarget("End", 7, 20), 19);
+  assert.equal(heatmapFocusTarget("Tab", 7, 20), null);
 });

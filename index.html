@@ -49,7 +49,7 @@
         </label>
         <div class="entry-dialog__actions">
           <button class="primary-action" id="entry-button" type="button" disabled>Enter Random Frame</button>
-          <a class="leave-action" href="about:blank">Leave</a>
+          <button class="leave-action" id="leave-button" type="button">Leave</button>
         </div>
       </div>
     </dialog>
@@ -67,7 +67,7 @@
               aria-describedby="history-clear-hint">
               Clear history
             </button>
-            <span id="history-clear-hint" hidden>Hold to clear, or activate twice.</span>
+            <span class="sr-only" id="history-clear-hint">Hold to clear, or activate twice.</span>
             <button class="history-close" id="history-close-button" type="button" aria-label="Close history" autofocus>
               <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
             </button>
@@ -231,7 +231,7 @@
       <section class="viewer" aria-labelledby="frame-title">
         <div class="viewer-head">
           <div>
-            <h1 id="frame-title">Random frame</h1>
+            <h1 id="frame-title">Random Frame</h1>
             <p id="frame-meta">One public image. No feed, no profile.</p>
           </div>
           <form class="jump-form" id="jump-form">
@@ -246,13 +246,13 @@
               disabled
               required>
             <span aria-hidden="true">/</span>
-            <output id="history-total" for="jump-input" aria-live="polite">0</output>
+            <output id="history-total" for="jump-input" aria-live="off">0</output>
             <button id="jump-button" type="submit" disabled>Go</button>
           </form>
         </div>
 
         <div class="stage" id="stage">
-          <div class="empty-state" id="empty-state">
+          <div class="empty-state" id="empty-state" hidden>
             <p class="empty-title">See a random corner of the internet.</p>
             <p>Public uploads may contain personal or unsuitable content. Browse thoughtfully.</p>
             <button class="primary-action" id="start-button" type="button">
@@ -261,7 +261,7 @@
             </button>
           </div>
 
-          <div class="loading-state" id="loading-state" role="status" aria-live="polite" hidden>
+          <div class="loading-state" id="loading-state" hidden>
             <svg class="loader" viewBox="0 0 36 36" aria-hidden="true">
               <circle class="loader__track" cx="18" cy="18" r="15.5" />
               <circle class="loader__indicator" cx="18" cy="18" r="15.5" />
@@ -271,9 +271,12 @@
 
           <div class="error-state" id="error-state" hidden>
             <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3.5 29 27H3L16 3.5Zm0 8v7m0 4v.5" /></svg>
-            <p class="error-title">This frame would not open.</p>
+            <p class="error-title" id="error-title">This frame would not open.</p>
             <p id="error-message">The source may have limited access, or this address may be empty.</p>
-            <button class="text-action" id="retry-button" type="button">Try another</button>
+            <div class="error-actions">
+              <button class="text-action" id="retry-button" type="button">Try another</button>
+              <button class="text-action" id="back-button" type="button" hidden>Show frame 1</button>
+            </div>
           </div>
 
           <button class="image-zoom" id="image-zoom" type="button" aria-label="Enlarge current image" hidden>
@@ -281,6 +284,7 @@
               id="image"
               src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'/%3E"
               alt="">
+            <img class="image-ghost" id="image-ghost" alt="" aria-hidden="true" hidden>
           </button>
 
           <button
@@ -288,10 +292,15 @@
             id="previous-button"
             type="button"
             aria-label="Show the previous frame"
-            disabled>
+            aria-disabled="true">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg>
           </button>
-          <button class="nav-button next" id="next-button" type="button" aria-label="Draw a new frame" disabled>
+          <button
+            class="nav-button next"
+            id="next-button"
+            type="button"
+            aria-label="Draw a new frame"
+            aria-disabled="true">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
           </button>
         </div>
@@ -350,11 +359,11 @@
               <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5.5h12M4 10h12M4 14.5h12" /></svg>
               History
             </button>
-            <button class="save-button" id="copy-image-button" type="button" disabled>
+            <button class="save-button" id="copy-image-button" type="button" title="Copy image" disabled>
               <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M6 6V3.5h8.5V12H12M3.5 6H12v8.5H3.5z" /></svg>
               <span>Copy image</span>
             </button>
-            <button class="save-button" id="save-button" type="button" disabled>
+            <button class="save-button" id="save-button" type="button" title="Save image" disabled>
               <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v9m-4-4 4 4 4-4M4 15.5h12" /></svg>
               <span>Save image</span>
             </button>
@@ -379,6 +388,7 @@
     </footer>
 
     <div class="sr-only" id="announcer" aria-live="polite"></div>
+    <div class="toast-region" aria-live="polite"></div>
     <script type="module" src="{{THEME_JS}}"></script>
     <script type="module" src="{{WINDOW_CONTROLS_JS}}"></script>
     <script type="module" src="{{APP_JS}}"></script>
