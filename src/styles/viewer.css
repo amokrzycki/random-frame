@@ -407,9 +407,19 @@
   gap: 2px;
 }
 
+/* Steppers and ID read as one segmented control: the chevrons step the ID they flank. */
+.frame-id__pill {
+  min-width: 0;
+  margin-right: 6px;
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
 .frame-id__caption {
   min-width: 0;
-  padding-inline: 4px;
+  padding-inline: 10px;
   overflow: hidden;
   color: var(--ink);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -425,10 +435,6 @@
 /* The menu stands in for the steppers only once the line is too narrow to hold them. */
 .info-icon.frame-id__menu {
   display: none;
-}
-
-.frame-id__step + .info-icon:not(.frame-id__step, .frame-id__menu) {
-  margin-left: 6px;
 }
 
 .info-line__actions {
@@ -452,6 +458,7 @@
   color: var(--ink);
   background: transparent;
   cursor: pointer;
+  transition: transform 140ms var(--ease-out);
 }
 
 .info-icon:hover:not(:disabled, [aria-disabled="true"]) {
@@ -461,8 +468,7 @@
 
 .info-icon:disabled,
 .info-icon[aria-disabled="true"] {
-  color: var(--muted);
-  opacity: 0.45;
+  color: var(--disabled-ink);
   cursor: default;
 }
 
@@ -481,6 +487,23 @@
 
 .info-icon:focus-visible {
   outline-offset: 2px;
+}
+
+.frame-id__pill > .info-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 0 7px 7px 0;
+  border-left: 1px solid var(--line);
+}
+
+.frame-id__pill > .info-icon:first-child {
+  border-radius: 7px 0 0 7px;
+  border-left: 0;
+  border-right: 1px solid var(--line);
+}
+
+.frame-id__pill > .info-icon:focus-visible {
+  outline-offset: -2px;
 }
 
 /* app.ts pins the menu above its button when it opens. */
@@ -520,7 +543,7 @@
 }
 
 .id-menu__item:disabled {
-  opacity: 0.45;
+  color: var(--disabled-ink);
   cursor: default;
 }
 
@@ -646,7 +669,6 @@
 }
 
 .primary-action,
-.info-icon,
 .text-action {
   transition: transform 140ms var(--ease-out);
 }

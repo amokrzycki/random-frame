@@ -21,14 +21,6 @@
     <link rel="stylesheet" href="{{STYLES_CSS}}">
   </head>
   <body class="app-shell">
-    <!--
-      THESIS: A random screenshot is inspected like a single archival print, never buried in a dashboard or card grid.
-      OWN-WORLD: Warm mineral paper surrounds a deep graphite viewing stage; cobalt actions and machined controls provide precise contrast.
-      STORY: The visitor acknowledges the public-source warning, reveals one frame, moves back through this session, draws the next, and saves a useful find.
-      FIRST VIEWPORT: Titlebar, a flexible inspection canvas, and one info line: position, frame ID with its source tools, icon actions, and the single cobalt Draw next.
-      FORM: Archive inspection table, grounded direction 7; seed 5387cc79.
-      FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
-    -->
     <dialog class="entry-dialog" id="entry-dialog" aria-labelledby="entry-title" aria-describedby="entry-description">
       <div class="entry-dialog__content">
         <svg class="entry-dialog__mark" viewBox="0 0 28 28" aria-hidden="true">
@@ -365,36 +357,38 @@
           <span class="info-line__divider" aria-hidden="true"></span>
 
           <div class="frame-id">
-            <button
-              class="info-icon frame-id__step"
-              id="previous-id-button"
-              type="button"
-              aria-label="Load the previous Prnt.sc identifier"
-              title="Previous Prnt.sc ID"
-              disabled>
-              <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m10.5 5-4 4 4 4" /></svg>
-            </button>
-            <span class="frame-id__caption" id="image-id"
-              ><span class="frame-id__host">prnt.sc/</span><span id="image-id-value">———</span></span
-            >
-            <button
-              class="info-icon frame-id__step"
-              id="next-id-button"
-              type="button"
-              aria-label="Load the next Prnt.sc identifier"
-              title="Next Prnt.sc ID"
-              disabled>
-              <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m7.5 5 4 4-4 4" /></svg>
-            </button>
-            <button
-              class="info-icon frame-id__menu"
-              id="id-menu-button"
-              type="button"
-              popovertarget="id-menu"
-              aria-label="Adjacent Prnt.sc identifiers"
-              title="Adjacent IDs">
-              <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m6 7.5 3 3 3-3" /></svg>
-            </button>
+            <div class="frame-id__pill">
+              <button
+                class="info-icon frame-id__step"
+                id="previous-id-button"
+                type="button"
+                aria-label="Load the previous Prnt.sc identifier"
+                title="Previous Prnt.sc ID"
+                disabled>
+                <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m10.5 5-4 4 4 4" /></svg>
+              </button>
+              <span class="frame-id__caption" id="image-id"
+                ><span class="frame-id__host">prnt.sc/</span><span id="image-id-value">———</span></span
+              >
+              <button
+                class="info-icon frame-id__step"
+                id="next-id-button"
+                type="button"
+                aria-label="Load the next Prnt.sc identifier"
+                title="Next Prnt.sc ID"
+                disabled>
+                <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m7.5 5 4 4-4 4" /></svg>
+              </button>
+              <button
+                class="info-icon frame-id__menu"
+                id="id-menu-button"
+                type="button"
+                popovertarget="id-menu"
+                aria-label="Adjacent Prnt.sc identifiers"
+                title="Adjacent IDs">
+                <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m6 7.5 3 3 3-3" /></svg>
+              </button>
+            </div>
             <div class="id-menu" id="id-menu" popover>
               <button class="id-menu__item" id="previous-id-menu-item" type="button" disabled>
                 <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m10.5 5-4 4 4 4" /></svg>
@@ -412,7 +406,10 @@
               aria-label="Copy source link"
               title="Copy source link"
               disabled>
-              <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M6 6V3.5h8.5V12H12M3.5 6H12v8.5H3.5z" /></svg>
+              <svg viewBox="0 0 18 18" aria-hidden="true">
+                <path
+                  d="M7.5 9.75a3.75 3.75 0 0 0 5.66.4l2.25-2.25a3.75 3.75 0 0 0-5.3-5.3l-1.3 1.28M10.5 8.25a3.75 3.75 0 0 0-5.66-.4L2.6 10.1a3.75 3.75 0 0 0 5.3 5.3l1.28-1.28" />
+              </svg>
             </button>
             <!-- biome-ignore lint/a11y/useValidAnchor: a placeholder link until syncControls sets the shown frame's href -->
             <a
@@ -435,7 +432,9 @@
               aria-label="History"
               aria-keyshortcuts="H"
               title="History (H)">
-              <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M3.5 5h11M3.5 9h11M3.5 13h11" /></svg>
+              <svg viewBox="0 0 18 18" aria-hidden="true">
+                <path d="M2.5 8h9v7h-9zM4.5 8V5.5h9v7h-2M6.5 5.5V3h9v7h-2" />
+              </svg>
             </button>
             <button
               class="info-icon"

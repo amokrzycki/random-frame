@@ -1,9 +1,10 @@
 .toast-region {
   position: fixed;
   z-index: 20;
-  right: max(20px, env(safe-area-inset-right));
-  bottom: max(20px, env(safe-area-inset-bottom));
-  max-height: calc(100dvh - 40px);
+  /* Inside the stage's lower-right, above the 56px info line (main pads 16px sides, 4px bottom), so Draw next stays clear. */
+  right: 36px;
+  bottom: 80px;
+  max-height: calc(100dvh - 160px);
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -14,7 +15,7 @@
 
 .toast {
   width: max-content;
-  max-width: min(360px, calc(100vw - 40px));
+  max-width: min(360px, calc(100vw - 72px));
   min-height: 44px;
   padding: 11px 15px;
   display: flex;
@@ -23,9 +24,10 @@
   color: var(--white);
   background: rgba(25, 26, 24, 0.97);
   border-radius: 10px;
+  /* Always sits on the dark stage, so it needs its own edge in both themes. */
   box-shadow:
-    0 0 0 1px var(--surface-ring),
-    0 10px 28px rgba(35, 32, 25, 0.2);
+    0 0 0 1px rgba(240, 238, 232, 0.12),
+    0 10px 28px rgba(0, 0, 0, 0.36);
   font-size: 13px;
   font-weight: 650;
   line-height: 1.35;

@@ -13,6 +13,7 @@ colors:
   action-cobalt-dark: "#1944b8"
   hairline-stone: "#c9c5bc"
   field-stone: "#85827a"
+  disabled-ink: "#7c7c74"
   warning-terracotta: "#c86b55"
   window-close-red: "#c42b1c"
   dark-mineral-paper: "#171815"
@@ -25,6 +26,7 @@ colors:
   dark-action-cobalt-dark: "#3f63d7"
   dark-hairline-stone: "#3b3c36"
   dark-field-stone: "#6f7068"
+  dark-disabled-ink: "#77776f"
   dark-control-fill: "#343530"
   dark-floating-control: "#2b2c28"
   dark-warning-terracotta: "#e58b75"
@@ -139,6 +141,7 @@ The palette pairs warm archival neutrals with a near-black viewing environment a
 - **Archival White:** High-contrast copy and light control surfaces.
 - **Hairline Stone:** Dividers and keycap borders.
 - **Field Stone:** Text-input borders only, at 3:1 or better against the paper in both themes.
+- **Disabled Ink:** Marks of disabled info-line icons and ID menu items, solid rather than faded, at 3:1 or better against the paper in both themes.
 - **Warning Terracotta:** Error icon only.
 - **Window Close Red:** Hover fill of the titlebar close control only, matching the native window-close convention in both themes.
 
@@ -176,7 +179,7 @@ The viewer fills the work area with two rows: the flexible graphite stage and a 
 
 The history dialog grid auto-fills 138px-minimum columns with 12px gaps. Transient notices float above the frame: toasts stack bottom-right 20px from the window edges, and the update banner centers 16px below the top edge.
 
-**The Desktop Frame Rule.** Treat 800×600 as the compact floor: preserve the titlebar, stage, and info line, and let the stage flex before hiding persistent controls. The info line is a size container that sheds detail in a fixed order: below 720px the `prnt.sc/` prefix and the Draw next keycap drop; below 600px the ID steppers fold into a menu; below 480px the position tightens from `12 / 48` to `12/48`. Draw next never collapses and nothing wraps. The full line fits at the 800px floor.
+**The Desktop Frame Rule.** Treat 800×600 as the compact floor: preserve the titlebar, stage, and info line, and let the stage flex before hiding persistent controls. The info line is a size container that sheds detail in a fixed order: below 720px the `prnt.sc/` prefix and the Draw next keycap drop; below 600px the ID steppers fold into a menu, whose chevron takes their place as the pill's right segment; below 480px the position tightens from `12 / 48` to `12/48`. Draw next never collapses and nothing wraps. The full line fits at the 800px floor.
 
 ## Elevation & Depth
 
@@ -227,7 +230,7 @@ The stage uses an 8px outer radius and an 8px inset hairline, matching the compa
 
 - **Titlebar:** A fixed 42px Mineral Paper Deep drag region with brand mark and title on the left, compact statistics, keyboard shortcuts and theme controls, then 46px-wide square-stroke window controls on the right, divided from the work area by one stone hairline. Close hovers to Window Close Red.
 - **Frame navigation:** 38×52px archival-white controls float 16px from the stage edges. Disabled buttons remain visible at reduced opacity.
-- **Info line:** Left to right: the position readout, a hairline divider, the monospace frame ID with its adjacent-ID steppers on either side and copy-link and open-source icons, a flexible gap, History, Copy image and Save image as titled 34px icon buttons, then Draw next at the far right. Focus order follows it: stage, position, steppers, actions, Draw next.
+- **Info line:** Left to right: the position readout, a hairline divider, one hairline segmented pill joining the previous-ID chevron, the monospace frame ID, and the next-ID chevron, then copy-link (chain link) and open-source icons, a flexible gap, History, Copy image and Save image as titled 34px icon buttons, then Draw next at the far right. History uses a stacked-frames glyph. Focus order follows it: stage, position, steppers, actions, Draw next.
 - **Position readout:** `12 / 48` in tabular figures (current in ink, total muted). Clicking it swaps in a native number field in place; Enter jumps, Escape or blur restores the readout.
 - **Draw next:** The single cobalt control on the main screen, 40px tall with a muted N keycap. It always draws a new frame, even mid-history; the frame joins the end of history and the view jumps to it. While drawing, an inline spinner replaces the label at the same width with `aria-busy`. During a rate-limit cooldown it reads "Wait 12s", desaturates, and uses `aria-disabled` so it keeps focus. Pressing → on the newest frame pulses it once and announces its key.
 - **Keyboard:** ←/→ only move through history. N draws from anywhere outside the jump field; Space and Enter draw when no control has focus. S saves, C copies the image, H opens History. ? toggles the Keyboard shortcuts sheet, a 560px dialog with one hairline-ruled row per action and paper-deep keycaps on the right; the titlebar keyboard icon opens it too. Icon-action tooltips name their key, e.g. "Save image (S)".
