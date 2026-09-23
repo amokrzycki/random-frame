@@ -173,6 +173,7 @@ export const ids = [
   "sync-join-form",
   "sync-recovery-input",
   "sync-join",
+  "sync-join-cancel",
   "sync-recovery",
   "sync-recovery-key",
   "sync-copy-key",

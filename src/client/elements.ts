@@ -71,6 +71,7 @@ export const elements = {
   syncJoinForm: element<HTMLFormElement>("#sync-join-form"),
   syncRecoveryInput: element<HTMLInputElement>("#sync-recovery-input"),
   syncJoin: element<HTMLButtonElement>("#sync-join"),
+  syncJoinCancel: element<HTMLButtonElement>("#sync-join-cancel"),
   syncRecovery: element<HTMLElement>("#sync-recovery"),
   syncRecoveryKey: element<HTMLOutputElement>("#sync-recovery-key"),
   syncCopyKey: element<HTMLButtonElement>("#sync-copy-key"),

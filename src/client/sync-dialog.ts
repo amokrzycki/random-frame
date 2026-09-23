@@ -36,6 +36,7 @@ function safeError(error: unknown): string {
 
 let status: SyncStatus | null = null;
 let busy = false;
+let busyMessage = "";
 let opener: HTMLElement | null = null;
 
 function showError(message: string): void {
@@ -60,16 +61,21 @@ function statusMessage(value: SyncStatus): string {
 function render(): void {
   const paired = status?.paired ?? false;
   const showingKey = Boolean(elements.syncRecoveryKey.textContent);
-  elements.syncStatus.textContent = busy ? "Syncing…" : status ? statusMessage(status) : "Checking Sync status…";
-  elements.syncUnpaired.hidden = paired || showingKey;
+  elements.syncStatus.textContent = busy ? busyMessage : status ? statusMessage(status) : "Checking Sync status…";
+  elements.syncStatus.dataset.state = busy
+    ? "syncing"
+    : status?.lastErrorCategory
+      ? "error"
+      : (status?.state ?? "unpaired");
+  elements.syncUnpaired.hidden = paired || showingKey || !status;
   elements.syncRecovery.hidden = !showingKey;
-  elements.syncPaired.hidden = !paired || showingKey;
+  elements.syncPaired.hidden = !paired || showingKey || !elements.syncLeaveConfirm.hidden;
   elements.syncRevision.textContent =
     status?.lastSuccessRevision == null ? "" : `Last accepted revision: ${status.lastSuccessRevision}`;
   elements.syncDirty.textContent = paired ? `Local changes pending: ${status?.dirty ? "yes" : "no"}` : "";
   elements.syncNow.disabled = busy || status?.state === "syncing";
-  elements.syncEnable.disabled = busy;
-  elements.syncJoin.disabled = busy;
+  elements.syncEnable.disabled = busy || !status;
+  elements.syncJoin.disabled = busy || !status;
   elements.syncLeave.disabled = busy || status?.state === "syncing";
   elements.syncLeaveConfirmButton.disabled = busy;
   elements.syncClose.disabled = busy;
@@ -84,9 +90,10 @@ async function refresh(): Promise<void> {
   }
 }
 
-async function operate(action: () => Promise<SyncStatus>): Promise<boolean> {
+async function operate(message: string, action: () => Promise<SyncStatus>): Promise<boolean> {
   if (busy) return false;
   busy = true;
+  busyMessage = message;
   elements.syncDialog.dataset.busy = "true";
   clearError();
   render();
@@ -133,8 +140,13 @@ export function bindSyncDialogEvents(): void {
     elements.syncJoinForm.hidden = false;
     elements.syncRecoveryInput.focus();
   });
+  elements.syncJoinCancel.addEventListener("click", () => {
+    elements.syncJoinForm.hidden = true;
+    elements.syncRecoveryInput.value = "";
+    elements.syncShowJoin.focus();
+  });
   elements.syncEnable.addEventListener("click", () => {
-    void operate(async () => {
+    void operate("Setting up Sync…", async () => {
       const result = await createSync();
       elements.syncRecoveryKey.textContent = result.recoveryKey;
       if (result.localPairingError) showError(safeError(result.localPairingError));
@@ -152,24 +164,26 @@ export function bindSyncDialogEvents(): void {
   });
   elements.syncJoinForm.addEventListener("submit", (event) => {
     event.preventDefault();
-    void operate(async () => {
+    void operate("Joining Sync…", async () => {
       const result = await joinSync(elements.syncRecoveryInput.value.trim());
       elements.syncRecoveryInput.value = "";
       elements.syncJoinForm.hidden = true;
       return result;
     });
   });
-  elements.syncNow.addEventListener("click", () => void operate(syncNow));
+  elements.syncNow.addEventListener("click", () => void operate("Syncing…", syncNow));
   elements.syncLeave.addEventListener("click", () => {
     elements.syncLeaveConfirm.hidden = false;
+    render();
     elements.syncLeaveConfirmButton.focus();
   });
   elements.syncLeaveCancel.addEventListener("click", () => {
     elements.syncLeaveConfirm.hidden = true;
+    render();
     elements.syncLeave.focus();
   });
   elements.syncLeaveConfirmButton.addEventListener("click", () => {
-    void operate(async () => {
+    void operate("Leaving Sync…", async () => {
       const result = await leaveSync();
       elements.syncLeaveConfirm.hidden = true;
       return result;

@@ -251,27 +251,45 @@
           </button>
         </header>
         <div class="history-dialog__body sync-dialog__body">
-          <p id="sync-status" role="status" aria-live="polite">Checking Sync status…</p>
+          <p class="sync-dialog__status" id="sync-status" role="status" aria-live="polite">Checking Sync status…</p>
           <p class="sync-dialog__error" id="sync-error" role="alert" hidden></p>
           <div id="sync-unpaired" hidden>
+            <p class="sync-dialog__copy">
+              Carry your seen Prnt.sc progress between devices. Only encrypted seen identifiers are sent; your history
+              and favorites stay on this device.
+            </p>
             <div class="sync-dialog__actions">
               <button class="primary-action" id="sync-enable" type="button">Enable Sync</button>
               <button class="sync-dialog__button" id="sync-show-join" type="button">Join existing Sync</button>
             </div>
             <form id="sync-join-form" hidden>
               <label for="sync-recovery-input">Recovery key</label>
-              <input id="sync-recovery-input" type="text" autocomplete="off" spellcheck="false" required>
-              <button class="primary-action" id="sync-join" type="submit">Join</button>
+              <input
+                id="sync-recovery-input"
+                type="text"
+                autocomplete="off"
+                autocapitalize="off"
+                spellcheck="false"
+                required>
+              <div class="sync-dialog__actions">
+                <button class="primary-action" id="sync-join" type="submit">Join Sync</button>
+                <button class="sync-dialog__button" id="sync-join-cancel" type="button">Cancel</button>
+              </div>
             </form>
           </div>
           <div id="sync-recovery" hidden>
-            <p>This key lets another device join your Sync. Save it now; the app cannot show it again automatically.</p>
+            <p>
+              This key lets another device join your Sync. Save it before closing this window; the app cannot show it
+              again.
+            </p>
             <output id="sync-recovery-key" aria-label="Recovery key"></output>
             <button class="sync-dialog__button" id="sync-copy-key" type="button">Copy recovery key</button>
           </div>
           <div id="sync-paired" hidden>
-            <p id="sync-revision"></p>
-            <p id="sync-dirty"></p>
+            <div class="sync-dialog__meta">
+              <p id="sync-revision"></p>
+              <p id="sync-dirty"></p>
+            </div>
             <div class="sync-dialog__actions">
               <button class="primary-action" id="sync-now" type="button">Sync now</button>
               <button class="sync-dialog__button" id="sync-leave" type="button">Leave Sync</button>

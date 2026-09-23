@@ -141,7 +141,8 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
   fail = { command: "leave_sync", error: { category: "secure_storage" } };
   get("sync-leave-confirm-button").click();
   await flush();
-  assert.equal(get("sync-paired").hidden, false);
+  assert.equal(get("sync-paired").hidden, true);
+  assert.equal(get("sync-leave-confirm").hidden, false);
   assert.match(get("sync-error").textContent, /Secure credential/);
   fail = null;
   get("sync-leave-confirm-button").click();
@@ -150,6 +151,10 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
 
   get("sync-show-join").click();
   assert.equal(document.activeElement, get("sync-recovery-input"));
+  get("sync-join-cancel").click();
+  assert.equal(get("sync-join-form").hidden, true);
+  assert.equal(document.activeElement, get("sync-show-join"));
+  get("sync-show-join").click();
   fail = { command: "join_sync", error: { category: "invalid_recovery_key", details: "private" } };
   get("sync-recovery-input").value = "bad";
   get("sync-join-form").dispatchEvent(new Event("submit", { cancelable: true }));
