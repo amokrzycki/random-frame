@@ -35,8 +35,8 @@ export function getHistory(): Promise<HistorySnapshot> {
   return invoke("get_history");
 }
 
-export function recordHistoryItem(item: HistoryItem): Promise<HistorySnapshot> {
-  return invoke("record_history_item", { item });
+export function recordHistoryItem(item: HistoryItem, legacyImport = false): Promise<HistorySnapshot> {
+  return invoke("record_history_item", { item, legacyImport });
 }
 
 export function selectHistoryItem(index: number): Promise<HistorySnapshot> {

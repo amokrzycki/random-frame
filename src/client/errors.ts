@@ -47,6 +47,8 @@ export function describeError(error: unknown, fallback = DEFAULT_MESSAGE): Error
       return copy("Prnt.sc could not be reached.", "Check your internet connection, then try again.");
     case "not-found":
       return copy(DEFAULT_TITLE, "Nothing is published at this address, or it has been removed.");
+    case "no-new-frame":
+      return copy("No new frame was found.", "Try drawing again.");
     case "image-too-large":
       return copy(DEFAULT_TITLE, "This image is larger than Random Frame can safely open.");
     case "invalid-response":

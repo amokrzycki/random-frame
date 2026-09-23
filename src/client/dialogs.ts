@@ -9,6 +9,7 @@ export const dialogs = [
   elements.statsDialog,
   elements.lightboxDialog,
   elements.shortcutsDialog,
+  elements.syncDialog,
 ];
 
 export function openDialog(dialog: HTMLDialogElement, variant?: "dark"): void {
@@ -35,6 +36,7 @@ function dismissibleOpenDialog(): HTMLDialogElement | undefined {
 }
 
 export function closeDialog(dialog: HTMLDialogElement): void {
+  if (dialog.dataset.busy) return;
   const classList = (dialog as unknown as { classList?: DOMTokenList }).classList;
   if (!classList) {
     dialog.close();

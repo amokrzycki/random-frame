@@ -12,6 +12,7 @@ import { getHistory, recordHistoryItem, selectHistoryItem } from "./persistence.
 import { bindShortcutsEvents } from "./shortcuts.js";
 import { bindStageEvents, setState, showError, syncControls } from "./stage.js";
 import { bindStatsDialogEvents, migrateLegacyStats } from "./stats-dialog.js";
+import { bindSyncDialogEvents, runStartupSync } from "./sync-dialog.js";
 import { checkForUpdate } from "./update.js";
 import { applyFavorites, applyHistory, state } from "./viewer-state.js";
 
@@ -25,18 +26,22 @@ try {
 }
 
 async function initialize(): Promise<void> {
+  void runStartupSync();
   try {
     let [snapshot, favorites] = await Promise.all([getHistory(), getFavorites()]);
     applyFavorites(favorites);
     const legacy = historyFromStorage(sessionStorage.getItem(storageKey));
     if (!snapshot.history.length && legacy.history.length) {
       for (const item of legacy.history) {
-        snapshot = await recordHistoryItem({
-          source: "prntsc",
-          id: item.id,
-          sourcePageUrl: `https://prnt.sc/${item.id}`,
-          viewedAt: Date.now(),
-        });
+        snapshot = await recordHistoryItem(
+          {
+            source: "prntsc",
+            id: item.id,
+            sourcePageUrl: `https://prnt.sc/${item.id}`,
+            viewedAt: Date.now(),
+          },
+          true,
+        );
       }
       if (legacy.index >= 0) snapshot = await selectHistoryItem(legacy.index);
     }
@@ -97,6 +102,7 @@ bindNavigationEvents();
 bindFrameActionEvents();
 bindHistoryDialogEvents();
 bindStatsDialogEvents();
+bindSyncDialogEvents();
 bindShortcutsEvents();
 
 syncControls();

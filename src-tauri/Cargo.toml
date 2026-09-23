@@ -19,11 +19,14 @@ tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+chacha20poly1305 = "0.10.1"
+hkdf = "0.12.4"
 rand = "0.8"
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 tauri = { version = "2.11.3", features = [] }
 tauri-plugin-clipboard-manager = "2.3.3"
 tauri-plugin-dialog = "2"
@@ -31,10 +34,17 @@ tauri-plugin-fs = "2"
 tauri-plugin-opener = "2.5.5"
 tauri-plugin-process = "2"
 tauri-plugin-updater = "2"
-tokio = { version = "1", features = ["time"] }
+tokio = { version = "1", features = ["time", "sync"] }
+zeroize = "1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "=3.6.2", default-features = false, features = ["async-secret-service", "crypto-rust", "tokio"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "=3.6.2", default-features = false, features = ["windows-native"] }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt", "test-util"] }
+tokio = { version = "1", features = ["macros", "rt", "test-util", "net", "io-util"] }
 
 [lints.rust]
 unsafe_code = "forbid"

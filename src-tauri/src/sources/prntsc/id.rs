@@ -7,7 +7,7 @@ const BASE36_ALPHABET: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
 // sequential base-36 Lightshot namespace.
 // 26y3ahr is the last confirmed assigned ID found during boundary probing.
 const LEGACY_MAX_ID: &str = "26y3ahr";
-const LEGACY_MAX_VALUE: u64 = 4_773_622_239;
+pub(crate) const LEGACY_MAX_VALUE: u64 = 4_773_622_239;
 
 pub(super) fn make_id() -> String {
     let mut random = rand::thread_rng();
@@ -44,7 +44,7 @@ pub fn validate_item_id(id: &str) -> Result<(), AppError> {
     item_id_value(id).map(drop)
 }
 
-pub(super) fn item_id_value(id: &str) -> Result<u64, AppError> {
+pub(crate) fn item_id_value(id: &str) -> Result<u64, AppError> {
     if !id.is_empty() && id.len() <= LEGACY_MAX_ID.len() {
         if let Some(value) = base36_to_value(id).filter(|value| *value <= LEGACY_MAX_VALUE) {
             return Ok(value);
@@ -65,6 +65,8 @@ mod tests {
         assert!(validate_item_id("abc123").is_ok());
         assert!(validate_item_id("abc12").is_ok());
         assert!(validate_item_id(LEGACY_MAX_ID).is_ok());
+        assert_eq!(item_id_value("0abc123").ok(), item_id_value("abc123").ok());
+        assert_eq!(item_id_value("00").ok(), Some(0));
         for invalid in [
             "26y3ahs", "26y3ahz", "zzzzzzz", "ABC123", "abc-12", "ąbc123", "",
         ] {
@@ -90,6 +92,9 @@ mod tests {
         assert_eq!(base36_to_value(LEGACY_MAX_ID), Some(LEGACY_MAX_VALUE));
         assert_eq!(value_to_base36(LEGACY_MAX_VALUE), LEGACY_MAX_ID);
         assert_eq!(value_to_base36(LEGACY_MAX_VALUE + 1), "26y3ahs");
+        assert_eq!(item_id_value("0").ok(), Some(0));
+        assert_eq!(item_id_value(LEGACY_MAX_ID).ok(), Some(LEGACY_MAX_VALUE));
+        assert!(item_id_value("26y3ahs").is_err());
     }
 
     #[test]
@@ -128,6 +133,7 @@ mod tests {
         let seven_digit_min = 36u64.pow(6);
         for value in [0, 35, 36, six_digit_max, seven_digit_min, LEGACY_MAX_VALUE] {
             assert_eq!(base36_to_value(&value_to_base36(value)), Some(value));
+            assert_eq!(item_id_value(&value_to_base36(value)).ok(), Some(value));
         }
     }
 

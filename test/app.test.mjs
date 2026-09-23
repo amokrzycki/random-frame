@@ -34,10 +34,17 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   let failStats = false;
   const invocations = [];
   let persisted = { history: [], index: -1 };
+  let finishStartupSync;
+  const startupSync = new Promise((resolve) => {
+    finishStartupSync = resolve;
+  });
   window.__TAURI_INTERNALS__ = {
     async invoke(command, args, options) {
       invocations.push({ command, args, options });
       if (command === "get_history") return structuredClone(persisted);
+      if (command === "startup_sync") return startupSync;
+      if (command === "get_sync_status")
+        return { paired: false, state: "unpaired", lastSuccessRevision: null, dirty: true, lastErrorCategory: null };
       if (command === "get_favorites") return [];
       if (command === "record_history_item") {
         let itemIndex = persisted.history.findIndex(
@@ -102,9 +109,27 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
 
   await import(`../dist/test-client/app.js?test=${Date.now()}`);
   const get = (id) => document.querySelector(`#${id}`);
+  const historyWrites = () => invocations.filter(({ command }) => command === "record_history_item").length;
   await flush();
   await flush();
   await flush();
+  assert.ok(invocations.some(({ command }) => command === "startup_sync"));
+  assert.ok(
+    invocations.findIndex(({ command }) => command === "startup_sync") <
+      invocations.findIndex(({ command }) => command === "get_frame_by_id"),
+  );
+  assert.match(get("image").alt, /saved2/);
+  assert.deepEqual(
+    invocations.filter(({ command }) => command === "record_history_item").map(({ args }) => args.legacyImport),
+    [true, true],
+  );
+  finishStartupSync({
+    paired: false,
+    state: "unpaired",
+    lastSuccessRevision: null,
+    dirty: true,
+    lastErrorCategory: null,
+  });
 
   get("history-button").click();
   assert.equal(get("history-dialog").open, true);
@@ -138,6 +163,11 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(get("position-current").textContent, "4");
   assert.equal(get("image-id-value").textContent, "def456");
   assert.equal(get("draw-button").getAttribute("aria-busy"), "false");
+  assert.equal(historyWrites(), 4);
+  assert.deepEqual(
+    invocations.filter(({ command }) => command === "record_history_item").map(({ args }) => args.legacyImport),
+    [true, true, false, false],
+  );
 
   get("stats-button").click();
   await flush();
@@ -210,6 +240,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   await flush();
   await flush();
   assert.match(get("image").alt, /saved1/);
+  assert.equal(historyWrites(), 4);
 
   get("save-button").click();
   await flush();
@@ -301,6 +332,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(get("position-current").textContent, "5");
   assert.equal(get("history-total").textContent, "5");
   assert.equal(persisted.history.length, 5);
+  assert.equal(historyWrites(), 5);
   get("back-button").click();
   await flush();
   await flush();
@@ -343,6 +375,17 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   await flush();
   await flush();
   assert.equal(clearButton.disabled, false);
+  const afterDraw = historyWrites();
+  get("next-id-button").click();
+  await flush();
+  await flush();
+  assert.equal(historyWrites(), afterDraw + 1);
+  const { loadById } = await import("../dist/test-client/frame-loader.js");
+  await loadById("abc123");
+  assert.equal(historyWrites(), afterDraw + 2);
+  get("previous-button").click();
+  await flush();
+  assert.equal(historyWrites(), afterDraw + 2);
   // Assistive tech clicks without a press: the first activation arms, the second clears.
   clearButton.click();
   await flush();

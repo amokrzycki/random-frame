@@ -240,6 +240,124 @@
   width: min(560px, calc(100% - 32px));
 }
 
+.sync-dialog {
+  width: min(560px, calc(100% - 32px));
+}
+
+.sync-dialog__body {
+  font-size: 14px;
+}
+.sync-dialog__body p {
+  margin: 0;
+  line-height: 1.6;
+}
+.sync-dialog__status {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 650;
+}
+.sync-dialog__status::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.sync-dialog__status[data-state="idle"]::before,
+.sync-dialog__status[data-state="syncing"]::before {
+  background: var(--blue);
+}
+.sync-dialog__status[data-state="error"]::before,
+.sync-dialog__status[data-state="offline"]::before {
+  background: var(--danger);
+}
+.sync-dialog__body > :not(:first-child) {
+  margin-top: 18px;
+}
+.sync-dialog__copy,
+.sync-dialog__meta {
+  color: var(--muted);
+}
+.sync-dialog__meta {
+  display: grid;
+  gap: 3px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.sync-dialog__meta p:empty {
+  display: none;
+}
+.sync-dialog__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 22px;
+}
+.sync-dialog__button {
+  min-height: 42px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  background: var(--paper);
+  font: inherit;
+  cursor: pointer;
+}
+.sync-dialog__button:hover {
+  color: var(--control-fill-text);
+  background: var(--control-fill);
+}
+.sync-dialog__button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+.sync-dialog__error {
+  color: var(--danger);
+}
+#sync-join-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 22px;
+}
+#sync-join-form label {
+  font-size: 13px;
+  font-weight: 650;
+}
+#sync-join-form .sync-dialog__actions {
+  margin-top: 4px;
+}
+#sync-unpaired:has(#sync-join-form:not([hidden])) > .sync-dialog__actions {
+  display: none;
+}
+#sync-recovery-input,
+#sync-recovery-key {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--field-line);
+  border-radius: 8px;
+  color: var(--ink);
+  background: var(--paper);
+  font: inherit;
+  font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+#sync-recovery-input {
+  min-width: 0;
+}
+#sync-recovery-key {
+  display: block;
+  margin: 16px 0;
+  background: var(--paper-deep);
+  user-select: all;
+  direction: ltr;
+  text-align: left;
+  line-height: 1.6;
+}
+
 /* One ruled line per action, keys set right like the Draw next keycap. */
 .shortcuts {
   margin: 0;
