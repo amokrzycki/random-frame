@@ -17,6 +17,8 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   const performance = { getEntriesByType: () => [{ type: "back_forward" }] };
   const globalNames = ["document", "localStorage", "performance", "sessionStorage", "window"];
   const originalGlobals = new Map(globalNames.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+  // Toasts schedule their own dismissal; the test never waits for it.
+  window.setTimeout = () => 0;
   localStorage.setItem("random-frame-risk-accepted", "accepted");
   sessionStorage.setItem(
     "prntsc-gallery-history",
@@ -28,6 +30,8 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   let draw = 0;
   let savePath = null;
   let failNextDraw = false;
+  let brokenNextImage = false;
+  let failStats = false;
   const invocations = [];
   let persisted = { history: [], index: -1 };
   window.__TAURI_INTERNALS__ = {
@@ -54,6 +58,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
         return null;
       }
       if (command === "get_exploration_stats") {
+        if (failStats) throw new Error("unreadable");
         return { explored: 12_483, total: 4_773_622_240, viewable: 8_000, unavailable: 4_483 };
       }
       if (command === "get_viewing_activity") {
@@ -77,7 +82,11 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
           mimeType: "image/png",
         };
       }
-      if (command === "get_frame_image") return new Uint8Array([draw]).buffer;
+      if (command === "get_frame_image") {
+        const byte = brokenNextImage ? 255 : draw;
+        brokenNextImage = false;
+        return new Uint8Array([byte]).buffer;
+      }
       if (command === "plugin:dialog|save") return savePath;
       if (command === "plugin:fs|write_file") return null;
       throw new Error(`Unexpected command: ${command}`);
@@ -134,6 +143,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(get("stats-dialog").open, true);
   assert.equal(get("stats-today").textContent, "2");
   assert.equal(get("stats-total").textContent, "2");
+  assert.equal(get("stats-streak").textContent, "1");
   assert.equal(get("stats-explored").textContent, "12,483 / 4,773,622,240");
   assert.equal(get("stats-explored-percent").textContent, "< 0.001% of known legacy ID space");
   assert.equal(get("stats-explored-breakdown").textContent, "8,000 viewable · 4,483 unavailable");
@@ -159,6 +169,22 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   await flush();
   get("stats-close-button").click();
   assert.equal(document.activeElement, get("stats-button"));
+
+  // Unreadable stats show dashes, not zeros, and recover through Try again.
+  failStats = true;
+  get("stats-button").click();
+  await flush();
+  assert.equal(get("stats-explored").textContent, "Unavailable");
+  assert.equal(get("stats-today").textContent, "—");
+  assert.equal(get("stats-error").hidden, false);
+  assert.equal(get("ledger").hidden, true);
+  failStats = false;
+  get("stats-retry").click();
+  await flush();
+  assert.equal(get("stats-today").textContent, "2");
+  assert.equal(get("stats-error").hidden, true);
+  assert.equal(get("ledger").hidden, false);
+  get("stats-close-button").click();
 
   get("history-button").click();
   assert.equal(get("history-grid").children.length, 4);
@@ -187,6 +213,8 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   get("save-button").click();
   await flush();
   assert.equal(invocations.at(-1).command, "plugin:dialog|save");
+  // A cancelled dialog is not a save: no check.
+  assert.equal(get("save-button").dataset.saved, undefined);
 
   savePath = "/tmp/random-frame-prntsc-saved1.png";
   get("save-button").click();
@@ -196,6 +224,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(invocations.at(-2).args.options.defaultPath, "random-frame-prntsc-saved1.png");
   assert.equal(invocations.at(-1).command, "plugin:fs|write_file");
   assert.deepEqual([...invocations.at(-1).args], [2]);
+  assert.equal(get("save-button").dataset.saved, "new");
 
   get("jump-input").value = "4";
   get("jump-form").dispatchEvent(new Event("submit", { cancelable: true }));
@@ -211,6 +240,22 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   get("image-zoom").click();
   get("lightbox-dialog").click();
   assert.equal(get("lightbox-dialog").open, false);
+
+  // ? toggles the shortcut sheet; while it is open, frame keys stay inert.
+  keydown(document, "?");
+  assert.equal(get("shortcuts-dialog").open, true);
+  keydown(document, "h");
+  assert.equal(get("history-dialog").open, false);
+  keydown(document, "?");
+  assert.equal(get("shortcuts-dialog").open, false);
+  keydown(document, "H");
+  assert.equal(get("history-dialog").open, true);
+  get("history-close-button").click();
+  const writesBefore = invocations.filter(({ command }) => command === "plugin:fs|write_file").length;
+  keydown(document, "s");
+  await flush();
+  await flush();
+  assert.equal(invocations.filter(({ command }) => command === "plugin:fs|write_file").length, writesBefore + 1);
 
   // Draw next always draws, even mid-history: the frame joins the end and the view jumps to it.
   get("jump-input").value = "1";
@@ -233,6 +278,8 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(get("error-state").hidden, false);
   assert.equal(get("error-title").textContent, "Prnt.sc could not be reached.");
   assert.equal(get("save-button").disabled, true);
+  assert.equal(get("retry-button").textContent, "Try again");
+  assert.equal(get("image-zoom").hidden, false);
   assert.equal(get("back-button").hidden, false);
   assert.equal(get("back-button").textContent, "Show frame 5");
   get("back-button").click();
@@ -241,6 +288,22 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(get("error-state").hidden, true);
   assert.match(get("image").alt, /new3/);
   assert.equal(get("save-button").disabled, false);
+
+  // An image that will not decode stays out of history, so the counter keeps pointing at a frame that shows.
+  brokenNextImage = true;
+  get("draw-button").click();
+  await flush();
+  await flush();
+  await flush();
+  assert.equal(get("error-state").hidden, false);
+  assert.equal(get("error-title").textContent, "This frame would not open.");
+  assert.equal(get("position-current").textContent, "5");
+  assert.equal(get("history-total").textContent, "5");
+  assert.equal(persisted.history.length, 5);
+  get("back-button").click();
+  await flush();
+  await flush();
+  assert.match(get("image").alt, /new3/);
 
   // Clearing is hold-to-confirm: the completed fill transition clears, releasing early does not.
   const clearButton = get("history-clear-button");
@@ -259,7 +322,6 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
     Object.defineProperty(event, "pseudoElement", { value: "::before" });
     clearButton.dispatchEvent(event);
   };
-  window.setTimeout = () => 0;
   get("history-button").click();
   press();
   release();
@@ -272,6 +334,13 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   await flush();
   assert.deepEqual(persisted, { history: [], index: -1 });
   assert.equal(get("history-total").textContent, "0");
+  // With history gone, focus lands on the next step rather than the History button.
+  assert.equal(document.activeElement, get("draw-button"));
+  assert.equal(get("source-link").getAttribute("href"), null);
+  assert.equal(clearButton.disabled, true);
+  get("draw-button").click();
+  await flush();
+  await flush();
   assert.equal(clearButton.disabled, false);
   // Assistive tech clicks without a press: the first activation arms, the second clears.
   clearButton.click();

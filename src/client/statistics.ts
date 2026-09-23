@@ -121,3 +121,11 @@ export function ledgerDays(days: readonly DailyActivity[], viewedAt: readonly nu
     }))
     .reverse();
 }
+
+// Consecutive days with a draw ending today, or ending yesterday while today has none yet.
+// `days` is contiguous and oldest first, so the streak is capped by the backend's activity window.
+export function drawStreak(days: readonly DailyActivity[]): number {
+  const active = days.map((day) => day.viewed + day.rejected > 0);
+  if (!active.at(-1)) active.pop();
+  return active.length - 1 - active.lastIndexOf(false);
+}

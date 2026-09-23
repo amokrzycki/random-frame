@@ -16,7 +16,7 @@ function field(error: unknown, name: "kind" | "message"): string | undefined {
   return typeof value === "string" && value ? value : undefined;
 }
 
-export function describeError(error: unknown): ErrorCopy {
+export function describeError(error: unknown, fallback = DEFAULT_MESSAGE): ErrorCopy {
   const copy = (title: string, message: string, cooldownSeconds = 0): ErrorCopy => ({
     title,
     message,
@@ -57,6 +57,8 @@ export function describeError(error: unknown): ErrorCopy {
         "Random Frame could not write to its local data folder. Check the free disk space, then try again.",
       );
     default:
-      return copy(DEFAULT_TITLE, field(error, "message") ?? DEFAULT_MESSAGE);
+      // Unknown errors carry internal detail; keep it out of the UI.
+      console.error(error);
+      return copy(DEFAULT_TITLE, fallback);
   }
 }

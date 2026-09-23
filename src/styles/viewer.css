@@ -47,15 +47,13 @@
   z-index: 2;
 }
 
-.empty-state p,
-.error-state p {
+.empty-state p {
   margin: 0 auto 26px;
   max-width: 46ch;
   font-size: 14px;
   line-height: 1.65;
 }
-.empty-state .empty-title,
-.error-state .error-title {
+.empty-state .empty-title {
   margin-bottom: 10px;
   color: var(--white);
   font-family: "Archive Serif", serif;
@@ -63,6 +61,27 @@
   line-height: 1.15;
   letter-spacing: -0.025em;
   text-wrap: balance;
+}
+
+.empty-state .empty-hint {
+  margin: 0 auto;
+  color: #85827a;
+  font-size: 13px;
+}
+.empty-hint kbd {
+  min-width: 22px;
+  margin-inline: 2px;
+  padding: 2px 6px;
+  display: inline-block;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 5px;
+  color: #b8b8b1;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.3;
+}
+.empty-hint__action {
+  color: #b8b8b1;
 }
 
 .primary-action {
@@ -73,7 +92,7 @@
   gap: 16px;
   border: 0;
   border-radius: 10px;
-  color: white;
+  color: var(--white);
   background: var(--blue);
   box-shadow: 0 8px 24px var(--cobalt-shadow);
   cursor: pointer;
@@ -125,18 +144,51 @@
   stroke-linecap: round;
 }
 
-.error-state > svg {
-  width: 38px;
-  margin-bottom: 18px;
-  fill: none;
-  stroke: var(--danger);
-  stroke-width: 1.4;
+/* A caption over the dimmed frame, not a headline: the frame behind it is still the subject. */
+.error-state {
+  width: min(420px, calc(100% - 80px));
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.7);
+}
+.error-state p {
+  margin: 0 auto;
+  max-width: 46ch;
+  font-size: 13px;
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+.error-state .error-title {
+  margin-bottom: 4px;
+  color: var(--white);
+  font-size: 14px;
+  font-weight: 600;
+  text-wrap: balance;
+}
+.error-title::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  margin-right: 9px;
+  display: inline-block;
+  vertical-align: 0.12em;
+  border-radius: 50%;
+  background: var(--danger);
 }
 .error-actions {
+  margin-top: 18px;
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 10px 28px;
+  gap: 10px 24px;
+  font-size: 13px;
+}
+
+/* The ID, position, and source tools still describe the frame behind the error, so they step back with it. */
+.viewer:has(.error-state:not([hidden])) :is(.position, .frame-id) {
+  opacity: 0.45;
+}
+.position,
+.frame-id {
+  transition: opacity 200ms var(--ease-out);
 }
 .text-action {
   padding: 0 0 4px;
@@ -355,9 +407,19 @@
   gap: 2px;
 }
 
+/* Steppers and ID read as one segmented control: the chevrons step the ID they flank. */
+.frame-id__pill {
+  min-width: 0;
+  margin-right: 6px;
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
 .frame-id__caption {
   min-width: 0;
-  padding-inline: 4px;
+  padding-inline: 10px;
   overflow: hidden;
   color: var(--ink);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -373,10 +435,6 @@
 /* The menu stands in for the steppers only once the line is too narrow to hold them. */
 .info-icon.frame-id__menu {
   display: none;
-}
-
-.frame-id__step + .info-icon:not(.frame-id__step, .frame-id__menu) {
-  margin-left: 6px;
 }
 
 .info-line__actions {
@@ -400,6 +458,7 @@
   color: var(--ink);
   background: transparent;
   cursor: pointer;
+  transition: transform 140ms var(--ease-out);
 }
 
 .info-icon:hover:not(:disabled, [aria-disabled="true"]) {
@@ -409,8 +468,7 @@
 
 .info-icon:disabled,
 .info-icon[aria-disabled="true"] {
-  color: var(--muted);
-  opacity: 0.45;
+  color: var(--disabled-ink);
   cursor: default;
 }
 
@@ -431,6 +489,62 @@
   outline-offset: 2px;
 }
 
+/* Saved: the arrow files itself into the tray and a check takes its place. */
+.save-check {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+
+#save-button[data-saved] .save-arrow {
+  opacity: 0;
+}
+
+#save-button[data-saved] .save-check {
+  stroke-dashoffset: 0;
+}
+
+#save-button[data-saved="new"] .save-arrow {
+  animation: save-arrow-file 260ms cubic-bezier(0.5, 0, 0.75, 0);
+}
+
+#save-button[data-saved="new"] .save-check {
+  animation: save-check-draw 420ms 200ms var(--ease-out) backwards;
+}
+
+@keyframes save-arrow-file {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@keyframes save-check-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+
+.frame-id__pill > .info-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 0 7px 7px 0;
+  border-left: 1px solid var(--line);
+}
+
+.frame-id__pill > .info-icon:first-child {
+  border-radius: 7px 0 0 7px;
+  border-left: 0;
+  border-right: 1px solid var(--line);
+}
+
+.frame-id__pill > .info-icon:focus-visible {
+  outline-offset: -2px;
+}
+
 /* app.ts pins the menu above its button when it opens. */
 .id-menu {
   inset: auto;
@@ -439,11 +553,11 @@
   padding: 5px;
   color: var(--ink);
   background: var(--paper);
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: 10px;
   box-shadow:
-    0 10px 28px var(--stage-shadow),
-    0 2px 6px var(--stage-shadow-small);
+    0 0 0 1px var(--surface-ring),
+    0 10px 28px rgba(35, 32, 25, 0.2);
 }
 
 .id-menu__item {
@@ -454,7 +568,7 @@
   align-items: center;
   gap: 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 5px;
   color: inherit;
   background: transparent;
   cursor: pointer;
@@ -468,7 +582,7 @@
 }
 
 .id-menu__item:disabled {
-  opacity: 0.45;
+  color: var(--disabled-ink);
   cursor: default;
 }
 
@@ -594,7 +708,6 @@
 }
 
 .primary-action,
-.info-icon,
 .text-action {
   transition: transform 140ms var(--ease-out);
 }

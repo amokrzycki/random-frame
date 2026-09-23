@@ -26,6 +26,7 @@ import {
 } from "./persistence.js";
 import type { LedgerDay } from "./statistics.js";
 import {
+  drawStreak,
   formatExploredBreakdown,
   formatExploredPercent,
   formatLedgerCounts,
@@ -55,17 +56,22 @@ const THUMBNAIL_MAX_DIMENSION = 160;
 const THUMBNAIL_LIMIT = 300;
 const history: HistoryItem[] = [];
 const blobs = new Map<string, CachedBlob>();
+// Blob keys saved to disk this session, so revisiting a saved frame still shows its check.
+const savedFrames = new Set<string>();
 let index = -1;
 let loading = true;
 // A network draw in flight, as opposed to any loading; only this spins the Draw next button.
 let drawing = false;
 let viewState: ViewState = "empty";
+let retryAction: () => Promise<void> = loadRandom;
+let failedIndex = -1;
 let cooldownUntil = 0;
 let cooldownTimer: ReturnType<typeof setInterval> | undefined;
 let cooldownNoticeShown = false;
 let pageSize = loadPageSize(localStorage);
 let pageIndex = 0;
 let focusBeforeLoading: Element | null = null;
+let historyReturnFocus: HTMLElement = elements.historyButton;
 let ledger: LedgerDay[] = [];
 let ledgerShown = 0;
 
@@ -134,8 +140,8 @@ const statePanels: Record<ViewState, HTMLElement> = {
 };
 
 function setState(state: ViewState): void {
-  // A draw from a shown frame keeps it on stage, dimmed under the loader, so the next one can crossfade in.
-  const keepFrame = state === "loading" && !elements.imageZoom.hidden;
+  // A shown frame stays on stage, dimmed under the loader or an error, so the next one can crossfade in.
+  const keepFrame = (state === "loading" || state === "error") && !elements.imageZoom.hidden;
   viewState = state;
   for (const [name, target] of Object.entries(statePanels))
     target.hidden = name !== state && !(keepFrame && name === "image");
@@ -175,11 +181,17 @@ function finishLoading(): void {
 
 function syncControls(): void {
   const current = history[index];
+  // At 0/0 the arrows have nowhere to go; the empty stage points at Draw next instead.
+  elements.previous.hidden = elements.next.hidden = !history.length;
   elements.previous.setAttribute("aria-disabled", String(loading || index <= 0));
   elements.next.setAttribute("aria-disabled", String(loading || nextHistoryIndex(index, history.length) === null));
   // Copy and save act on the visible frame only, never on one hidden behind an error.
   const currentBlob = viewState === "image" && current && blobs.has(blobKey(current.source, current.id));
   elements.save.disabled = loading || !currentBlob;
+  // A saved frame keeps its check while shown; only a fresh save plays the arrow-to-check.
+  if (current && savedFrames.has(blobKey(current.source, current.id))) elements.save.dataset.saved ??= "shown";
+  else delete elements.save.dataset.saved;
+  elements.save.title = elements.save.dataset.saved ? "Saved · Save again (S)" : "Save image (S)";
   elements.copyImage.disabled = loading || !currentBlob;
   elements.copyLink.disabled = loading || !current;
   elements.previousId.disabled = loading || current?.source !== "prntsc" || adjacentPrntscId(current.id, -1) === null;
@@ -195,18 +207,21 @@ function syncControls(): void {
   elements.historyTotal.textContent = String(history.length);
   elements.jumpTotal.textContent = String(history.length);
   elements.jumpInput.max = String(history.length);
-  elements.historyClear.disabled = loading;
+  elements.historyClear.disabled = loading || !history.length;
   elements.imageIdValue.textContent = current?.id ?? "———";
-  elements.source.href = current?.sourcePageUrl ?? "https://prnt.sc/";
+  // Without an href the link leaves the tab order and Enter has nothing to follow.
+  if (current) elements.source.href = current.sourcePageUrl;
+  else elements.source.removeAttribute("href");
   elements.source.setAttribute("aria-disabled", String(!current));
   // aria-disabled rather than disabled, so a focused retry or Draw next keeps focus through the countdown.
   const waitSeconds = cooldownSeconds();
   elements.retry.setAttribute("aria-disabled", String(waitSeconds > 0));
-  elements.retry.textContent = waitSeconds ? `Try another in ${waitSeconds}s` : "Try another";
+  elements.retry.textContent = waitSeconds ? `Try again in ${waitSeconds}s` : "Try again";
   elements.draw.setAttribute("aria-busy", String(drawing));
   elements.draw.setAttribute("aria-disabled", String(waitSeconds > 0));
   elements.drawLabel.textContent = waitSeconds ? `Wait ${waitSeconds}s` : "Draw next";
-  elements.back.hidden = !current;
+  // When the failed request was this very frame, Try again already says it.
+  elements.back.hidden = !current || failedIndex === index;
   elements.back.textContent = `Show frame ${index + 1}`;
 }
 
@@ -238,7 +253,10 @@ function drawPaused(): boolean {
   return true;
 }
 
-function showError(error: unknown): void {
+// Try again repeats the request that failed; failedAt names the history frame it was restoring, if any.
+function showError(error: unknown, retry: () => Promise<void>, failedAt = -1): void {
+  retryAction = retry;
+  failedIndex = failedAt;
   const { title, message, cooldownSeconds: seconds } = describeError(error);
   elements.errorTitle.textContent = title;
   elements.errorMessage.textContent = message;
@@ -247,9 +265,22 @@ function showError(error: unknown): void {
   if (seconds) startCooldown(seconds);
 }
 
-function showFrame(source: string, id: string, blob: Blob): void {
-  const oldUrl = elements.image.src;
+// A blob that will not decode never reaches the stage or history, so the counter only claims frames that show.
+async function decodedUrl(blob: Blob): Promise<string> {
   const url = URL.createObjectURL(blob);
+  const probe = document.createElement("img");
+  probe.src = url;
+  try {
+    await probe.decode();
+  } catch {
+    URL.revokeObjectURL(url);
+    throw { kind: "invalid-response" };
+  }
+  return url;
+}
+
+function showFrame(source: string, id: string, blob: Blob, url: string): void {
+  const oldUrl = elements.image.src;
   const key = blobKey(source, id);
   blobs.set(key, { blob, url });
   void cacheThumbnail(key, blob);
@@ -284,6 +315,7 @@ function swapImage(url: string, id: string): void {
 }
 
 async function recordFrame(frame: Frame): Promise<void> {
+  const url = await decodedUrl(frame.blob);
   applyHistory(
     await recordHistoryItem({
       source: frame.source,
@@ -292,7 +324,7 @@ async function recordFrame(frame: Frame): Promise<void> {
       viewedAt: Date.now(),
     }),
   );
-  showFrame(frame.source, frame.id, frame.blob);
+  showFrame(frame.source, frame.id, frame.blob, url);
 }
 
 // Always a new frame, even mid-history: it joins the end of history and the view jumps to it.
@@ -307,7 +339,7 @@ async function loadRandom(): Promise<void> {
     const frame = await getRandomFrame();
     await recordFrame(frame);
   } catch (error) {
-    showError(error);
+    showError(error, loadRandom);
   } finally {
     drawing = false;
     finishLoading();
@@ -328,7 +360,7 @@ async function goTo(targetIndex: number): Promise<void> {
       setState("loading");
       syncControls();
       const frame = await getFrameById(current.id, current.source);
-      showFrame(frame.source, frame.id, frame.blob);
+      showFrame(frame.source, frame.id, frame.blob, await decodedUrl(frame.blob));
     } else {
       swapImage(cached.url, current.id);
       elements.announcer.textContent = `Showing frame ${current.id}`;
@@ -337,7 +369,7 @@ async function goTo(targetIndex: number): Promise<void> {
   } catch (error) {
     // A failed restore at startup keeps the target, so "Show frame N" retries it.
     index = previousIndex >= 0 ? previousIndex : targetIndex;
-    showError(error);
+    showError(error, () => goTo(targetIndex), targetIndex);
   }
   finishLoading();
 }
@@ -479,7 +511,7 @@ function renderLedger(days: LedgerDay[]): void {
 
 function openHistory(): void {
   if (loading) return;
-  elements.historyClear.disabled = false;
+  elements.historyClear.disabled = !history.length;
   // Open where the visitor is: the page holding the shown frame, else the newest page.
   pageIndex = pageOf(index >= 0 ? index : history.length - 1, pageSize);
   renderHistoryPage();
@@ -502,7 +534,13 @@ function changePageSize(): void {
 // showModal() makes the rest of the document inert, including the titlebar,
 // which blocks window drag/controls; show() plus manual inert on main
 // keeps the titlebar usable while a dialog is open.
-const dialogs = [elements.entryDialog, elements.historyDialog, elements.statsDialog, elements.lightboxDialog];
+const dialogs = [
+  elements.entryDialog,
+  elements.historyDialog,
+  elements.statsDialog,
+  elements.lightboxDialog,
+  elements.shortcutsDialog,
+];
 
 function openDialog(dialog: HTMLDialogElement, variant?: "dark"): void {
   elements.main.inert = true;
@@ -592,7 +630,7 @@ async function loadAdjacent(offset: -1 | 1): Promise<void> {
     const frame = await getFrameById(id);
     await recordFrame(frame);
   } catch (error) {
-    showError(error);
+    showError(error, () => loadAdjacent(offset));
   } finally {
     finishLoading();
   }
@@ -602,7 +640,11 @@ async function saveCurrent(): Promise<void> {
   const current = history[index];
   const cached = current && blobs.get(blobKey(current.source, current.id));
   if (!current || !cached) return;
-  await saveImage(current.id, cached.blob, elements.announcer);
+  if (!(await saveImage(current.id, cached.blob))) return;
+  savedFrames.add(blobKey(current.source, current.id));
+  if (history[index] !== current) return;
+  elements.save.dataset.saved = "new";
+  syncControls();
 }
 
 async function copyCurrentImage(): Promise<void> {
@@ -636,10 +678,12 @@ async function clearSavedHistory(): Promise<void> {
     elements.image.src = "";
     elements.image.alt = "";
     setState("empty");
+    // The History button no longer leads anywhere useful; the next step is a draw.
+    historyReturnFocus = elements.draw;
     closeDialog(elements.historyDialog);
     toast.success("History cleared");
   } catch (error) {
-    elements.announcer.textContent = describeError(error).message;
+    toast.error(describeError(error, "History could not be cleared. Try again.").message);
   } finally {
     loading = false;
     syncControls();
@@ -691,7 +735,7 @@ async function initialize(): Promise<void> {
     }
   } catch (error) {
     loading = false;
-    showError(error);
+    showError(error, initialize);
     syncControls();
   }
 }
@@ -699,7 +743,10 @@ async function initialize(): Promise<void> {
 // aria-disabled buttons still fire clicks; goTo and loadRandom already ignore them while loading or paused.
 elements.draw.addEventListener("click", () => void loadRandom());
 elements.draw.addEventListener("animationend", () => delete elements.draw.dataset.pulse);
-elements.retry.addEventListener("click", () => void loadRandom());
+elements.retry.addEventListener("click", () => {
+  // A history frame is fetched from the source too, so every retry honors the cooldown.
+  if (!drawPaused()) void retryAction();
+});
 elements.back.addEventListener("click", () => void goTo(index));
 elements.next.addEventListener("click", goNext);
 elements.previous.addEventListener("click", goBack);
@@ -776,13 +823,15 @@ elements.historyDialog.addEventListener("close", () => {
   stopClearHold();
   // Main is inert until onDialogClosed, and focus() on an inert element is ignored.
   onDialogClosed();
-  elements.historyButton.focus();
+  historyReturnFocus.focus();
+  historyReturnFocus = elements.historyButton;
 });
-elements.statsButton.addEventListener("click", async () => {
+async function loadStats(): Promise<void> {
   try {
     const [exploration, activity] = await Promise.all([getExplorationStats(), getViewingActivity()]);
     elements.statsToday.textContent = String(activity.days.at(-1)?.viewed ?? 0);
     elements.statsTotal.textContent = activity.viewedTotal.toLocaleString("en-US");
+    elements.statsStreak.textContent = drawStreak(activity.days).toLocaleString("en-US");
     elements.statsExplored.textContent = `${exploration.explored.toLocaleString("en-US")} / ${exploration.total.toLocaleString("en-US")}`;
     elements.statsExploredPercent.textContent = `${formatExploredPercent(exploration.explored, exploration.total)} of known legacy ID space`;
     elements.statsExploredBreakdown.textContent = formatExploredBreakdown(
@@ -796,21 +845,49 @@ elements.statsButton.addEventListener("click", async () => {
         history.map((item) => item.viewedAt),
       ),
     );
+    delete elements.statsExplored.dataset.state;
+    elements.statsError.hidden = true;
+    elements.ledger.hidden = false;
   } catch {
-    elements.statsToday.textContent = "0";
-    elements.statsTotal.textContent = "0";
+    // Dashes, not zeros: the counts are unknown, not empty.
+    elements.statsToday.textContent = "—";
+    elements.statsTotal.textContent = "—";
+    elements.statsStreak.textContent = "—";
     elements.statsExplored.textContent = "Unavailable";
-    elements.statsExploredPercent.textContent = "Could not read local exploration data";
+    elements.statsExplored.dataset.state = "unavailable";
+    elements.statsExploredPercent.textContent = "";
     elements.statsExploredBreakdown.textContent = "";
-    renderLedger([]);
+    elements.statsError.hidden = false;
+    elements.ledger.hidden = true;
   }
+}
+elements.statsButton.addEventListener("click", async () => {
+  await loadStats();
   openDialog(elements.statsDialog);
+});
+elements.statsRetry.addEventListener("click", async () => {
+  await loadStats();
+  if (elements.statsError.hidden) elements.statsClose.focus();
+  // A fresh toast node each time, so repeat failures are announced again.
+  else toast.error("Stats still couldn’t be read");
 });
 elements.ledgerMore.addEventListener("click", () => renderLedgerPage()?.focus());
 elements.statsClose.addEventListener("click", () => closeDialog(elements.statsDialog));
 elements.statsDialog.addEventListener("close", () => {
   onDialogClosed();
   elements.statsButton.focus();
+});
+// Focus returns to whatever had it: the sheet opens from the titlebar or from ? anywhere.
+let shortcutsOpener: HTMLElement | null = null;
+function openShortcuts(): void {
+  shortcutsOpener = document.activeElement as HTMLElement | null;
+  openDialog(elements.shortcutsDialog);
+}
+elements.shortcutsButton.addEventListener("click", openShortcuts);
+elements.shortcutsClose.addEventListener("click", () => closeDialog(elements.shortcutsDialog));
+elements.shortcutsDialog.addEventListener("close", () => {
+  onDialogClosed();
+  (shortcutsOpener ?? elements.shortcutsButton).focus?.();
 });
 elements.imageZoom.addEventListener("click", openLightbox);
 elements.imageGhost.addEventListener("animationend", () => {
@@ -887,21 +964,26 @@ elements.jumpForm.addEventListener("submit", (event) => {
 const CONTROL_SELECTOR = "a, button, input, select, textarea, summary, [tabindex]";
 
 document.addEventListener("keydown", (event) => {
-  if (
-    event.altKey ||
-    event.ctrlKey ||
-    event.metaKey ||
-    elements.historyDialog.open ||
-    elements.statsDialog.open ||
-    elements.lightboxDialog.open ||
-    elements.entryDialog.open
-  )
-    return;
+  if (event.altKey || event.ctrlKey || event.metaKey || elements.entryDialog.open) return;
   const target = event.target as HTMLElement | null;
   // The jump field owns its own keys: arrows move the caret, Enter submits.
   if (target?.tagName === "INPUT") return;
+  // ? toggles the sheet, so the key that opened it also closes it.
+  if (event.key === "?" && !event.repeat) {
+    if (elements.shortcutsDialog.open) closeDialog(elements.shortcutsDialog);
+    else if (!dialogs.some((dialog) => dialog.open)) openShortcuts();
+    return;
+  }
+  // The ID menu popover is not a dialog but still owns the keyboard while open.
+  if (dialogs.some((dialog) => dialog.open) || elements.idMenu.matches?.(":popover-open")) return;
   if (event.key === "ArrowLeft") goBack();
   if (event.key === "ArrowRight") goNext();
+  if (!event.repeat) {
+    const key = event.key.toLowerCase();
+    if (key === "s") void saveCurrent();
+    if (key === "c") void copyCurrentImage();
+    if (key === "h") openHistory();
+  }
   // N draws from anywhere; Space and Enter only when no control has focus to claim them.
   const onControl = Boolean(target?.closest?.(CONTROL_SELECTOR));
   if (event.key === "n" || event.key === "N" || (!onControl && (event.key === " " || event.key === "Enter"))) {
@@ -916,9 +998,8 @@ window.addEventListener("pagehide", () => {
 
 document.querySelectorAll<HTMLAnchorElement>(".external-link").forEach((link) => {
   link.addEventListener("click", (event) => {
-    if (link.getAttribute("aria-disabled") === "true") return;
     event.preventDefault();
-    void openUrl(link.href);
+    if (link.getAttribute("aria-disabled") !== "true" && link.href) void openUrl(link.href);
   });
 });
 

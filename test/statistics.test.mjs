@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  drawStreak,
   formatDayLabel,
   formatExploredBreakdown,
   formatExploredPercent,
@@ -98,4 +99,13 @@ test("renders and derives local day keys as the same calendar day in any timezon
     }
     assert.equal(ledgerDateLabel("2026-10-25", "2026-10-26"), "Yesterday", `${zone}: across the DST change`);
   }
+});
+
+test("counts the draw streak back from today, or from yesterday while today is still empty", () => {
+  const day = (viewed, rejected = 0) => ({ date: "", viewed, rejected });
+  assert.equal(drawStreak([day(0)]), 0);
+  assert.equal(drawStreak([day(3)]), 1);
+  assert.equal(drawStreak([day(1), day(0), day(2), day(0, 1), day(4)]), 3);
+  assert.equal(drawStreak([day(1), day(2), day(0)]), 2);
+  assert.equal(drawStreak([day(1), day(0), day(0)]), 0);
 });

@@ -79,27 +79,28 @@
     transform 200ms var(--ease-out);
 }
 
+/* The icon names the theme the button switches to, matching its label. */
 .theme-toggle__sun {
-  opacity: 1;
-  transform: translate(-50%, -50%) rotate(0deg) scale(1);
+  opacity: 0;
+  transform: translate(-50%, -50%) rotate(90deg) scale(0.6);
 }
 
 .theme-toggle__icon .theme-toggle__moon {
   width: 16px;
   fill: currentColor;
   stroke: none;
-  opacity: 0;
-  transform: translate(-50%, -50%) rotate(-90deg) scale(0.6);
+  opacity: 1;
+  transform: translate(-50%, -50%) rotate(0deg) scale(1);
 }
 
 .theme-toggle[aria-pressed="true"] .theme-toggle__sun {
-  opacity: 0;
-  transform: translate(-50%, -50%) rotate(90deg) scale(0.6);
+  opacity: 1;
+  transform: translate(-50%, -50%) rotate(0deg) scale(1);
 }
 
 .theme-toggle[aria-pressed="true"] .theme-toggle__moon {
-  opacity: 1;
-  transform: translate(-50%, -50%) rotate(0deg) scale(1);
+  opacity: 0;
+  transform: translate(-50%, -50%) rotate(-90deg) scale(0.6);
 }
 
 .app-shell main {

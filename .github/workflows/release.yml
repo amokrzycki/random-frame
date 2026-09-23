@@ -215,3 +215,16 @@ jobs:
           )
 
           echo "AppImage verification passed: No conflicting display-stack libraries found."
+
+  # Every build leg uploads into one draft; publish only once all legs succeeded,
+  # so a failed platform never leaves a partial public release or update feed.
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: gh release edit "$TAG" --draft=false
