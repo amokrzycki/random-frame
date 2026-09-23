@@ -51,6 +51,11 @@ typography:
     fontWeight: 400
     lineHeight: 1
     letterSpacing: "-0.035em"
+  mono:
+    fontFamily: "ui-monospace, SF Mono, SFMono-Regular, Menlo, monospace"
+    fontSize: "13px"
+    fontWeight: 400
+    lineHeight: 1.2
 rounded:
   compact: "5px"
   inset: "8px"
@@ -147,7 +152,7 @@ Light mode uses the original warm mineral paper. Dark mode keeps the archival ch
 
 **Display Font:** Archive Serif (local Noto Serif Display asset, with serif fallback)  
 **Body Font:** Avenir Next (with Avenir, Helvetica Neue, Arial, and sans-serif fallbacks)  
-**Label/Mono Font:** System monospace for source identifiers only
+**Mono Font:** SF Mono via `ui-monospace` (with SFMono-Regular, Menlo, and monospace fallbacks) for source identifiers only; 13px in the info line, 12px tabular in history captions
 
 **Character:** The serif adds archival gravity to titles and state headlines. The sans-serif keeps navigation, warnings, and controls direct; monospace makes the source identifier feel precise and inspectable.
 
@@ -181,15 +186,15 @@ Depth is concentrated on the viewing stage and floating controls. The titlebar, 
 
 - **Stage Ambient:** A compact two-layer shadow (`0 12px 32px` and `0 2px 6px`) that separates the graphite stage from the surrounding workbench without making it float like a web card.
 - **Cobalt Lift:** A colored soft shadow below the primary action and Draw next, mixed from the current theme's cobalt at 28%.
-- **Dark Hairline Ring:** In dark mode the stage, toasts, and update banner add a 1px warm-white ring at 10% so their edges survive on charcoal paper; light mode omits it.
+- **Dark Hairline Ring:** In dark mode the stage, toasts, update banner, and ID menu add a 1px warm-white ring at 10% so their edges survive on charcoal paper; light mode omits it.
 - **Control Lift:** A compact neutral shadow below previous/next controls.
-- **Notice Lift:** A soft `0 10px 28px` warm shadow under the dark toasts and update banner, so they read as momentary overlays.
+- **Notice Lift:** A soft `0 10px 28px` warm shadow at 20% under the dark toasts, the update banner, and the ID menu, so they read as momentary overlays. It pairs with the Dark Hairline Ring instead of a border.
 
 **The Flat Surround Rule.** Keep the titlebar, info line, and dialog footers flat; reserve elevation for the image stage, controls floating over it, and Draw next.
 
 ## Shapes
 
-The stage uses an 8px outer radius and an 8px inset hairline, matching the compact titlebar and navigation controls. Secondary actions use 9px corners; the primary action, Draw next, history thumbnails, toasts, the ID menu, and the update banner use 10px; ledger thumbnails use 5px; and dialogs retain their softer 14px outer frames. The session indicator and loading spinner are circular. Thin strokes and open SVG icons preserve the technical, machined feel.
+The stage uses an 8px outer radius and an 8px inset hairline, matching the compact titlebar and navigation controls. Secondary actions use 9px corners; the primary action, Draw next, history thumbnails, toasts, the ID menu, and the update banner use 10px; ledger thumbnails and ID menu items use 5px; and dialogs retain their softer 14px outer frames. The session indicator and loading spinner are circular. Thin strokes and open SVG icons preserve the technical, machined feel.
 
 ## Components
 
