@@ -38,6 +38,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
     async invoke(command, args, options) {
       invocations.push({ command, args, options });
       if (command === "get_history") return structuredClone(persisted);
+      if (command === "get_favorites") return [];
       if (command === "record_history_item") {
         let itemIndex = persisted.history.findIndex(
           (item) => item.source === args.item.source && item.id === args.item.id,
@@ -370,6 +371,7 @@ test("migrates the legacy localStorage counter once on startup and clears it", a
     async invoke(command, args) {
       invocations.push({ command, args });
       if (command === "get_history") return { history: [], index: -1 };
+      if (command === "get_favorites") return [];
       if (command === "migrate_viewing_stats") return null;
       throw new Error(`Unexpected command: ${command}`);
     },

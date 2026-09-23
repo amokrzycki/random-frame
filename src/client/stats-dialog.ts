@@ -18,7 +18,7 @@ import {
   parseLegacyStats,
 } from "./statistics.js";
 import { toast } from "./toast.js";
-import { state } from "./viewer-state.js";
+import { isFavorite, state } from "./viewer-state.js";
 
 function ledgerThumbnail(itemIndex: number): HTMLButtonElement | null {
   const item = state.history[itemIndex];
@@ -30,8 +30,11 @@ function ledgerThumbnail(itemIndex: number): HTMLButtonElement | null {
   button.type = "button";
   button.className = "ledger__thumb";
   button.title = item.id;
-  button.setAttribute("aria-label", `Show frame ${itemIndex + 1}, ${item.id}`);
+  const name = `Show frame ${itemIndex + 1}, ${item.id}`;
+  const favorite = isFavorite(item);
+  button.setAttribute("aria-label", favorite ? `${name}, favorite` : name);
   if (itemIndex === state.index) button.setAttribute("aria-current", "true");
+  if (favorite) button.dataset.favorite = "";
   image.src = src;
   image.alt = "";
   image.loading = "lazy";

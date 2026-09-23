@@ -120,6 +120,7 @@ test("pages a long existing history without touching the stored records", async 
     async invoke(command, args) {
       invocations.push(command);
       if (command === "get_history") return structuredClone(stored);
+      if (command === "get_favorites") return [];
       if (command === "select_history_item") return { ...structuredClone(stored), index: args.index };
       if (command === "get_frame_by_id") {
         return { id: args.id, source: "prntsc", sourcePageUrl: `https://prnt.sc/${args.id}`, mimeType: "image/png" };

@@ -50,7 +50,28 @@
             <button class="history-clear" id="history-clear-button" type="button" aria-describedby="history-clear-hint">
               Hold to clear
             </button>
-            <span class="sr-only" id="history-clear-hint">Clears all history. You can also activate it twice.</span>
+            <span class="sr-only" id="history-clear-hint">
+              Clears all history. Favorites stay. You can also activate it twice.
+            </span>
+            <button
+              class="history-clear"
+              id="history-clear-favorites-button"
+              type="button"
+              aria-describedby="history-clear-favorites-hint"
+              hidden>
+              Hold to clear favorites
+            </button>
+            <span class="sr-only" id="history-clear-favorites-hint">
+              Clears all favorites. You can also activate it twice.
+            </span>
+            <div class="history-filter">
+              <button class="history-filter__option" id="history-filter-all" type="button" aria-pressed="true">
+                All
+              </button>
+              <button class="history-filter__option" id="history-filter-favorites" type="button" aria-pressed="false">
+                Favorites
+              </button>
+            </div>
             <button class="history-close" id="history-close-button" type="button" aria-label="Close history" autofocus>
               <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
             </button>
@@ -59,8 +80,8 @@
         <div class="history-dialog__body" id="history-body">
           <div class="history-grid" id="history-grid"></div>
           <div class="history-empty" id="history-empty" hidden>
-            <p>No saved frames yet.</p>
-            <span>Draw a frame to begin your history.</span>
+            <p id="history-empty-title">No saved frames yet.</p>
+            <span id="history-empty-detail">Draw a frame to begin your history.</span>
           </div>
         </div>
         <footer class="history-pager" id="history-pager" hidden>
@@ -199,6 +220,10 @@
           <div class="shortcuts__row">
             <dt>Copy image</dt>
             <dd><kbd>C</kbd></dd>
+          </div>
+          <div class="shortcuts__row">
+            <dt>Add or remove favorite</dt>
+            <dd><kbd>F</kbd></dd>
           </div>
           <div class="shortcuts__row">
             <dt>Open history</dt>
@@ -434,6 +459,21 @@
           </div>
 
           <div class="info-line__actions">
+            <button
+              class="info-icon"
+              id="favorite-button"
+              type="button"
+              aria-label="Add to favorites"
+              aria-keyshortcuts="F"
+              aria-pressed="false"
+              title="Add to favorites (F)"
+              disabled>
+              <svg viewBox="0 0 18 18" aria-hidden="true">
+                <path
+                  class="favorite-star"
+                  d="M9 2.5l1.9 4 4.35.55-3.2 3 .82 4.3L9 12.25 5.13 14.35l.82-4.3-3.2-3 4.35-.55z" />
+              </svg>
+            </button>
             <button
               class="info-icon"
               id="history-button"

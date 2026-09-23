@@ -1,6 +1,6 @@
 use crate::error::AppError;
 use chrono::{DateTime, Local, NaiveDate, TimeZone};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap},
     fs::{self, OpenOptions},
@@ -8,6 +8,41 @@ use std::{
     path::{Path, PathBuf},
     sync::Mutex,
 };
+
+/// Reads a JSON store, recovering a `.json.tmp` left by a save interrupted before its rename.
+fn load_json<T: DeserializeOwned + Default>(path: &Path) -> Result<T, AppError> {
+    match fs::read(path) {
+        Ok(bytes) => serde_json::from_slice(&bytes).map_err(AppError::persistence),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let temporary = path.with_extension("json.tmp");
+            match fs::read(&temporary) {
+                Ok(bytes) => {
+                    let data = serde_json::from_slice(&bytes).map_err(AppError::persistence)?;
+                    fs::rename(temporary, path).map_err(AppError::persistence)?;
+                    Ok(data)
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(T::default()),
+                Err(error) => Err(AppError::persistence(error)),
+            }
+        }
+        Err(error) => Err(AppError::persistence(error)),
+    }
+}
+
+/// Writes a `.json.tmp` sibling and renames it over the store, so a crash never leaves a torn file.
+fn save_json<T: Serialize>(path: &Path, data: &T) -> Result<(), AppError> {
+    let bytes = serde_json::to_vec(data).map_err(AppError::persistence)?;
+    let temporary = path.with_extension("json.tmp");
+    if let Err(error) = fs::write(&temporary, bytes) {
+        let _ = fs::remove_file(&temporary);
+        return Err(AppError::persistence(error));
+    }
+    #[cfg(windows)]
+    if path.exists() {
+        fs::remove_file(path).map_err(AppError::persistence)?;
+    }
+    fs::rename(&temporary, path).map_err(AppError::persistence)
+}
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,24 +76,7 @@ impl HistoryStore {
     pub fn new(directory: &Path) -> Result<Self, AppError> {
         fs::create_dir_all(directory).map_err(AppError::persistence)?;
         let path = directory.join("history.json");
-        let data = match fs::read(&path) {
-            Ok(bytes) => serde_json::from_slice(&bytes).map_err(AppError::persistence)?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                let temporary = path.with_extension("json.tmp");
-                match fs::read(&temporary) {
-                    Ok(bytes) => {
-                        let data = serde_json::from_slice(&bytes).map_err(AppError::persistence)?;
-                        fs::rename(temporary, &path).map_err(AppError::persistence)?;
-                        data
-                    }
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                        HistoryData::default()
-                    }
-                    Err(error) => return Err(AppError::persistence(error)),
-                }
-            }
-            Err(error) => return Err(AppError::persistence(error)),
-        };
+        let data = load_json(&path)?;
         Ok(Self {
             path,
             data: Mutex::new(data),
@@ -148,17 +166,74 @@ impl HistoryStore {
     }
 
     fn save(&self, data: &HistoryData) -> Result<(), AppError> {
-        let bytes = serde_json::to_vec(data).map_err(AppError::persistence)?;
-        let temporary = self.path.with_extension("json.tmp");
-        if let Err(error) = fs::write(&temporary, bytes) {
-            let _ = fs::remove_file(&temporary);
-            return Err(AppError::persistence(error));
+        save_json(&self.path, data)
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FavoriteItem {
+    pub source: String,
+    pub id: String,
+    pub source_page_url: String,
+    pub added_at: u64,
+}
+
+/// Frames the visitor starred, kept apart from history so clearing history never drops them.
+pub struct FavoriteStore {
+    path: PathBuf,
+    data: Mutex<Vec<FavoriteItem>>,
+}
+
+impl FavoriteStore {
+    pub fn new(directory: &Path) -> Result<Self, AppError> {
+        fs::create_dir_all(directory).map_err(AppError::persistence)?;
+        let path = directory.join("favorites.json");
+        let data = load_json(&path)?;
+        Ok(Self {
+            path,
+            data: Mutex::new(data),
+        })
+    }
+
+    pub fn snapshot(&self) -> Vec<FavoriteItem> {
+        self.data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Adds the frame, or removes it when its `(source, id)` is already a favorite.
+    pub fn toggle(&self, item: FavoriteItem) -> Result<Vec<FavoriteItem>, AppError> {
+        let mut data = self
+            .data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut next = data.clone();
+        if let Some(index) = next
+            .iter()
+            .position(|saved| saved.source == item.source && saved.id == item.id)
+        {
+            next.remove(index);
+        } else {
+            next.push(item);
         }
-        #[cfg(windows)]
-        if self.path.exists() {
-            fs::remove_file(&self.path).map_err(AppError::persistence)?;
-        }
-        fs::rename(&temporary, &self.path).map_err(AppError::persistence)
+        save_json(&self.path, &next)?;
+        *data = next;
+        let result = data.clone();
+        drop(data);
+        Ok(result)
+    }
+
+    pub fn clear(&self) -> Result<(), AppError> {
+        let mut data = self
+            .data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        save_json(&self.path, &Vec::<FavoriteItem>::new())?;
+        data.clear();
+        drop(data);
+        Ok(())
     }
 }
 
@@ -357,24 +432,7 @@ impl ActivityStore {
     pub fn new(directory: &Path) -> Result<Self, AppError> {
         fs::create_dir_all(directory).map_err(AppError::persistence)?;
         let path = directory.join("activity.json");
-        let data = match fs::read(&path) {
-            Ok(bytes) => serde_json::from_slice(&bytes).map_err(AppError::persistence)?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                let temporary = path.with_extension("json.tmp");
-                match fs::read(&temporary) {
-                    Ok(bytes) => {
-                        let data = serde_json::from_slice(&bytes).map_err(AppError::persistence)?;
-                        fs::rename(temporary, &path).map_err(AppError::persistence)?;
-                        data
-                    }
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                        ActivityData::default()
-                    }
-                    Err(error) => return Err(AppError::persistence(error)),
-                }
-            }
-            Err(error) => return Err(AppError::persistence(error)),
-        };
+        let data = load_json(&path)?;
         Ok(Self {
             path,
             data: Mutex::new(data),
@@ -523,17 +581,7 @@ impl ActivityStore {
     }
 
     fn save(&self, data: &ActivityData) -> Result<(), AppError> {
-        let bytes = serde_json::to_vec(data).map_err(AppError::persistence)?;
-        let temporary = self.path.with_extension("json.tmp");
-        if let Err(error) = fs::write(&temporary, bytes) {
-            let _ = fs::remove_file(&temporary);
-            return Err(AppError::persistence(error));
-        }
-        #[cfg(windows)]
-        if self.path.exists() {
-            fs::remove_file(&self.path).map_err(AppError::persistence)?;
-        }
-        fs::rename(&temporary, &self.path).map_err(AppError::persistence)
+        save_json(&self.path, data)
     }
 }
 
@@ -686,6 +734,36 @@ mod tests {
             1,
             "classified subset must stay smaller than the explored total while legacy ids remain"
         );
+        fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+
+    #[test]
+    fn favorite_toggle_adds_then_removes_and_survives_reload() -> Result<(), AppError> {
+        let directory = test_directory("favorites");
+        let item = |added_at| FavoriteItem {
+            source: "prntsc".to_owned(),
+            id: "abc123".to_owned(),
+            source_page_url: "https://prnt.sc/abc123".to_owned(),
+            added_at,
+        };
+        let store = FavoriteStore::new(&directory)?;
+        assert_eq!(store.toggle(item(42))?, vec![item(42)]);
+        // Membership is by (source, id): a later timestamp still removes the same frame.
+        assert!(store.toggle(item(84))?.is_empty());
+        assert_eq!(store.toggle(item(126))?, vec![item(126)]);
+
+        let reloaded = FavoriteStore::new(&directory)?;
+        assert_eq!(reloaded.snapshot(), vec![item(126)]);
+        // A save interrupted before its rename leaves only the .tmp file; it is recovered on load.
+        fs::rename(
+            directory.join("favorites.json"),
+            directory.join("favorites.json.tmp"),
+        )
+        .map_err(AppError::persistence)?;
+        assert_eq!(FavoriteStore::new(&directory)?.snapshot(), vec![item(126)]);
+        assert!(directory.join("favorites.json").exists());
+        reloaded.clear()?;
+        assert!(FavoriteStore::new(&directory)?.snapshot().is_empty());
         fs::remove_dir_all(directory).map_err(AppError::persistence)
     }
 

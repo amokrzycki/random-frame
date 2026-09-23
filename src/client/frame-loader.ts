@@ -101,10 +101,9 @@ export function goNext(): void {
   elements.announcer.textContent = elements.announcer.textContent === notice ? `${notice} ` : notice;
 }
 
-async function loadAdjacent(offset: -1 | 1): Promise<void> {
-  const current = state.history[state.index];
-  const id = current && adjacentPrntscId(current.id, offset);
-  if (state.loading || !id) return;
+// A frame already in history reopens there; any other id is fetched and joins the end of history.
+export async function loadById(id: string, source = "prntsc"): Promise<void> {
+  if (state.loading) return;
   const savedIndex = historyIndexForId(state.history, id);
   if (savedIndex !== -1) return void goTo(savedIndex);
   if (drawPaused()) return;
@@ -112,13 +111,19 @@ async function loadAdjacent(offset: -1 | 1): Promise<void> {
   setState("loading");
   syncControls();
   try {
-    const frame = await getFrameById(id);
+    const frame = await getFrameById(id, source);
     await recordFrame(frame);
   } catch (error) {
-    showError(error, () => loadAdjacent(offset));
+    showError(error, () => loadById(id, source));
   } finally {
     finishLoading();
   }
+}
+
+async function loadAdjacent(offset: -1 | 1): Promise<void> {
+  const current = state.history[state.index];
+  const id = current && adjacentPrntscId(current.id, offset);
+  if (id) await loadById(id);
 }
 
 // The position readout turns into the number field in place, and back once the jump is made or dropped.

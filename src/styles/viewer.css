@@ -489,6 +489,11 @@
   outline-offset: 2px;
 }
 
+/* Favorited: the star fills with the mark's own ink, so hover inverts it with the rest of the icon. */
+#favorite-button[aria-pressed="true"] .favorite-star {
+  fill: currentColor;
+}
+
 /* Saved: the arrow files itself into the tray and a check takes its place. */
 .save-check {
   stroke-dasharray: 1;
