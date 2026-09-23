@@ -83,7 +83,9 @@ body.app-shell {
   height: 100dvh;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: var(--titlebar-height) minmax(0, 1fr) 34px;
+  /* Titlebar and work area; the privacy page adds its status bar as an implicit third row. */
+  grid-template-rows: var(--titlebar-height) minmax(0, 1fr);
+  grid-auto-rows: auto;
   overflow: hidden;
 }
 

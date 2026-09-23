@@ -14,7 +14,7 @@ import {
   nextHistoryIndex,
   shouldShowEntryDialog,
 } from "./navigation.js";
-import type { DailyActivity, HistoryItem, HistorySnapshot } from "./persistence.js";
+import type { HistoryItem, HistorySnapshot } from "./persistence.js";
 import {
   clearHistory,
   getExplorationStats,
@@ -24,16 +24,17 @@ import {
   recordHistoryItem,
   selectHistoryItem,
 } from "./persistence.js";
+import type { LedgerDay } from "./statistics.js";
 import {
-  describeDay,
   formatExploredBreakdown,
   formatExploredPercent,
-  heatmapFocusTarget,
-  heatmapPlaceholderCount,
-  heatmapRangeLabel,
-  intensityLevel,
+  formatLedgerCounts,
+  LEDGER_PAGE_DAYS,
+  LEDGER_STRIP_MAX,
   LEGACY_STATS_STORAGE_KEY,
-  leadingBlankCount,
+  ledgerDateLabel,
+  ledgerDays,
+  localDayKey,
   parseLegacyStats,
 } from "./statistics.js";
 import { toast } from "./toast.js";
@@ -56,6 +57,8 @@ const history: HistoryItem[] = [];
 const blobs = new Map<string, CachedBlob>();
 let index = -1;
 let loading = true;
+// A network draw in flight, as opposed to any loading; only this spins the Draw next button.
+let drawing = false;
 let viewState: ViewState = "empty";
 let cooldownUntil = 0;
 let cooldownTimer: ReturnType<typeof setInterval> | undefined;
@@ -63,7 +66,8 @@ let cooldownNoticeShown = false;
 let pageSize = loadPageSize(localStorage);
 let pageIndex = 0;
 let focusBeforeLoading: Element | null = null;
-const HEATMAP_DEFAULT_DETAIL = "Hover or focus a day for details.";
+let ledger: LedgerDay[] = [];
+let ledgerShown = 0;
 
 function blobKey(source: string, id: string): string {
   return `${source}:${id}`;
@@ -142,10 +146,10 @@ function setState(state: ViewState): void {
 }
 
 const stateControls: Record<ViewState, HTMLElement | null> = {
-  empty: elements.start,
+  empty: elements.draw,
   loading: null,
   error: elements.retry,
-  image: elements.next,
+  image: elements.draw,
 };
 
 function startLoading(): void {
@@ -172,7 +176,7 @@ function finishLoading(): void {
 function syncControls(): void {
   const current = history[index];
   elements.previous.setAttribute("aria-disabled", String(loading || index <= 0));
-  elements.next.setAttribute("aria-disabled", String(loading || index < 0));
+  elements.next.setAttribute("aria-disabled", String(loading || nextHistoryIndex(index, history.length) === null));
   // Copy and save act on the visible frame only, never on one hidden behind an error.
   const currentBlob = viewState === "image" && current && blobs.has(blobKey(current.source, current.id));
   elements.save.disabled = loading || !currentBlob;
@@ -180,27 +184,28 @@ function syncControls(): void {
   elements.copyLink.disabled = loading || !current;
   elements.previousId.disabled = loading || current?.source !== "prntsc" || adjacentPrntscId(current.id, -1) === null;
   elements.nextId.disabled = loading || current?.source !== "prntsc" || adjacentPrntscId(current.id, 1) === null;
-  // History, jump, and the arrows stay enabled while loading (goTo ignores them), so they keep focus.
-  elements.jumpInput.disabled = !history.length;
-  elements.jumpButton.disabled = !history.length;
-  elements.jumpInput.max = String(history.length);
-  if (document.activeElement !== elements.jumpInput) elements.jumpInput.value = String(history.length ? index + 1 : 0);
+  elements.previousIdMenuItem.disabled = elements.previousId.disabled;
+  elements.nextIdMenuItem.disabled = elements.nextId.disabled;
+  elements.idMenuButton.disabled = elements.previousId.disabled && elements.nextId.disabled;
+  // History, the position readout, and the arrows stay enabled while loading (goTo ignores them), so they keep focus.
+  const position = history.length ? index + 1 : 0;
+  elements.positionButton.disabled = !history.length;
+  elements.positionButton.setAttribute("aria-label", `Frame ${position} of ${history.length}. Jump to a frame`);
+  elements.positionCurrent.textContent = String(position);
   elements.historyTotal.textContent = String(history.length);
+  elements.jumpTotal.textContent = String(history.length);
+  elements.jumpInput.max = String(history.length);
   elements.historyClear.disabled = loading;
-  elements.next.setAttribute(
-    "aria-label",
-    index < history.length - 1 ? "Show the next saved frame" : "Draw a new frame",
-  );
-  elements.imageId.textContent = `prnt.sc/${current?.id ?? "———"}`;
+  elements.imageIdValue.textContent = current?.id ?? "———";
   elements.source.href = current?.sourcePageUrl ?? "https://prnt.sc/";
   elements.source.setAttribute("aria-disabled", String(!current));
-  elements.meta.textContent = current
-    ? `Source: Prnt.sc · frame ${current.id}`
-    : "One public image. No feed, no profile.";
-  // aria-disabled rather than disabled, so a focused retry keeps focus through the countdown.
+  // aria-disabled rather than disabled, so a focused retry or Draw next keeps focus through the countdown.
   const waitSeconds = cooldownSeconds();
   elements.retry.setAttribute("aria-disabled", String(waitSeconds > 0));
   elements.retry.textContent = waitSeconds ? `Try another in ${waitSeconds}s` : "Try another";
+  elements.draw.setAttribute("aria-busy", String(drawing));
+  elements.draw.setAttribute("aria-disabled", String(waitSeconds > 0));
+  elements.drawLabel.textContent = waitSeconds ? `Wait ${waitSeconds}s` : "Draw next";
   elements.back.hidden = !current;
   elements.back.textContent = `Show frame ${index + 1}`;
 }
@@ -290,9 +295,12 @@ async function recordFrame(frame: Frame): Promise<void> {
   showFrame(frame.source, frame.id, frame.blob);
 }
 
+// Always a new frame, even mid-history: it joins the end of history and the view jumps to it.
 async function loadRandom(): Promise<void> {
   if (loading || drawPaused()) return;
   startLoading();
+  drawing = true;
+  elements.idMenu.hidePopover?.();
   setState("loading");
   syncControls();
   try {
@@ -301,6 +309,7 @@ async function loadRandom(): Promise<void> {
   } catch (error) {
     showError(error);
   } finally {
+    drawing = false;
     finishLoading();
   }
 }
@@ -382,6 +391,92 @@ function renderHistoryPage(): void {
   }
 }
 
+function ledgerThumbnail(itemIndex: number): HTMLButtonElement | null {
+  const item = history[itemIndex];
+  const key = item && blobKey(item.source, item.id);
+  const src = key && (blobs.get(key)?.url ?? thumbnails.get(key));
+  if (!item || !src) return null;
+  const button = document.createElement("button");
+  const image = document.createElement("img");
+  button.type = "button";
+  button.className = "ledger__thumb";
+  button.title = item.id;
+  button.setAttribute("aria-label", `Show frame ${itemIndex + 1}, ${item.id}`);
+  if (itemIndex === index) button.setAttribute("aria-current", "true");
+  image.src = src;
+  image.alt = "";
+  image.loading = "lazy";
+  button.append(image);
+  button.addEventListener("click", () => {
+    closeDialog(elements.statsDialog);
+    void goTo(itemIndex);
+  });
+  return button;
+}
+
+function ledgerRow(day: LedgerDay, todayIso: string, maxDrawn: number): HTMLLIElement {
+  const row = document.createElement("li");
+  const date = document.createElement("span");
+  const counts = document.createElement("span");
+  const strip = document.createElement("div");
+  const label = ledgerDateLabel(day.date, todayIso);
+  row.className = "ledger__row";
+  // Focusable only for Show earlier days to land on; the thumbnails are the tab stops.
+  row.tabIndex = -1;
+  row.setAttribute("aria-label", `${label}: ${formatLedgerCounts(day.drawn, day.unavailable)}`);
+  date.className = "ledger__date";
+  date.textContent = label;
+  counts.className = "ledger__counts";
+  counts.textContent = formatLedgerCounts(day.drawn, day.unavailable);
+  strip.className = "ledger__strip";
+  const thumbs: HTMLButtonElement[] = [];
+  for (const itemIndex of day.frames) {
+    if (thumbs.length === LEDGER_STRIP_MAX) break;
+    const thumb = ledgerThumbnail(itemIndex);
+    if (thumb) thumbs.push(thumb);
+  }
+  strip.append(...thumbs);
+  const overflow = Math.max(day.drawn, day.frames.length) - thumbs.length;
+  if (thumbs.length && overflow > 0) {
+    const more = document.createElement("span");
+    more.className = "ledger__more-count";
+    more.textContent = `+${overflow.toLocaleString("en-US")}`;
+    strip.append(more);
+  }
+  if (!thumbs.length && day.drawn) {
+    // No saved thumbnails for this day: a hairline sized to its share of the busiest day.
+    const bar = document.createElement("span");
+    bar.className = "ledger__bar";
+    bar.setAttribute("aria-hidden", "true");
+    bar.style.setProperty?.("--share", String(day.drawn / maxDrawn));
+    strip.append(bar);
+  }
+  row.append(date, counts, strip);
+  return row;
+}
+
+// Rows render in pages of LEDGER_PAGE_DAYS, so months of activity never build one long list up front.
+function renderLedgerPage(): HTMLLIElement | undefined {
+  const todayIso = localDayKey(Date.now());
+  const maxDrawn = Math.max(1, ...ledger.map((day) => day.drawn));
+  const rows = ledger
+    .slice(ledgerShown, ledgerShown + LEDGER_PAGE_DAYS)
+    .map((day) => ledgerRow(day, todayIso, maxDrawn));
+  elements.ledgerList.append(...rows);
+  ledgerShown += rows.length;
+  elements.ledgerMore.hidden = ledgerShown >= ledger.length;
+  return rows[0];
+}
+
+function renderLedger(days: LedgerDay[]): void {
+  ledger = days;
+  ledgerShown = 0;
+  elements.ledgerList.replaceChildren();
+  elements.ledgerEmpty.hidden = days.length > 0;
+  elements.statsBody.scrollTop = 0;
+  renderLedgerPage();
+}
+
 function openHistory(): void {
   if (loading) return;
   elements.historyClear.disabled = false;
@@ -405,13 +500,12 @@ function changePageSize(): void {
 }
 
 // showModal() makes the rest of the document inert, including the titlebar,
-// which blocks window drag/controls; show() plus manual inert on main/footer
+// which blocks window drag/controls; show() plus manual inert on main
 // keeps the titlebar usable while a dialog is open.
 const dialogs = [elements.entryDialog, elements.historyDialog, elements.statsDialog, elements.lightboxDialog];
 
 function openDialog(dialog: HTMLDialogElement, variant?: "dark"): void {
   elements.main.inert = true;
-  elements.footer.inert = true;
   if (variant) elements.dialogBackdrop.dataset.variant = variant;
   else delete elements.dialogBackdrop.dataset.variant;
   elements.dialogBackdrop.hidden = false;
@@ -423,7 +517,6 @@ function openDialog(dialog: HTMLDialogElement, variant?: "dark"): void {
 function onDialogClosed(): void {
   if (dialogs.some((dialog) => dialog.open)) return;
   elements.main.inert = false;
-  elements.footer.inert = false;
   // closeDialog already faded the backdrop alongside the dialog.
   delete elements.dialogBackdrop.dataset.open;
   elements.dialogBackdrop.hidden = true;
@@ -473,10 +566,16 @@ function goBack(): void {
   void goTo(index - 1);
 }
 
+// Arrows only move through history. Past the last frame they point at Draw next instead of drawing.
 function goNext(): void {
   const targetIndex = nextHistoryIndex(index, history.length);
-  if (targetIndex === null) void loadRandom();
-  else void goTo(targetIndex);
+  if (targetIndex !== null) return void goTo(targetIndex);
+  if (loading) return;
+  restartAnimation(elements.draw);
+  elements.draw.dataset.pulse = "";
+  // A trailing no-break space alternates, so screen readers announce a repeated press too.
+  const notice = "This is the newest frame. Press N to draw next.";
+  elements.announcer.textContent = elements.announcer.textContent === notice ? `${notice}\u00a0` : notice;
 }
 
 async function loadAdjacent(offset: -1 | 1): Promise<void> {
@@ -565,45 +664,6 @@ async function migrateLegacyStats(): Promise<void> {
   }
 }
 
-function renderHeatmap(days: DailyActivity[]): void {
-  const grid = elements.statsHeatmapGrid;
-  grid.replaceChildren();
-  elements.statsHeatmapDetail.textContent = days.length ? HEATMAP_DEFAULT_DETAIL : "No activity data yet.";
-  const rangeLabel = heatmapRangeLabel(days);
-  elements.statsHeatmapRange.textContent = rangeLabel;
-  grid.setAttribute("aria-label", `Daily viewed images, ${rangeLabel.toLowerCase()}`);
-  if (!days.length) return;
-
-  const maxViewed = Math.max(1, ...days.map((day) => day.viewed));
-  const firstDay = days[0];
-  if (firstDay) {
-    for (let blank = 0; blank < leadingBlankCount(firstDay.date); blank += 1) {
-      const filler = document.createElement("span");
-      filler.className = "heatmap-cell heatmap-cell--empty";
-      filler.setAttribute("aria-hidden", "true");
-      grid.append(filler);
-    }
-  }
-  for (const [dayIndex, day] of days.entries()) {
-    const cell = document.createElement("button");
-    cell.type = "button";
-    cell.className = "heatmap-cell";
-    // One tab stop for the whole grid, on today; arrow keys move between days.
-    cell.tabIndex = dayIndex === days.length - 1 ? 0 : -1;
-    cell.setAttribute("data-level", String(intensityLevel(day.viewed, maxViewed)));
-    const description = describeDay(day);
-    cell.setAttribute("aria-label", description);
-    cell.title = description;
-    grid.append(cell);
-  }
-  for (let i = 0; i < heatmapPlaceholderCount(days.length); i += 1) {
-    const placeholder = document.createElement("span");
-    placeholder.className = "heatmap-cell heatmap-cell--placeholder";
-    placeholder.setAttribute("aria-hidden", "true");
-    grid.append(placeholder);
-  }
-}
-
 async function initialize(): Promise<void> {
   try {
     let snapshot = await getHistory();
@@ -625,7 +685,10 @@ async function initialize(): Promise<void> {
     syncControls();
     // The stage starts blank, so a restored frame never flashes the first-draw prompt on launch.
     if (snapshot.index >= 0) await goTo(snapshot.index);
-    else setState("empty");
+    else {
+      setState("empty");
+      if (!elements.entryDialog.open) elements.draw.focus();
+    }
   } catch (error) {
     loading = false;
     showError(error);
@@ -633,16 +696,30 @@ async function initialize(): Promise<void> {
   }
 }
 
-elements.start.addEventListener("click", () => void loadRandom());
+// aria-disabled buttons still fire clicks; goTo and loadRandom already ignore them while loading or paused.
+elements.draw.addEventListener("click", () => void loadRandom());
+elements.draw.addEventListener("animationend", () => delete elements.draw.dataset.pulse);
 elements.retry.addEventListener("click", () => void loadRandom());
 elements.back.addEventListener("click", () => void goTo(index));
-// aria-disabled buttons still fire clicks; goTo and loadRandom already ignore them while loading.
-elements.next.addEventListener("click", () => {
-  if (index >= 0) goNext();
-});
+elements.next.addEventListener("click", goNext);
 elements.previous.addEventListener("click", goBack);
 elements.previousId.addEventListener("click", () => void loadAdjacent(-1));
 elements.nextId.addEventListener("click", () => void loadAdjacent(1));
+elements.idMenu.addEventListener("beforetoggle", (event) => {
+  if ((event as ToggleEvent).newState !== "open") return;
+  const rect = elements.idMenuButton.getBoundingClientRect();
+  elements.idMenu.style.left = `${rect.left}px`;
+  elements.idMenu.style.bottom = `${window.innerHeight - rect.top + 6}px`;
+});
+for (const [item, offset] of [
+  [elements.previousIdMenuItem, -1],
+  [elements.nextIdMenuItem, 1],
+] as const) {
+  item.addEventListener("click", () => {
+    elements.idMenu.hidePopover?.();
+    void loadAdjacent(offset);
+  });
+}
 elements.save.addEventListener("click", () => void saveCurrent());
 elements.copyImage.addEventListener("click", () => void copyCurrentImage());
 elements.copyLink.addEventListener("click", () => void copySourceLink());
@@ -713,42 +790,23 @@ elements.statsButton.addEventListener("click", async () => {
       exploration.viewable,
       exploration.unavailable,
     );
-    renderHeatmap(activity.days);
+    renderLedger(
+      ledgerDays(
+        activity.days,
+        history.map((item) => item.viewedAt),
+      ),
+    );
   } catch {
     elements.statsToday.textContent = "0";
     elements.statsTotal.textContent = "0";
     elements.statsExplored.textContent = "Unavailable";
     elements.statsExploredPercent.textContent = "Could not read local exploration data";
     elements.statsExploredBreakdown.textContent = "";
-    renderHeatmap([]);
+    renderLedger([]);
   }
   openDialog(elements.statsDialog);
 });
-function showHeatmapDetail(event: Event): void {
-  const label = (event.target as HTMLElement).getAttribute?.("aria-label");
-  if (label) elements.statsHeatmapDetail.textContent = label;
-}
-elements.statsHeatmapGrid.addEventListener("mouseover", showHeatmapDetail);
-elements.statsHeatmapGrid.addEventListener("focusin", showHeatmapDetail);
-elements.statsHeatmapGrid.addEventListener("keydown", (event) => {
-  const cells = [...elements.statsHeatmapGrid.querySelectorAll<HTMLButtonElement>("button.heatmap-cell")];
-  const current = cells.indexOf(event.target as HTMLButtonElement);
-  const target = current === -1 ? null : heatmapFocusTarget(event.key, current, cells.length);
-  if (target === null) return;
-  event.preventDefault();
-  const from = cells[current];
-  const to = cells[target];
-  if (!from || !to || from === to) return;
-  from.tabIndex = -1;
-  to.tabIndex = 0;
-  to.focus();
-});
-elements.statsHeatmapGrid.addEventListener("mouseleave", () => {
-  elements.statsHeatmapDetail.textContent = HEATMAP_DEFAULT_DETAIL;
-});
-elements.statsHeatmapGrid.addEventListener("focusout", () => {
-  elements.statsHeatmapDetail.textContent = HEATMAP_DEFAULT_DETAIL;
-});
+elements.ledgerMore.addEventListener("click", () => renderLedgerPage()?.focus());
 elements.statsClose.addEventListener("click", () => closeDialog(elements.statsDialog));
 elements.statsDialog.addEventListener("close", () => {
   onDialogClosed();
@@ -779,7 +837,7 @@ elements.entryConsent.addEventListener("change", () => {
 });
 elements.entryDialog.addEventListener("close", () => {
   onDialogClosed();
-  elements.start.focus();
+  elements.draw.focus();
 });
 elements.entryButton.addEventListener("click", () => {
   if (!elements.entryConsent.checked) return;
@@ -790,7 +848,30 @@ elements.entryButton.addEventListener("click", () => {
   }
   closeDialog(elements.entryDialog);
 });
+// The position readout turns into the number field in place, and back once the jump is made or dropped.
+function editPosition(editing: boolean): void {
+  elements.positionButton.hidden = editing;
+  elements.jumpForm.hidden = !editing;
+  if (!editing) {
+    elements.positionButton.focus();
+    return;
+  }
+  elements.jumpInput.value = String(index + 1);
+  elements.jumpInput.setCustomValidity("");
+  elements.jumpInput.focus();
+  elements.jumpInput.select?.();
+}
+elements.positionButton.addEventListener("click", () => editPosition(true));
 elements.jumpInput.addEventListener("input", () => elements.jumpInput.setCustomValidity(""));
+elements.jumpInput.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") editPosition(false);
+});
+elements.jumpInput.addEventListener("blur", () => {
+  if (!elements.jumpForm.hidden) {
+    elements.jumpForm.hidden = true;
+    elements.positionButton.hidden = false;
+  }
+});
 elements.jumpForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const targetIndex = frameNumberToIndex(elements.jumpInput.value, history.length);
@@ -799,9 +880,11 @@ elements.jumpForm.addEventListener("submit", (event) => {
     elements.jumpInput.reportValidity();
     return;
   }
-  elements.jumpInput.setCustomValidity("");
+  editPosition(false);
   void goTo(targetIndex);
 });
+
+const CONTROL_SELECTOR = "a, button, input, select, textarea, summary, [tabindex]";
 
 document.addEventListener("keydown", (event) => {
   if (
@@ -814,8 +897,17 @@ document.addEventListener("keydown", (event) => {
     elements.entryDialog.open
   )
     return;
+  const target = event.target as HTMLElement | null;
+  // The jump field owns its own keys: arrows move the caret, Enter submits.
+  if (target?.tagName === "INPUT") return;
   if (event.key === "ArrowLeft") goBack();
-  if (event.key === "ArrowRight" && index >= 0) goNext();
+  if (event.key === "ArrowRight") goNext();
+  // N draws from anywhere; Space and Enter only when no control has focus to claim them.
+  const onControl = Boolean(target?.closest?.(CONTROL_SELECTOR));
+  if (event.key === "n" || event.key === "N" || (!onControl && (event.key === " " || event.key === "Enter"))) {
+    event.preventDefault();
+    if (!event.repeat) void loadRandom();
+  }
 });
 
 window.addEventListener("pagehide", () => {

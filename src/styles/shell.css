@@ -104,7 +104,7 @@
 
 .app-shell main {
   min-height: 0;
-  padding: 14px 16px 0;
+  padding: 14px 16px 4px;
   overflow: hidden;
 }
 

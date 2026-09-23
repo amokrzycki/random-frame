@@ -196,185 +196,236 @@
 }
 
 .stats-dialog {
-  width: min(640px, calc(100% - 32px));
+  width: min(760px, calc(100% - 32px));
 }
 
 .stats-dialog__body {
   min-height: 0;
   flex: 1;
-  padding: 12px 28px 28px;
+  padding: 0 28px 24px;
   overflow: auto;
   scrollbar-color: var(--muted) var(--paper-deep);
 }
 
-.stats-list {
-  margin: 0;
-}
-
-.stats-list > div {
-  min-height: 92px;
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 24px;
+.stats-headline {
+  padding: 18px 0 20px;
   border-bottom: 1px solid var(--line);
 }
 
-.stats-list dt {
+.stats-headline p {
+  margin: 0;
+}
+
+.stats-headline__label {
   color: var(--muted);
   font-size: 13px;
   font-weight: 650;
 }
 
-.stats-list dd {
-  margin: 0;
+.stats-headline__value {
+  margin: 6px 0 10px !important;
   font-family: "Archive Serif", serif;
-  font-size: clamp(38px, 8vw, 58px);
+  font-size: clamp(34px, 5vw, 46px);
   font-variant-numeric: tabular-nums;
+  line-height: 1.05;
   letter-spacing: -0.035em;
 }
 
-.stats-list .stats-list__explored {
-  min-height: 116px;
-  padding-block: 10px;
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-content: center;
-  row-gap: 3px;
-}
-
-.stats-list__explored dd {
-  font-size: clamp(26px, 5vw, 38px);
-  text-align: right;
-}
-
-.stats-list__explored small {
-  grid-column: 1 / -1;
+.stats-headline__detail {
+  display: flex;
+  flex-wrap: wrap;
   color: var(--muted);
   font-size: 13px;
-  text-align: right;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.6;
+}
+
+.stats-headline__detail > span:empty {
+  display: none;
+}
+
+.stats-headline__detail > span + span::before {
+  content: "·";
+  padding-inline: 0.5em;
+}
+
+.stats-headline__detail [id^="stats-t"] {
+  color: var(--ink);
+  font-weight: 650;
 }
 
 .stats-subhead {
+  margin: 0;
   color: var(--muted);
   font-size: 13px;
   font-weight: 650;
 }
 
-.stats-heatmap {
-  --heatmap-cell: 12px;
-  --heatmap-gap: 3px;
+/* The ledger: one ruled line per day, newest first, with that day's frames as a strip of prints. */
+.ledger {
   padding-top: 20px;
 }
 
-.stats-heatmap__header {
-  margin-bottom: 12px;
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
+.ledger__list {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
 }
 
-.stats-heatmap__range {
+.ledger__row {
+  min-height: 56px;
+  padding: 8px 0;
+  display: grid;
+  grid-template-columns: 7rem 11.5rem minmax(0, 1fr);
+  align-items: center;
+  column-gap: 16px;
+  border-top: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+
+.ledger__row:focus-visible {
+  outline-width: 2px;
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+
+.ledger__date {
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.ledger__counts {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 
-.heatmap {
+.ledger__strip {
+  min-width: 0;
+  min-height: 38px;
+  padding: 2px;
+  overflow: hidden;
   display: flex;
+  align-items: center;
   gap: 6px;
 }
 
-/* Rows are Monday-indexed, matching leadingBlankCount(); labels share the grid's row tokens so
-   Mon / Wed / Fri stay locked to rows 1 / 3 / 5 however many weeks the grid holds. */
-.heatmap-weekdays {
-  display: grid;
-  grid-template-rows: repeat(7, var(--heatmap-cell));
-  row-gap: var(--heatmap-gap);
-  color: var(--muted);
-  font-size: 10px;
-  line-height: var(--heatmap-cell);
-  text-align: right;
-  user-select: none;
-}
-
-.heatmap-weekdays span:nth-child(2) {
-  grid-row: 3;
-}
-
-.heatmap-weekdays span:nth-child(3) {
-  grid-row: 5;
-}
-
-.heatmap-grid {
-  width: fit-content;
-  margin: 0;
+.ledger__thumb {
+  width: 48px;
+  height: 36px;
   padding: 0;
-  display: grid;
-  grid-auto-flow: column;
-  grid-template-rows: repeat(7, var(--heatmap-cell));
-  gap: var(--heatmap-gap);
-  border: 0;
-}
-
-.heatmap-cell {
-  width: var(--heatmap-cell);
-  height: var(--heatmap-cell);
-  padding: 0;
-  border: 0;
-  border-radius: 3px;
-  background: var(--paper-deep);
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: var(--stage-soft);
   cursor: pointer;
+  transition:
+    border-color 140ms var(--ease-out),
+    transform 140ms var(--ease-out);
 }
 
-.heatmap-cell--empty {
-  visibility: hidden;
-  cursor: default;
+.ledger__thumb img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
 }
 
-/* Decorative filler for short tracking windows, not a real day: visible but flat, never mistaken
-   for a level-0 day or an interactive cell. */
-.heatmap-cell--placeholder {
-  background: transparent;
-  border: 1px dashed var(--line);
-  cursor: default;
+.ledger__thumb:hover {
+  border-color: var(--muted);
 }
 
-.heatmap-cell--placeholder:hover {
-  outline: none;
+.ledger__thumb:active {
+  transform: scale(0.96);
 }
 
-.heatmap-cell[data-level="1"] {
-  background: color-mix(in srgb, var(--blue) 25%, var(--paper-deep));
+.ledger__thumb[aria-current="true"] {
+  border-color: var(--blue);
+  box-shadow: inset 0 0 0 1px var(--blue);
 }
 
-.heatmap-cell[data-level="2"] {
-  background: color-mix(in srgb, var(--blue) 48%, var(--paper-deep));
-}
-
-.heatmap-cell[data-level="3"] {
-  background: color-mix(in srgb, var(--blue) 71%, var(--paper-deep));
-}
-
-.heatmap-cell[data-level="4"] {
-  background: var(--blue);
-}
-
-.heatmap-cell:hover {
-  outline: 1px solid var(--muted);
-  outline-offset: 1px;
-}
-
-.heatmap-cell:focus-visible {
-  outline: 2px solid var(--blue);
+.ledger__thumb:focus-visible {
+  outline-width: 2px;
   outline-offset: 2px;
 }
 
-.heatmap-detail {
-  margin: 12px 0 0;
+.ledger__more-count {
+  padding-left: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+/* Days whose thumbnails are gone: a hairline measured against the busiest day in the ledger. */
+.ledger__bar {
+  width: calc(var(--share, 1) * 100%);
+  min-width: 10px;
+  height: 1px;
+  background: var(--muted);
+}
+
+.ledger__empty {
+  margin: 10px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
   color: var(--muted);
   font-size: 13px;
-  font-variant-numeric: tabular-nums;
+}
+
+.ledger__more {
+  min-height: 38px;
+  margin-top: 4px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.ledger__list:not(:empty) + .ledger__empty + .ledger__more {
+  margin-top: 12px;
+}
+
+.ledger__more:hover {
+  color: var(--control-fill-text);
+  background: var(--control-fill);
+}
+
+.dialog-foot {
+  padding: 8px 22px 8px 28px;
+}
+
+.dialog-foot p {
+  min-width: 0;
+  margin: 0;
+  line-height: 1.45;
+  text-wrap: pretty;
+}
+
+.dialog-foot__meta {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 14px;
+}
+
+/* WCAG 2.5.8: the 34px strip still gives each link a 24px target. */
+.dialog-foot__meta a {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.dialog-foot__meta svg {
+  width: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
 }
 
 .lightbox-dialog {
@@ -424,13 +475,6 @@
   fill: none;
   stroke: currentColor;
   stroke-width: 1.6;
-}
-
-.stats-dialog__body > p {
-  margin: 22px 0 0;
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.55;
 }
 
 .history-grid {

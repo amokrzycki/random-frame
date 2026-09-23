@@ -103,12 +103,12 @@ components:
 
 The interface treats each public image as a single archival print under inspection inside a compact desktop workbench. Warm mineral paper frames a deep graphite viewing stage; restrained cobalt actions and compact machined controls provide precision without competing with the image.
 
-The system is quiet, lightly premium, and intentionally sparse. A fixed custom titlebar and status bar hold persistent context while the flexible central work area gives the current frame all remaining space. Typography and framing establish hierarchy, while local-history cues and public-source warnings remain visible but secondary.
+The system is quiet, lightly premium, and intentionally sparse. Three bands stack top to bottom: a fixed custom titlebar, the flexible viewing stage, and one info line that carries position, frame identity, actions, and the single way forward. Typography and framing establish hierarchy, while local-history cues and public-source warnings remain visible but secondary.
 
 **Key Characteristics:**
 
 - One oversized image stage is the visual anchor.
-- A fixed desktop frame keeps tools, source actions, and session status continuously available without page scrolling.
+- A fixed desktop frame keeps tools, source actions, and session position continuously available without page scrolling.
 - Warm paper, dark graphite, and one cobalt action color define the palette.
 - Editorial serif headings sit beside neutral sans-serif controls and metadata.
 - Controls are compact, tactile, and visibly keyboard-focusable.
@@ -137,7 +137,7 @@ The palette pairs warm archival neutrals with a near-black viewing environment a
 - **Warning Terracotta:** Error icon only.
 - **Window Close Red:** Hover fill of the titlebar close control only, matching the native window-close convention in both themes.
 
-**The One Cobalt Rule.** Cobalt communicates action, focus, or live status; it is not decorative fill. The one data exception is the statistics heatmap, whose four activity levels mix cobalt into Mineral Paper Deep (25%, 48%, 71%, full) so intensity reads as a single hue.
+**The One Cobalt Rule.** Cobalt communicates action, focus, selection, or live status; it is not decorative fill. Draw next is the only cobalt button on the main screen.
 
 ### Themes
 
@@ -163,33 +163,33 @@ Light mode uses the original warm mineral paper. Dark mode keeps the archival ch
 
 ## Layout
 
-The Tauri window is a full-height desktop workbench. The body fills `100dvh` and uses three rows: a 42px custom titlebar, a flexible `minmax(0, 1fr)` work area, and a 34px status bar. The main work area is inset 14px from the titlebar and 16px from each side, with overflow clipped so the application chrome never becomes a scrolling web page.
+The Tauri window is a full-height desktop workbench. The body fills `100dvh` and uses two rows: a 42px custom titlebar and a flexible `minmax(0, 1fr)` work area. The work area is inset 14px from the titlebar, 16px from each side, and 4px from the bottom, with overflow clipped so the application chrome never becomes a scrolling web page. The privacy page adds its 34px status bar as an implicit third row.
 
-The viewer fills the available work area and repeats the same fixed-flex-fixed rhythm: a 50px header, the flexible graphite stage, and a 52px docked source/action rail. The stage absorbs window resizing while the titlebar, title, history jump, source tools, shortcuts, and file actions remain stable. The shipped window opens at 1440×900 and may resize down to 800×600; both sizes must show the complete workbench without document scrolling.
+The viewer fills the work area with two rows: the flexible graphite stage and a 56px info line. The stage absorbs window resizing while the info line stays stable. The shipped window opens at 1440×900 and may resize down to 800×600; both sizes must show the complete workbench without document scrolling.
 
 **The Single Frame Rule.** Never turn the viewing stage into a grid: one image owns it at a time. Thumbnail grids live only inside the history dialog, as a way back to a frame.
 
 The history dialog grid auto-fills 138px-minimum columns with 12px gaps. Transient notices float above the frame: toasts stack bottom-right 20px from the window edges, and the update banner centers 16px below the top edge.
 
-**The Desktop Frame Rule.** Treat 800×600 as the compact floor: preserve all three application rows and let the stage flex before hiding persistent controls. The only width breakpoint is 1100px, where the lower rail drops the shortcut hint and the "Adjacent ID" label and collapses Copy and Save to titled 34px icon buttons; rail buttons never wrap. Windows 760px tall or less compress the statistics rows so the heatmap stays in view.
+**The Desktop Frame Rule.** Treat 800×600 as the compact floor: preserve the titlebar, stage, and info line, and let the stage flex before hiding persistent controls. The info line is a size container that sheds detail in a fixed order: below 720px the `prnt.sc/` prefix and the Draw next keycap drop; below 600px the ID steppers fold into a menu; below 480px the position tightens from `12 / 48` to `12/48`. Draw next never collapses and nothing wraps. The full line fits at the 800px floor.
 
 ## Elevation & Depth
 
-Depth is concentrated on the viewing stage and floating controls. The titlebar, rails, and status bar stay flat; the stage receives a compact ambient shadow suited to an inset desktop canvas, while primary and navigation buttons use smaller shadows to read as tangible controls.
+Depth is concentrated on the viewing stage and floating controls. The titlebar, info line, and status strips stay flat; the stage receives a compact ambient shadow suited to an inset desktop canvas, while primary and navigation buttons use smaller shadows to read as tangible controls.
 
 ### Shadow Vocabulary
 
 - **Stage Ambient:** A compact two-layer shadow (`0 12px 32px` and `0 2px 6px`) that separates the graphite stage from the surrounding workbench without making it float like a web card.
-- **Cobalt Lift:** A colored soft shadow below the primary action, mixed from the current theme's cobalt at 28%.
+- **Cobalt Lift:** A colored soft shadow below the primary action and Draw next, mixed from the current theme's cobalt at 28%.
 - **Dark Hairline Ring:** In dark mode the stage, toasts, and update banner add a 1px warm-white ring at 10% so their edges survive on charcoal paper; light mode omits it.
 - **Control Lift:** A compact neutral shadow below previous/next controls.
 - **Notice Lift:** A soft `0 10px 28px` warm shadow under the dark toasts and update banner, so they read as momentary overlays.
 
-**The Flat Surround Rule.** Keep the titlebar, rails, and status bar flat; reserve elevation for the image stage and controls floating over it.
+**The Flat Surround Rule.** Keep the titlebar, info line, and dialog footers flat; reserve elevation for the image stage, controls floating over it, and Draw next.
 
 ## Shapes
 
-The stage uses an 8px outer radius and an 8px inset hairline, matching the compact titlebar and navigation controls. Secondary actions use 9px corners; the primary action, history thumbnails, toasts, and the update banner use 10px; heatmap cells use 3px; and dialogs retain their softer 14px outer frames. The session indicator and loading spinner are circular. Thin strokes and open SVG icons preserve the technical, machined feel.
+The stage uses an 8px outer radius and an 8px inset hairline, matching the compact titlebar and navigation controls. Secondary actions use 9px corners; the primary action, Draw next, history thumbnails, toasts, the ID menu, and the update banner use 10px; ledger thumbnails use 5px; and dialogs retain their softer 14px outer frames. The session indicator and loading spinner are circular. Thin strokes and open SVG icons preserve the technical, machined feel.
 
 ## Components
 
@@ -212,8 +212,9 @@ The stage uses an 8px outer radius and an 8px inset hairline, matching the compa
 - **Header:** Serif title, close control, and one hairline divider.
 - **History grid:** Graphite thumbnail tiles with a 10px frame, a 4:3 contained image over Viewing Stage Soft, and a monospace ID caption. The current frame gets a cobalt double-weight border; frames without a stored thumbnail show a diagonal graphite stripe.
 - **History pager:** A flat 62px footer below one hairline: muted frame range on the left, outlined Previous/Next steps around a "Page n of m" label, and a native "Per page" select (10/25/50/100, default 25). Steps and select share a 38px outlined control that fills with graphite on hover. The footer is omitted when history fits the smallest page, and the step buttons are omitted when everything fits on one page.
-- **Statistics:** Two ruled definition rows pair muted labels with large tabular serif values; the supporting privacy note remains visually secondary.
-- **Heatmap:** A column-flow week grid of 12px cells with 3px gaps, empty days in Mineral Paper Deep and four cobalt intensity levels. Rows run Monday to Sunday; muted 10px Mon / Wed / Fri labels share the grid's row tracks on its left, so the hidden leading cells of a first partial week read as weekdays, not days. Placeholder days before tracking began are dashed and inert; the selected day's counts appear in a muted tabular line beneath.
+- **Statistics headline:** "Prnt.sc explored" is the one headline figure, in tabular serif numerals, followed by muted detail lines (share of ID space, viewable and unavailable, viewed today and all time).
+- **Draw ledger:** A plain ordered list, one hairline-ruled row per active day, newest first: the date ("Today", "Yesterday", then weekday and date), a muted "N drawn · M unavailable" count (the unavailable part only when nonzero), and a strip of up to six 48×36 thumbnails from that day's frames, grouped by the local day of `viewedAt`, with a "+X" overflow. Clicking a thumbnail closes the dialog and shows that frame; the current frame gets the cobalt selection border. Days with no saved thumbnails show a 1px muted hairline sized to their share of the busiest day. Rows are focusable and render 14 days at a time behind an outlined "Show earlier days" button.
+- **Dialog footer:** History and Stats end in the Mineral Paper Deep status strip carrying the local-history and privacy sentence; the Stats strip also holds the version, Privacy, and Prnt.sc links.
 - **Lightbox:** Zooming opens the image edge to edge below the titlebar on a near-black 94% scrim with 24px padding and a zoom-out cursor.
 - **Motion:** Dialogs scale from 0.97 while fading over 220ms; reduced-motion mode removes the scale.
 
@@ -221,14 +222,16 @@ The stage uses an 8px outer radius and an 8px inset hairline, matching the compa
 
 - **Titlebar:** A fixed 42px Mineral Paper Deep drag region with brand mark and title on the left, compact statistics and theme controls, then 46px-wide square-stroke window controls on the right, divided from the work area by one stone hairline. Close hovers to Window Close Red.
 - **Frame navigation:** 38×52px archival-white controls float 16px from the stage edges. Disabled buttons remain visible at reduced opacity.
-- **Lower rail:** A fixed 52px row docks the monospace source link and provider controls on the left, with shortcut hint, history, copy, and save actions on the right.
-- **Status bar:** A fixed 34px strip carries the local-history notice, version, privacy, and provider attribution without competing with the frame. Its muted text holds 4.5:1 or better on Mineral Paper Deep in both themes.
-- **Provider-specific browsing:** When a source exposes sequential identifiers, compact −1/+1 controls sit beside its source link, visually separated from the large history navigation. Omit this control group for providers without meaningful adjacency.
-- **History jump:** A compact native number field in the viewer header shows the current position and accepts direct jumps within local history.
+- **Info line:** Left to right: the position readout, a hairline divider, the monospace frame ID with its adjacent-ID steppers on either side and copy-link and open-source icons, a flexible gap, History, Copy image and Save image as titled 34px icon buttons, then Draw next at the far right. Focus order follows it: stage, position, steppers, actions, Draw next.
+- **Position readout:** `12 / 48` in tabular figures (current in ink, total muted). Clicking it swaps in a native number field in place; Enter jumps, Escape or blur restores the readout.
+- **Draw next:** The single cobalt control on the main screen, 40px tall with a muted N keycap. It always draws a new frame, even mid-history; the frame joins the end of history and the view jumps to it. While drawing, an inline spinner replaces the label at the same width with `aria-busy`. During a rate-limit cooldown it reads "Wait 12s", desaturates, and uses `aria-disabled` so it keeps focus. Pressing → on the newest frame pulses it once and announces its key.
+- **Keyboard:** ←/→ only move through history. N draws from anywhere outside the jump field; Space and Enter draw when no control has focus.
+- **Provider-specific browsing:** When a source exposes sequential identifiers, chevron steppers flank its ID, visually separated from the large history navigation. Omit this control group for providers without meaningful adjacency.
+- **Status bar:** Only the privacy page keeps the fixed 34px status strip. Its muted text holds 4.5:1 or better on Mineral Paper Deep in both themes.
 
 ### Status States
 
-- **Empty:** Serif invitation, concise public-content warning, then the cobalt start action.
+- **Empty:** Serif invitation and concise public-content warning; no in-stage button. Draw next in the info line takes initial focus.
 - **Loading:** A fine circular spinner and plain status line.
 - **Error:** Terracotta warning icon, serif headline, recovery explanation, and underlined retry action.
 
@@ -250,11 +253,12 @@ The stage uses an 8px outer radius and an 8px inset hairline, matching the compa
 - **Do** preserve visible keyboard focus and the reduced-motion override.
 - **Do** retain the warm paper surround and graphite stage contrast.
 - **Do** keep provider identity and attribution legible without giving any provider visual ownership of the interface.
-- **Do** preserve the 42px / flexible / 34px application frame and the 50px / flexible / 52px viewer frame at every supported desktop size.
+- **Do** preserve the 42px titlebar / flexible stage / 56px info line frame at every supported desktop size.
 
 ### Don't:
 
-- **Don't** introduce dashboard panels or card grids outside the history dialog; persistent history remains a focused navigation aid.
+- **Don't** introduce dashboard panels or card grids outside the history dialog; persistent history remains a focused navigation aid, and the stats dialog stays a ledger, not a dashboard.
+- **Don't** add a second cobalt button to the main screen or text labels to the info line's icon actions.
 - **Don't** add decorative color, gradients, or shadows outside the established restrained roles.
 - **Don't** use the serif for controls, metadata, or long operational copy.
 - **Don't** hide unavailable navigation; show it disabled so session position remains legible.

@@ -25,7 +25,7 @@
       THESIS: A random screenshot is inspected like a single archival print, never buried in a dashboard or card grid.
       OWN-WORLD: Warm mineral paper surrounds a deep graphite viewing stage; cobalt actions and machined controls provide precise contrast.
       STORY: The visitor acknowledges the public-source warning, reveals one frame, moves back through this session, draws the next, and saves a useful find.
-      FIRST VIEWPORT: A compact application toolbar sits above a flexible inspection canvas; source tools and file actions stay docked to its lower rail, with session information in the status bar.
+      FIRST VIEWPORT: Titlebar, a flexible inspection canvas, and one info line: position, frame ID with its source tools, icon actions, and the single cobalt Draw next.
       FORM: Archive inspection table, grounded direction 7; seed 5387cc79.
       FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
     -->
@@ -106,6 +106,12 @@
             </span>
           </div>
         </footer>
+        <footer class="dialog-foot">
+          <p>
+            History stays on this device until you clear it. Respect the privacy of people whose information may appear
+            in public uploads.
+          </p>
+        </footer>
       </div>
     </dialog>
 
@@ -117,43 +123,40 @@
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
           </button>
         </header>
-        <div class="stats-dialog__body">
-          <dl class="stats-list">
-            <div>
-              <dt>Viewed today</dt>
-              <dd id="stats-today">0</dd>
-            </div>
-            <div>
-              <dt>Viewed all time</dt>
-              <dd id="stats-total">0</dd>
-            </div>
-            <div class="stats-list__explored">
-              <dt>Prnt.sc explored</dt>
-              <dd id="stats-explored">0 / 4,773,622,240</dd>
-              <small id="stats-explored-percent">0% of known legacy ID space</small>
-              <small id="stats-explored-breakdown">0 viewable · 0 unavailable</small>
-            </div>
-          </dl>
-          <div class="stats-heatmap">
-            <div class="stats-heatmap__header">
-              <span class="stats-subhead">Viewing activity</span>
-              <span class="stats-heatmap__range" id="stats-heatmap-range">Last 6 months</span>
-            </div>
-            <div class="heatmap">
-              <div class="heatmap-weekdays" aria-hidden="true">
-                <span>Mon</span>
-                <span>Wed</span>
-                <span>Fri</span>
-              </div>
-              <fieldset
-                class="heatmap-grid"
-                id="stats-heatmap-grid"
-                aria-label="Daily viewed images, last 6 months"></fieldset>
-            </div>
-            <p class="heatmap-detail" id="stats-heatmap-detail" aria-live="polite">Hover or focus a day for details.</p>
+        <div class="stats-dialog__body" id="stats-body">
+          <div class="stats-headline">
+            <p class="stats-headline__label">Prnt.sc explored</p>
+            <p class="stats-headline__value" id="stats-explored">0 / 4,773,622,240</p>
+            <p class="stats-headline__detail">
+              <span id="stats-explored-percent">0% of known legacy ID space</span>
+              <span id="stats-explored-breakdown">0 viewable · 0 unavailable</span>
+            </p>
+            <p class="stats-headline__detail">
+              <span><span id="stats-today">0</span> viewed today</span>
+              <span><span id="stats-total">0</span> all time</span>
+            </p>
           </div>
-          <p>Stored only on this device. No viewing statistics leave your device.</p>
+          <section class="ledger" aria-labelledby="ledger-title">
+            <h3 class="stats-subhead" id="ledger-title">Draw ledger</h3>
+            <ol class="ledger__list" id="ledger-list"></ol>
+            <p class="ledger__empty" id="ledger-empty" hidden>Nothing drawn yet.</p>
+            <button class="ledger__more" id="ledger-more" type="button" hidden>Show earlier days</button>
+          </section>
         </div>
+        <footer class="dialog-foot">
+          <p>
+            History stays on this device until you clear it. Respect the privacy of people whose information may appear
+            in public uploads.
+          </p>
+          <div class="dialog-foot__meta">
+            <span>v{{VERSION}}</span>
+            <a href="privacy.html">Privacy</a>
+            <a class="external-link" href="https://prnt.sc/" target="_blank" rel="noopener noreferrer">
+              Prnt.sc
+              <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M7 4H4v10h10v-3M9 4h5v5m0-5L8 10" /></svg>
+            </a>
+          </div>
+        </footer>
       </div>
     </dialog>
 
@@ -228,37 +231,12 @@
     </header>
 
     <main id="main-content">
-      <section class="viewer" aria-labelledby="frame-title">
-        <div class="viewer-head">
-          <div>
-            <h1 id="frame-title">Random Frame</h1>
-            <p id="frame-meta">One public image. No feed, no profile.</p>
-          </div>
-          <form class="jump-form" id="jump-form">
-            <label for="jump-input">Jump to</label>
-            <input
-              id="jump-input"
-              type="number"
-              min="1"
-              value="0"
-              inputmode="numeric"
-              autocomplete="off"
-              disabled
-              required>
-            <span aria-hidden="true">/</span>
-            <output id="history-total" for="jump-input" aria-live="off">0</output>
-            <button id="jump-button" type="submit" disabled>Go</button>
-          </form>
-        </div>
-
+      <section class="viewer" aria-labelledby="viewer-title">
+        <h1 class="sr-only" id="viewer-title">Random Frame</h1>
         <div class="stage" id="stage">
           <div class="empty-state" id="empty-state" hidden>
             <p class="empty-title">See a random corner of the internet.</p>
             <p>Public uploads may contain personal or unsuitable content. Browse thoughtfully.</p>
-            <button class="primary-action" id="start-button" type="button">
-              Draw the first frame
-              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg>
-            </button>
           </div>
 
           <div class="loading-state" id="loading-state" hidden>
@@ -299,93 +277,142 @@
             class="nav-button next"
             id="next-button"
             type="button"
-            aria-label="Draw a new frame"
+            aria-label="Show the next frame"
             aria-disabled="true">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
           </button>
         </div>
 
-        <div class="viewer-foot">
-          <div class="source-tools">
-            <div class="source-reference">
-              <span id="image-id">prnt.sc/———</span>
-              <button
-                id="copy-link-button"
-                class="source-icon"
-                type="button"
-                aria-label="Copy source link"
-                title="Copy source link"
-                disabled>
-                <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M6 6V3.5h8.5V12H12M3.5 6H12v8.5H3.5z" /></svg>
+        <div class="info-line">
+          <div class="position">
+            <button
+              class="position__readout"
+              id="position-button"
+              type="button"
+              title="Jump to a frame"
+              aria-label="Frame 0 of 0. Jump to a frame"
+              disabled>
+              <span id="position-current">0</span><span class="position__slash" aria-hidden="true">/</span
+              ><output id="history-total" aria-live="off">0</output>
+            </button>
+            <form class="position__form" id="jump-form" hidden>
+              <label class="sr-only" for="jump-input">Jump to frame</label>
+              <input
+                id="jump-input"
+                type="number"
+                min="1"
+                value="0"
+                inputmode="numeric"
+                autocomplete="off"
+                enterkeyhint="go"
+                required>
+              <span class="position__slash" aria-hidden="true">/</span>
+              <span id="jump-total" aria-hidden="true">0</span>
+            </form>
+          </div>
+
+          <span class="info-line__divider" aria-hidden="true"></span>
+
+          <div class="frame-id">
+            <button
+              class="info-icon frame-id__step"
+              id="previous-id-button"
+              type="button"
+              aria-label="Load the previous Prnt.sc identifier"
+              title="Previous Prnt.sc ID"
+              disabled>
+              <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m10.5 5-4 4 4 4" /></svg>
+            </button>
+            <span class="frame-id__caption" id="image-id"
+              ><span class="frame-id__host">prnt.sc/</span><span id="image-id-value">———</span></span
+            >
+            <button
+              class="info-icon frame-id__step"
+              id="next-id-button"
+              type="button"
+              aria-label="Load the next Prnt.sc identifier"
+              title="Next Prnt.sc ID"
+              disabled>
+              <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m7.5 5 4 4-4 4" /></svg>
+            </button>
+            <button
+              class="info-icon frame-id__menu"
+              id="id-menu-button"
+              type="button"
+              popovertarget="id-menu"
+              aria-label="Adjacent Prnt.sc identifiers"
+              title="Adjacent IDs">
+              <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m6 7.5 3 3 3-3" /></svg>
+            </button>
+            <div class="id-menu" id="id-menu" popover>
+              <button class="id-menu__item" id="previous-id-menu-item" type="button" disabled>
+                <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m10.5 5-4 4 4 4" /></svg>
+                Previous ID
               </button>
-              <a
-                id="source-link"
-                class="source-icon external-link"
-                href="https://prnt.sc/"
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="Open source link in a new tab"
-                title="Open source link in a new tab"
-                aria-disabled="true">
-                <span class="sr-only">Open source link in a new tab</span>
-                <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M7 4H4v10h10v-3M9 4h5v5m0-5L8 10" /></svg>
-              </a>
+              <button class="id-menu__item" id="next-id-menu-item" type="button" disabled>
+                <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m7.5 5 4 4-4 4" /></svg>
+                Next ID
+              </button>
             </div>
-            <div class="id-sequence">
-              <span class="id-sequence__label">Adjacent ID</span>
-              <div class="id-sequence__buttons">
-                <button
-                  id="previous-id-button"
-                  type="button"
-                  aria-label="Load the previous Prnt.sc identifier"
-                  title="Previous Prnt.sc ID"
-                  disabled>
-                  −1
-                </button>
-                <button
-                  id="next-id-button"
-                  type="button"
-                  aria-label="Load the next Prnt.sc identifier"
-                  title="Next Prnt.sc ID"
-                  disabled>
-                  +1
-                </button>
-              </div>
-            </div>
-          </div>
-          <div class="actions">
-            <span class="key-hint" aria-hidden="true"><kbd>←</kbd><kbd>→</kbd> navigate</span>
-            <button class="save-button history-button" id="history-button" type="button">
-              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5.5h12M4 10h12M4 14.5h12" /></svg>
-              History
-            </button>
-            <button class="save-button" id="copy-image-button" type="button" title="Copy image" disabled>
+            <button
+              id="copy-link-button"
+              class="info-icon"
+              type="button"
+              aria-label="Copy source link"
+              title="Copy source link"
+              disabled>
               <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M6 6V3.5h8.5V12H12M3.5 6H12v8.5H3.5z" /></svg>
-              <span>Copy image</span>
             </button>
-            <button class="save-button" id="save-button" type="button" title="Save image" disabled>
-              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v9m-4-4 4 4 4-4M4 15.5h12" /></svg>
-              <span>Save image</span>
+            <a
+              id="source-link"
+              class="info-icon external-link"
+              href="https://prnt.sc/"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Open source page"
+              title="Open source page"
+              aria-disabled="true">
+              <span class="sr-only">Open source page</span>
+              <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M7 4H4v10h10v-3M9 4h5v5m0-5L8 10" /></svg>
+            </a>
+          </div>
+
+          <div class="info-line__actions">
+            <button class="info-icon" id="history-button" type="button" aria-label="History" title="History">
+              <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M3.5 5h11M3.5 9h11M3.5 13h11" /></svg>
+            </button>
+            <button
+              class="info-icon"
+              id="copy-image-button"
+              type="button"
+              aria-label="Copy image"
+              title="Copy image"
+              disabled>
+              <svg viewBox="0 0 18 18" aria-hidden="true">
+                <path d="M6 6V3.5h8.5V12H12M3.5 6H12v8.5H3.5zM3.5 12.5l2.7-2.7 2.3 2.3 1.2-1.2 2.3 2.3" />
+              </svg>
+            </button>
+            <button
+              class="info-icon"
+              id="save-button"
+              type="button"
+              aria-label="Save image"
+              title="Save image"
+              disabled>
+              <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M9 3v8m-3.5-3.5L9 11l3.5-3.5M3.5 14.5h11" /></svg>
             </button>
           </div>
+
+          <button class="draw-button" id="draw-button" type="button" aria-keyshortcuts="N">
+            <span class="draw-button__label" id="draw-label">Draw next</span>
+            <kbd class="draw-button__key" aria-hidden="true">N</kbd>
+            <svg class="draw-button__spinner" viewBox="0 0 20 20" aria-hidden="true">
+              <circle cx="10" cy="10" r="7.5" />
+            </svg>
+          </button>
         </div>
       </section>
     </main>
-
-    <footer id="app-footer">
-      <p class="footer-copy">
-        History stays on this device until you clear it. Respect the privacy of people whose information may appear in
-        public uploads.
-      </p>
-      <div class="footer-meta">
-        <span>v{{VERSION}}</span>
-        <a href="privacy.html">Privacy</a>
-        <a class="footer-link external-link" href="https://prnt.sc/" target="_blank" rel="noopener noreferrer">
-          Prnt.sc
-          <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M7 4H4v10h10v-3M9 4h5v5m0-5L8 10" /></svg>
-        </a>
-      </div>
-    </footer>
 
     <div class="sr-only" id="announcer" aria-live="polite"></div>
     <div class="toast-region" aria-live="polite"></div>
