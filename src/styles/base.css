@@ -101,6 +101,11 @@ button {
   outline: 3px solid var(--blue);
   outline-offset: 4px;
 }
+/* theme.ts sets data-keyboard-navigation on key presses; without it (mouse use) no control shows a ring. */
+:root:not([data-keyboard-navigation]) :focus-visible,
+:root:not([data-keyboard-navigation]) .entry-consent:has(input:focus-visible) {
+  outline: 0;
+}
 ::selection {
   color: var(--white);
   background: var(--blue);
