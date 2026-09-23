@@ -28,6 +28,7 @@ import {
   describeDay,
   formatExploredBreakdown,
   formatExploredPercent,
+  heatmapFocusTarget,
   heatmapPlaceholderCount,
   heatmapRangeLabel,
   intensityLevel,
@@ -61,6 +62,7 @@ let cooldownTimer: ReturnType<typeof setInterval> | undefined;
 let cooldownNoticeShown = false;
 let pageSize = loadPageSize(localStorage);
 let pageIndex = 0;
+let focusBeforeLoading: Element | null = null;
 const HEATMAP_DEFAULT_DETAIL = "Hover or focus a day for details.";
 
 function blobKey(source: string, id: string): string {
@@ -120,23 +122,51 @@ try {
   openDialog(elements.entryDialog);
 }
 
+const statePanels: Record<ViewState, HTMLElement> = {
+  empty: elements.empty,
+  loading: elements.loading,
+  error: elements.error,
+  image: elements.imageZoom,
+};
+
 function setState(state: ViewState): void {
   viewState = state;
-  for (const [name, target] of Object.entries({
-    empty: elements.empty,
-    loading: elements.loading,
-    error: elements.error,
-    image: elements.imageZoom,
-  })) {
-    target.hidden = name !== state;
-  }
+  for (const [name, target] of Object.entries(statePanels)) target.hidden = name !== state;
   if (state === "loading") elements.announcer.textContent = "Finding an available frame";
+}
+
+const stateControls: Record<ViewState, HTMLElement | null> = {
+  empty: elements.start,
+  loading: null,
+  error: elements.retry,
+  image: elements.next,
+};
+
+function startLoading(): void {
+  loading = true;
+  focusBeforeLoading = document.activeElement;
+}
+
+function focusLost(): boolean {
+  return !document.activeElement || document.activeElement === document.body;
+}
+
+// Loading hides or disables the control that started it, which drops focus to <body>. Hand it back,
+// or to the stage's own control when that one is gone (the start button, say), unless the visitor moved on.
+function finishLoading(): void {
+  loading = false;
+  syncControls();
+  const target = focusBeforeLoading as HTMLElement | null;
+  focusBeforeLoading = null;
+  if (!target || target === document.body || !focusLost()) return;
+  target.focus();
+  if (focusLost()) stateControls[viewState]?.focus();
 }
 
 function syncControls(): void {
   const current = history[index];
-  elements.previous.disabled = loading || index <= 0;
-  elements.next.disabled = loading || index < 0;
+  elements.previous.setAttribute("aria-disabled", String(loading || index <= 0));
+  elements.next.setAttribute("aria-disabled", String(loading || index < 0));
   // Copy and save act on the visible frame only, never on one hidden behind an error.
   const currentBlob = viewState === "image" && current && blobs.has(blobKey(current.source, current.id));
   elements.save.disabled = loading || !currentBlob;
@@ -144,12 +174,12 @@ function syncControls(): void {
   elements.copyLink.disabled = loading || !current;
   elements.previousId.disabled = loading || current?.source !== "prntsc" || adjacentPrntscId(current.id, -1) === null;
   elements.nextId.disabled = loading || current?.source !== "prntsc" || adjacentPrntscId(current.id, 1) === null;
-  elements.jumpInput.disabled = loading || !history.length;
-  elements.jumpButton.disabled = loading || !history.length;
+  // History, jump, and the arrows stay enabled while loading (goTo ignores them), so they keep focus.
+  elements.jumpInput.disabled = !history.length;
+  elements.jumpButton.disabled = !history.length;
   elements.jumpInput.max = String(history.length);
   if (document.activeElement !== elements.jumpInput) elements.jumpInput.value = String(history.length ? index + 1 : 0);
   elements.historyTotal.textContent = String(history.length);
-  elements.historyButton.disabled = loading;
   elements.historyClear.disabled = loading;
   elements.next.setAttribute(
     "aria-label",
@@ -189,12 +219,11 @@ function drawPaused(): boolean {
   const seconds = cooldownSeconds();
   if (!seconds) return false;
   const notice = `Drawing resumes in ${seconds}s`;
-  elements.announcer.textContent = notice;
   // The countdown is already on stage in the error state; elsewhere one toast per pause, not one per key repeat.
   if (viewState !== "error" && !cooldownNoticeShown) {
     toast.error(notice);
     cooldownNoticeShown = true;
-  }
+  } else elements.announcer.textContent = notice;
   return true;
 }
 
@@ -239,7 +268,7 @@ async function recordFrame(frame: Frame): Promise<void> {
 
 async function loadRandom(): Promise<void> {
   if (loading || drawPaused()) return;
-  loading = true;
+  startLoading();
   setState("loading");
   syncControls();
   try {
@@ -248,8 +277,7 @@ async function loadRandom(): Promise<void> {
   } catch (error) {
     showError(error);
   } finally {
-    loading = false;
-    syncControls();
+    finishLoading();
   }
 }
 
@@ -259,7 +287,7 @@ async function goTo(targetIndex: number): Promise<void> {
     return;
   const current = history[targetIndex];
   if (!current) return;
-  loading = true;
+  startLoading();
   const previousIndex = index;
   const cached = blobs.get(blobKey(current.source, current.id));
   try {
@@ -280,8 +308,7 @@ async function goTo(targetIndex: number): Promise<void> {
     index = previousIndex >= 0 ? previousIndex : targetIndex;
     showError(error);
   }
-  loading = false;
-  syncControls();
+  finishLoading();
 }
 
 // Only the current page is laid out, so the dialog never builds thousands of DOM nodes.
@@ -334,6 +361,7 @@ function renderHistoryPage(): void {
 }
 
 function openHistory(): void {
+  if (loading) return;
   elements.historyClear.disabled = false;
   // Open where the visitor is: the page holding the shown frame, else the newest page.
   pageIndex = pageOf(index >= 0 ? index : history.length - 1, pageSize);
@@ -436,7 +464,7 @@ async function loadAdjacent(offset: -1 | 1): Promise<void> {
   const savedIndex = historyIndexForId(history, id);
   if (savedIndex !== -1) return void goTo(savedIndex);
   if (drawPaused()) return;
-  loading = true;
+  startLoading();
   setState("loading");
   syncControls();
   try {
@@ -445,8 +473,7 @@ async function loadAdjacent(offset: -1 | 1): Promise<void> {
   } catch (error) {
     showError(error);
   } finally {
-    loading = false;
-    syncControls();
+    finishLoading();
   }
 }
 
@@ -461,7 +488,7 @@ async function copyCurrentImage(): Promise<void> {
   const current = history[index];
   const cached = current && blobs.get(blobKey(current.source, current.id));
   if (!current || !cached) return;
-  await copyImage(cached.blob, elements.announcer);
+  await copyImage(cached.blob);
 }
 
 async function copySourceLink(): Promise<void> {
@@ -535,10 +562,12 @@ function renderHeatmap(days: DailyActivity[]): void {
       grid.append(filler);
     }
   }
-  for (const day of days) {
+  for (const [dayIndex, day] of days.entries()) {
     const cell = document.createElement("button");
     cell.type = "button";
     cell.className = "heatmap-cell";
+    // One tab stop for the whole grid, on today; arrow keys move between days.
+    cell.tabIndex = dayIndex === days.length - 1 ? 0 : -1;
     cell.setAttribute("data-level", String(intensityLevel(day.viewed, maxViewed)));
     const description = describeDay(day);
     cell.setAttribute("aria-label", description);
@@ -583,7 +612,10 @@ async function initialize(): Promise<void> {
 elements.start.addEventListener("click", () => void loadRandom());
 elements.retry.addEventListener("click", () => void loadRandom());
 elements.back.addEventListener("click", () => void goTo(index));
-elements.next.addEventListener("click", goNext);
+// aria-disabled buttons still fire clicks; goTo and loadRandom already ignore them while loading.
+elements.next.addEventListener("click", () => {
+  if (index >= 0) goNext();
+});
 elements.previous.addEventListener("click", goBack);
 elements.previousId.addEventListener("click", () => void loadAdjacent(-1));
 elements.nextId.addEventListener("click", () => void loadAdjacent(1));
@@ -641,8 +673,9 @@ elements.historyPageSize.addEventListener("change", changePageSize);
 elements.historyDialog.addEventListener("close", () => {
   // Hiding mid-hold cancels the fill without a transitionend; drop the hold silently.
   stopClearHold();
-  elements.historyButton.focus();
+  // Main is inert until onDialogClosed, and focus() on an inert element is ignored.
   onDialogClosed();
+  elements.historyButton.focus();
 });
 elements.statsButton.addEventListener("click", async () => {
   try {
@@ -673,6 +706,19 @@ function showHeatmapDetail(event: Event): void {
 }
 elements.statsHeatmapGrid.addEventListener("mouseover", showHeatmapDetail);
 elements.statsHeatmapGrid.addEventListener("focusin", showHeatmapDetail);
+elements.statsHeatmapGrid.addEventListener("keydown", (event) => {
+  const cells = [...elements.statsHeatmapGrid.querySelectorAll<HTMLButtonElement>("button.heatmap-cell")];
+  const current = cells.indexOf(event.target as HTMLButtonElement);
+  const target = current === -1 ? null : heatmapFocusTarget(event.key, current, cells.length);
+  if (target === null) return;
+  event.preventDefault();
+  const from = cells[current];
+  const to = cells[target];
+  if (!from || !to || from === to) return;
+  from.tabIndex = -1;
+  to.tabIndex = 0;
+  to.focus();
+});
 elements.statsHeatmapGrid.addEventListener("mouseleave", () => {
   elements.statsHeatmapDetail.textContent = HEATMAP_DEFAULT_DETAIL;
 });
@@ -681,8 +727,8 @@ elements.statsHeatmapGrid.addEventListener("focusout", () => {
 });
 elements.statsClose.addEventListener("click", () => closeDialog(elements.statsDialog));
 elements.statsDialog.addEventListener("close", () => {
-  elements.statsButton.focus();
   onDialogClosed();
+  elements.statsButton.focus();
 });
 elements.imageZoom.addEventListener("click", openLightbox);
 elements.lightboxDialog.addEventListener("click", () => closeDialog(elements.lightboxDialog));
@@ -691,8 +737,8 @@ elements.lightboxClose.addEventListener("click", (event) => {
   closeDialog(elements.lightboxDialog);
 });
 elements.lightboxDialog.addEventListener("close", () => {
-  elements.imageZoom.focus();
   onDialogClosed();
+  elements.imageZoom.focus();
 });
 elements.leave.addEventListener("click", async () => {
   try {

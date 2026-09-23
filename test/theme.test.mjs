@@ -39,12 +39,4 @@ test("theme toggle updates and persists the selected theme", async (t) => {
   assert.equal(root.style.colorScheme, "dark");
   assert.equal(attributes.get("aria-pressed"), "true");
   assert.equal(values.get("random-frame-theme"), "dark");
-
-  const tab = new Event("keydown");
-  Object.defineProperty(tab, "key", { value: "Tab" });
-  document.dispatchEvent(tab);
-  assert.equal("keyboardNavigation" in root.dataset, true);
-
-  document.dispatchEvent(new Event("pointerdown"));
-  assert.equal("keyboardNavigation" in root.dataset, false);
 });

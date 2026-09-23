@@ -365,7 +365,7 @@
   outline-offset: 1px;
 }
 
-:root[data-keyboard-navigation] .heatmap-cell:focus {
+.heatmap-cell:focus-visible {
   outline: 2px solid var(--blue);
   outline-offset: 2px;
 }
@@ -693,7 +693,7 @@
 .entry-consent:hover {
   border-color: var(--muted);
 }
-:root[data-keyboard-navigation] .entry-consent:has(input:focus) {
+.entry-consent:has(input:focus-visible) {
   outline: 3px solid var(--blue);
   outline-offset: 3px;
 }
@@ -733,7 +733,7 @@
   opacity: 1;
   transform: scale(1);
 }
-:root[data-keyboard-navigation] .entry-consent input:focus {
+.entry-consent input:focus-visible {
   outline: 0;
 }
 .entry-dialog__actions {

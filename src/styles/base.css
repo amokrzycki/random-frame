@@ -91,7 +91,7 @@ button {
 :where(a, button, input, select, textarea, summary, [tabindex]):focus {
   outline: 0;
 }
-:root[data-keyboard-navigation] :where(a, button, input, select, textarea, summary, [tabindex]):focus {
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
   outline: 3px solid var(--blue);
   outline-offset: 4px;
 }

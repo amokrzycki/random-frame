@@ -74,8 +74,8 @@
   color: var(--control-fill-text);
   background: var(--control-fill);
 }
-:root[data-keyboard-navigation] .jump-form input:focus,
-:root[data-keyboard-navigation] .jump-form button:focus {
+.jump-form input:focus-visible,
+.jump-form button:focus-visible {
   outline: 3px solid var(--blue);
   outline-offset: 3px;
 }
@@ -240,6 +240,12 @@
   cursor: zoom-in;
 }
 
+/* The stage clips overflow, so the ring sits inside the frame instead of around it. */
+.image-zoom:focus-visible {
+  outline-offset: -6px;
+  border-radius: 8px;
+}
+
 .image-zoom[hidden] {
   display: none;
 }
@@ -283,10 +289,10 @@
   stroke: currentColor;
   stroke-width: 1.7;
 }
-.nav-button:hover:not(:disabled) {
+.nav-button:hover:not([aria-disabled="true"]) {
   color: var(--blue);
 }
-.nav-button:disabled {
+.nav-button[aria-disabled="true"] {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -376,7 +382,7 @@
   color: var(--control-fill-text);
   background: var(--control-fill);
 }
-:root[data-keyboard-navigation] .id-sequence button:focus {
+.id-sequence button:focus-visible {
   outline: 3px solid var(--blue);
   outline-offset: 3px;
 }

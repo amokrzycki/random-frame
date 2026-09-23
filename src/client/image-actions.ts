@@ -29,11 +29,10 @@ export async function saveImage(id: string, blob: Blob, announcer: HTMLElement):
   } catch (error) {
     const message = error instanceof Error ? error.message : "The image could not be saved";
     toast.error(message);
-    announcer.textContent = `Error: ${message}`;
   }
 }
 
-export async function copyImage(blob: Blob, announcer: HTMLElement): Promise<void> {
+export async function copyImage(blob: Blob): Promise<void> {
   try {
     const bitmap = await createImageBitmap(blob);
     const canvas = document.createElement("canvas");
@@ -49,6 +48,5 @@ export async function copyImage(blob: Blob, announcer: HTMLElement): Promise<voi
   } catch (error) {
     const message = error instanceof Error ? error.message : "The image could not be copied";
     toast.error(message);
-    announcer.textContent = `Error: ${message}`;
   }
 }

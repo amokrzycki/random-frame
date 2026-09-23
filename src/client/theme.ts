@@ -5,11 +5,6 @@ const root = document.documentElement;
 const toggle = document.querySelector<HTMLButtonElement>(".theme-toggle");
 const themeColor = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
 
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Tab") root.dataset.keyboardNavigation = "";
-});
-document.addEventListener("pointerdown", () => delete root.dataset.keyboardNavigation);
-
 function setTheme(theme: Theme): void {
   const dark = theme === "dark";
   root.dataset.theme = theme;

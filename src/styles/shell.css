@@ -126,9 +126,13 @@ footer a {
   gap: 16px;
   white-space: nowrap;
 }
-.footer-link {
+/* WCAG 2.5.8: the 34px status bar still gives each link a 24px target. */
+.footer-meta a {
+  min-height: 24px;
   display: inline-flex;
   align-items: center;
+}
+.footer-link {
   gap: 5px;
 }
 .footer-link svg {
