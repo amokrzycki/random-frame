@@ -177,7 +177,7 @@ The viewer fills the work area with two rows: the flexible graphite stage and a 
 
 **The Single Frame Rule.** Never turn the viewing stage into a grid: one image owns it at a time. Thumbnail grids live only inside the history dialog, as a way back to a frame.
 
-The history dialog grid auto-fills 138px-minimum columns with 12px gaps. Transient notices float above the frame: toasts stack bottom-right 20px from the window edges, and the update banner centers 16px below the top edge.
+The history dialog grid auto-fills 138px-minimum columns with 12px gaps. Transient notices float above the frame: toasts stack above the info line, clear of Draw next, and the update banner centers 16px below the top edge.
 
 **The Desktop Frame Rule.** Treat 800×600 as the compact floor: preserve the titlebar, stage, and info line, and let the stage flex before hiding persistent controls. The info line is a size container that sheds detail in a fixed order: below 720px the `prnt.sc/` prefix and the Draw next keycap drop; below 600px the ID steppers fold into a menu, whose chevron takes their place as the pill's right segment; below 480px the position tightens from `12 / 48` to `12/48`. Draw next never collapses and nothing wraps. The full line fits at the 800px floor.
 
@@ -220,7 +220,7 @@ The stage uses an 8px outer radius and an 8px inset hairline, matching the compa
 - **Header:** Serif title, close control, and one hairline divider.
 - **History grid:** Graphite thumbnail tiles with a 10px frame, a 4:3 contained image over Viewing Stage Soft, and a monospace ID caption. The current frame gets a cobalt double-weight border; frames without a stored thumbnail show a diagonal graphite stripe.
 - **History pager:** A flat 62px footer below one hairline: muted frame range on the left, outlined Previous/Next steps around a "Page n of m" label, and a native "Per page" select (10/25/50/100, default 25). Steps and select share a 38px outlined control that fills with graphite on hover. The footer is omitted when history fits the smallest page, and the step buttons are omitted when everything fits on one page.
-- **Statistics headline:** "Prnt.sc explored" is the one headline figure, in tabular serif numerals, followed by muted detail lines (share of ID space, viewable and unavailable, viewed today and all time).
+- **Statistics headline:** Found, Today, and Day streak sit as a three-up tabular serif tally, each a label over its figure and divided by a hairline. "Prnt.sc explored" and its share-of-ID-space and viewable/unavailable breakdown follow as a muted detail line. Unreadable local data replaces every figure with an em dash and swaps the detail line for a plain explanation and a "Try again" action; the Draw ledger below is hidden until stats read successfully.
 - **Draw ledger:** A plain ordered list, one hairline-ruled row per active day, newest first: the date ("Today", "Yesterday", then weekday and date), a muted "N drawn · M unavailable" count (the unavailable part only when nonzero), and a strip of up to six 48×36 thumbnails from that day's frames, grouped by the local day of `viewedAt`, with a "+X" overflow. Clicking a thumbnail closes the dialog and shows that frame; the current frame gets the cobalt selection border. Days with no saved thumbnails show a 1px muted hairline sized to their share of the busiest day. Rows are focusable and render 14 days at a time behind an outlined "Show earlier days" button.
 - **Dialog footer:** History and Stats end in the Mineral Paper Deep status strip carrying the local-history and privacy sentence; the Stats strip also holds the version, Privacy, and Prnt.sc links.
 - **Lightbox:** Zooming opens the image edge to edge below the titlebar on a near-black 94% scrim with 24px padding and a zoom-out cursor.
@@ -230,7 +230,7 @@ The stage uses an 8px outer radius and an 8px inset hairline, matching the compa
 
 - **Titlebar:** A fixed 42px Mineral Paper Deep drag region with brand mark and title on the left, compact statistics, keyboard shortcuts and theme controls, then 46px-wide square-stroke window controls on the right, divided from the work area by one stone hairline. Close hovers to Window Close Red.
 - **Frame navigation:** 38×52px archival-white controls float 16px from the stage edges. Disabled buttons remain visible at reduced opacity.
-- **Info line:** Left to right: the position readout, a hairline divider, one hairline segmented pill joining the previous-ID chevron, the monospace frame ID, and the next-ID chevron, then copy-link (chain link) and open-source icons, a flexible gap, History, Copy image and Save image as titled 34px icon buttons, then Draw next at the far right. History uses a stacked-frames glyph. Focus order follows it: stage, position, steppers, actions, Draw next.
+- **Info line:** Left to right: the position readout, a hairline divider, one hairline segmented pill joining the previous-ID chevron, the monospace frame ID, and the next-ID chevron, then copy-link (chain link) and open-source icons, a flexible gap, History, Copy image and Save image as titled 34px icon buttons, then Draw next at the far right. History uses a stacked-frames glyph. Focus order follows it: stage, position, steppers, actions, Draw next. Completing a save files the arrow icon away and draws a check in its place; the check holds while that frame stays shown and clears once another frame is drawn or restored.
 - **Position readout:** `12 / 48` in tabular figures (current in ink, total muted). Clicking it swaps in a native number field in place; Enter jumps, Escape or blur restores the readout.
 - **Draw next:** The single cobalt control on the main screen, 40px tall with a muted N keycap. It always draws a new frame, even mid-history; the frame joins the end of history and the view jumps to it. While drawing, an inline spinner replaces the label at the same width with `aria-busy`. During a rate-limit cooldown it reads "Wait 12s", desaturates, and uses `aria-disabled` so it keeps focus. Pressing → on the newest frame pulses it once and announces its key.
 - **Keyboard:** ←/→ only move through history. N draws from anywhere outside the jump field; Space and Enter draw when no control has focus. S saves, C copies the image, H opens History. ? toggles the Keyboard shortcuts sheet, a 560px dialog with one hairline-ruled row per action and paper-deep keycaps on the right; the titlebar keyboard icon opens it too. Icon-action tooltips name their key, e.g. "Save image (S)".
@@ -239,13 +239,13 @@ The stage uses an 8px outer radius and an 8px inset hairline, matching the compa
 
 ### Status States
 
-- **Empty:** Serif invitation and concise public-content warning; no in-stage button. Draw next in the info line takes initial focus.
+- **Empty:** Serif invitation, concise public-content warning, and a muted hint naming the N keycap or Draw next; no in-stage button. Draw next in the info line takes initial focus.
 - **Loading:** A fine circular spinner and plain status line.
-- **Error:** Terracotta warning icon, serif headline, recovery explanation, and underlined retry action.
+- **Error:** A small terracotta dot before the sans-serif headline, a recovery explanation, and an underlined retry action that repeats the exact request that failed, captioned over the dimmed prior frame rather than replacing it. The position readout and frame ID dim to match.
 
 ### Notices
 
-- **Toast:** Near-black 97% pill-cornered (10px) note with a cobalt status dot and 13px semibold archival-white text; enters over 220ms.
+- **Toast:** Near-black 97% pill-cornered (10px) note with a cobalt status dot and 13px semibold archival-white text; enters over 220ms. Stacks above the info line, clear of Draw next, rather than at the window's own corner.
 - **Update banner:** The same dark surface centered at the top, with a cobalt install action and a dimmed dismiss.
 
 ### Reading Pages
