@@ -26,6 +26,7 @@ try {
 }
 
 async function initialize(): Promise<void> {
+  void runStartupSync();
   try {
     let [snapshot, favorites] = await Promise.all([getHistory(), getFavorites()]);
     applyFavorites(favorites);
@@ -56,7 +57,6 @@ async function initialize(): Promise<void> {
     showError(error, initialize);
     syncControls();
   }
-  void runStartupSync();
 }
 
 elements.leave.addEventListener("click", async () => {

@@ -114,6 +114,10 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   await flush();
   await flush();
   assert.ok(invocations.some(({ command }) => command === "startup_sync"));
+  assert.ok(
+    invocations.findIndex(({ command }) => command === "startup_sync") <
+      invocations.findIndex(({ command }) => command === "get_frame_by_id"),
+  );
   assert.match(get("image").alt, /saved2/);
   finishStartupSync({
     paired: false,

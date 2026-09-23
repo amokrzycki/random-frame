@@ -493,8 +493,8 @@ impl SeenStore {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let bytes = snapshot::serialize_snapshot(&ids)?;
-        drop(ids);
         let generation = self.generation.load(std::sync::atomic::Ordering::Relaxed);
+        drop(ids);
         Ok((bytes, generation))
     }
 
