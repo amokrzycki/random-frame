@@ -300,11 +300,10 @@
           </div>
 
           <div class="error-state" id="error-state" hidden>
-            <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3.5 29 27H3L16 3.5Zm0 8v7m0 4v.5" /></svg>
             <p class="error-title" id="error-title">This frame would not open.</p>
             <p id="error-message">The source may have limited access, or this address may be empty.</p>
             <div class="error-actions">
-              <button class="text-action" id="retry-button" type="button">Try another</button>
+              <button class="text-action" id="retry-button" type="button">Try again</button>
               <button class="text-action" id="back-button" type="button" hidden>Show frame 1</button>
             </div>
           </div>
@@ -415,12 +414,12 @@
               disabled>
               <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M6 6V3.5h8.5V12H12M3.5 6H12v8.5H3.5z" /></svg>
             </button>
+            <!-- biome-ignore lint/a11y/useValidAnchor: a placeholder link until syncControls sets the shown frame's href -->
             <a
               id="source-link"
               class="info-icon external-link"
               target="_blank"
               rel="noopener noreferrer"
-              aria-label="Open source page"
               title="Open source page"
               aria-disabled="true">
               <span class="sr-only">Open source page</span>

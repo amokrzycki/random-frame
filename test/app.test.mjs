@@ -274,6 +274,8 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(get("error-state").hidden, false);
   assert.equal(get("error-title").textContent, "Prnt.sc could not be reached.");
   assert.equal(get("save-button").disabled, true);
+  assert.equal(get("retry-button").textContent, "Try again");
+  assert.equal(get("image-zoom").hidden, false);
   assert.equal(get("back-button").hidden, false);
   assert.equal(get("back-button").textContent, "Show frame 5");
   get("back-button").click();

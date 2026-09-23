@@ -47,15 +47,13 @@
   z-index: 2;
 }
 
-.empty-state p,
-.error-state p {
+.empty-state p {
   margin: 0 auto 26px;
   max-width: 46ch;
   font-size: 14px;
   line-height: 1.65;
 }
-.empty-state .empty-title,
-.error-state .error-title {
+.empty-state .empty-title {
   margin-bottom: 10px;
   color: var(--white);
   font-family: "Archive Serif", serif;
@@ -146,18 +144,51 @@
   stroke-linecap: round;
 }
 
-.error-state > svg {
-  width: 38px;
-  margin-bottom: 18px;
-  fill: none;
-  stroke: var(--danger);
-  stroke-width: 1.4;
+/* A caption over the dimmed frame, not a headline: the frame behind it is still the subject. */
+.error-state {
+  width: min(420px, calc(100% - 80px));
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.7);
+}
+.error-state p {
+  margin: 0 auto;
+  max-width: 46ch;
+  font-size: 13px;
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+.error-state .error-title {
+  margin-bottom: 4px;
+  color: var(--white);
+  font-size: 14px;
+  font-weight: 600;
+  text-wrap: balance;
+}
+.error-title::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  margin-right: 9px;
+  display: inline-block;
+  vertical-align: 0.12em;
+  border-radius: 50%;
+  background: var(--danger);
 }
 .error-actions {
+  margin-top: 18px;
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 10px 28px;
+  gap: 10px 24px;
+  font-size: 13px;
+}
+
+/* The ID, position, and source tools still describe the frame behind the error, so they step back with it. */
+.viewer:has(.error-state:not([hidden])) :is(.position, .frame-id) {
+  opacity: 0.45;
+}
+.position,
+.frame-id {
+  transition: opacity 200ms var(--ease-out);
 }
 .text-action {
   padding: 0 0 4px;

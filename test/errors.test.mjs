@@ -22,7 +22,7 @@ test("reads raw Tauri error objects as well as Error instances", () => {
 });
 
 test("keeps unknown error detail out of the UI and logs it instead", (t) => {
-  const log = t.mock.method(console, "error", () => {});
+  const log = t.mock.method(console, "error", () => undefined);
   assert.doesNotMatch(describeError({ kind: "unknown-source", message: "Unknown source" }).message, /Unknown source/);
   assert.doesNotMatch(describeError(new Error("Something specific")).message, /Something specific/);
   assert.doesNotMatch(describeError("plain string").message, /plain string/);

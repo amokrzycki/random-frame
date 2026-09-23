@@ -60,6 +60,8 @@ let loading = true;
 // A network draw in flight, as opposed to any loading; only this spins the Draw next button.
 let drawing = false;
 let viewState: ViewState = "empty";
+let retryAction: () => Promise<void> = loadRandom;
+let failedIndex = -1;
 let cooldownUntil = 0;
 let cooldownTimer: ReturnType<typeof setInterval> | undefined;
 let cooldownNoticeShown = false;
@@ -135,8 +137,8 @@ const statePanels: Record<ViewState, HTMLElement> = {
 };
 
 function setState(state: ViewState): void {
-  // A draw from a shown frame keeps it on stage, dimmed under the loader, so the next one can crossfade in.
-  const keepFrame = state === "loading" && !elements.imageZoom.hidden;
+  // A shown frame stays on stage, dimmed under the loader or an error, so the next one can crossfade in.
+  const keepFrame = (state === "loading" || state === "error") && !elements.imageZoom.hidden;
   viewState = state;
   for (const [name, target] of Object.entries(statePanels))
     target.hidden = name !== state && !(keepFrame && name === "image");
@@ -207,11 +209,12 @@ function syncControls(): void {
   // aria-disabled rather than disabled, so a focused retry or Draw next keeps focus through the countdown.
   const waitSeconds = cooldownSeconds();
   elements.retry.setAttribute("aria-disabled", String(waitSeconds > 0));
-  elements.retry.textContent = waitSeconds ? `Try another in ${waitSeconds}s` : "Try another";
+  elements.retry.textContent = waitSeconds ? `Try again in ${waitSeconds}s` : "Try again";
   elements.draw.setAttribute("aria-busy", String(drawing));
   elements.draw.setAttribute("aria-disabled", String(waitSeconds > 0));
   elements.drawLabel.textContent = waitSeconds ? `Wait ${waitSeconds}s` : "Draw next";
-  elements.back.hidden = !current;
+  // When the failed request was this very frame, Try again already says it.
+  elements.back.hidden = !current || failedIndex === index;
   elements.back.textContent = `Show frame ${index + 1}`;
 }
 
@@ -243,7 +246,10 @@ function drawPaused(): boolean {
   return true;
 }
 
-function showError(error: unknown): void {
+// Try again repeats the request that failed; failedAt names the history frame it was restoring, if any.
+function showError(error: unknown, retry: () => Promise<void>, failedAt = -1): void {
+  retryAction = retry;
+  failedIndex = failedAt;
   const { title, message, cooldownSeconds: seconds } = describeError(error);
   elements.errorTitle.textContent = title;
   elements.errorMessage.textContent = message;
@@ -326,7 +332,7 @@ async function loadRandom(): Promise<void> {
     const frame = await getRandomFrame();
     await recordFrame(frame);
   } catch (error) {
-    showError(error);
+    showError(error, loadRandom);
   } finally {
     drawing = false;
     finishLoading();
@@ -356,7 +362,7 @@ async function goTo(targetIndex: number): Promise<void> {
   } catch (error) {
     // A failed restore at startup keeps the target, so "Show frame N" retries it.
     index = previousIndex >= 0 ? previousIndex : targetIndex;
-    showError(error);
+    showError(error, () => goTo(targetIndex), targetIndex);
   }
   finishLoading();
 }
@@ -617,7 +623,7 @@ async function loadAdjacent(offset: -1 | 1): Promise<void> {
     const frame = await getFrameById(id);
     await recordFrame(frame);
   } catch (error) {
-    showError(error);
+    showError(error, () => loadAdjacent(offset));
   } finally {
     finishLoading();
   }
@@ -718,7 +724,7 @@ async function initialize(): Promise<void> {
     }
   } catch (error) {
     loading = false;
-    showError(error);
+    showError(error, initialize);
     syncControls();
   }
 }
@@ -726,7 +732,10 @@ async function initialize(): Promise<void> {
 // aria-disabled buttons still fire clicks; goTo and loadRandom already ignore them while loading or paused.
 elements.draw.addEventListener("click", () => void loadRandom());
 elements.draw.addEventListener("animationend", () => delete elements.draw.dataset.pulse);
-elements.retry.addEventListener("click", () => void loadRandom());
+elements.retry.addEventListener("click", () => {
+  // A history frame is fetched from the source too, so every retry honors the cooldown.
+  if (!drawPaused()) void retryAction();
+});
 elements.back.addEventListener("click", () => void goTo(index));
 elements.next.addEventListener("click", goNext);
 elements.previous.addEventListener("click", goBack);
