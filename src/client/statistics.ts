@@ -51,18 +51,6 @@ export function parseLegacyStats(raw: string | null): LegacyStats | null {
   return null;
 }
 
-export const HEATMAP_LEVELS = 4;
-
-// Mirrors the backend's rolling-window cap (`ACTIVITY_WINDOW_DAYS` in src-tauri/src/lib.rs).
-export const ACTIVITY_WINDOW_DAYS = 183;
-
-// Buckets a day's viewed count into 0..HEATMAP_LEVELS, scaled against the busiest day in the window.
-export function intensityLevel(viewed: number, maxViewed: number): number {
-  if (viewed <= 0 || maxViewed <= 0) return 0;
-  const ratio = viewed / maxViewed;
-  return Math.min(HEATMAP_LEVELS, Math.max(1, Math.ceil(ratio * HEATMAP_LEVELS)));
-}
-
 // Avoids `new Date(string)` UTC-midnight parsing, which can shift the day in negative-offset zones.
 function parseLocalDate(iso: string): Date {
   const [year = 0, month = 1, day = 1] = iso.split("-").map(Number);
@@ -73,47 +61,63 @@ export function formatDayLabel(iso: string): string {
   return parseLocalDate(iso).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
 }
 
-// The backend never renders days before tracking started, so the window's actual length tells us
-// whether it's still growing ("Since ...") or has reached the full rolling 6-month cap.
-export function heatmapRangeLabel(days: DailyActivity[]): string {
-  const firstDay = days[0];
-  if (!firstDay || days.length >= ACTIVITY_WINDOW_DAYS) return "Last 6 months";
-  const label = parseLocalDate(firstDay.date).toLocaleDateString("en-US", { day: "numeric", month: "short" });
-  return `Since ${label}`;
+// The same `YYYY-MM-DD` local calendar key the backend buckets activity under.
+export function localDayKey(millis: number): string {
+  const date = new Date(millis);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-// Weekday of the window's first day, Monday-indexed, for padding leading empty cells.
-export function leadingBlankCount(firstDayIso: string): number {
-  const jsWeekday = parseLocalDate(firstDayIso).getDay();
-  return (jsWeekday + 6) % 7;
+// "Today", "Yesterday", then the weekday and date; the year only once it differs from today's.
+export function ledgerDateLabel(iso: string, todayIso: string): string {
+  const date = parseLocalDate(iso);
+  const today = parseLocalDate(todayIso);
+  const daysAgo = Math.round((today.getTime() - date.getTime()) / 86_400_000);
+  if (daysAgo === 0) return "Today";
+  if (daysAgo === 1) return "Yesterday";
+  return date.toLocaleDateString("en-US", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    ...(date.getFullYear() === today.getFullYear() ? {} : { year: "numeric" }),
+  });
 }
 
-export const HEATMAP_MIN_VISIBLE_CELLS = 7;
-
-// A one- or two-day-old window renders as a lonely cell in an otherwise empty grid. Padding it
-// with decorative (non-day) placeholders keeps the heatmap looking intact while it's still short;
-// these are never real days and shrink to zero once tracking has enough history of its own.
-export function heatmapPlaceholderCount(dayCount: number): number {
-  return Math.max(0, HEATMAP_MIN_VISIBLE_CELLS - dayCount);
+export function formatLedgerCounts(drawn: number, unavailable: number): string {
+  const counts = `${drawn.toLocaleString("en-US")} drawn`;
+  return unavailable ? `${counts} · ${unavailable.toLocaleString("en-US")} unavailable` : counts;
 }
 
-// Single line serving both the accessible name and visible hover/focus readout for a heatmap day.
-export function describeDay(day: DailyActivity): string {
-  const label = formatDayLabel(day.date);
-  const explored = day.viewed + day.rejected;
-  if (explored <= 0) return `${label} · No activity`;
-  const parts = [label, `${day.viewed.toLocaleString("en-US")} viewed`, `${explored.toLocaleString("en-US")} explored`];
-  if (day.rejected > 0) parts.push(`${day.rejected.toLocaleString("en-US")} unavailable`);
-  return parts.join(" · ");
+export const LEDGER_PAGE_DAYS = 14;
+export const LEDGER_STRIP_MAX = 6;
+
+export interface LedgerDay {
+  date: string;
+  drawn: number;
+  unavailable: number;
+  // History positions first shown that day, newest first.
+  frames: number[];
 }
 
-// Days run down each week column, so Up/Down step one day and Left/Right one week.
-const HEATMAP_KEY_STEPS: Record<string, number> = { ArrowUp: -1, ArrowDown: 1, ArrowLeft: -7, ArrowRight: 7 };
-
-export function heatmapFocusTarget(key: string, current: number, count: number): number | null {
-  if (key === "Home") return 0;
-  if (key === "End") return count - 1;
-  const step = HEATMAP_KEY_STEPS[key];
-  if (step === undefined) return null;
-  return Math.min(count - 1, Math.max(0, current + step));
+// One entry per day with any activity, newest first. Frames join the day of their local `viewedAt`.
+export function ledgerDays(days: readonly DailyActivity[], viewedAt: readonly number[]): LedgerDay[] {
+  const frames = new Map<string, number[]>();
+  const newestFirst = viewedAt
+    .map((millis, index) => ({ millis, index }))
+    .sort((a, b) => b.millis - a.millis || b.index - a.index);
+  for (const { millis, index } of newestFirst) {
+    const key = localDayKey(millis);
+    const day = frames.get(key);
+    if (day) day.push(index);
+    else frames.set(key, [index]);
+  }
+  return days
+    .filter((day) => day.viewed + day.rejected > 0)
+    .map((day) => ({
+      date: day.date,
+      drawn: day.viewed,
+      unavailable: day.rejected,
+      frames: frames.get(day.date) ?? [],
+    }))
+    .reverse();
 }

@@ -1,49 +1,31 @@
-/* The window's minimum is 800px wide, so this is the only width breakpoint. Below it the
-   lower rail keeps every action but drops the hints and collapses file actions to icons. */
-@media (max-width: 1100px) {
-  .key-hint,
-  .id-sequence__label {
+/* The info line sheds detail in a fixed order as it narrows: labels first, then the ID steppers fold
+   into a menu, then the position tightens to 12/48. Draw next never collapses. */
+@container info-line (max-width: 720px) {
+  .frame-id__host,
+  .draw-button__key {
     display: none;
   }
-  .save-button:has(> span) {
-    width: 34px;
-    padding: 0;
+  .draw-button {
+    min-width: 104px;
     justify-content: center;
-  }
-  .save-button > span {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
   }
 }
 
-/* Short windows (down to the 600px minimum): compress the ruled stats rows so the
-   heatmap stays inside the dialog without scrolling; only the privacy note may scroll. */
-@media (max-height: 760px) {
-  .stats-dialog .history-dialog__header {
-    min-height: 64px;
-    padding-block: 12px;
+@container info-line (max-width: 600px) {
+  .frame-id__step {
+    display: none;
   }
-  .stats-list > div {
-    min-height: 62px;
-    align-items: center;
+  .info-icon.frame-id__menu {
+    display: grid;
   }
-  .stats-list dd {
-    font-size: 44px;
-    line-height: 1;
+}
+
+@container info-line (max-width: 480px) {
+  .position__slash {
+    padding-inline: 0;
   }
-  .stats-list .stats-list__explored {
-    min-height: 84px;
-    padding-block: 8px;
-  }
-  .stats-list__explored dd {
-    font-size: 30px;
-  }
-  .stats-heatmap {
-    padding-top: 16px;
+  .info-line__divider {
+    margin-inline: 4px 0;
   }
 }
 
@@ -140,31 +122,33 @@
     filter: none;
   }
 
+  /* The pulse still points at Draw next, as a glow without the swell. */
+  .draw-button[data-pulse] {
+    animation-duration: 620ms !important;
+    transform: none !important;
+  }
+  .draw-button[aria-busy="true"] .draw-button__spinner {
+    animation: breathe 1.6s ease-in-out infinite !important;
+    stroke-dasharray: none;
+  }
+
   .history-item:active,
   .stats-button:active,
   .history-pager__step:active:not(:disabled),
   .history-pager__select select:active,
   .history-close:active,
   .primary-action:active:not(:disabled),
-  .source-icon:active:not(:disabled),
-  .id-sequence button:active:not(:disabled),
-  .jump-form button:active:not(:disabled),
-  .text-action:active:not([aria-disabled="true"]),
-  .save-button:active:not(:disabled) {
+  .info-icon:active:not(:disabled),
+  .draw-button:active:not([aria-disabled="true"], [aria-busy="true"]),
+  .text-action:active:not([aria-disabled="true"]) {
     transform: none;
   }
 
   /* Presses still register, as a dip instead of a squeeze. */
-  :is(
-    .nav-button,
-    .history-item,
-    .primary-action,
-    .source-icon,
-    .id-sequence button,
-    .jump-form button,
-    .text-action,
-    .save-button
-  ):active:not(:disabled, [aria-disabled="true"]) {
+  :is(.nav-button, .history-item, .primary-action, .info-icon, .draw-button, .text-action):active:not(
+    :disabled,
+    [aria-disabled="true"]
+  ) {
     opacity: 0.7;
   }
 }

@@ -4,85 +4,7 @@
   max-width: none;
   margin-inline: auto;
   display: grid;
-  grid-template-rows: 50px minmax(0, 1fr) 52px;
-}
-
-.viewer-head,
-.viewer-foot {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 24px;
-}
-
-.viewer-head {
-  align-items: flex-start;
-}
-.viewer-head h1 {
-  margin: 0;
-  font-family: "Archive Serif", serif;
-  font-size: 22px;
-  font-weight: 400;
-  letter-spacing: -0.035em;
-}
-.viewer-head p {
-  margin: 1px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-}
-.jump-form {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--muted);
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.jump-form input {
-  width: 58px;
-  height: 30px;
-  padding: 0 6px;
-  border: 1px solid var(--field-line);
-  border-radius: 8px;
-  color: var(--ink);
-  background: transparent;
-  font: inherit;
-  font-size: 16px;
-  text-align: center;
-  -moz-appearance: textfield;
-  appearance: textfield;
-}
-.jump-form input::-webkit-outer-spin-button,
-.jump-form input::-webkit-inner-spin-button {
-  margin: 0;
-  -webkit-appearance: none;
-  appearance: none;
-}
-.jump-form button {
-  height: 30px;
-  padding: 0 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  color: var(--ink);
-  background: transparent;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 650;
-}
-.jump-form button:hover:not(:disabled) {
-  color: var(--control-fill-text);
-  background: var(--control-fill);
-}
-.jump-form input:focus-visible,
-.jump-form button:focus-visible {
-  outline: 3px solid var(--blue);
-  outline-offset: 3px;
-}
-.jump-form input:disabled,
-.jump-form button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+  grid-template-rows: minmax(0, 1fr) 56px;
 }
 
 .stage {
@@ -333,33 +255,145 @@
   cursor: not-allowed;
 }
 
-.viewer-foot {
-  min-height: 52px;
-  align-items: center;
-  border-bottom: 0;
-}
-.source-tools {
-  display: flex;
-  align-items: center;
-  gap: 16px;
+/* One info line under the stage: where you are, what you are looking at, what you can do with it,
+   and the single way forward. Container queries shed detail in a fixed order as it narrows. */
+.info-line {
   min-width: 0;
-}
-.source-reference {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+  container: info-line / inline-size;
+  font-variant-numeric: tabular-nums;
+}
+
+.position {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+}
+
+.position__readout,
+.position__form {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  font-size: 14px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.position__readout {
+  margin-left: -8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--ink);
+  background: transparent;
+  cursor: text;
+}
+
+.position__readout:hover:not(:disabled) {
+  background: var(--paper-deep);
+}
+
+.position__readout:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+.position__readout output,
+.position__form > span:last-child {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.position__slash {
+  padding-inline: 0.32em;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.position__form input {
+  width: 64px;
+  height: 34px;
+  margin-left: -8px;
+  padding: 0 8px;
+  border: 1px solid var(--field-line);
+  border-radius: 8px;
+  color: var(--ink);
+  background: transparent;
+  font: inherit;
+  text-align: right;
+  caret-color: var(--blue);
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.position__form input::-webkit-outer-spin-button,
+.position__form input::-webkit-inner-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.position__form input:focus-visible {
+  outline-offset: 2px;
+}
+
+.info-line__divider {
+  width: 1px;
+  height: 18px;
+  margin-inline: 8px 4px;
+  flex: 0 0 auto;
+  background: var(--line);
+}
+
+.frame-id {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.frame-id__caption {
+  min-width: 0;
+  padding-inline: 4px;
+  overflow: hidden;
   color: var(--ink);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.source-reference > span {
-  margin-right: 4px;
+
+.frame-id__host {
+  color: var(--muted);
 }
-.source-icon {
-  width: 32px;
-  height: 32px;
+
+/* The menu stands in for the steppers only once the line is too narrow to hold them. */
+.info-icon.frame-id__menu {
+  display: none;
+}
+
+.frame-id__step + .info-icon:not(.frame-id__step, .frame-id__menu) {
+  margin-left: 6px;
+}
+
+.info-line__actions {
+  margin-left: auto;
+  padding-right: 6px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.info-icon {
+  width: 34px;
+  height: 34px;
   padding: 0;
   display: grid;
+  flex: 0 0 auto;
   place-items: center;
   border: 0;
   border-radius: 8px;
@@ -367,136 +401,211 @@
   background: transparent;
   cursor: pointer;
 }
-.source-icon:hover:not(:disabled) {
+
+.info-icon:hover:not(:disabled, [aria-disabled="true"]) {
   color: var(--control-fill-text);
   background: var(--control-fill);
-}
-.source-icon:disabled,
-.source-icon[aria-disabled="true"] {
-  color: var(--muted);
-  opacity: 0.4;
-  pointer-events: none;
-}
-.source-icon svg {
-  width: 17px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.4;
-}
-.id-sequence {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.025em;
-  text-transform: uppercase;
-}
-.id-sequence__label {
-  white-space: nowrap;
-}
-.id-sequence__buttons {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-.id-sequence button {
-  width: 34px;
-  height: 32px;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  color: var(--ink);
-  background: transparent;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 650;
-}
-.id-sequence button:hover:not(:disabled) {
-  color: var(--control-fill-text);
-  background: var(--control-fill);
-}
-.id-sequence button:focus-visible {
-  outline: 3px solid var(--blue);
-  outline-offset: 3px;
-}
-.id-sequence button:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-.actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.key-hint {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--muted);
-  font-size: 12px;
-}
-kbd {
-  min-width: 23px;
-  padding: 3px 5px;
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  background: var(--key-surface);
-  font: inherit;
-  text-align: center;
 }
 
-.save-button {
-  min-height: 34px;
-  padding: 0 12px;
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
+.info-icon:disabled,
+.info-icon[aria-disabled="true"] {
+  color: var(--muted);
+  opacity: 0.45;
+  cursor: default;
+}
+
+.info-icon[aria-disabled="true"] {
+  pointer-events: none;
+}
+
+.info-icon svg {
+  width: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.4;
+}
+
+.info-icon:focus-visible {
+  outline-offset: 2px;
+}
+
+/* app.ts pins the menu above its button when it opens. */
+.id-menu {
+  inset: auto;
+  min-width: 168px;
+  margin: 0;
+  padding: 5px;
   color: var(--ink);
-  background: var(--paper-deep);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow:
+    0 10px 28px var(--stage-shadow),
+    0 2px 6px var(--stage-shadow-small);
+}
+
+.id-menu__item {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 6px;
+  color: inherit;
+  background: transparent;
   cursor: pointer;
   font-size: 13px;
   font-weight: 650;
-  white-space: nowrap;
 }
 
-.save-button svg {
-  width: 17px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.5;
-}
-.save-button:hover:not(:disabled) {
+.id-menu__item:hover:not(:disabled) {
   color: var(--control-fill-text);
   background: var(--control-fill);
 }
-.save-button:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
+
+.id-menu__item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.id-menu__item svg {
+  width: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 1.4;
+}
+
+/* The only cobalt control on the main screen. Busy and cooldown states keep its width and its focus. */
+.draw-button {
+  position: relative;
+  min-width: 136px;
+  height: 40px;
+  padding: 0 10px 0 16px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 0;
+  border-radius: 10px;
+  color: var(--white);
+  background: var(--blue);
+  box-shadow: 0 6px 18px var(--cobalt-shadow);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 650;
+  white-space: nowrap;
+  transition:
+    background-color 140ms var(--ease-out),
+    box-shadow 200ms var(--ease-out),
+    transform 140ms var(--ease-out);
+}
+
+.draw-button:hover:not([aria-disabled="true"], [aria-busy="true"]) {
+  background: var(--blue-dark);
+}
+
+.draw-button:active:not([aria-disabled="true"], [aria-busy="true"]) {
+  transform: scale(0.97);
+}
+
+.draw-button:focus-visible {
+  outline-offset: 3px;
+}
+
+.draw-button__key {
+  min-width: 22px;
+  padding: 2px 5px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 5px;
+  color: rgba(255, 255, 255, 0.82);
+  background: rgba(255, 255, 255, 0.1);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.draw-button[aria-disabled="true"] {
+  color: rgba(255, 255, 255, 0.78);
+  background: color-mix(in srgb, var(--blue) 55%, var(--muted));
+  box-shadow: none;
+  cursor: default;
+}
+
+.draw-button[aria-disabled="true"] .draw-button__key {
+  visibility: hidden;
+}
+
+.draw-button__spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  fill: none;
+  stroke: currentColor;
+  stroke-dasharray: 16 48;
+  stroke-linecap: round;
+  stroke-width: 1.8;
+  opacity: 0;
+  animation: spin 0.85s linear infinite;
+  animation-play-state: paused;
+}
+
+.draw-button[aria-busy="true"] {
+  cursor: progress;
+}
+
+.draw-button[aria-busy="true"] > :not(.draw-button__spinner) {
+  visibility: hidden;
+}
+
+.draw-button[aria-busy="true"] .draw-button__spinner {
+  opacity: 1;
+  animation-play-state: running;
+}
+
+/* Pressing → on the newest frame points here instead of drawing. */
+.draw-button[data-pulse] {
+  animation: draw-pulse 620ms var(--ease-out);
+}
+
+@keyframes draw-pulse {
+  0% {
+    box-shadow:
+      0 6px 18px var(--cobalt-shadow),
+      0 0 0 0 color-mix(in srgb, var(--blue) 45%, transparent);
+  }
+  30% {
+    transform: scale(1.04);
+  }
+  100% {
+    box-shadow:
+      0 6px 18px var(--cobalt-shadow),
+      0 0 0 12px color-mix(in srgb, var(--blue) 0%, transparent);
+  }
 }
 
 .primary-action,
-.source-icon,
-.id-sequence button,
-.jump-form button,
-.text-action,
-.save-button {
+.info-icon,
+.text-action {
   transition: transform 140ms var(--ease-out);
 }
 
 .primary-action:active:not(:disabled),
-.source-icon:active:not(:disabled),
-.id-sequence button:active:not(:disabled),
-.jump-form button:active:not(:disabled),
-.text-action:active:not([aria-disabled="true"]),
-.save-button:active:not(:disabled) {
+.info-icon:active:not(:disabled),
+.text-action:active:not([aria-disabled="true"]) {
   transform: scale(0.97);
 }
 
+/* The privacy page's status bar, and the same strip closing the History and Stats dialogs. */
 footer {
   min-height: 34px;
   padding: 0 16px;

@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { heatmapPlaceholderCount, heatmapRangeLabel, leadingBlankCount } from "../dist/test-client/statistics.js";
 import { FakeDocument, FakeStorage, ids } from "./dom-fakes.mjs";
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
+const keydown = (target, key) => {
+  const event = new Event("keydown", { cancelable: true });
+  Object.defineProperty(event, "key", { value: key });
+  target.dispatchEvent(event);
+};
 
-test("persistent history keeps the existing jump path and the main image opens a lightbox", async (t) => {
+test("persistent history, the info line, the draw ledger, and the lightbox", async (t) => {
   const document = new FakeDocument(ids);
   const sessionStorage = new FakeStorage();
   const localStorage = new FakeStorage();
@@ -62,7 +66,7 @@ test("persistent history keeps the existing jump path and the main image opens a
           throw { kind: "network", message: "The source could not be reached" };
         }
         draw += 1;
-        const id = draw === 1 ? "abc123" : "def456";
+        const id = ["abc123", "def456"][draw - 1] ?? `new${draw}`;
         return { id, source: "prntsc", sourcePageUrl: `https://prnt.sc/${id}`, mimeType: "image/jpeg" };
       }
       if (command === "get_frame_by_id") {
@@ -105,12 +109,25 @@ test("persistent history keeps the existing jump path and the main image opens a
   assert.equal(get("history-dialog").open, false);
   assert.equal(document.activeElement, get("history-button"));
 
-  get("start-button").click();
+  // Arrows only walk history: on the newest frame → points at Draw next instead of drawing.
+  assert.equal(get("position-current").textContent, "2");
+  assert.equal(get("history-total").textContent, "2");
+  assert.equal(get("next-button").getAttribute("aria-disabled"), "true");
+  keydown(document, "ArrowRight");
+  await flush();
+  assert.equal("pulse" in get("draw-button").dataset, true);
+  assert.match(get("announcer").textContent, /Press N to draw next/);
+  assert.equal(invocations.filter(({ command }) => command === "get_random_frame").length, 0);
+
+  get("draw-button").click();
   await flush();
   await flush();
-  get("next-button").click();
+  keydown(document, "n");
   await flush();
   await flush();
+  assert.equal(get("position-current").textContent, "4");
+  assert.equal(get("image-id-value").textContent, "def456");
+  assert.equal(get("draw-button").getAttribute("aria-busy"), "false");
 
   get("stats-button").click();
   await flush();
@@ -120,20 +137,32 @@ test("persistent history keeps the existing jump path and the main image opens a
   assert.equal(get("stats-explored").textContent, "12,483 / 4,773,622,240");
   assert.equal(get("stats-explored-percent").textContent, "< 0.001% of known legacy ID space");
   assert.equal(get("stats-explored-breakdown").textContent, "8,000 viewable · 4,483 unavailable");
-  assert.equal(get("stats-heatmap-detail").textContent, "Hover or focus a day for details.");
-  const expectedRange = heatmapRangeLabel([{ date: todayIso, viewed: 2, rejected: 0 }]);
-  assert.equal(get("stats-heatmap-range").textContent, expectedRange);
-  assert.equal(
-    get("stats-heatmap-grid").getAttribute("aria-label"),
-    `Daily viewed images, ${expectedRange.toLowerCase()}`,
+  // One ledger row for today; frames shown this session (saved2, abc123, def456) have thumbnails, newest first.
+  assert.equal(get("ledger-list").children.length, 1);
+  assert.equal(get("ledger-empty").hidden, true);
+  assert.equal(get("ledger-more").hidden, true);
+  const [row] = get("ledger-list").children;
+  assert.equal(row.getAttribute("aria-label"), "Today: 2 drawn");
+  const strip = row.children[2];
+  assert.deepEqual(
+    strip.children.map((child) => child.getAttribute("aria-label") ?? child.textContent),
+    ["Show frame 4, def456", "Show frame 3, abc123", "Show frame 2, saved2", "+1"],
   );
-  assert.equal(get("stats-heatmap-grid").children.length, leadingBlankCount(todayIso) + 1 + heatmapPlaceholderCount(1));
+  // A thumbnail jumps straight to its frame in history.
+  strip.children[1].click();
+  assert.equal(get("stats-dialog").open, false);
+  await flush();
+  await flush();
+  assert.match(get("image").alt, /abc123/);
+  assert.equal(get("position-current").textContent, "3");
+  get("stats-button").click();
+  await flush();
   get("stats-close-button").click();
   assert.equal(document.activeElement, get("stats-button"));
 
   get("history-button").click();
   assert.equal(get("history-grid").children.length, 4);
-  assert.equal(get("history-grid").children[3].getAttribute("aria-current"), "true");
+  assert.equal(get("history-grid").children[2].getAttribute("aria-current"), "true");
   assert.equal(sessionStorage.getItem("prntsc-gallery-history"), null);
   assert.deepEqual(
     persisted.history.map(({ source, id }) => ({ source, id })),
@@ -183,21 +212,34 @@ test("persistent history keeps the existing jump path and the main image opens a
   get("lightbox-dialog").click();
   assert.equal(get("lightbox-dialog").open, false);
 
+  // Draw next always draws, even mid-history: the frame joins the end and the view jumps to it.
+  get("jump-input").value = "1";
+  get("jump-form").dispatchEvent(new Event("submit", { cancelable: true }));
+  await flush();
+  await flush();
+  assert.match(get("image").alt, /saved1/);
+  get("draw-button").click();
+  await flush();
+  await flush();
+  assert.match(get("image").alt, /new3/);
+  assert.equal(get("position-current").textContent, "5");
+  assert.equal(get("history-total").textContent, "5");
+
   // A failed draw explains itself, hides actions for the unseen frame, and can return to the last frame.
   failNextDraw = true;
-  get("next-button").click();
+  get("draw-button").click();
   await flush();
   await flush();
   assert.equal(get("error-state").hidden, false);
   assert.equal(get("error-title").textContent, "Prnt.sc could not be reached.");
   assert.equal(get("save-button").disabled, true);
   assert.equal(get("back-button").hidden, false);
-  assert.equal(get("back-button").textContent, "Show frame 4");
+  assert.equal(get("back-button").textContent, "Show frame 5");
   get("back-button").click();
   await flush();
   await flush();
   assert.equal(get("error-state").hidden, true);
-  assert.match(get("image").alt, /def456/);
+  assert.match(get("image").alt, /new3/);
   assert.equal(get("save-button").disabled, false);
 
   // Clearing is hold-to-confirm: the completed fill transition clears, releasing early does not.
