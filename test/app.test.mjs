@@ -232,6 +232,22 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   get("lightbox-dialog").click();
   assert.equal(get("lightbox-dialog").open, false);
 
+  // ? toggles the shortcut sheet; while it is open, frame keys stay inert.
+  keydown(document, "?");
+  assert.equal(get("shortcuts-dialog").open, true);
+  keydown(document, "h");
+  assert.equal(get("history-dialog").open, false);
+  keydown(document, "?");
+  assert.equal(get("shortcuts-dialog").open, false);
+  keydown(document, "H");
+  assert.equal(get("history-dialog").open, true);
+  get("history-close-button").click();
+  const writesBefore = invocations.filter(({ command }) => command === "plugin:fs|write_file").length;
+  keydown(document, "s");
+  await flush();
+  await flush();
+  assert.equal(invocations.filter(({ command }) => command === "plugin:fs|write_file").length, writesBefore + 1);
+
   // Draw next always draws, even mid-history: the frame joins the end and the view jumps to it.
   get("jump-input").value = "1";
   get("jump-form").dispatchEvent(new Event("submit", { cancelable: true }));

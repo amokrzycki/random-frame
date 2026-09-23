@@ -220,12 +220,12 @@ The stage uses an 8px outer radius and an 8px inset hairline, matching the compa
 
 ### Navigation
 
-- **Titlebar:** A fixed 42px Mineral Paper Deep drag region with brand mark and title on the left, compact statistics and theme controls, then 46px-wide square-stroke window controls on the right, divided from the work area by one stone hairline. Close hovers to Window Close Red.
+- **Titlebar:** A fixed 42px Mineral Paper Deep drag region with brand mark and title on the left, compact statistics, keyboard shortcuts and theme controls, then 46px-wide square-stroke window controls on the right, divided from the work area by one stone hairline. Close hovers to Window Close Red.
 - **Frame navigation:** 38×52px archival-white controls float 16px from the stage edges. Disabled buttons remain visible at reduced opacity.
 - **Info line:** Left to right: the position readout, a hairline divider, the monospace frame ID with its adjacent-ID steppers on either side and copy-link and open-source icons, a flexible gap, History, Copy image and Save image as titled 34px icon buttons, then Draw next at the far right. Focus order follows it: stage, position, steppers, actions, Draw next.
 - **Position readout:** `12 / 48` in tabular figures (current in ink, total muted). Clicking it swaps in a native number field in place; Enter jumps, Escape or blur restores the readout.
 - **Draw next:** The single cobalt control on the main screen, 40px tall with a muted N keycap. It always draws a new frame, even mid-history; the frame joins the end of history and the view jumps to it. While drawing, an inline spinner replaces the label at the same width with `aria-busy`. During a rate-limit cooldown it reads "Wait 12s", desaturates, and uses `aria-disabled` so it keeps focus. Pressing → on the newest frame pulses it once and announces its key.
-- **Keyboard:** ←/→ only move through history. N draws from anywhere outside the jump field; Space and Enter draw when no control has focus.
+- **Keyboard:** ←/→ only move through history. N draws from anywhere outside the jump field; Space and Enter draw when no control has focus. S saves, C copies the image, H opens History. ? toggles the Keyboard shortcuts sheet, a 560px dialog with one hairline-ruled row per action and paper-deep keycaps on the right; the titlebar keyboard icon opens it too. Icon-action tooltips name their key, e.g. "Save image (S)".
 - **Provider-specific browsing:** When a source exposes sequential identifiers, chevron steppers flank its ID, visually separated from the large history navigation. Omit this control group for providers without meaningful adjacency.
 - **Status bar:** Only the privacy page keeps the fixed 34px status strip. Its muted text holds 4.5:1 or better on Mineral Paper Deep in both themes.
 

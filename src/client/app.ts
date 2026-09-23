@@ -504,7 +504,13 @@ function changePageSize(): void {
 // showModal() makes the rest of the document inert, including the titlebar,
 // which blocks window drag/controls; show() plus manual inert on main
 // keeps the titlebar usable while a dialog is open.
-const dialogs = [elements.entryDialog, elements.historyDialog, elements.statsDialog, elements.lightboxDialog];
+const dialogs = [
+  elements.entryDialog,
+  elements.historyDialog,
+  elements.statsDialog,
+  elements.lightboxDialog,
+  elements.shortcutsDialog,
+];
 
 function openDialog(dialog: HTMLDialogElement, variant?: "dark"): void {
   elements.main.inert = true;
@@ -828,6 +834,18 @@ elements.statsDialog.addEventListener("close", () => {
   onDialogClosed();
   elements.statsButton.focus();
 });
+// Focus returns to whatever had it: the sheet opens from the titlebar or from ? anywhere.
+let shortcutsOpener: HTMLElement | null = null;
+function openShortcuts(): void {
+  shortcutsOpener = document.activeElement as HTMLElement | null;
+  openDialog(elements.shortcutsDialog);
+}
+elements.shortcutsButton.addEventListener("click", openShortcuts);
+elements.shortcutsClose.addEventListener("click", () => closeDialog(elements.shortcutsDialog));
+elements.shortcutsDialog.addEventListener("close", () => {
+  onDialogClosed();
+  (shortcutsOpener ?? elements.shortcutsButton).focus?.();
+});
 elements.imageZoom.addEventListener("click", openLightbox);
 elements.imageGhost.addEventListener("animationend", () => {
   elements.imageGhost.hidden = true;
@@ -903,21 +921,25 @@ elements.jumpForm.addEventListener("submit", (event) => {
 const CONTROL_SELECTOR = "a, button, input, select, textarea, summary, [tabindex]";
 
 document.addEventListener("keydown", (event) => {
-  if (
-    event.altKey ||
-    event.ctrlKey ||
-    event.metaKey ||
-    elements.historyDialog.open ||
-    elements.statsDialog.open ||
-    elements.lightboxDialog.open ||
-    elements.entryDialog.open
-  )
-    return;
+  if (event.altKey || event.ctrlKey || event.metaKey || elements.entryDialog.open) return;
   const target = event.target as HTMLElement | null;
   // The jump field owns its own keys: arrows move the caret, Enter submits.
   if (target?.tagName === "INPUT") return;
+  // ? toggles the sheet, so the key that opened it also closes it.
+  if (event.key === "?" && !event.repeat) {
+    if (elements.shortcutsDialog.open) closeDialog(elements.shortcutsDialog);
+    else if (!dialogs.some((dialog) => dialog.open)) openShortcuts();
+    return;
+  }
+  if (dialogs.some((dialog) => dialog.open)) return;
   if (event.key === "ArrowLeft") goBack();
   if (event.key === "ArrowRight") goNext();
+  if (!event.repeat) {
+    const key = event.key.toLowerCase();
+    if (key === "s") void saveCurrent();
+    if (key === "c") void copyCurrentImage();
+    if (key === "h") openHistory();
+  }
   // N draws from anywhere; Space and Enter only when no control has focus to claim them.
   const onControl = Boolean(target?.closest?.(CONTROL_SELECTOR));
   if (event.key === "n" || event.key === "N" || (!onControl && (event.key === " " || event.key === "Enter"))) {
