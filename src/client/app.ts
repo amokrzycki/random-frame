@@ -175,6 +175,8 @@ function finishLoading(): void {
 
 function syncControls(): void {
   const current = history[index];
+  // At 0/0 the arrows have nowhere to go; the empty stage points at Draw next instead.
+  elements.previous.hidden = elements.next.hidden = !history.length;
   elements.previous.setAttribute("aria-disabled", String(loading || index <= 0));
   elements.next.setAttribute("aria-disabled", String(loading || nextHistoryIndex(index, history.length) === null));
   // Copy and save act on the visible frame only, never on one hidden behind an error.

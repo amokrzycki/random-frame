@@ -15,12 +15,19 @@ test("explains rate limits plainly and asks for a pause before the next request"
 
 test("reads raw Tauri error objects as well as Error instances", () => {
   assert.equal(describeError({ kind: "persistence", message: "disk full" }).title, "History could not be saved.");
-  assert.equal(describeError(new Error("Something specific")).message, "Something specific");
+  assert.equal(
+    describeError(Object.assign(new Error("x"), { kind: "timeout" })).title,
+    "Prnt.sc took too long to answer.",
+  );
 });
 
-test("falls back to the backend message, then to generic copy", () => {
-  assert.equal(describeError({ kind: "unknown-source", message: "Unknown source" }).message, "Unknown source");
-  assert.equal(describeError("plain string").message, "plain string");
+test("keeps unknown error detail out of the UI and logs it instead", (t) => {
+  const log = t.mock.method(console, "error", () => {});
+  assert.doesNotMatch(describeError({ kind: "unknown-source", message: "Unknown source" }).message, /Unknown source/);
+  assert.doesNotMatch(describeError(new Error("Something specific")).message, /Something specific/);
+  assert.doesNotMatch(describeError("plain string").message, /plain string/);
   assert.match(describeError(undefined).message, /limited access/);
   assert.equal(describeError(null).title, "This frame would not open.");
+  assert.equal(describeError(new Error("x"), "Copy failed.").message, "Copy failed.");
+  assert.equal(log.mock.callCount(), 6);
 });
