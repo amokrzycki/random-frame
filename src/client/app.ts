@@ -826,7 +826,8 @@ elements.statsButton.addEventListener("click", async () => {
 elements.statsRetry.addEventListener("click", async () => {
   await loadStats();
   if (elements.statsError.hidden) elements.statsClose.focus();
-  else elements.announcer.textContent = "Stats still couldn’t be read";
+  // A fresh toast node each time, so repeat failures are announced again.
+  else toast.error("Stats still couldn’t be read");
 });
 elements.ledgerMore.addEventListener("click", () => renderLedgerPage()?.focus());
 elements.statsClose.addEventListener("click", () => closeDialog(elements.statsDialog));
@@ -931,7 +932,8 @@ document.addEventListener("keydown", (event) => {
     else if (!dialogs.some((dialog) => dialog.open)) openShortcuts();
     return;
   }
-  if (dialogs.some((dialog) => dialog.open)) return;
+  // The ID menu popover is not a dialog but still owns the keyboard while open.
+  if (dialogs.some((dialog) => dialog.open) || elements.idMenu.matches?.(":popover-open")) return;
   if (event.key === "ArrowLeft") goBack();
   if (event.key === "ArrowRight") goNext();
   if (!event.repeat) {
