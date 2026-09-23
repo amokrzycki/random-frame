@@ -11,17 +11,20 @@
   --paper: #ebe8e1;
   --paper-deep: #dfdbd1;
   --ink: #191a18;
-  --muted: #66675f;
+  --muted: #5c5d56;
   --stage: #151614;
   --stage-soft: #22231f;
   --white: #f9f8f4;
   --blue: #2759dc;
   --blue-dark: #1944b8;
   --line: #c9c5bc;
+  --field-line: #85827a;
   --danger: #c86b55;
   --page-glow: rgba(255, 255, 255, 0.82);
   --stage-shadow: rgba(35, 32, 25, 0.18);
   --stage-shadow-small: rgba(35, 32, 25, 0.1);
+  --cobalt-shadow: color-mix(in srgb, var(--blue) 28%, transparent);
+  --surface-ring: transparent;
   --key-surface: rgba(255, 255, 255, 0.35);
   --control-fill: #191a18;
   --control-fill-text: #f9f8f4;
@@ -44,10 +47,13 @@
   --blue: #496adc;
   --blue-dark: #3f63d7;
   --line: #3b3c36;
+  --field-line: #6f7068;
   --danger: #e58b75;
   --page-glow: rgba(86, 88, 78, 0.16);
   --stage-shadow: rgba(0, 0, 0, 0.38);
   --stage-shadow-small: rgba(0, 0, 0, 0.24);
+  /* Dark surfaces sit on dark paper; a hairline keeps their edge where the shadow can't. */
+  --surface-ring: rgba(240, 238, 232, 0.1);
   --key-surface: rgba(255, 255, 255, 0.06);
   --control-fill: #343530;
   --control-fill-text: #f0eee8;
