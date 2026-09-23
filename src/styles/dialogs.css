@@ -742,6 +742,12 @@
   gap: 24px;
 }
 .leave-action {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
   color: var(--ink);
   font-size: 13px;
   font-weight: 650;

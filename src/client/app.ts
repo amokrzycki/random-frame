@@ -1,7 +1,9 @@
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Frame } from "./api.js";
 import { getFrameById, getRandomFrame } from "./api.js";
 import { elements } from "./elements.js";
+import { describeError } from "./errors.js";
 import { historyPage, loadPageSize, PAGE_SIZES, pageOf, parsePageSize, savePageSize } from "./history-pagination.js";
 import { copyImage, saveImage } from "./image-actions.js";
 import {
@@ -43,20 +45,20 @@ interface CachedBlob {
 
 type ViewState = "empty" | "loading" | "error" | "image";
 
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "string") return error;
-  return "The image could not be loaded";
-}
-
 const storageKey = "prntsc-gallery-history";
 const entryStorageKey = "random-frame-risk-accepted";
 const thumbnailStorageKey = "prntsc-gallery-thumbnails";
 const THUMBNAIL_MAX_DIMENSION = 160;
+// ~5-8 KB each as base64 JPEG; 300 stays well inside the webview's ~5 MB localStorage quota.
+const THUMBNAIL_LIMIT = 300;
 const history: HistoryItem[] = [];
 const blobs = new Map<string, CachedBlob>();
 let index = -1;
 let loading = true;
+let viewState: ViewState = "empty";
+let cooldownUntil = 0;
+let cooldownTimer: ReturnType<typeof setInterval> | undefined;
+let cooldownNoticeShown = false;
 let pageSize = loadPageSize(localStorage);
 let pageIndex = 0;
 const HEATMAP_DEFAULT_DETAIL = "Hover or focus a day for details.";
@@ -78,8 +80,8 @@ function loadThumbnails(): Map<string, string> {
 const thumbnails = loadThumbnails();
 
 function persistThumbnails(): void {
-  // ponytail: prunes to keys still in history, no LRU beyond that; add one if history grows unbounded
-  const keep = new Set(history.map((item) => blobKey(item.source, item.id)));
+  // ponytail: keeps the newest THUMBNAIL_LIMIT history entries; older tiles fall back to the stripe placeholder
+  const keep = new Set(history.slice(-THUMBNAIL_LIMIT).map((item) => blobKey(item.source, item.id)));
   for (const key of thumbnails.keys()) if (!keep.has(key)) thumbnails.delete(key);
   try {
     localStorage.setItem(thumbnailStorageKey, JSON.stringify(Object.fromEntries(thumbnails)));
@@ -118,7 +120,8 @@ try {
   openDialog(elements.entryDialog);
 }
 
-function setState(state: ViewState, message = ""): void {
+function setState(state: ViewState): void {
+  viewState = state;
   for (const [name, target] of Object.entries({
     empty: elements.empty,
     loading: elements.loading,
@@ -127,7 +130,6 @@ function setState(state: ViewState, message = ""): void {
   })) {
     target.hidden = name !== state;
   }
-  if (message) elements.errorMessage.textContent = message;
   if (state === "loading") elements.announcer.textContent = "Finding an available frame";
 }
 
@@ -135,7 +137,8 @@ function syncControls(): void {
   const current = history[index];
   elements.previous.disabled = loading || index <= 0;
   elements.next.disabled = loading || index < 0;
-  const currentBlob = current && blobs.has(blobKey(current.source, current.id));
+  // Copy and save act on the visible frame only, never on one hidden behind an error.
+  const currentBlob = viewState === "image" && current && blobs.has(blobKey(current.source, current.id));
   elements.save.disabled = loading || !currentBlob;
   elements.copyImage.disabled = loading || !currentBlob;
   elements.copyLink.disabled = loading || !current;
@@ -158,6 +161,50 @@ function syncControls(): void {
   elements.meta.textContent = current
     ? `Source: Prnt.sc · frame ${current.id}`
     : "One public image. No feed, no profile.";
+  // aria-disabled rather than disabled, so a focused retry keeps focus through the countdown.
+  const waitSeconds = cooldownSeconds();
+  elements.retry.setAttribute("aria-disabled", String(waitSeconds > 0));
+  elements.retry.textContent = waitSeconds ? `Try another in ${waitSeconds}s` : "Try another";
+  elements.back.hidden = !current;
+  elements.back.textContent = `Show frame ${index + 1}`;
+}
+
+function cooldownSeconds(): number {
+  return Math.max(0, Math.ceil((cooldownUntil - Date.now()) / 1000));
+}
+
+// Requesting again straight into a rate limit only extends it, so new draws pause while the retry counts down.
+function startCooldown(seconds: number): void {
+  cooldownUntil = Date.now() + seconds * 1000;
+  cooldownNoticeShown = false;
+  clearInterval(cooldownTimer);
+  cooldownTimer = setInterval(() => {
+    if (!cooldownSeconds()) clearInterval(cooldownTimer);
+    syncControls();
+  }, 1000);
+}
+
+// Returns true when a network draw has to wait; history already on the device stays reachable.
+function drawPaused(): boolean {
+  const seconds = cooldownSeconds();
+  if (!seconds) return false;
+  const notice = `Drawing resumes in ${seconds}s`;
+  elements.announcer.textContent = notice;
+  // The countdown is already on stage in the error state; elsewhere one toast per pause, not one per key repeat.
+  if (viewState !== "error" && !cooldownNoticeShown) {
+    toast.error(notice);
+    cooldownNoticeShown = true;
+  }
+  return true;
+}
+
+function showError(error: unknown): void {
+  const { title, message, cooldownSeconds: seconds } = describeError(error);
+  elements.errorTitle.textContent = title;
+  elements.errorMessage.textContent = message;
+  setState("error");
+  elements.announcer.textContent = `${title} ${message}`;
+  if (seconds) startCooldown(seconds);
 }
 
 function showFrame(source: string, id: string, blob: Blob): void {
@@ -191,7 +238,7 @@ async function recordFrame(frame: Frame): Promise<void> {
 }
 
 async function loadRandom(): Promise<void> {
-  if (loading) return;
+  if (loading || drawPaused()) return;
   loading = true;
   setState("loading");
   syncControls();
@@ -199,9 +246,7 @@ async function loadRandom(): Promise<void> {
     const frame = await getRandomFrame();
     await recordFrame(frame);
   } catch (error) {
-    const message = errorMessage(error);
-    setState("error", message);
-    elements.announcer.textContent = `Error: ${message}`;
+    showError(error);
   } finally {
     loading = false;
     syncControls();
@@ -209,7 +254,9 @@ async function loadRandom(): Promise<void> {
 }
 
 async function goTo(targetIndex: number): Promise<void> {
-  if (loading || targetIndex === index || targetIndex < 0 || targetIndex >= history.length) return;
+  // The shown index may be re-requested when an error covers it, so the frame can be recovered.
+  if (loading || (targetIndex === index && viewState === "image") || targetIndex < 0 || targetIndex >= history.length)
+    return;
   const current = history[targetIndex];
   if (!current) return;
   loading = true;
@@ -229,8 +276,9 @@ async function goTo(targetIndex: number): Promise<void> {
     }
     applyHistory(await selectHistoryItem(targetIndex));
   } catch (error) {
-    index = previousIndex;
-    setState("error", errorMessage(error));
+    // A failed restore at startup keeps the target, so "Show frame N" retries it.
+    index = previousIndex >= 0 ? previousIndex : targetIndex;
+    showError(error);
   }
   loading = false;
   syncControls();
@@ -387,6 +435,7 @@ async function loadAdjacent(offset: -1 | 1): Promise<void> {
   if (loading || !id) return;
   const savedIndex = historyIndexForId(history, id);
   if (savedIndex !== -1) return void goTo(savedIndex);
+  if (drawPaused()) return;
   loading = true;
   setState("loading");
   syncControls();
@@ -394,9 +443,7 @@ async function loadAdjacent(offset: -1 | 1): Promise<void> {
     const frame = await getFrameById(id);
     await recordFrame(frame);
   } catch (error) {
-    const message = errorMessage(error);
-    setState("error", message);
-    elements.announcer.textContent = `Error: ${message}`;
+    showError(error);
   } finally {
     loading = false;
     syncControls();
@@ -444,7 +491,7 @@ async function clearSavedHistory(): Promise<void> {
     closeDialog(elements.historyDialog);
     elements.announcer.textContent = "History cleared";
   } catch (error) {
-    elements.announcer.textContent = `Error: ${errorMessage(error)}`;
+    elements.announcer.textContent = describeError(error).message;
   } finally {
     loading = false;
     syncControls();
@@ -528,15 +575,14 @@ async function initialize(): Promise<void> {
     if (snapshot.index >= 0) await goTo(snapshot.index);
   } catch (error) {
     loading = false;
-    const message = errorMessage(error);
-    setState("error", message);
-    elements.announcer.textContent = `Error: ${message}`;
+    showError(error);
     syncControls();
   }
 }
 
 elements.start.addEventListener("click", () => void loadRandom());
 elements.retry.addEventListener("click", () => void loadRandom());
+elements.back.addEventListener("click", () => void goTo(index));
 elements.next.addEventListener("click", goNext);
 elements.previous.addEventListener("click", goBack);
 elements.previousId.addEventListener("click", () => void loadAdjacent(-1));
@@ -647,6 +693,13 @@ elements.lightboxClose.addEventListener("click", (event) => {
 elements.lightboxDialog.addEventListener("close", () => {
   elements.imageZoom.focus();
   onDialogClosed();
+});
+elements.leave.addEventListener("click", async () => {
+  try {
+    await getCurrentWindow().close();
+  } catch {
+    elements.announcer.textContent = "Random Frame could not close the window";
+  }
 });
 elements.entryConsent.addEventListener("change", () => {
   elements.entryButton.disabled = !elements.entryConsent.checked;

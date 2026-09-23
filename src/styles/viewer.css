@@ -202,16 +202,27 @@
   stroke: var(--danger);
   stroke-width: 1.4;
 }
+.error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px 28px;
+}
 .text-action {
   padding: 0 0 4px;
   border: 0;
   border-bottom: 1px solid currentColor;
   color: var(--white);
   background: transparent;
+  font-variant-numeric: tabular-nums;
   cursor: pointer;
 }
-.text-action:hover {
+.text-action:not([aria-disabled="true"]):hover {
   color: #aabcf4;
+}
+.text-action[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .image-zoom {

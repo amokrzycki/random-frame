@@ -13,9 +13,11 @@ export const elements = {
   empty: element<HTMLElement>("#empty-state"),
   loading: element<HTMLElement>("#loading-state"),
   error: element<HTMLElement>("#error-state"),
+  errorTitle: element<HTMLElement>("#error-title"),
   errorMessage: element<HTMLElement>("#error-message"),
   start: element<HTMLButtonElement>("#start-button"),
   retry: element<HTMLButtonElement>("#retry-button"),
+  back: element<HTMLButtonElement>("#back-button"),
   previous: element<HTMLButtonElement>("#previous-button"),
   next: element<HTMLButtonElement>("#next-button"),
   save: element<HTMLButtonElement>("#save-button"),
@@ -62,4 +64,5 @@ export const elements = {
   entryDialog: element<HTMLDialogElement>("#entry-dialog"),
   entryConsent: element<HTMLInputElement>("#entry-consent"),
   entryButton: element<HTMLButtonElement>("#entry-button"),
+  leave: element<HTMLButtonElement>("#leave-button"),
 };

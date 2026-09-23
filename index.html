@@ -49,7 +49,7 @@
         </label>
         <div class="entry-dialog__actions">
           <button class="primary-action" id="entry-button" type="button" disabled>Enter Random Frame</button>
-          <a class="leave-action" href="about:blank">Leave</a>
+          <button class="leave-action" id="leave-button" type="button">Leave</button>
         </div>
       </div>
     </dialog>
@@ -271,9 +271,12 @@
 
           <div class="error-state" id="error-state" hidden>
             <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3.5 29 27H3L16 3.5Zm0 8v7m0 4v.5" /></svg>
-            <p class="error-title">This frame would not open.</p>
+            <p class="error-title" id="error-title">This frame would not open.</p>
             <p id="error-message">The source may have limited access, or this address may be empty.</p>
-            <button class="text-action" id="retry-button" type="button">Try another</button>
+            <div class="error-actions">
+              <button class="text-action" id="retry-button" type="button">Try another</button>
+              <button class="text-action" id="back-button" type="button" hidden>Show frame 1</button>
+            </div>
           </div>
 
           <button class="image-zoom" id="image-zoom" type="button" aria-label="Enlarge current image" hidden>

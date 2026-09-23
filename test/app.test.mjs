@@ -23,6 +23,7 @@ test("persistent history keeps the existing jump path and the main image opens a
   const todayIso = new Date().toLocaleDateString("en-CA");
   let draw = 0;
   let savePath = null;
+  let failNextDraw = false;
   const invocations = [];
   let persisted = { history: [], index: -1 };
   window.__TAURI_INTERNALS__ = {
@@ -56,6 +57,10 @@ test("persistent history keeps the existing jump path and the main image opens a
       }
       if (command === "migrate_viewing_stats") return null;
       if (command === "get_random_frame") {
+        if (failNextDraw) {
+          failNextDraw = false;
+          throw { kind: "network", message: "The source could not be reached" };
+        }
         draw += 1;
         const id = draw === 1 ? "abc123" : "def456";
         return { id, source: "prntsc", sourcePageUrl: `https://prnt.sc/${id}`, mimeType: "image/jpeg" };
@@ -177,6 +182,23 @@ test("persistent history keeps the existing jump path and the main image opens a
   get("image-zoom").click();
   get("lightbox-dialog").click();
   assert.equal(get("lightbox-dialog").open, false);
+
+  // A failed draw explains itself, hides actions for the unseen frame, and can return to the last frame.
+  failNextDraw = true;
+  get("next-button").click();
+  await flush();
+  await flush();
+  assert.equal(get("error-state").hidden, false);
+  assert.equal(get("error-title").textContent, "Prnt.sc could not be reached.");
+  assert.equal(get("save-button").disabled, true);
+  assert.equal(get("back-button").hidden, false);
+  assert.equal(get("back-button").textContent, "Show frame 4");
+  get("back-button").click();
+  await flush();
+  await flush();
+  assert.equal(get("error-state").hidden, true);
+  assert.match(get("image").alt, /def456/);
+  assert.equal(get("save-button").disabled, false);
 
   // Clearing is hold-to-confirm: the completed fill transition clears, releasing early does not.
   const clearButton = get("history-clear-button");
