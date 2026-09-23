@@ -275,12 +275,17 @@ fn get_history(state: State<'_, AppState>) -> HistorySnapshot {
 )]
 fn record_history_item(
     item: HistoryItem,
+    legacy_import: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<HistorySnapshot, AppError> {
-    record_accepted_frame(item, &state)
+    record_accepted_frame(item, &state, legacy_import.unwrap_or(false))
 }
 
-fn record_accepted_frame(item: HistoryItem, state: &AppState) -> Result<HistorySnapshot, AppError> {
+fn record_accepted_frame(
+    item: HistoryItem,
+    state: &AppState,
+    legacy_import: bool,
+) -> Result<HistorySnapshot, AppError> {
     let source = select_source(&item.source)?;
     let legacy_id = if source == Source::Prntsc {
         Some(prntsc::item_id_value(&item.id)?)
@@ -289,7 +294,9 @@ fn record_accepted_frame(item: HistoryItem, state: &AppState) -> Result<HistoryS
     };
     let snapshot = state.history.record(item)?;
     if let Some(id) = legacy_id {
-        state.prntsc.record_viewed(id)?;
+        if !legacy_import {
+            state.prntsc.record_viewed(id)?;
+        }
         state.seen.insert(id)?;
     }
     Ok(snapshot)
@@ -600,8 +607,8 @@ mod tests {
         let id = prntsc::item_id_value("abc123")?;
         assert!(state.seen.contains(id));
 
-        record_accepted_frame(history_item("abc124"), &state)?;
-        record_accepted_frame(history_item("abc124"), &state)?;
+        record_accepted_frame(history_item("abc124"), &state, false)?;
+        record_accepted_frame(history_item("abc124"), &state, false)?;
         assert!(state.seen.contains(prntsc::item_id_value("abc124")?));
         assert_eq!(state.activity.viewed_total(), 1);
         clear_local_history(&state)?;
@@ -619,12 +626,28 @@ mod tests {
         let directory = test_state_directory("manual-seen");
         let state = AppState::new(&directory)?;
         let id = prntsc::item_id_value("abc123")?;
-        record_accepted_frame(history_item("abc123"), &state)?;
+        record_accepted_frame(history_item("abc123"), &state, false)?;
         assert!(state.seen.contains(id));
         assert_eq!(state.explored.viewable_count(), 1);
-        record_accepted_frame(history_item("abc123"), &state)?;
+        record_accepted_frame(history_item("abc123"), &state, false)?;
         assert_eq!(state.history.snapshot().history.len(), 1);
         assert_eq!(state.activity.viewed_total(), 1);
+        std::fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+
+    #[test]
+    fn legacy_history_import_does_not_count_views_again() -> Result<(), AppError> {
+        let directory = test_state_directory("legacy-import-activity");
+        let state = AppState::new(&directory)?;
+        let id = prntsc::item_id_value("0abc123")?;
+        record_accepted_frame(history_item("0abc123"), &state, true)?;
+        assert!(state.seen.contains(id));
+        assert_eq!(state.activity.viewed_total(), 0);
+        assert_eq!(state.explored.viewable_count(), 0);
+        state.activity.migrate("2026-09-24", 1, 1, "2026-09-24")?;
+        assert_eq!(state.activity.viewed_total(), 1);
+        drop(state);
+        assert!(AppState::new(&directory)?.seen.contains(id));
         std::fs::remove_dir_all(directory).map_err(AppError::persistence)
     }
 

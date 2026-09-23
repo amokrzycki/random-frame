@@ -439,8 +439,10 @@ impl ExplorationStore {
 }
 
 /// Monotonic local record of legacy Prnt.sc frames accepted for display.
+/// Remote merges update the JSON base; local views append fixed-width IDs to the log.
 pub struct SeenStore {
     path: PathBuf,
+    log_path: PathBuf,
     ids: Mutex<HashSet<u64>>,
     generation: std::sync::atomic::AtomicU64,
 }
@@ -449,6 +451,7 @@ impl SeenStore {
     pub fn new(directory: &Path) -> Result<Self, AppError> {
         fs::create_dir_all(directory).map_err(AppError::persistence)?;
         let path = directory.join("prntsc-seen.json");
+        let log_path = directory.join("prntsc-seen.log");
         let ids: Vec<u64> = load_json(&path)?;
         if ids
             .iter()
@@ -456,9 +459,31 @@ impl SeenStore {
         {
             return Err(AppError::persistence("Invalid legacy Prnt.sc seen ID"));
         }
+        let mut ids: HashSet<u64> = ids.into_iter().collect();
+        let log = match fs::read(&log_path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(error) => return Err(AppError::persistence(error)),
+        };
+        let mut records = log.chunks_exact(8);
+        for record in &mut records {
+            let id = u64::from_le_bytes(record.try_into().map_err(AppError::persistence)?);
+            if id > crate::sources::prntsc::LEGACY_MAX_VALUE {
+                return Err(AppError::persistence("Invalid legacy Prnt.sc seen ID"));
+            }
+            ids.insert(id);
+        }
+        if !records.remainder().is_empty() {
+            OpenOptions::new()
+                .write(true)
+                .open(&log_path)
+                .and_then(|file| file.set_len((log.len() - records.remainder().len()) as u64))
+                .map_err(AppError::persistence)?;
+        }
         Ok(Self {
             path,
-            ids: Mutex::new(ids.into_iter().collect()),
+            log_path,
+            ids: Mutex::new(ids),
             generation: std::sync::atomic::AtomicU64::new(0),
         })
     }
@@ -471,7 +496,37 @@ impl SeenStore {
     }
 
     pub fn insert(&self, id: u64) -> Result<bool, AppError> {
-        Ok(self.merge([id])? != 0)
+        if id > crate::sources::prntsc::LEGACY_MAX_VALUE {
+            return Err(AppError::invalid_input("Invalid legacy Prnt.sc seen ID"));
+        }
+        let mut ids = self
+            .ids
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if ids.contains(&id) {
+            return Ok(false);
+        }
+        // ponytail: this log grows with local views; compact it if startup replay becomes costly.
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.log_path)
+            .map_err(AppError::persistence)?;
+        let length = file.metadata().map_err(AppError::persistence)?.len();
+        let aligned_length = length - length % 8;
+        if aligned_length != length {
+            file.set_len(aligned_length)
+                .map_err(AppError::persistence)?;
+        }
+        if let Err(error) = file.write_all(&id.to_le_bytes()) {
+            let _ = file.set_len(aligned_length);
+            return Err(AppError::persistence(error));
+        }
+        ids.insert(id);
+        drop(ids);
+        self.generation
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Ok(true)
     }
 
     #[allow(
@@ -528,7 +583,7 @@ impl SeenStore {
         if added == 0 {
             return Ok(0);
         }
-        // ponytail: full snapshot rewrites on insert; consider an append log if real usage makes this slow.
+        // Remote merges rewrite the base snapshot; local inserts only append to the log.
         let mut sorted: Vec<_> = next.iter().copied().collect();
         sorted.sort_unstable();
         save_json(&self.path, &sorted)?;
@@ -817,6 +872,46 @@ mod tests {
     }
 
     #[test]
+    fn local_seen_insert_appends_without_rewriting_snapshot() -> Result<(), AppError> {
+        let directory = test_directory("seen-append");
+        let store = SeenStore::new(&directory)?;
+        store.merge([42])?;
+        let snapshot_before =
+            fs::read(directory.join("prntsc-seen.json")).map_err(AppError::persistence)?;
+        assert!(store.insert(43)?);
+        assert_eq!(
+            fs::read(directory.join("prntsc-seen.json")).map_err(AppError::persistence)?,
+            snapshot_before
+        );
+        assert_eq!(
+            fs::read(directory.join("prntsc-seen.log")).map_err(AppError::persistence)?,
+            43_u64.to_le_bytes()
+        );
+        drop(store);
+        assert!(SeenStore::new(&directory)?.contains(43));
+        fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+
+    #[test]
+    fn truncated_seen_log_tail_is_repaired_before_next_insert() -> Result<(), AppError> {
+        let directory = test_directory("seen-log-tail");
+        let store = SeenStore::new(&directory)?;
+        store.insert(42)?;
+        drop(store);
+        OpenOptions::new()
+            .append(true)
+            .open(directory.join("prntsc-seen.log"))
+            .and_then(|mut file| file.write_all(&[1, 2, 3]))
+            .map_err(AppError::persistence)?;
+        let reloaded = SeenStore::new(&directory)?;
+        assert!(reloaded.contains(42));
+        assert!(reloaded.insert(43)?);
+        drop(reloaded);
+        assert!(SeenStore::new(&directory)?.contains(43));
+        fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+
+    #[test]
     fn snapshot_merge_is_atomic_monotonic_and_persistent() -> Result<(), AppError> {
         let directory = test_directory("snapshot-merge");
         let local = SeenStore::new(&directory)?;
@@ -922,7 +1017,7 @@ mod tests {
     fn interrupted_seen_snapshot_is_recovered() -> Result<(), AppError> {
         let directory = test_directory("seen-recovery");
         let store = SeenStore::new(&directory)?;
-        store.insert(42)?;
+        store.merge([42])?;
         drop(store);
         fs::rename(
             directory.join("prntsc-seen.json"),
@@ -937,10 +1032,11 @@ mod tests {
     fn failed_seen_save_does_not_change_memory_or_disk() -> Result<(), AppError> {
         let directory = test_directory("seen-failed-save");
         let store = SeenStore::new(&directory)?;
-        store.insert(42)?;
-        fs::create_dir(directory.join("prntsc-seen.json.tmp")).map_err(AppError::persistence)?;
+        store.merge([42])?;
+        fs::create_dir(directory.join("prntsc-seen.log")).map_err(AppError::persistence)?;
         assert!(store.insert(43).is_err());
         assert!(!store.contains(43));
+        fs::remove_dir(directory.join("prntsc-seen.log")).map_err(AppError::persistence)?;
         assert!(SeenStore::new(&directory)?.contains(42));
         assert!(!SeenStore::new(&directory)?.contains(43));
         fs::remove_dir_all(directory).map_err(AppError::persistence)

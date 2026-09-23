@@ -47,9 +47,7 @@ pub fn validate_item_id(id: &str) -> Result<(), AppError> {
 pub(crate) fn item_id_value(id: &str) -> Result<u64, AppError> {
     if !id.is_empty() && id.len() <= LEGACY_MAX_ID.len() {
         if let Some(value) = base36_to_value(id).filter(|value| *value <= LEGACY_MAX_VALUE) {
-            if value_to_base36(value) == id {
-                return Ok(value);
-            }
+            return Ok(value);
         }
     }
     Err(AppError::new(
@@ -67,9 +65,10 @@ mod tests {
         assert!(validate_item_id("abc123").is_ok());
         assert!(validate_item_id("abc12").is_ok());
         assert!(validate_item_id(LEGACY_MAX_ID).is_ok());
+        assert_eq!(item_id_value("0abc123").ok(), item_id_value("abc123").ok());
+        assert_eq!(item_id_value("00").ok(), Some(0));
         for invalid in [
-            "26y3ahs", "26y3ahz", "zzzzzzz", "ABC123", "abc-12", "ąbc123", "", "00", "01",
-            "0abc123",
+            "26y3ahs", "26y3ahz", "zzzzzzz", "ABC123", "abc-12", "ąbc123", "",
         ] {
             assert!(matches!(
                 validate_item_id(invalid),

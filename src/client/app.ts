@@ -33,12 +33,15 @@ async function initialize(): Promise<void> {
     const legacy = historyFromStorage(sessionStorage.getItem(storageKey));
     if (!snapshot.history.length && legacy.history.length) {
       for (const item of legacy.history) {
-        snapshot = await recordHistoryItem({
-          source: "prntsc",
-          id: item.id,
-          sourcePageUrl: `https://prnt.sc/${item.id}`,
-          viewedAt: Date.now(),
-        });
+        snapshot = await recordHistoryItem(
+          {
+            source: "prntsc",
+            id: item.id,
+            sourcePageUrl: `https://prnt.sc/${item.id}`,
+            viewedAt: Date.now(),
+          },
+          true,
+        );
       }
       if (legacy.index >= 0) snapshot = await selectHistoryItem(legacy.index);
     }

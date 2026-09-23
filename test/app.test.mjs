@@ -119,6 +119,10 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
       invocations.findIndex(({ command }) => command === "get_frame_by_id"),
   );
   assert.match(get("image").alt, /saved2/);
+  assert.deepEqual(
+    invocations.filter(({ command }) => command === "record_history_item").map(({ args }) => args.legacyImport),
+    [true, true],
+  );
   finishStartupSync({
     paired: false,
     state: "unpaired",
@@ -160,6 +164,10 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(get("image-id-value").textContent, "def456");
   assert.equal(get("draw-button").getAttribute("aria-busy"), "false");
   assert.equal(historyWrites(), 4);
+  assert.deepEqual(
+    invocations.filter(({ command }) => command === "record_history_item").map(({ args }) => args.legacyImport),
+    [true, true, false, false],
+  );
 
   get("stats-button").click();
   await flush();
