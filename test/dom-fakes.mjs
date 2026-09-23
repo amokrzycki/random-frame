@@ -111,6 +111,7 @@ export class FakeStorage {
 export const ids = [
   "image",
   "image-zoom",
+  "image-ghost",
   "lightbox-dialog",
   "lightbox-image",
   "lightbox-close-button",

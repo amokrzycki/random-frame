@@ -449,6 +449,13 @@
   border-radius: 10px;
   cursor: pointer;
   text-align: left;
+  transition:
+    border-color 140ms var(--ease-out),
+    transform 140ms var(--ease-out);
+}
+
+.history-item:active {
+  transform: scale(0.97);
 }
 
 .history-item[aria-current="true"] {

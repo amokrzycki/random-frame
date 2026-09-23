@@ -252,7 +252,7 @@
         </div>
 
         <div class="stage" id="stage">
-          <div class="empty-state" id="empty-state">
+          <div class="empty-state" id="empty-state" hidden>
             <p class="empty-title">See a random corner of the internet.</p>
             <p>Public uploads may contain personal or unsuitable content. Browse thoughtfully.</p>
             <button class="primary-action" id="start-button" type="button">
@@ -284,6 +284,7 @@
               id="image"
               src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'/%3E"
               alt="">
+            <img class="image-ghost" id="image-ghost" alt="" aria-hidden="true" hidden>
           </button>
 
           <button

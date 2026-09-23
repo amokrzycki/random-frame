@@ -7,6 +7,7 @@ function element<T extends Element>(selector: string): T {
 export const elements = {
   image: element<HTMLImageElement>("#image"),
   imageZoom: element<HTMLButtonElement>("#image-zoom"),
+  imageGhost: element<HTMLImageElement>("#image-ghost"),
   lightboxDialog: element<HTMLDialogElement>("#lightbox-dialog"),
   lightboxImage: element<HTMLImageElement>("#lightbox-image"),
   lightboxClose: element<HTMLButtonElement>("#lightbox-close-button"),

@@ -101,6 +101,11 @@
   isolation: isolate;
 }
 
+/* One cell for every panel, so the loader can sit over a dimmed frame. */
+.stage > * {
+  grid-area: 1 / 1;
+}
+
 .stage::before {
   content: "";
   position: absolute;
@@ -176,6 +181,7 @@
 .loading-state p {
   margin: 0;
   font-size: 14px;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.7);
 }
 .loader {
   width: 36px;
@@ -240,6 +246,16 @@
   background: transparent;
   border: 0;
   cursor: zoom-in;
+  transition:
+    opacity 300ms var(--ease-out),
+    filter 300ms var(--ease-out);
+}
+
+/* The previous frame waits under the loader instead of cutting to black. */
+.image-zoom[data-dimmed] {
+  opacity: 0.3;
+  filter: blur(3px) saturate(0.5);
+  transition-duration: 200ms;
 }
 
 /* The stage clips overflow, so the ring sits inside the frame instead of around it. */
@@ -259,7 +275,19 @@
   padding: 24px 62px;
   object-fit: contain;
   cursor: zoom-in;
-  animation: reveal 0.62s var(--ease-out) both;
+  animation: reveal 400ms var(--ease-out) both;
+}
+
+.image-ghost {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  padding: 24px 62px;
+  object-fit: contain;
+  pointer-events: none;
+  animation: fade-out 400ms ease-in forwards;
 }
 
 .nav-button {
@@ -277,6 +305,12 @@
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
   transform: translateY(-50%);
   cursor: pointer;
+  transition:
+    color 140ms var(--ease-out),
+    transform 140ms var(--ease-out);
+}
+.nav-button:active:not([aria-disabled="true"]) {
+  transform: translateY(-50%) scale(0.92);
 }
 
 .nav-button.previous {
@@ -448,6 +482,8 @@ kbd {
 .primary-action,
 .source-icon,
 .id-sequence button,
+.jump-form button,
+.text-action,
 .save-button {
   transition: transform 140ms var(--ease-out);
 }
@@ -455,6 +491,8 @@ kbd {
 .primary-action:active:not(:disabled),
 .source-icon:active:not(:disabled),
 .id-sequence button:active:not(:disabled),
+.jump-form button:active:not(:disabled),
+.text-action:active:not([aria-disabled="true"]),
 .save-button:active:not(:disabled) {
   transform: scale(0.97);
 }

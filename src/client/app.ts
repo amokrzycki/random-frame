@@ -130,8 +130,14 @@ const statePanels: Record<ViewState, HTMLElement> = {
 };
 
 function setState(state: ViewState): void {
+  // A draw from a shown frame keeps it on stage, dimmed under the loader, so the next one can crossfade in.
+  const keepFrame = state === "loading" && !elements.imageZoom.hidden;
   viewState = state;
-  for (const [name, target] of Object.entries(statePanels)) target.hidden = name !== state;
+  for (const [name, target] of Object.entries(statePanels))
+    target.hidden = name !== state && !(keepFrame && name === "image");
+  elements.imageZoom.inert = keepFrame;
+  if (keepFrame) elements.imageZoom.dataset.dimmed = "";
+  else delete elements.imageZoom.dataset.dimmed;
   if (state === "loading") elements.announcer.textContent = "Finding an available frame";
 }
 
@@ -242,16 +248,34 @@ function showFrame(source: string, id: string, blob: Blob): void {
   const key = blobKey(source, id);
   blobs.set(key, { blob, url });
   void cacheThumbnail(key, blob);
-  elements.image.src = url;
-  elements.image.alt = `Public image from Prnt.sc with identifier ${id}`;
-  elements.image.style.animation = "none";
-  void elements.image.offsetWidth;
-  elements.image.style.animation = "";
-  setState("image");
+  swapImage(url, id);
   syncControls();
   elements.announcer.textContent = `Showing frame ${id}`;
+  // The outgoing frame may still be fading out on the ghost, so release it after the crossfade.
   if (oldUrl.startsWith("blob:") && ![...blobs.values()].some((item) => item.url === oldUrl))
-    URL.revokeObjectURL(oldUrl);
+    setTimeout(() => URL.revokeObjectURL(oldUrl), 1000);
+}
+
+function restartAnimation(target: HTMLElement): void {
+  target.style.animation = "none";
+  void target.offsetWidth;
+  target.style.animation = "";
+}
+
+// The outgoing frame fades out beneath the incoming one, so a draw never cuts through an empty stage.
+function swapImage(url: string, id: string): void {
+  const { image, imageGhost: ghost } = elements;
+  const outgoing = image.src;
+  const crossfade = !elements.imageZoom.hidden && outgoing.startsWith("blob:") && outgoing !== url;
+  ghost.hidden = !crossfade;
+  if (crossfade) {
+    ghost.src = outgoing;
+    restartAnimation(ghost);
+  }
+  image.src = url;
+  image.alt = `Public image from Prnt.sc with identifier ${id}`;
+  restartAnimation(image);
+  setState("image");
 }
 
 async function recordFrame(frame: Frame): Promise<void> {
@@ -297,9 +321,7 @@ async function goTo(targetIndex: number): Promise<void> {
       const frame = await getFrameById(current.id, current.source);
       showFrame(frame.source, frame.id, frame.blob);
     } else {
-      elements.image.src = cached.url;
-      elements.image.alt = `Public image from Prnt.sc with identifier ${current.id}`;
-      setState("image");
+      swapImage(cached.url, current.id);
       elements.announcer.textContent = `Showing frame ${current.id}`;
     }
     applyHistory(await selectHistoryItem(targetIndex));
@@ -601,7 +623,9 @@ async function initialize(): Promise<void> {
     applyHistory({ ...snapshot, index: -1 });
     loading = false;
     syncControls();
+    // The stage starts blank, so a restored frame never flashes the first-draw prompt on launch.
     if (snapshot.index >= 0) await goTo(snapshot.index);
+    else setState("empty");
   } catch (error) {
     loading = false;
     showError(error);
@@ -731,6 +755,9 @@ elements.statsDialog.addEventListener("close", () => {
   elements.statsButton.focus();
 });
 elements.imageZoom.addEventListener("click", openLightbox);
+elements.imageGhost.addEventListener("animationend", () => {
+  elements.imageGhost.hidden = true;
+});
 elements.lightboxDialog.addEventListener("click", () => closeDialog(elements.lightboxDialog));
 elements.lightboxClose.addEventListener("click", (event) => {
   event.stopPropagation();
