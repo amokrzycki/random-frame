@@ -58,6 +58,7 @@ export const elements = {
   statsClose: element<HTMLButtonElement>("#stats-close-button"),
   statsToday: element<HTMLElement>("#stats-today"),
   statsTotal: element<HTMLElement>("#stats-total"),
+  statsStreak: element<HTMLElement>("#stats-streak"),
   statsExplored: element<HTMLElement>("#stats-explored"),
   statsExploredPercent: element<HTMLElement>("#stats-explored-percent"),
   statsExploredBreakdown: element<HTMLElement>("#stats-explored-breakdown"),

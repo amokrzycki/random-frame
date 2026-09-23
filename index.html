@@ -108,15 +108,24 @@
         </header>
         <div class="stats-dialog__body" id="stats-body">
           <div class="stats-headline">
-            <p class="stats-headline__label">Prnt.sc explored</p>
-            <p class="stats-headline__value" id="stats-explored">0 / 4,773,622,240</p>
-            <p class="stats-headline__detail">
+            <dl class="stats-tally">
+              <div class="stats-tally__item">
+                <dt>Found</dt>
+                <dd id="stats-total">0</dd>
+              </div>
+              <div class="stats-tally__item">
+                <dt>Today</dt>
+                <dd id="stats-today">0</dd>
+              </div>
+              <div class="stats-tally__item">
+                <dt>Day streak</dt>
+                <dd id="stats-streak">0</dd>
+              </div>
+            </dl>
+            <p class="stats-headline__detail stats-explored">
+              <span>Prnt.sc explored <span id="stats-explored">0 / 4,773,622,240</span></span>
               <span id="stats-explored-percent">0% of known legacy ID space</span>
               <span id="stats-explored-breakdown">0 viewable · 0 unavailable</span>
-            </p>
-            <p class="stats-headline__detail">
-              <span><span id="stats-today">0</span> viewed today</span>
-              <span><span id="stats-total">0</span> all time</span>
             </p>
             <p class="stats-headline__error" id="stats-error" hidden>
               <span>Stats couldn’t be read from this device.</span>
@@ -456,7 +465,11 @@
               aria-keyshortcuts="S"
               title="Save image (S)"
               disabled>
-              <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M9 3v8m-3.5-3.5L9 11l3.5-3.5M3.5 14.5h11" /></svg>
+              <svg viewBox="0 0 18 18" aria-hidden="true">
+                <path class="save-arrow" d="M9 3v8m-3.5-3.5L9 11l3.5-3.5" />
+                <path class="save-check" d="m5.5 8 2.4 2.4 4.6-4.9" pathLength="1" />
+                <path d="M3.5 14.5h11" />
+              </svg>
             </button>
           </div>
 

@@ -163,6 +163,7 @@ export const ids = [
   "stats-close-button",
   "stats-today",
   "stats-total",
+  "stats-streak",
   "stats-explored",
   "stats-explored-percent",
   "stats-explored-breakdown",

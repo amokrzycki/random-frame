@@ -143,6 +143,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(get("stats-dialog").open, true);
   assert.equal(get("stats-today").textContent, "2");
   assert.equal(get("stats-total").textContent, "2");
+  assert.equal(get("stats-streak").textContent, "1");
   assert.equal(get("stats-explored").textContent, "12,483 / 4,773,622,240");
   assert.equal(get("stats-explored-percent").textContent, "< 0.001% of known legacy ID space");
   assert.equal(get("stats-explored-breakdown").textContent, "8,000 viewable · 4,483 unavailable");
@@ -212,6 +213,8 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   get("save-button").click();
   await flush();
   assert.equal(invocations.at(-1).command, "plugin:dialog|save");
+  // A cancelled dialog is not a save: no check.
+  assert.equal(get("save-button").dataset.saved, undefined);
 
   savePath = "/tmp/random-frame-prntsc-saved1.png";
   get("save-button").click();
@@ -221,6 +224,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(invocations.at(-2).args.options.defaultPath, "random-frame-prntsc-saved1.png");
   assert.equal(invocations.at(-1).command, "plugin:fs|write_file");
   assert.deepEqual([...invocations.at(-1).args], [2]);
+  assert.equal(get("save-button").dataset.saved, "new");
 
   get("jump-input").value = "4";
   get("jump-form").dispatchEvent(new Event("submit", { cancelable: true }));

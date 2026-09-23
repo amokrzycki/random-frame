@@ -269,14 +269,34 @@
   margin: 0;
 }
 
-.stats-headline__label {
+.stats-tally {
+  margin: 0 0 14px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* Figure above its label; the label stays first in source so it is read first. */
+.stats-tally__item {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 4px;
+  min-width: 0;
+}
+
+.stats-tally__item + .stats-tally__item {
+  padding-left: 20px;
+  border-left: 1px solid var(--line);
+}
+
+.stats-tally dt {
   color: var(--muted);
   font-size: 13px;
   font-weight: 650;
 }
 
-.stats-headline__value {
-  margin: 6px 0 10px !important;
+.stats-tally dd {
+  margin: 0;
+  overflow-wrap: anywhere;
   font-family: "Archive Serif", serif;
   font-size: clamp(34px, 5vw, 46px);
   font-variant-numeric: tabular-nums;
@@ -284,17 +304,18 @@
   letter-spacing: -0.035em;
 }
 
-.stats-headline__value[data-state="unavailable"] {
-  margin-block: 6px !important;
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 650;
-  letter-spacing: normal;
+/* Unreadable stats: the dashes and the error line say it; the explored line would only repeat it. */
+.stats-explored:has([data-state="unavailable"]) {
+  display: none;
 }
 
+/* Every item leads with a dot in a gutter clipped off the left edge, so a dot that
+   wraps to the start of a line is hidden instead of dangling. */
 .stats-headline__detail {
+  margin-left: -1.5em !important;
   display: flex;
   flex-wrap: wrap;
+  clip-path: inset(0 0 0 1.5em);
   color: var(--muted);
   font-size: 13px;
   font-variant-numeric: tabular-nums;
@@ -305,14 +326,11 @@
   display: none;
 }
 
-.stats-headline__detail > span + span::before {
+.stats-headline__detail > span::before {
   content: "·";
-  padding-inline: 0.5em;
-}
-
-.stats-headline__detail [id^="stats-t"] {
-  color: var(--ink);
-  font-weight: 650;
+  display: inline-block;
+  width: 1.5em;
+  text-align: center;
 }
 
 .stats-headline__error:not([hidden]) {

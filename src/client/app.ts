@@ -26,6 +26,7 @@ import {
 } from "./persistence.js";
 import type { LedgerDay } from "./statistics.js";
 import {
+  drawStreak,
   formatExploredBreakdown,
   formatExploredPercent,
   formatLedgerCounts,
@@ -55,6 +56,8 @@ const THUMBNAIL_MAX_DIMENSION = 160;
 const THUMBNAIL_LIMIT = 300;
 const history: HistoryItem[] = [];
 const blobs = new Map<string, CachedBlob>();
+// Blob keys saved to disk this session, so revisiting a saved frame still shows its check.
+const savedFrames = new Set<string>();
 let index = -1;
 let loading = true;
 // A network draw in flight, as opposed to any loading; only this spins the Draw next button.
@@ -185,6 +188,10 @@ function syncControls(): void {
   // Copy and save act on the visible frame only, never on one hidden behind an error.
   const currentBlob = viewState === "image" && current && blobs.has(blobKey(current.source, current.id));
   elements.save.disabled = loading || !currentBlob;
+  // A saved frame keeps its check while shown; only a fresh save plays the arrow-to-check.
+  if (current && savedFrames.has(blobKey(current.source, current.id))) elements.save.dataset.saved ??= "shown";
+  else delete elements.save.dataset.saved;
+  elements.save.title = elements.save.dataset.saved ? "Saved · Save again (S)" : "Save image (S)";
   elements.copyImage.disabled = loading || !currentBlob;
   elements.copyLink.disabled = loading || !current;
   elements.previousId.disabled = loading || current?.source !== "prntsc" || adjacentPrntscId(current.id, -1) === null;
@@ -633,7 +640,11 @@ async function saveCurrent(): Promise<void> {
   const current = history[index];
   const cached = current && blobs.get(blobKey(current.source, current.id));
   if (!current || !cached) return;
-  await saveImage(current.id, cached.blob);
+  if (!(await saveImage(current.id, cached.blob))) return;
+  savedFrames.add(blobKey(current.source, current.id));
+  if (history[index] !== current) return;
+  elements.save.dataset.saved = "new";
+  syncControls();
 }
 
 async function copyCurrentImage(): Promise<void> {
@@ -820,6 +831,7 @@ async function loadStats(): Promise<void> {
     const [exploration, activity] = await Promise.all([getExplorationStats(), getViewingActivity()]);
     elements.statsToday.textContent = String(activity.days.at(-1)?.viewed ?? 0);
     elements.statsTotal.textContent = activity.viewedTotal.toLocaleString("en-US");
+    elements.statsStreak.textContent = drawStreak(activity.days).toLocaleString("en-US");
     elements.statsExplored.textContent = `${exploration.explored.toLocaleString("en-US")} / ${exploration.total.toLocaleString("en-US")}`;
     elements.statsExploredPercent.textContent = `${formatExploredPercent(exploration.explored, exploration.total)} of known legacy ID space`;
     elements.statsExploredBreakdown.textContent = formatExploredBreakdown(
@@ -840,6 +852,7 @@ async function loadStats(): Promise<void> {
     // Dashes, not zeros: the counts are unknown, not empty.
     elements.statsToday.textContent = "—";
     elements.statsTotal.textContent = "—";
+    elements.statsStreak.textContent = "—";
     elements.statsExplored.textContent = "Unavailable";
     elements.statsExplored.dataset.state = "unavailable";
     elements.statsExploredPercent.textContent = "";

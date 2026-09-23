@@ -16,7 +16,8 @@ function imageExtension(mimeType: string): string {
   return aliases[subtype] ?? (subtype.replace(/[^a-z0-9]/g, "") || "img");
 }
 
-export async function saveImage(id: string, blob: Blob): Promise<void> {
+// Resolves true only once the file is written; a cancelled dialog or failure is false.
+export async function saveImage(id: string, blob: Blob): Promise<boolean> {
   const extension = imageExtension(blob.type);
   try {
     const path = await save({
@@ -24,11 +25,13 @@ export async function saveImage(id: string, blob: Blob): Promise<void> {
       defaultPath: `random-frame-prntsc-${id}.${extension}`,
       filters: [{ name: "Image", extensions: [extension] }],
     });
-    if (!path) return;
+    if (!path) return false;
     await writeFile(path, new Uint8Array(await blob.arrayBuffer()));
     toast.success("Saved image");
+    return true;
   } catch (error) {
     toast.error(describeError(error, "The image could not be saved. Try again.").message);
+    return false;
   }
 }
 
