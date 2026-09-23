@@ -195,7 +195,7 @@ function syncControls(): void {
   elements.historyTotal.textContent = String(history.length);
   elements.jumpTotal.textContent = String(history.length);
   elements.jumpInput.max = String(history.length);
-  elements.historyClear.disabled = loading;
+  elements.historyClear.disabled = loading || !history.length;
   elements.imageIdValue.textContent = current?.id ?? "———";
   elements.source.href = current?.sourcePageUrl ?? "https://prnt.sc/";
   elements.source.setAttribute("aria-disabled", String(!current));
@@ -479,7 +479,7 @@ function renderLedger(days: LedgerDay[]): void {
 
 function openHistory(): void {
   if (loading) return;
-  elements.historyClear.disabled = false;
+  elements.historyClear.disabled = !history.length;
   // Open where the visitor is: the page holding the shown frame, else the newest page.
   pageIndex = pageOf(index >= 0 ? index : history.length - 1, pageSize);
   renderHistoryPage();
@@ -778,7 +778,7 @@ elements.historyDialog.addEventListener("close", () => {
   onDialogClosed();
   elements.historyButton.focus();
 });
-elements.statsButton.addEventListener("click", async () => {
+async function loadStats(): Promise<void> {
   try {
     const [exploration, activity] = await Promise.all([getExplorationStats(), getViewingActivity()]);
     elements.statsToday.textContent = String(activity.days.at(-1)?.viewed ?? 0);
@@ -796,15 +796,29 @@ elements.statsButton.addEventListener("click", async () => {
         history.map((item) => item.viewedAt),
       ),
     );
+    delete elements.statsExplored.dataset.state;
+    elements.statsError.hidden = true;
+    elements.ledger.hidden = false;
   } catch {
-    elements.statsToday.textContent = "0";
-    elements.statsTotal.textContent = "0";
+    // Dashes, not zeros: the counts are unknown, not empty.
+    elements.statsToday.textContent = "—";
+    elements.statsTotal.textContent = "—";
     elements.statsExplored.textContent = "Unavailable";
-    elements.statsExploredPercent.textContent = "Could not read local exploration data";
+    elements.statsExplored.dataset.state = "unavailable";
+    elements.statsExploredPercent.textContent = "";
     elements.statsExploredBreakdown.textContent = "";
-    renderLedger([]);
+    elements.statsError.hidden = false;
+    elements.ledger.hidden = true;
   }
+}
+elements.statsButton.addEventListener("click", async () => {
+  await loadStats();
   openDialog(elements.statsDialog);
+});
+elements.statsRetry.addEventListener("click", async () => {
+  await loadStats();
+  if (elements.statsError.hidden) elements.statsClose.focus();
+  else elements.announcer.textContent = "Stats still couldn’t be read";
 });
 elements.ledgerMore.addEventListener("click", () => renderLedgerPage()?.focus());
 elements.statsClose.addEventListener("click", () => closeDialog(elements.statsDialog));

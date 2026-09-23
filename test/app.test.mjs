@@ -17,6 +17,8 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   const performance = { getEntriesByType: () => [{ type: "back_forward" }] };
   const globalNames = ["document", "localStorage", "performance", "sessionStorage", "window"];
   const originalGlobals = new Map(globalNames.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+  // Toasts schedule their own dismissal; the test never waits for it.
+  window.setTimeout = () => 0;
   localStorage.setItem("random-frame-risk-accepted", "accepted");
   sessionStorage.setItem(
     "prntsc-gallery-history",
@@ -28,6 +30,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   let draw = 0;
   let savePath = null;
   let failNextDraw = false;
+  let failStats = false;
   const invocations = [];
   let persisted = { history: [], index: -1 };
   window.__TAURI_INTERNALS__ = {
@@ -54,6 +57,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
         return null;
       }
       if (command === "get_exploration_stats") {
+        if (failStats) throw new Error("unreadable");
         return { explored: 12_483, total: 4_773_622_240, viewable: 8_000, unavailable: 4_483 };
       }
       if (command === "get_viewing_activity") {
@@ -160,6 +164,22 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   get("stats-close-button").click();
   assert.equal(document.activeElement, get("stats-button"));
 
+  // Unreadable stats show dashes, not zeros, and recover through Try again.
+  failStats = true;
+  get("stats-button").click();
+  await flush();
+  assert.equal(get("stats-explored").textContent, "Unavailable");
+  assert.equal(get("stats-today").textContent, "—");
+  assert.equal(get("stats-error").hidden, false);
+  assert.equal(get("ledger").hidden, true);
+  failStats = false;
+  get("stats-retry").click();
+  await flush();
+  assert.equal(get("stats-today").textContent, "2");
+  assert.equal(get("stats-error").hidden, true);
+  assert.equal(get("ledger").hidden, false);
+  get("stats-close-button").click();
+
   get("history-button").click();
   assert.equal(get("history-grid").children.length, 4);
   assert.equal(get("history-grid").children[2].getAttribute("aria-current"), "true");
@@ -259,7 +279,6 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
     Object.defineProperty(event, "pseudoElement", { value: "::before" });
     clearButton.dispatchEvent(event);
   };
-  window.setTimeout = () => 0;
   get("history-button").click();
   press();
   release();
@@ -272,6 +291,10 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   await flush();
   assert.deepEqual(persisted, { history: [], index: -1 });
   assert.equal(get("history-total").textContent, "0");
+  assert.equal(clearButton.disabled, true);
+  get("draw-button").click();
+  await flush();
+  await flush();
   assert.equal(clearButton.disabled, false);
   // Assistive tech clicks without a press: the first activation arms, the second clears.
   clearButton.click();

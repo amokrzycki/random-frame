@@ -176,4 +176,7 @@ export const ids = [
   "ledger-list",
   "ledger-empty",
   "ledger-more",
+  "ledger",
+  "stats-error",
+  "stats-retry",
 ];
