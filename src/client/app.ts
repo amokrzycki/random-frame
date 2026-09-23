@@ -2,6 +2,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { bindDialogChromeEvents, closeDialog, onDialogClosed, openDialog } from "./dialogs.js";
 import { elements } from "./elements.js";
+import { getFavorites } from "./favorites.js";
 import { bindFrameActionEvents } from "./frame-actions.js";
 import { releaseAllBlobs } from "./frame-cache.js";
 import { bindNavigationEvents, goTo } from "./frame-loader.js";
@@ -12,7 +13,7 @@ import { bindShortcutsEvents } from "./shortcuts.js";
 import { bindStageEvents, setState, showError, syncControls } from "./stage.js";
 import { bindStatsDialogEvents, migrateLegacyStats } from "./stats-dialog.js";
 import { checkForUpdate } from "./update.js";
-import { applyHistory, state } from "./viewer-state.js";
+import { applyFavorites, applyHistory, state } from "./viewer-state.js";
 
 const storageKey = "prntsc-gallery-history";
 const entryStorageKey = "random-frame-risk-accepted";
@@ -25,7 +26,8 @@ try {
 
 async function initialize(): Promise<void> {
   try {
-    let snapshot = await getHistory();
+    let [snapshot, favorites] = await Promise.all([getHistory(), getFavorites()]);
+    applyFavorites(favorites);
     const legacy = historyFromStorage(sessionStorage.getItem(storageKey));
     if (!snapshot.history.length && legacy.history.length) {
       for (const item of legacy.history) {

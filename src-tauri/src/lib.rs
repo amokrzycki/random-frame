@@ -6,8 +6,8 @@ mod sources;
 use chrono::Local;
 use error::{AppError, ErrorKind};
 use persistence::{
-    activity_day, day_key, ActivityStore, ExplorationStore, HistoryItem, HistorySnapshot,
-    HistoryStore,
+    activity_day, day_key, ActivityStore, ExplorationStore, FavoriteItem, FavoriteStore,
+    HistoryItem, HistorySnapshot, HistoryStore,
 };
 use rate_limit::RateLimiter;
 use reqwest::StatusCode;
@@ -30,6 +30,7 @@ struct PendingFrame {
 struct AppState {
     prntsc: Prntsc,
     history: HistoryStore,
+    favorites: FavoriteStore,
     explored: Arc<ExplorationStore>,
     activity: Arc<ActivityStore>,
     rate_limiter: Mutex<RateLimiter>,
@@ -47,6 +48,7 @@ impl AppState {
         Ok(Self {
             prntsc: Prntsc::new(Arc::clone(&explored), Arc::clone(&activity))?,
             history,
+            favorites: FavoriteStore::new(data_directory)?,
             explored,
             activity,
             rate_limiter: Mutex::new(RateLimiter::new()),
@@ -246,10 +248,45 @@ fn select_history_item(
     clippy::needless_pass_by_value,
     reason = "Tauri command state extractors must be passed by value"
 )]
+// Favorites are deliberate curation, not browsing records, so they outlive a history clear.
 fn clear_history(state: State<'_, AppState>) -> Result<(), AppError> {
     state.explored.clear()?;
     state.activity.clear()?;
     state.history.clear()
+}
+
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command state extractors must be passed by value"
+)]
+fn get_favorites(state: State<'_, AppState>) -> Vec<FavoriteItem> {
+    state.favorites.snapshot()
+}
+
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command state extractors must be passed by value"
+)]
+fn toggle_favorite(
+    item: FavoriteItem,
+    state: State<'_, AppState>,
+) -> Result<Vec<FavoriteItem>, AppError> {
+    let source = select_source(&item.source)?;
+    if source == Source::Prntsc {
+        prntsc::validate_item_id(&item.id)?;
+    }
+    state.favorites.toggle(item)
+}
+
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command state extractors must be passed by value"
+)]
+fn clear_favorites(state: State<'_, AppState>) -> Result<(), AppError> {
+    state.favorites.clear()
 }
 
 #[tauri::command]
@@ -354,6 +391,9 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             record_history_item,
             select_history_item,
             clear_history,
+            get_favorites,
+            toggle_favorite,
+            clear_favorites,
             get_exploration_stats,
             get_viewing_activity,
             migrate_viewing_stats

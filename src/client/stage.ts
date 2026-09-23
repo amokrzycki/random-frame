@@ -3,7 +3,7 @@ import { describeError } from "./errors.js";
 import { blobKey, blobs, cacheThumbnail, savedFrames } from "./frame-cache.js";
 import { adjacentPrntscId, nextHistoryIndex } from "./navigation.js";
 import { toast } from "./toast.js";
-import { state } from "./viewer-state.js";
+import { isFavorite, state } from "./viewer-state.js";
 
 type ViewState = "empty" | "loading" | "error" | "image";
 
@@ -87,6 +87,12 @@ export function syncControls(): void {
   elements.save.title = elements.save.dataset.saved ? "Saved · Save again (S)" : "Save image (S)";
   elements.copyImage.disabled = state.loading || !currentBlob;
   elements.copyLink.disabled = state.loading || !current;
+  const favorite = Boolean(current && isFavorite(current));
+  const favoriteLabel = favorite ? "Remove from favorites" : "Add to favorites";
+  elements.favoriteButton.disabled = state.loading || !current;
+  elements.favoriteButton.setAttribute("aria-pressed", String(favorite));
+  elements.favoriteButton.setAttribute("aria-label", favoriteLabel);
+  elements.favoriteButton.title = `${favoriteLabel} (F)`;
   elements.previousId.disabled =
     state.loading || current?.source !== "prntsc" || adjacentPrntscId(current.id, -1) === null;
   elements.nextId.disabled = state.loading || current?.source !== "prntsc" || adjacentPrntscId(current.id, 1) === null;

@@ -1,6 +1,6 @@
 import { closeDialog, dialogs, onDialogClosed, openDialog } from "./dialogs.js";
 import { elements } from "./elements.js";
-import { copyCurrentImage, saveCurrent } from "./frame-actions.js";
+import { copyCurrentImage, saveCurrent, toggleCurrentFavorite } from "./frame-actions.js";
 import { goBack, goNext, loadRandom } from "./frame-loader.js";
 import { openHistory } from "./history-dialog.js";
 
@@ -41,6 +41,7 @@ export function bindShortcutsEvents(): void {
       if (key === "s") void saveCurrent();
       if (key === "c") void copyCurrentImage();
       if (key === "h") openHistory();
+      if (key === "f") void toggleCurrentFavorite();
     }
     // N draws from anywhere; Space and Enter only when no control has focus to claim them.
     const onControl = Boolean(target?.closest?.(CONTROL_SELECTOR));

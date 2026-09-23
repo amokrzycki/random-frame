@@ -106,6 +106,43 @@
   gap: 8px;
 }
 
+/* All / Favorites: the pager's outlined 38px control, joined; the chosen side holds the hover fill. */
+.history-filter {
+  display: inline-flex;
+}
+
+.history-filter__option {
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  transition: transform 140ms var(--ease-out);
+}
+
+.history-filter__option:first-child {
+  border-radius: 8px 0 0 8px;
+}
+
+.history-filter__option + .history-filter__option {
+  margin-left: -1px;
+  border-radius: 0 8px 8px 0;
+}
+
+.history-filter__option:hover,
+.history-filter__option[aria-pressed="true"] {
+  color: var(--control-fill-text);
+  background: var(--control-fill);
+}
+
+.history-filter__option:active {
+  transform: scale(0.97);
+}
+
 .history-clear {
   position: relative;
   min-height: 38px;
@@ -400,6 +437,7 @@
 }
 
 .ledger__thumb {
+  position: relative;
   width: 48px;
   height: 36px;
   padding: 0;
@@ -579,6 +617,7 @@
 }
 
 .history-item {
+  position: relative;
   min-width: 0;
   padding: 0;
   overflow: hidden;
@@ -612,6 +651,47 @@
   display: block;
   object-fit: contain;
   background: var(--stage-soft);
+}
+
+/* Favorited tiles carry a plain archival-white star on a graphite chip; cobalt stays the current-frame border. */
+:is(.history-item, .ledger__thumb)[data-favorite]::before,
+:is(.history-item, .ledger__thumb)[data-favorite]::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+}
+
+:is(.history-item, .ledger__thumb)[data-favorite]::before {
+  top: 6px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--stage) 86%, transparent);
+}
+
+:is(.history-item, .ledger__thumb)[data-favorite]::after {
+  top: 10px;
+  right: 10px;
+  width: 12px;
+  height: 12px;
+  background: var(--white);
+  clip-path: polygon(50% 0, 62% 35%, 98% 35%, 69% 57%, 79% 91%, 50% 70%, 21% 91%, 31% 57%, 2% 35%, 38% 35%);
+}
+
+.ledger__thumb[data-favorite]::before {
+  top: 2px;
+  right: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+}
+
+.ledger__thumb[data-favorite]::after {
+  top: 4px;
+  right: 4px;
+  width: 9px;
+  height: 9px;
 }
 
 .history-item[data-empty="true"] img {

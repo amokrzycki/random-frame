@@ -137,6 +137,7 @@
   .history-pager__step:active:not(:disabled),
   .history-pager__select select:active,
   .history-close:active,
+  .history-filter__option:active,
   .primary-action:active:not(:disabled),
   .info-icon:active:not(:disabled),
   .draw-button:active:not([aria-disabled="true"], [aria-busy="true"]),
