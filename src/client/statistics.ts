@@ -5,7 +5,8 @@ export const LEGACY_ID_SPACE_SIZE = 4_773_622_240;
 export function formatExploredPercent(explored: number, total = LEGACY_ID_SPACE_SIZE): string {
   if (explored <= 0 || total <= 0) return "0%";
   const percent = (explored / total) * 100;
-  const decimals = Math.min(12, Math.max(2, Math.ceil(-Math.log10(percent)) + 3));
+  if (percent < 0.001) return "< 0.001%";
+  const decimals = Math.max(2, Math.ceil(-Math.log10(percent)) + 3);
   return `${percent.toFixed(decimals)}%`;
 }
 

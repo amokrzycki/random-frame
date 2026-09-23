@@ -25,7 +25,7 @@ function daysOf(count) {
 
 test("keeps tiny explored percentages visible", () => {
   assert.equal(formatExploredPercent(0), "0%");
-  assert.equal(formatExploredPercent(12_483), "0.0002615%");
+  assert.equal(formatExploredPercent(12_483), "< 0.001%");
   assert.notEqual(formatExploredPercent(1), "0.00%");
 });
 

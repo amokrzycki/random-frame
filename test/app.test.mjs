@@ -118,7 +118,7 @@ test("persistent history keeps the existing jump path and the main image opens a
   assert.equal(get("stats-today").textContent, "2");
   assert.equal(get("stats-total").textContent, "2");
   assert.equal(get("stats-explored").textContent, "12,483 / 4,773,622,240");
-  assert.equal(get("stats-explored-percent").textContent, "0.0002615% of known legacy ID space");
+  assert.equal(get("stats-explored-percent").textContent, "< 0.001% of known legacy ID space");
   assert.equal(get("stats-explored-breakdown").textContent, "8,000 viewable · 4,483 unavailable");
   assert.equal(get("stats-heatmap-detail").textContent, "Hover or focus a day for details.");
   const expectedRange = heatmapRangeLabel([{ date: todayIso, viewed: 2, rejected: 0 }]);

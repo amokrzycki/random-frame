@@ -1,4 +1,4 @@
-type ToastTone = "success" | "error";
+type ToastTone = "success" | "info" | "error";
 
 // The region ships in the page markup: screen readers only watch live regions that exist before content lands.
 function region(): HTMLDivElement {
@@ -26,5 +26,6 @@ function show(message: string, tone: ToastTone): void {
 
 export const toast = {
   success: (message: string): void => show(message, "success"),
+  info: (message: string): void => show(message, "info"),
   error: (message: string): void => show(message, "error"),
 };

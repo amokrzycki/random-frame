@@ -185,7 +185,7 @@ function syncControls(): void {
     "aria-label",
     index < history.length - 1 ? "Show the next saved frame" : "Draw a new frame",
   );
-  elements.imageId.textContent = current ? `${current.source}/${current.id}` : "prnt.sc/———";
+  elements.imageId.textContent = `prnt.sc/${current?.id ?? "———"}`;
   elements.source.href = current?.sourcePageUrl ?? "https://prnt.sc/";
   elements.source.setAttribute("aria-disabled", String(!current));
   elements.meta.textContent = current
@@ -494,7 +494,7 @@ async function copyCurrentImage(): Promise<void> {
 async function copySourceLink(): Promise<void> {
   try {
     await navigator.clipboard.writeText(elements.source.href);
-    toast.success("Copied to clipboard");
+    toast.success("Copied source link");
   } catch {
     elements.announcer.textContent = "Could not copy the source link";
   }
@@ -516,7 +516,7 @@ async function clearSavedHistory(): Promise<void> {
     elements.image.alt = "";
     setState("empty");
     closeDialog(elements.historyDialog);
-    elements.announcer.textContent = "History cleared";
+    toast.success("History cleared");
   } catch (error) {
     elements.announcer.textContent = describeError(error).message;
   } finally {
@@ -645,7 +645,7 @@ elements.historyClear.addEventListener("keydown", (event) => {
 });
 for (const type of ["pointerup", "pointerleave", "pointercancel", "keyup", "blur"]) {
   elements.historyClear.addEventListener(type, () => {
-    if (stopClearHold()) toast.success("Hold to clear history");
+    if (stopClearHold()) toast.info("Hold to clear history");
   });
 }
 elements.historyClear.addEventListener("transitionend", (event) => {

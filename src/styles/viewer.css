@@ -135,6 +135,7 @@
   font-size: clamp(25px, 3vw, 38px);
   line-height: 1.15;
   letter-spacing: -0.025em;
+  text-wrap: balance;
 }
 
 .primary-action {
