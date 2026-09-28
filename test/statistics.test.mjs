@@ -71,6 +71,10 @@ test("builds ledger days newest first, skipping idle days and grouping frames by
     { date: "2026-09-21", drawn: 2, unavailable: 1, frames: [2, 0] },
   ]);
   assert.deepEqual(ledgerDays([], viewedAt), []);
+  assert.deepEqual(ledgerDays(days, [null, viewedAt[1], null]), [
+    { date: "2026-09-23", drawn: 1, unavailable: 0, frames: [1] },
+    { date: "2026-09-21", drawn: 2, unavailable: 1, frames: [] },
+  ]);
 });
 
 // Day keys are local calendar days; the UI must render them as-is in any zone. `new Date(key)` or

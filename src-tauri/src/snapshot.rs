@@ -35,6 +35,8 @@ pub struct SyncSnapshot {
     pub favorites_removed: Vec<[u8; 16]>,
 }
 
+type ParsedRecord = ([u8; 16], u64, u64, String, String, String);
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum SnapshotError {
     TruncatedHeader,
@@ -282,10 +284,7 @@ fn read_id(bytes: &[u8], pos: &mut usize) -> Result<[u8; 16], SnapshotError> {
     *pos = end;
     Ok(value)
 }
-fn read_record(
-    bytes: &[u8],
-    pos: &mut usize,
-) -> Result<([u8; 16], u64, u64, String, String, String), SnapshotError> {
+fn read_record(bytes: &[u8], pos: &mut usize) -> Result<ParsedRecord, SnapshotError> {
     let op = read_id(bytes, pos)?;
     let a = read_u64(bytes, pos)?;
     let b = read_u64(bytes, pos)?;
@@ -381,7 +380,7 @@ mod tests {
         let bytes = serialize_snapshot(&snapshot)?;
         assert_eq!(&bytes[..12], b"RFSNAP\0\0\x01\0\0\0");
         assert_eq!(parse_snapshot(&bytes)?, snapshot);
-        let mut old_seen = bytes.clone();
+        let mut old_seen = bytes;
         old_seen[..8].copy_from_slice(b"RFSEEN\0\0");
         assert_eq!(parse_snapshot(&old_seen), Err(SnapshotError::InvalidMagic));
         let mut invalid = snapshot;
@@ -391,7 +390,7 @@ mod tests {
             second_at: 0,
             source: "prntsc".into(),
             id: "other".into(),
-            source_page_url: "".into(),
+            source_page_url: String::new(),
         });
         assert_eq!(
             serialize_snapshot(&invalid),

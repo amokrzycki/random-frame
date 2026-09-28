@@ -60,8 +60,8 @@ impl AppState {
         let history = Arc::new(HistoryStore::new(data_directory)?);
         let seen = Arc::new(SeenStore::new(data_directory)?);
         reconcile_seen(&seen, &history, &explored)?;
-        #[cfg(any(target_os = "linux", target_os = "windows"))]
         let favorites = Arc::new(FavoriteStore::new(data_directory)?);
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
         let sync = SyncEngine::new(
             data_directory,
             Arc::clone(&seen),
@@ -400,6 +400,7 @@ struct DailyActivity {
 struct ViewingActivity {
     viewed_total: u64,
     days: Vec<DailyActivity>,
+    local_view_times: Vec<Option<u64>>,
 }
 
 #[tauri::command]
@@ -422,6 +423,7 @@ fn get_viewing_activity(state: State<'_, AppState>) -> ViewingActivity {
     ViewingActivity {
         viewed_total: state.activity.viewed_total(),
         days,
+        local_view_times: state.history.local_view_times(),
     }
 }
 

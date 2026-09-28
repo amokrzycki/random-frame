@@ -51,6 +51,8 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
           return structuredClone(current);
         }
         if (command === "startup_sync") return structuredClone(current);
+        if (command === "get_history") return { history: [], index: -1 };
+        if (command === "get_favorites") return [];
         throw new Error(`Unexpected command: ${command}`);
       },
     },
@@ -166,6 +168,15 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
   await flush();
   assert.equal(get("sync-paired").hidden, false);
   assert.equal(get("sync-recovery-input").value, "");
+
+  const { state } = await import("../dist/test-client/viewer-state.js");
+  state.loading = false;
+  state.history = [{ source: "prntsc", id: "abc123", sourcePageUrl: "https://prnt.sc/abc123", viewedAt: 1 }];
+  state.index = 0;
+  get("sync-now").click();
+  await flush();
+  assert.equal(get("history-total").textContent, "0");
+  assert.equal(get("favorite-button").disabled, true);
 
   await runStartupSync();
   assert.equal(calls.at(-1).command, "get_sync_status");

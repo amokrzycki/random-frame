@@ -1,5 +1,4 @@
 use crate::error::AppError;
-use crate::snapshot;
 use chrono::{DateTime, Local, NaiveDate, TimeZone};
 use rand::{rngs::OsRng, RngCore};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -214,7 +213,9 @@ impl HistoryStore {
                 .collect(),
             data.removed_history_ops.clone(),
         );
-        (state, self.generation.load(Ordering::Relaxed))
+        let generation = self.generation.load(Ordering::Relaxed);
+        drop(data);
+        (state, generation)
     }
 
     #[cfg(test)]
@@ -244,16 +245,16 @@ impl HistoryStore {
             }
             index
         } else {
-            next.history.push(item);
-            let item = next.history.last().expect("pushed history item");
-            next.history_ops.push(HistoryOp {
+            let op = HistoryOp {
                 operation_id: operation_id(),
                 order_at: next.history_ops.len() as u64,
                 viewed_at: item.viewed_at,
                 source: item.source.clone(),
                 id: item.id.clone(),
                 source_page_url: item.source_page_url.clone(),
-            });
+            };
+            next.history.push(item);
+            next.history_ops.push(op);
             next.history.len() - 1
         });
         if let Some(index) = next.index {
@@ -288,6 +289,17 @@ impl HistoryStore {
         }
         drop(data);
         days
+    }
+
+    pub fn local_view_times(&self) -> Vec<Option<u64>> {
+        let data = self
+            .data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        data.history
+            .iter()
+            .map(|item| data.local_views.get(&history_key(item)).copied())
+            .collect()
     }
 
     pub fn select(&self, index: usize) -> Result<HistorySnapshot, AppError> {
@@ -344,7 +356,7 @@ impl HistoryStore {
         for op in incoming.0 {
             if let Some(existing) = next
                 .history_ops
-                .iter()
+                .iter_mut()
                 .find(|saved| saved.operation_id == op.operation_id)
             {
                 if existing.source != op.source
@@ -354,6 +366,7 @@ impl HistoryStore {
                 {
                     return Err(AppError::persistence("Conflicting history operation"));
                 }
+                existing.viewed_at = existing.viewed_at.max(op.second_at);
             } else {
                 next.history_ops.push(HistoryOp {
                     operation_id: op.operation_id,
@@ -372,11 +385,20 @@ impl HistoryStore {
             .retain(|op| !next.removed_history_ops.contains(&op.operation_id));
         next.history_ops
             .sort_by_key(|op| (op.order_at, op.operation_id));
+        let selected = next
+            .index
+            .and_then(|index| next.history.get(index))
+            .map(|item| (item.source.clone(), item.id.clone()));
         next.history = project_history(&next.history_ops);
-        next.index = next.index.filter(|index| *index < next.history.len());
+        next.index = selected.and_then(|(source, id)| {
+            next.history
+                .iter()
+                .position(|item| item.source == source && item.id == id)
+        });
         self.save(&next)?;
         *data = next;
         self.generation.fetch_add(1, Ordering::Relaxed);
+        drop(data);
         Ok(())
     }
 }
@@ -412,14 +434,17 @@ fn project_history(ops: &[HistoryOp]) -> Vec<HistoryItem> {
 }
 
 fn favorite_projection(data: &FavoriteData) -> Vec<FavoriteItem> {
+    let removed: HashSet<_> = data.removed.iter().collect();
     let mut items: Vec<_> = data
         .favorites
         .iter()
-        .filter(|item| !data.removed.contains(&item.operation_id))
+        .filter(|item| !removed.contains(&item.operation_id))
         .collect();
     items.sort_by_key(|item| (item.added_at, item.operation_id));
+    let mut seen = HashSet::new();
     items
         .into_iter()
+        .filter(|item| seen.insert((item.source.as_str(), item.id.as_str())))
         .map(|item| FavoriteItem {
             source: item.source.clone(),
             id: item.id.clone(),
@@ -463,8 +488,7 @@ impl FavoriteStore {
                 version: 2,
                 favorites: old
                     .into_iter()
-                    .enumerate()
-                    .map(|(_, item)| FavoriteOp {
+                    .map(|item| FavoriteOp {
                         operation_id: operation_id(),
                         added_at: item.added_at,
                         source: item.source,
@@ -515,7 +539,9 @@ impl FavoriteStore {
                 .collect(),
             data.removed.clone(),
         );
-        (state, self.generation.load(Ordering::Relaxed))
+        let generation = self.generation.load(Ordering::Relaxed);
+        drop(data);
+        (state, generation)
     }
 
     #[cfg(test)]
@@ -562,6 +588,7 @@ impl FavoriteStore {
         save_json(&self.path, &next)?;
         *data = next;
         self.generation.fetch_add(1, Ordering::Relaxed);
+        drop(data);
         Ok(())
     }
 
@@ -572,13 +599,17 @@ impl FavoriteStore {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut next = data.clone();
-        if let Some(op) = next.favorites.iter().find(|saved| {
-            saved.source == item.source
-                && saved.id == item.id
-                && !next.removed.contains(&saved.operation_id)
-        }) {
-            next.removed.push(op.operation_id);
-        } else {
+        let active_ids: Vec<_> = next
+            .favorites
+            .iter()
+            .filter(|saved| {
+                saved.source == item.source
+                    && saved.id == item.id
+                    && !next.removed.contains(&saved.operation_id)
+            })
+            .map(|saved| saved.operation_id)
+            .collect();
+        if active_ids.is_empty() {
             next.favorites.push(FavoriteOp {
                 operation_id: operation_id(),
                 added_at: item.added_at,
@@ -586,6 +617,8 @@ impl FavoriteStore {
                 id: item.id,
                 source_page_url: item.source_page_url,
             });
+        } else {
+            next.removed.extend(active_ids);
         }
         save_json(&self.path, &next)?;
         *data = next;
@@ -878,6 +911,7 @@ impl SeenStore {
         let mut sorted: Vec<_> = ids.iter().copied().collect();
         sorted.sort_unstable();
         let generation = self.generation.load(std::sync::atomic::Ordering::Relaxed);
+        drop(ids);
         (sorted, generation)
     }
 
@@ -1119,6 +1153,7 @@ impl ActivityStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::snapshot;
     use std::{sync::Arc, thread, time::SystemTime};
 
     fn test_directory(name: &str) -> PathBuf {
@@ -1526,6 +1561,74 @@ mod tests {
         b_favorites.merge_sync_state(a_favorites.sync_state())?;
         assert!(b_history.snapshot().history.is_empty());
         assert!(b_favorites.snapshot().is_empty());
+        fs::remove_dir_all(a_dir).map_err(AppError::persistence)?;
+        fs::remove_dir_all(b_dir).map_err(AppError::persistence)
+    }
+
+    #[test]
+    fn concurrent_favorites_project_once_and_toggle_removes_all_adds() -> Result<(), AppError> {
+        let a_dir = test_directory("favorite-concurrent-a");
+        let b_dir = test_directory("favorite-concurrent-b");
+        let a = FavoriteStore::new(&a_dir)?;
+        let b = FavoriteStore::new(&b_dir)?;
+        let item = FavoriteItem {
+            source: "prntsc".into(),
+            id: "abc123".into(),
+            source_page_url: "https://prnt.sc/abc123".into(),
+            added_at: 42,
+        };
+        a.toggle(item.clone())?;
+        b.toggle(item.clone())?;
+        a.merge_sync_state(b.sync_state())?;
+        assert_eq!(a.snapshot(), vec![item.clone()]);
+        assert!(a.toggle(item)?.is_empty());
+        b.merge_sync_state(a.sync_state())?;
+        assert!(b.snapshot().is_empty());
+        fs::remove_dir_all(a_dir).map_err(AppError::persistence)?;
+        fs::remove_dir_all(b_dir).map_err(AppError::persistence)
+    }
+
+    #[test]
+    fn history_merge_keeps_latest_view_and_selected_frame() -> Result<(), AppError> {
+        let a_dir = test_directory("history-merge-a");
+        let b_dir = test_directory("history-merge-b");
+        let a = HistoryStore::new(&a_dir)?;
+        let b = HistoryStore::new(&b_dir)?;
+        let item = |id: &str, viewed_at| HistoryItem {
+            source: "prntsc".into(),
+            id: id.into(),
+            source_page_url: format!("https://prnt.sc/{id}"),
+            viewed_at,
+        };
+        a.record(item("x", 42))?;
+        b.merge_sync_state(a.sync_state())?;
+        a.record(item("x", 84))?;
+        b.merge_sync_state(a.sync_state())?;
+        assert_eq!(b.snapshot().history[0].viewed_at, 84);
+
+        b.record(item("y", 90))?;
+        b.select(1)?;
+        b.merge_sync_state((
+            vec![snapshot::SyncRecord {
+                operation_id: [0; 16],
+                first_at: 0,
+                second_at: 10,
+                source: "prntsc".into(),
+                id: "before".into(),
+                source_page_url: "https://prnt.sc/before".into(),
+            }],
+            vec![],
+        ))?;
+        let selected = b.snapshot();
+        let index = usize::try_from(selected.index).map_err(AppError::persistence)?;
+        assert_eq!(selected.history[index].id, "y");
+        assert_eq!(
+            b.local_view_times()
+                .iter()
+                .filter(|time| time.is_some())
+                .count(),
+            1
+        );
         fs::remove_dir_all(a_dir).map_err(AppError::persistence)?;
         fs::remove_dir_all(b_dir).map_err(AppError::persistence)
     }

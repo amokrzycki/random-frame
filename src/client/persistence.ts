@@ -29,6 +29,7 @@ export interface DailyActivity {
 export interface ViewingActivity {
   viewedTotal: number;
   days: DailyActivity[];
+  localViewTimes: (number | null)[];
 }
 
 export function getHistory(): Promise<HistorySnapshot> {

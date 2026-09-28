@@ -1,5 +1,6 @@
 import { closeDialog, onDialogClosed, openDialog } from "./dialogs.js";
 import { elements } from "./elements.js";
+import { syncControls } from "./stage.js";
 import { createSync, getSyncStatus, joinSync, leaveSync, type SyncStatus, startupSync, syncNow } from "./sync-api.js";
 import { refreshPersistedView, state } from "./viewer-state.js";
 
@@ -101,7 +102,10 @@ async function operate(message: string, action: () => Promise<SyncStatus>): Prom
   render();
   try {
     status = await action();
-    if (!state.loading) await refreshPersistedView();
+    if (!state.loading) {
+      await refreshPersistedView();
+      syncControls();
+    }
     await refresh();
     render();
     return true;
@@ -198,7 +202,10 @@ export async function runStartupSync(): Promise<void> {
   try {
     status = await startupSync();
     if (state.loading) refreshAfterInitialize = true;
-    else await refreshPersistedView();
+    else {
+      await refreshPersistedView();
+      syncControls();
+    }
   } catch {
     // Rust keeps the typed error in SyncStatus; an unpaired device needs no startup notice.
   }
@@ -209,4 +216,5 @@ export async function refreshAfterStartup(): Promise<void> {
   if (!refreshAfterInitialize) return;
   refreshAfterInitialize = false;
   await refreshPersistedView();
+  syncControls();
 }

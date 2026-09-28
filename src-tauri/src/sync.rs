@@ -236,10 +236,7 @@ impl<S: SecretStore> SyncEngine<S> {
             .uploaded_generation
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        status.dirty = uploaded.map_or(true, |generation| {
-            let local = self.local_generation();
-            local != generation
-        });
+        status.dirty = uploaded != Some(self.local_generation());
         status
     }
 
@@ -906,6 +903,12 @@ mod tests {
         ))
     }
 
+    type TestDevice = (
+        SyncEngine<MemorySecret>,
+        Arc<HistoryStore>,
+        Arc<FavoriteStore>,
+    );
+
     #[tokio::test]
     async fn two_devices_converge_with_cas_collision_and_leave_keeps_seen(
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -973,16 +976,7 @@ mod tests {
         let (url, server, task) = server().await?;
         let a_path = directory("v2-a");
         let b_path = directory("v2-b");
-        let make = |path: &Path,
-                    secret: MemorySecret|
-         -> Result<
-            (
-                SyncEngine<MemorySecret>,
-                Arc<HistoryStore>,
-                Arc<FavoriteStore>,
-            ),
-            SyncError,
-        > {
+        let make = |path: &Path, secret: MemorySecret| -> Result<TestDevice, SyncError> {
             let seen = Arc::new(SeenStore::new(path).map_err(|_| SyncError::Persistence)?);
             let history = Arc::new(HistoryStore::new(path).map_err(|_| SyncError::Persistence)?);
             let favorites = Arc::new(FavoriteStore::new(path).map_err(|_| SyncError::Persistence)?);
