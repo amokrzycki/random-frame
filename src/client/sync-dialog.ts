@@ -1,6 +1,7 @@
 import { closeDialog, onDialogClosed, openDialog } from "./dialogs.js";
 import { elements } from "./elements.js";
 import { createSync, getSyncStatus, joinSync, leaveSync, type SyncStatus, startupSync, syncNow } from "./sync-api.js";
+import { refreshPersistedView, state } from "./viewer-state.js";
 
 const errorCopy: Record<string, string> = {
   invalid_endpoint: "Sync is unavailable because its server is not configured.",
@@ -38,6 +39,7 @@ let status: SyncStatus | null = null;
 let busy = false;
 let busyMessage = "";
 let opener: HTMLElement | null = null;
+let refreshAfterInitialize = false;
 
 function showError(message: string): void {
   elements.syncError.textContent = message;
@@ -99,6 +101,7 @@ async function operate(message: string, action: () => Promise<SyncStatus>): Prom
   render();
   try {
     status = await action();
+    if (!state.loading) await refreshPersistedView();
     await refresh();
     render();
     return true;
@@ -194,8 +197,16 @@ export function bindSyncDialogEvents(): void {
 export async function runStartupSync(): Promise<void> {
   try {
     status = await startupSync();
+    if (state.loading) refreshAfterInitialize = true;
+    else await refreshPersistedView();
   } catch {
     // Rust keeps the typed error in SyncStatus; an unpaired device needs no startup notice.
   }
   if (elements.syncDialog.open) await refresh();
+}
+
+export async function refreshAfterStartup(): Promise<void> {
+  if (!refreshAfterInitialize) return;
+  refreshAfterInitialize = false;
+  await refreshPersistedView();
 }

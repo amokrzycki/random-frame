@@ -1,7 +1,7 @@
 //! Pairing and monotonic merge. No UI or frame fetching lives here.
 
 use crate::{
-    persistence::{save_json, SeenStore},
+    persistence::{save_json, FavoriteStore, HistoryStore, SeenStore},
     secure_storage::{SecretStore, StorageError},
     snapshot,
     sync_crypto::{RootSecret, SyncKeys},
@@ -16,6 +16,7 @@ use std::{
 use tokio::sync::Mutex as AsyncMutex;
 
 const MAX_CAS_ATTEMPTS: usize = 3;
+type Generation = (u64, u64, u64);
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -144,21 +145,32 @@ pub struct CreateSyncResult {
 
 pub struct SyncEngine<S: SecretStore> {
     seen: Arc<SeenStore>,
+    history: Arc<HistoryStore>,
+    favorites: Arc<FavoriteStore>,
     secret: S,
     transport: Option<SyncTransport>,
     path: PathBuf,
     operation: AsyncMutex<()>,
     status: Mutex<SyncStatus>,
-    uploaded_generation: Mutex<Option<u64>>,
+    uploaded_generation: Mutex<Option<Generation>>,
 }
 
 impl<S: SecretStore> SyncEngine<S> {
-    pub fn new(directory: &Path, seen: Arc<SeenStore>, secret: S, endpoint: Option<&str>) -> Self {
+    pub fn new(
+        directory: &Path,
+        seen: Arc<SeenStore>,
+        history: Arc<HistoryStore>,
+        favorites: Arc<FavoriteStore>,
+        secret: S,
+        endpoint: Option<&str>,
+    ) -> Self {
         let transport = endpoint.and_then(|value| SyncTransport::new(value).ok());
         let path = directory.join("sync-config.json");
         let config = load_config(&path).ok().flatten();
         Self {
             seen,
+            history,
+            favorites,
             secret,
             transport,
             path,
@@ -176,6 +188,29 @@ impl<S: SecretStore> SyncEngine<S> {
             }),
             uploaded_generation: Mutex::new(None),
         }
+    }
+
+    fn local_snapshot(&self) -> Result<(Vec<u8>, Generation), SyncError> {
+        let seen = self.seen.snapshot_with_generation();
+        let history = &self.history;
+        let favorites = &self.favorites;
+        let ((mut history_ops, mut history_removed), history_generation) =
+            history.sync_state_with_generation();
+        let ((mut favorite_ops, mut favorite_removed), favorites_generation) =
+            favorites.sync_state_with_generation();
+        history_ops.sort_by_key(|op| op.operation_id);
+        history_removed.sort_unstable();
+        favorite_ops.sort_by_key(|op| op.operation_id);
+        favorite_removed.sort_unstable();
+        let bytes = snapshot::serialize_snapshot(&snapshot::SyncSnapshot {
+            seen: seen.0,
+            history: history_ops,
+            history_removed,
+            favorites: favorite_ops,
+            favorites_removed: favorite_removed,
+        })
+        .map_err(|_| SyncError::Persistence)?;
+        Ok((bytes, (seen.1, history_generation, favorites_generation)))
     }
 
     fn transport(&self) -> Result<&SyncTransport, SyncError> {
@@ -201,8 +236,19 @@ impl<S: SecretStore> SyncEngine<S> {
             .uploaded_generation
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        status.dirty = uploaded.map_or(true, |generation| self.seen.generation() != generation);
+        status.dirty = uploaded.map_or(true, |generation| {
+            let local = self.local_generation();
+            local != generation
+        });
         status
+    }
+
+    fn local_generation(&self) -> Generation {
+        (
+            self.seen.generation(),
+            self.history.generation(),
+            self.favorites.generation(),
+        )
     }
 
     fn set_state(&self, state: SyncState, error: Option<&SyncError>, revision: Option<i64>) {
@@ -271,10 +317,7 @@ impl<S: SecretStore> SyncEngine<S> {
     async fn create_inner(&self) -> Result<CreateSyncResult, SyncError> {
         let root = RootSecret::generate();
         let keys = root.derive();
-        let (snapshot, generation) = self
-            .seen
-            .snapshot_with_generation()
-            .map_err(|_| SyncError::Persistence)?;
+        let (snapshot, generation) = self.local_snapshot()?;
         let envelope = keys
             .encrypt_snapshot(&snapshot)
             .map_err(|_| SyncError::InvalidRemoteData)?;
@@ -440,8 +483,17 @@ impl<S: SecretStore> SyncEngine<S> {
         let plaintext = keys
             .decrypt_snapshot(keys.sync_id(), envelope)
             .map_err(|_| SyncError::InvalidRemoteData)?;
-        let ids = snapshot::parse_snapshot(&plaintext).map_err(|_| SyncError::InvalidRemoteData)?;
-        self.seen.merge(ids).map_err(|_| SyncError::Persistence)?;
+        let remote =
+            snapshot::parse_snapshot(&plaintext).map_err(|_| SyncError::InvalidRemoteData)?;
+        self.seen
+            .merge(remote.seen)
+            .map_err(|_| SyncError::Persistence)?;
+        self.history
+            .merge_sync_state((remote.history, remote.history_removed))
+            .map_err(|_| SyncError::Persistence)?;
+        self.favorites
+            .merge_sync_state((remote.favorites, remote.favorites_removed))
+            .map_err(|_| SyncError::Persistence)?;
         Ok(())
     }
 
@@ -450,12 +502,9 @@ impl<S: SecretStore> SyncEngine<S> {
         keys: &SyncKeys,
         mut revision: i64,
         mut config: Option<&mut SyncLocalConfig>,
-    ) -> Result<(i64, u64), SyncError> {
+    ) -> Result<(i64, Generation), SyncError> {
         for attempt in 0..MAX_CAS_ATTEMPTS {
-            let (snapshot, generation) = self
-                .seen
-                .snapshot_with_generation()
-                .map_err(|_| SyncError::Persistence)?;
+            let (snapshot, generation) = self.local_snapshot()?;
             let envelope = keys
                 .encrypt_snapshot(&snapshot)
                 .map_err(|_| SyncError::InvalidRemoteData)?;
@@ -615,6 +664,7 @@ mod tests {
         reason = "small deterministic HTTP test fixture"
     )]
     use super::*;
+    use crate::persistence::{FavoriteItem, HistoryItem};
     use crate::sync_transport::MAX_ENVELOPE;
     use std::sync::atomic::{AtomicBool, Ordering};
     use tokio::{
@@ -667,6 +717,7 @@ mod tests {
         fail_next_update: bool,
         fail_next_create: bool,
         insert_on_update: Option<(Arc<SeenStore>, u64)>,
+        history_on_update: Option<(Arc<HistoryStore>, HistoryItem)>,
         malformed_etag: bool,
         omit_etag: bool,
         rate_limit_next_get: bool,
@@ -804,6 +855,9 @@ mod tests {
                                     if let Some((seen, id)) = state.insert_on_update.take() {
                                         let _ = seen.insert(id);
                                     }
+                                    if let Some((history, item)) = state.history_on_update.take() {
+                                        let _ = history.record(item);
+                                    }
                                     (204, Some(format!("\"{}\"", state.revision)), Vec::new())
                                 }
                             } else {
@@ -840,7 +894,16 @@ mod tests {
         secret: MemorySecret,
     ) -> Result<SyncEngine<MemorySecret>, SyncError> {
         let seen = Arc::new(SeenStore::new(path).map_err(|_| SyncError::Persistence)?);
-        Ok(SyncEngine::new(path, seen, secret, Some(url)))
+        let history = Arc::new(HistoryStore::new(path).map_err(|_| SyncError::Persistence)?);
+        let favorites = Arc::new(FavoriteStore::new(path).map_err(|_| SyncError::Persistence)?);
+        Ok(SyncEngine::new(
+            path,
+            seen,
+            history,
+            favorites,
+            secret,
+            Some(url),
+        ))
     }
 
     #[tokio::test]
@@ -892,7 +955,7 @@ mod tests {
         let keys = a_secret.load().await?.derive();
         let remote = keys.decrypt_snapshot(keys.sync_id(), &envelope)?;
         assert_eq!(
-            snapshot::parse_snapshot(&remote)?,
+            snapshot::parse_snapshot(&remote)?.seen,
             (1..=7).collect::<Vec<_>>()
         );
         b.leave().await?;
@@ -902,6 +965,85 @@ mod tests {
         task.abort();
         fs::remove_dir_all(a_path)?;
         fs::remove_dir_all(b_path)?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn devices_converge_history_and_favorites() -> Result<(), Box<dyn std::error::Error>> {
+        let (url, server, task) = server().await?;
+        let a_path = directory("v2-a");
+        let b_path = directory("v2-b");
+        let make = |path: &Path,
+                    secret: MemorySecret|
+         -> Result<
+            (
+                SyncEngine<MemorySecret>,
+                Arc<HistoryStore>,
+                Arc<FavoriteStore>,
+            ),
+            SyncError,
+        > {
+            let seen = Arc::new(SeenStore::new(path).map_err(|_| SyncError::Persistence)?);
+            let history = Arc::new(HistoryStore::new(path).map_err(|_| SyncError::Persistence)?);
+            let favorites = Arc::new(FavoriteStore::new(path).map_err(|_| SyncError::Persistence)?);
+            let engine = SyncEngine::new(
+                path,
+                seen,
+                Arc::clone(&history),
+                Arc::clone(&favorites),
+                secret,
+                Some(&url),
+            );
+            Ok((engine, history, favorites))
+        };
+        let (a, a_history, a_favorites) = make(&a_path, MemorySecret::default())?;
+        let (b, b_history, b_favorites) = make(&b_path, MemorySecret::default())?;
+        a_history.record(HistoryItem {
+            source: "prntsc".into(),
+            id: "a".into(),
+            source_page_url: "https://prnt.sc/a".into(),
+            viewed_at: 1,
+        })?;
+        b_history.record(HistoryItem {
+            source: "prntsc".into(),
+            id: "b".into(),
+            source_page_url: "https://prnt.sc/b".into(),
+            viewed_at: 2,
+        })?;
+        a_favorites.toggle(FavoriteItem {
+            source: "prntsc".into(),
+            id: "a".into(),
+            source_page_url: "https://prnt.sc/a".into(),
+            added_at: 1,
+        })?;
+        b_favorites.toggle(FavoriteItem {
+            source: "prntsc".into(),
+            id: "b".into(),
+            source_page_url: "https://prnt.sc/b".into(),
+            added_at: 2,
+        })?;
+        let created = a.create().await?;
+        b.join(&created.recovery_key).await?;
+        a.sync_now().await?;
+        let a_ids = a_history
+            .snapshot()
+            .history
+            .iter()
+            .map(|item| item.id.clone())
+            .collect::<Vec<_>>();
+        let b_ids = b_history
+            .snapshot()
+            .history
+            .iter()
+            .map(|item| item.id.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(a_ids, b_ids);
+        assert_eq!(a_favorites.snapshot().len(), 2);
+        assert_eq!(b_favorites.snapshot().len(), 2);
+        task.abort();
+        fs::remove_dir_all(a_path)?;
+        fs::remove_dir_all(b_path)?;
+        let _ = server;
         Ok(())
     }
 
@@ -980,7 +1122,7 @@ mod tests {
             .await?;
         assert_eq!(revision, 5);
         assert_eq!(
-            snapshot::parse_snapshot(&keys.decrypt_snapshot(keys.sync_id(), &envelope)?)?,
+            snapshot::parse_snapshot(&keys.decrypt_snapshot(keys.sync_id(), &envelope)?)?.seen,
             vec![101, 202, 303, 404]
         );
 
@@ -1005,7 +1147,7 @@ mod tests {
             .await?;
         assert_eq!(revision, 8);
         assert_eq!(
-            snapshot::parse_snapshot(&keys.decrypt_snapshot(keys.sync_id(), &envelope)?)?,
+            snapshot::parse_snapshot(&keys.decrypt_snapshot(keys.sync_id(), &envelope)?)?.seen,
             vec![101, 202, 303, 404, 505, 606]
         );
         drop(server);
@@ -1093,7 +1235,7 @@ mod tests {
             .await?;
         assert_eq!(revision, 5);
         assert_eq!(
-            snapshot::parse_snapshot(&keys.decrypt_snapshot(keys.sync_id(), &envelope)?)?,
+            snapshot::parse_snapshot(&keys.decrypt_snapshot(keys.sync_id(), &envelope)?)?.seen,
             vec![101, 202, 303, 404]
         );
 
@@ -1130,7 +1272,7 @@ mod tests {
         assert_eq!(revision, 8);
         let expected = vec![101, 202, 303, 404, 505, 606];
         assert_eq!(
-            snapshot::parse_snapshot(&keys.decrypt_snapshot(keys.sync_id(), &envelope)?)?,
+            snapshot::parse_snapshot(&keys.decrypt_snapshot(keys.sync_id(), &envelope)?)?.seen,
             expected
         );
         for id in expected {
@@ -1172,9 +1314,11 @@ mod tests {
             Some(10)
         );
         let keys = engine.secret.load().await?.derive();
-        let valid = keys.encrypt_snapshot(&snapshot::serialize_snapshot(
-            &std::collections::HashSet::from([1, 2]),
-        )?)?;
+        let valid =
+            keys.encrypt_snapshot(&snapshot::serialize_snapshot(&snapshot::SyncSnapshot {
+                seen: vec![1, 2],
+                ..snapshot::SyncSnapshot::default()
+            })?)?;
         {
             let mut state = server
                 .lock()
@@ -1360,15 +1504,39 @@ mod tests {
         let engine = device(&path, &url, MemorySecret::default())?;
         engine.seen.insert(1)?;
         engine.create().await?;
-        server
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert_on_update = Some((Arc::clone(&engine.seen), 2));
+        {
+            let mut fixture = server
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            fixture.insert_on_update = Some((Arc::clone(&engine.seen), 2));
+            fixture.history_on_update = Some((
+                Arc::clone(&engine.history),
+                HistoryItem {
+                    source: "prntsc".into(),
+                    id: "abc123".into(),
+                    source_page_url: "https://prnt.sc/abc123".into(),
+                    viewed_at: 42,
+                },
+            ));
+        }
         let status = engine.sync_now().await?;
         assert!(status.dirty);
         assert!(engine.seen.contains(2));
+        assert_eq!(engine.history.snapshot().history.len(), 1);
         engine.sync_now().await?;
         assert!(!engine.status().await?.dirty);
+        let envelope = server
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .envelope
+            .clone();
+        let keys = engine.secret.load().await?.derive();
+        assert_eq!(
+            snapshot::parse_snapshot(&keys.decrypt_snapshot(keys.sync_id(), &envelope)?)?
+                .history
+                .len(),
+            1
+        );
         task.abort();
         engine.seen.insert(3)?;
         assert_eq!(engine.sync_now().await.err(), Some(SyncError::Offline));

@@ -1,13 +1,17 @@
 use crate::error::AppError;
-use crate::snapshot::{self, SnapshotError};
+use crate::snapshot;
 use chrono::{DateTime, Local, NaiveDate, TimeZone};
+use rand::{rngs::OsRng, RngCore};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Mutex,
+    },
 };
 
 /// Reads a JSON store, recovering a `.json.tmp` left by a save interrupted before its rename.
@@ -90,8 +94,46 @@ pub struct HistoryItem {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 struct HistoryData {
+    #[serde(default = "schema_v2")]
+    version: u8,
     history: Vec<HistoryItem>,
     index: Option<usize>,
+    #[serde(default)]
+    history_ops: Vec<HistoryOp>,
+    #[serde(default)]
+    removed_history_ops: Vec<[u8; 16]>,
+    #[serde(default)]
+    local_views: HashMap<String, u64>,
+}
+
+fn schema_v2() -> u8 {
+    2
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct HistoryOp {
+    operation_id: [u8; 16],
+    order_at: u64,
+    viewed_at: u64,
+    source: String,
+    id: String,
+    source_page_url: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+struct FavoriteData {
+    version: u8,
+    favorites: Vec<FavoriteOp>,
+    removed: Vec<[u8; 16]>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct FavoriteOp {
+    operation_id: [u8; 16],
+    added_at: u64,
+    source: String,
+    id: String,
+    source_page_url: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -101,19 +143,46 @@ pub struct HistorySnapshot {
     pub index: i64,
 }
 
+pub type HistorySyncState = (Vec<crate::snapshot::SyncRecord>, Vec<[u8; 16]>);
+pub type FavoriteSyncState = (Vec<crate::snapshot::FavoriteRecord>, Vec<[u8; 16]>);
+
 pub struct HistoryStore {
     path: PathBuf,
     data: Mutex<HistoryData>,
+    generation: AtomicU64,
 }
 
 impl HistoryStore {
     pub fn new(directory: &Path) -> Result<Self, AppError> {
         fs::create_dir_all(directory).map_err(AppError::persistence)?;
         let path = directory.join("history.json");
-        let data = load_json(&path)?;
+        let mut data: HistoryData = load_json(&path)?;
+        if data.version != 2 || (data.history_ops.is_empty() && !data.history.is_empty()) {
+            data.version = 2;
+            data.history_ops = data
+                .history
+                .iter()
+                .enumerate()
+                .map(|(index, item)| HistoryOp {
+                    operation_id: operation_id(),
+                    order_at: index as u64,
+                    viewed_at: item.viewed_at,
+                    source: item.source.clone(),
+                    id: item.id.clone(),
+                    source_page_url: item.source_page_url.clone(),
+                })
+                .collect();
+            data.local_views = data
+                .history
+                .iter()
+                .map(|item| (history_key(item), item.viewed_at))
+                .collect();
+            save_json(&path, &data)?;
+        }
         Ok(Self {
             path,
             data: Mutex::new(data),
+            generation: AtomicU64::new(0),
         })
     }
 
@@ -126,25 +195,76 @@ impl HistoryStore {
         )
     }
 
+    pub fn sync_state_with_generation(&self) -> (HistorySyncState, u64) {
+        let data = self
+            .data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let state = (
+            data.history_ops
+                .iter()
+                .map(|op| crate::snapshot::SyncRecord {
+                    operation_id: op.operation_id,
+                    first_at: op.order_at,
+                    second_at: op.viewed_at,
+                    source: op.source.clone(),
+                    id: op.id.clone(),
+                    source_page_url: op.source_page_url.clone(),
+                })
+                .collect(),
+            data.removed_history_ops.clone(),
+        );
+        (state, self.generation.load(Ordering::Relaxed))
+    }
+
+    #[cfg(test)]
+    pub fn sync_state(&self) -> HistorySyncState {
+        self.sync_state_with_generation().0
+    }
+
     pub fn record(&self, item: HistoryItem) -> Result<HistorySnapshot, AppError> {
         let mut data = self
             .data
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut next = data.clone();
+        next.version = 2;
         let index = next
             .history
             .iter()
             .position(|saved| saved.source == item.source && saved.id == item.id);
         next.index = Some(if let Some(index) = index {
             next.history[index].viewed_at = item.viewed_at;
+            if let Some(op) = next.history_ops.iter_mut().find(|op| {
+                op.source == item.source
+                    && op.id == item.id
+                    && !next.removed_history_ops.contains(&op.operation_id)
+            }) {
+                op.viewed_at = op.viewed_at.max(item.viewed_at);
+            }
             index
         } else {
             next.history.push(item);
+            let item = next.history.last().expect("pushed history item");
+            next.history_ops.push(HistoryOp {
+                operation_id: operation_id(),
+                order_at: next.history_ops.len() as u64,
+                viewed_at: item.viewed_at,
+                source: item.source.clone(),
+                id: item.id.clone(),
+                source_page_url: item.source_page_url.clone(),
+            });
             next.history.len() - 1
         });
+        if let Some(index) = next.index {
+            next.local_views.insert(
+                history_key(&next.history[index]),
+                next.history[index].viewed_at,
+            );
+        }
         self.save(&next)?;
         *data = next;
+        self.generation.fetch_add(1, Ordering::Relaxed);
         let result = snapshot(&data);
         drop(data);
         Ok(result)
@@ -192,9 +312,17 @@ impl HistoryStore {
             .data
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let next = HistoryData::default();
+        let mut next = data.clone();
+        next.removed_history_ops
+            .extend(next.history_ops.iter().map(|op| op.operation_id));
+        next.history.clear();
+        next.history_ops.clear();
+        next.local_views.clear();
+        next.index = None;
+        next.version = 2;
         self.save(&next)?;
         *data = next;
+        self.generation.fetch_add(1, Ordering::Relaxed);
         drop(data);
         Ok(())
     }
@@ -202,6 +330,103 @@ impl HistoryStore {
     fn save(&self, data: &HistoryData) -> Result<(), AppError> {
         save_json(&self.path, data)
     }
+
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Relaxed)
+    }
+
+    pub fn merge_sync_state(&self, incoming: HistorySyncState) -> Result<(), AppError> {
+        let mut data = self
+            .data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut next = data.clone();
+        for op in incoming.0 {
+            if let Some(existing) = next
+                .history_ops
+                .iter()
+                .find(|saved| saved.operation_id == op.operation_id)
+            {
+                if existing.source != op.source
+                    || existing.id != op.id
+                    || existing.source_page_url != op.source_page_url
+                    || existing.order_at != op.first_at
+                {
+                    return Err(AppError::persistence("Conflicting history operation"));
+                }
+            } else {
+                next.history_ops.push(HistoryOp {
+                    operation_id: op.operation_id,
+                    order_at: op.first_at,
+                    viewed_at: op.second_at,
+                    source: op.source,
+                    id: op.id,
+                    source_page_url: op.source_page_url,
+                });
+            }
+        }
+        next.removed_history_ops.extend(incoming.1);
+        next.removed_history_ops.sort_unstable();
+        next.removed_history_ops.dedup();
+        next.history_ops
+            .retain(|op| !next.removed_history_ops.contains(&op.operation_id));
+        next.history_ops
+            .sort_by_key(|op| (op.order_at, op.operation_id));
+        next.history = project_history(&next.history_ops);
+        next.index = next.index.filter(|index| *index < next.history.len());
+        self.save(&next)?;
+        *data = next;
+        self.generation.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+}
+
+fn operation_id() -> [u8; 16] {
+    let mut id = [0; 16];
+    OsRng.fill_bytes(&mut id);
+    id
+}
+
+fn history_key(item: &HistoryItem) -> String {
+    format!("{}\0{}", item.source, item.id)
+}
+
+fn project_history(ops: &[HistoryOp]) -> Vec<HistoryItem> {
+    let mut result = Vec::new();
+    for op in ops {
+        if let Some(item) = result
+            .iter_mut()
+            .find(|item: &&mut HistoryItem| item.source == op.source && item.id == op.id)
+        {
+            item.viewed_at = item.viewed_at.max(op.viewed_at);
+        } else {
+            result.push(HistoryItem {
+                source: op.source.clone(),
+                id: op.id.clone(),
+                source_page_url: op.source_page_url.clone(),
+                viewed_at: op.viewed_at,
+            });
+        }
+    }
+    result
+}
+
+fn favorite_projection(data: &FavoriteData) -> Vec<FavoriteItem> {
+    let mut items: Vec<_> = data
+        .favorites
+        .iter()
+        .filter(|item| !data.removed.contains(&item.operation_id))
+        .collect();
+    items.sort_by_key(|item| (item.added_at, item.operation_id));
+    items
+        .into_iter()
+        .map(|item| FavoriteItem {
+            source: item.source.clone(),
+            id: item.id.clone(),
+            source_page_url: item.source_page_url.clone(),
+            added_at: item.added_at,
+        })
+        .collect()
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -216,25 +441,128 @@ pub struct FavoriteItem {
 /// Frames the visitor starred, kept apart from history so clearing history never drops them.
 pub struct FavoriteStore {
     path: PathBuf,
-    data: Mutex<Vec<FavoriteItem>>,
+    data: Mutex<FavoriteData>,
+    generation: AtomicU64,
 }
 
 impl FavoriteStore {
     pub fn new(directory: &Path) -> Result<Self, AppError> {
         fs::create_dir_all(directory).map_err(AppError::persistence)?;
         let path = directory.join("favorites.json");
-        let data = load_json(&path)?;
+        let value: serde_json::Value = load_json(&path)?;
+        let data = if value.is_null() {
+            FavoriteData {
+                version: 2,
+                favorites: Vec::new(),
+                removed: Vec::new(),
+            }
+        } else if value.is_array() {
+            let old: Vec<FavoriteItem> =
+                serde_json::from_value(value).map_err(AppError::persistence)?;
+            FavoriteData {
+                version: 2,
+                favorites: old
+                    .into_iter()
+                    .enumerate()
+                    .map(|(_, item)| FavoriteOp {
+                        operation_id: operation_id(),
+                        added_at: item.added_at,
+                        source: item.source,
+                        id: item.id,
+                        source_page_url: item.source_page_url,
+                    })
+                    .collect(),
+                removed: Vec::new(),
+            }
+        } else {
+            serde_json::from_value(value).map_err(AppError::persistence)?
+        };
+        if data.version != 2 {
+            return Err(AppError::persistence("Unsupported favorites schema"));
+        }
+        save_json(&path, &data)?;
         Ok(Self {
             path,
             data: Mutex::new(data),
+            generation: AtomicU64::new(0),
         })
     }
 
     pub fn snapshot(&self) -> Vec<FavoriteItem> {
-        self.data
+        favorite_projection(
+            &self
+                .data
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        )
+    }
+
+    pub fn sync_state_with_generation(&self) -> (FavoriteSyncState, u64) {
+        let data = self
+            .data
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let state = (
+            data.favorites
+                .iter()
+                .map(|op| crate::snapshot::FavoriteRecord {
+                    operation_id: op.operation_id,
+                    added_at: op.added_at,
+                    source: op.source.clone(),
+                    id: op.id.clone(),
+                    source_page_url: op.source_page_url.clone(),
+                })
+                .collect(),
+            data.removed.clone(),
+        );
+        (state, self.generation.load(Ordering::Relaxed))
+    }
+
+    #[cfg(test)]
+    pub fn sync_state(&self) -> FavoriteSyncState {
+        self.sync_state_with_generation().0
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Relaxed)
+    }
+
+    pub fn merge_sync_state(&self, incoming: FavoriteSyncState) -> Result<(), AppError> {
+        let mut data = self
+            .data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut next = data.clone();
+        for op in incoming.0 {
+            if let Some(existing) = next
+                .favorites
+                .iter()
+                .find(|saved| saved.operation_id == op.operation_id)
+            {
+                if existing.source != op.source
+                    || existing.id != op.id
+                    || existing.source_page_url != op.source_page_url
+                    || existing.added_at != op.added_at
+                {
+                    return Err(AppError::persistence("Conflicting favorite operation"));
+                }
+            } else {
+                next.favorites.push(FavoriteOp {
+                    operation_id: op.operation_id,
+                    added_at: op.added_at,
+                    source: op.source,
+                    id: op.id,
+                    source_page_url: op.source_page_url,
+                });
+            }
+        }
+        next.removed.extend(incoming.1);
+        next.removed.sort_unstable();
+        next.removed.dedup();
+        save_json(&self.path, &next)?;
+        *data = next;
+        self.generation.fetch_add(1, Ordering::Relaxed);
+        Ok(())
     }
 
     /// Adds the frame, or removes it when its `(source, id)` is already a favorite.
@@ -244,17 +572,25 @@ impl FavoriteStore {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut next = data.clone();
-        if let Some(index) = next
-            .iter()
-            .position(|saved| saved.source == item.source && saved.id == item.id)
-        {
-            next.remove(index);
+        if let Some(op) = next.favorites.iter().find(|saved| {
+            saved.source == item.source
+                && saved.id == item.id
+                && !next.removed.contains(&saved.operation_id)
+        }) {
+            next.removed.push(op.operation_id);
         } else {
-            next.push(item);
+            next.favorites.push(FavoriteOp {
+                operation_id: operation_id(),
+                added_at: item.added_at,
+                source: item.source,
+                id: item.id,
+                source_page_url: item.source_page_url,
+            });
         }
         save_json(&self.path, &next)?;
         *data = next;
-        let result = data.clone();
+        self.generation.fetch_add(1, Ordering::Relaxed);
+        let result = favorite_projection(&data);
         drop(data);
         Ok(result)
     }
@@ -264,8 +600,13 @@ impl FavoriteStore {
             .data
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        save_json(&self.path, &Vec::<FavoriteItem>::new())?;
-        data.clear();
+        let mut next = data.clone();
+        next.removed
+            .extend(next.favorites.iter().map(|item| item.operation_id));
+        next.favorites.clear();
+        save_json(&self.path, &next)?;
+        *data = next;
+        self.generation.fetch_add(1, Ordering::Relaxed);
         drop(data);
         Ok(())
     }
@@ -529,42 +870,19 @@ impl SeenStore {
         Ok(true)
     }
 
-    #[allow(
-        dead_code,
-        reason = "snapshot export is consumed by a later sync stage"
-    )]
-    pub fn serialize_snapshot(&self) -> Result<Vec<u8>, SnapshotError> {
-        // ponytail: sorting under this lock pauses draws; shorten the lock if large stores cause UI stalls.
+    pub fn snapshot_with_generation(&self) -> (Vec<u64>, u64) {
         let ids = self
             .ids
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        snapshot::serialize_snapshot(&ids)
-    }
-
-    pub fn snapshot_with_generation(&self) -> Result<(Vec<u8>, u64), SnapshotError> {
-        let ids = self
-            .ids
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let bytes = snapshot::serialize_snapshot(&ids)?;
+        let mut sorted: Vec<_> = ids.iter().copied().collect();
+        sorted.sort_unstable();
         let generation = self.generation.load(std::sync::atomic::Ordering::Relaxed);
-        drop(ids);
-        Ok((bytes, generation))
+        (sorted, generation)
     }
 
     pub fn generation(&self) -> u64 {
         self.generation.load(std::sync::atomic::Ordering::Relaxed)
-    }
-
-    #[allow(
-        dead_code,
-        reason = "snapshot import is consumed by a later sync stage"
-    )]
-    pub fn merge_snapshot(&self, bytes: &[u8]) -> Result<usize, AppError> {
-        let incoming = snapshot::parse_snapshot(bytes)
-            .map_err(|error| AppError::invalid_input(error.to_string()))?;
-        self.merge(incoming)
     }
 
     pub fn merge(&self, incoming: impl IntoIterator<Item = u64>) -> Result<usize, AppError> {
@@ -832,6 +1150,7 @@ mod tests {
 
         let reloaded = HistoryStore::new(&directory)?;
         assert_eq!(reloaded.snapshot().history[0].id, "abc123");
+        assert_eq!(reloaded.sync_state().0.len(), 1);
         reloaded.record(HistoryItem {
             source: "prntsc".to_owned(),
             id: "abc123".to_owned(),
@@ -839,6 +1158,7 @@ mod tests {
             viewed_at: 84,
         })?;
         assert_eq!(reloaded.snapshot().history.len(), 1);
+        assert_eq!(reloaded.sync_state().0.len(), 1);
         assert_eq!(reloaded.snapshot().history[0].viewed_at, 84);
         reloaded.clear()?;
         assert!(HistoryStore::new(&directory)?.snapshot().history.is_empty());
@@ -916,52 +1236,43 @@ mod tests {
         let directory = test_directory("snapshot-merge");
         let local = SeenStore::new(&directory)?;
         local.insert(1)?;
-        let incoming_directory = test_directory("snapshot-incoming");
-        let incoming = SeenStore::new(&incoming_directory)?;
-        incoming.merge([2, 3])?;
-        let bytes = incoming
-            .serialize_snapshot()
-            .map_err(AppError::persistence)?;
+        let bytes = snapshot::serialize_snapshot(&snapshot::SyncSnapshot {
+            seen: vec![2, 3],
+            ..snapshot::SyncSnapshot::default()
+        })
+        .map_err(AppError::persistence)?;
 
         let mut corrupt = bytes.clone();
         corrupt.extend_from_slice(&4_u64.to_le_bytes());
-        assert!(local.merge_snapshot(&corrupt).is_err());
+        assert!(snapshot::parse_snapshot(&corrupt).is_err());
         let mut invalid_last = bytes.clone();
-        invalid_last[24..32]
+        invalid_last[40..48]
             .copy_from_slice(&(crate::sources::prntsc::LEGACY_MAX_VALUE + 1).to_le_bytes());
-        assert!(local.merge_snapshot(&invalid_last).is_err());
+        assert!(snapshot::parse_snapshot(&invalid_last).is_err());
         assert!(local.contains(1));
         assert!(!local.contains(2));
-        assert_eq!(local.merge_snapshot(&bytes)?, 2);
-        assert_eq!(local.merge_snapshot(&bytes)?, 0);
-        assert_eq!(
-            local.merge_snapshot(
-                &snapshot::serialize_snapshot(&HashSet::new()).map_err(AppError::persistence)?
-            )?,
-            0
-        );
-        assert_eq!(
-            local.merge_snapshot(
-                &snapshot::serialize_snapshot(&HashSet::from([2_u64]))
-                    .map_err(AppError::persistence)?
-            )?,
-            0
-        );
+        let incoming = snapshot::parse_snapshot(&bytes)
+            .map_err(AppError::persistence)?
+            .seen;
+        assert_eq!(local.merge(incoming.clone())?, 2);
+        assert_eq!(local.merge(incoming)?, 0);
+        assert_eq!(local.merge([])?, 0);
+        assert_eq!(local.merge([2])?, 0);
         drop(local);
         let reloaded = SeenStore::new(&directory)?;
-        assert_eq!(
-            reloaded
-                .serialize_snapshot()
-                .map_err(AppError::persistence)?,
-            snapshot::serialize_snapshot(&HashSet::from([1, 2, 3]))
-                .map_err(AppError::persistence)?
-        );
+        assert_eq!(reloaded.snapshot_with_generation().0, vec![1, 2, 3]);
         let empty_directory = test_directory("snapshot-empty");
         let empty = SeenStore::new(&empty_directory)?;
-        assert_eq!(empty.merge_snapshot(&bytes)?, 2);
+        assert_eq!(
+            empty.merge(
+                snapshot::parse_snapshot(&bytes)
+                    .map_err(AppError::persistence)?
+                    .seen
+            )?,
+            2
+        );
 
         fs::remove_dir_all(directory).map_err(AppError::persistence)?;
-        fs::remove_dir_all(incoming_directory).map_err(AppError::persistence)?;
         fs::remove_dir_all(empty_directory).map_err(AppError::persistence)
     }
 
@@ -980,10 +1291,18 @@ mod tests {
             let ids: HashSet<_> = (0..count).collect();
 
             let start = Instant::now();
-            let bytes = snapshot::serialize_snapshot(&ids).map_err(AppError::persistence)?;
+            let mut seen: Vec<_> = ids.into_iter().collect();
+            seen.sort_unstable();
+            let bytes = snapshot::serialize_snapshot(&snapshot::SyncSnapshot {
+                seen,
+                ..snapshot::SyncSnapshot::default()
+            })
+            .map_err(AppError::persistence)?;
             let serialize = start.elapsed();
             let start = Instant::now();
-            let parsed = snapshot::parse_snapshot(&bytes).map_err(AppError::persistence)?;
+            let parsed = snapshot::parse_snapshot(&bytes)
+                .map_err(AppError::persistence)?
+                .seen;
             let parse = start.elapsed();
             let start = Instant::now();
             let added = store.merge(parsed)?;
@@ -1172,6 +1491,46 @@ mod tests {
     }
 
     #[test]
+    fn history_and_favorites_sync_merge_is_idempotent_and_preserves_removals(
+    ) -> Result<(), AppError> {
+        let a_dir = test_directory("sync-state-a");
+        let b_dir = test_directory("sync-state-b");
+        let a_history = HistoryStore::new(&a_dir)?;
+        let b_history = HistoryStore::new(&b_dir)?;
+        let a_favorites = FavoriteStore::new(&a_dir)?;
+        let b_favorites = FavoriteStore::new(&b_dir)?;
+        let item = || HistoryItem {
+            source: "prntsc".into(),
+            id: "abc123".into(),
+            source_page_url: "https://prnt.sc/abc123".into(),
+            viewed_at: 42,
+        };
+        a_history.record(item())?;
+        a_favorites.toggle(FavoriteItem {
+            source: "prntsc".into(),
+            id: "abc123".into(),
+            source_page_url: "https://prnt.sc/abc123".into(),
+            added_at: 42,
+        })?;
+        b_history.merge_sync_state(a_history.sync_state())?;
+        b_favorites.merge_sync_state(a_favorites.sync_state())?;
+        assert_eq!(b_history.snapshot().history.len(), 1);
+        assert_eq!(b_favorites.snapshot().len(), 1);
+        b_history.merge_sync_state(a_history.sync_state())?;
+        b_favorites.merge_sync_state(a_favorites.sync_state())?;
+        assert_eq!(b_history.sync_state().0.len(), 1);
+        assert_eq!(b_favorites.sync_state().0.len(), 1);
+        a_history.clear()?;
+        a_favorites.clear()?;
+        b_history.merge_sync_state(a_history.sync_state())?;
+        b_favorites.merge_sync_state(a_favorites.sync_state())?;
+        assert!(b_history.snapshot().history.is_empty());
+        assert!(b_favorites.snapshot().is_empty());
+        fs::remove_dir_all(a_dir).map_err(AppError::persistence)?;
+        fs::remove_dir_all(b_dir).map_err(AppError::persistence)
+    }
+
+    #[test]
     fn failed_history_saves_do_not_change_memory() -> Result<(), AppError> {
         let directory = test_directory("failed-history");
         fs::write(&directory, []).map_err(AppError::persistence)?;
@@ -1184,6 +1543,7 @@ mod tests {
         let store = HistoryStore {
             path: directory.join("history.json"),
             data: Mutex::new(HistoryData::default()),
+            generation: AtomicU64::new(0),
         };
 
         assert!(store.record(item.clone()).is_err());
@@ -1195,6 +1555,7 @@ mod tests {
             .unwrap_or_else(std::sync::PoisonError::into_inner) = HistoryData {
             history: vec![item],
             index: None,
+            ..HistoryData::default()
         };
         assert!(store.select(0).is_err());
         assert_eq!(store.snapshot().index, -1);

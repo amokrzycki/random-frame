@@ -51,8 +51,8 @@
               Hold to clear
             </button>
             <span class="sr-only" id="history-clear-hint">
-              Clears local history and statistics. Favorites and previously seen frames stay, so clearing history does
-              not reset exploration progress. You can also activate it twice.
+              Removes known shared history after Sync, clears statistics only on this device, and does not reset Seen
+              progress or favorites. Offline entries may arrive later. You can also activate it twice.
             </span>
             <button
               class="history-clear"
@@ -63,7 +63,7 @@
               Hold to clear favorites
             </button>
             <span class="sr-only" id="history-clear-favorites-hint">
-              Clears all favorites. You can also activate it twice.
+              Removes all known shared favorites after Sync. Offline additions may arrive later. You can also activate it twice.
             </span>
             <div class="history-filter">
               <button class="history-filter__option" id="history-filter-all" type="button" aria-pressed="true">
@@ -255,8 +255,8 @@
           <p class="sync-dialog__error" id="sync-error" role="alert" hidden></p>
           <div id="sync-unpaired" hidden>
             <p class="sync-dialog__copy">
-              Carry your seen Prnt.sc progress between devices. Only encrypted seen identifiers are sent; your history
-              and favorites stay on this device.
+              Carry your seen Prnt.sc progress, history, and favorites between devices. Only an encrypted snapshot is
+              sent; settings and statistics stay on this device.
             </p>
             <div class="sync-dialog__actions">
               <button class="primary-action" id="sync-enable" type="button">Enable Sync</button>

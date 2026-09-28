@@ -3,6 +3,8 @@ import type { FavoriteItem } from "./favorites.js";
 import { loadPageSize } from "./history-pagination.js";
 import type { HistoryItem, HistorySnapshot } from "./persistence.js";
 import type { LedgerDay } from "./statistics.js";
+import { getFavorites } from "./favorites.js";
+import { getHistory } from "./persistence.js";
 
 // Single owner of the viewer's cross-cutting runtime state; feature modules read and
 // update the fields relevant to their own responsibility instead of holding copies.
@@ -32,4 +34,11 @@ export function applyFavorites(favorites: FavoriteItem[]): void {
 
 export function isFavorite(frame: { source: string; id: string }): boolean {
   return state.favorites.some((favorite) => favorite.source === frame.source && favorite.id === frame.id);
+}
+
+export async function refreshPersistedView(): Promise<void> {
+  const current = state.index >= 0 ? state.history[state.index] : undefined;
+  const [history, favorites] = await Promise.all([getHistory(), getFavorites()]);
+  applyFavorites(favorites);
+  applyHistory({ ...history, index: current ? history.history.findIndex((item: HistoryItem) => item.source === current.source && item.id === current.id) : -1 });
 }
