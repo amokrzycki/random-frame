@@ -2,6 +2,7 @@ import { closeDialog, onDialogClosed, openDialog } from "./dialogs.js";
 import { elements } from "./elements.js";
 import { syncControls } from "./stage.js";
 import { createSync, getSyncStatus, joinSync, leaveSync, type SyncStatus, startupSync, syncNow } from "./sync-api.js";
+import { toast } from "./toast.js";
 import { refreshPersistedView, state } from "./viewer-state.js";
 
 const errorCopy: Record<string, string> = {
@@ -201,6 +202,7 @@ export function bindSyncDialogEvents(): void {
 export async function runStartupSync(): Promise<void> {
   try {
     status = await startupSync();
+    if (status.paired && status.state === "idle" && !status.dirty) toast.success("Synced");
     if (state.loading) refreshAfterInitialize = true;
     else {
       await refreshPersistedView();
