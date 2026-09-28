@@ -3,9 +3,10 @@
 use crate::sources::prntsc::LEGACY_MAX_VALUE;
 use std::fmt;
 
-pub const MAX_ENTRIES: usize = 2_000_000;
+pub const MAX_ENTRIES: usize = (MAX_PLAINTEXT - 32) / 8;
 pub const MAX_SECTION: usize = 100_000;
-pub const MAX_PLAINTEXT: usize = 16_000_016;
+pub const MAX_PLAINTEXT: usize =
+    crate::sync_transport::MAX_ENVELOPE - crate::sync_crypto::ENVELOPE_OVERHEAD;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SyncRecord {
@@ -43,6 +44,7 @@ pub enum SnapshotError {
     InvalidMagic,
     UnsupportedVersion(u32),
     TooManyEntries,
+    PayloadTooLarge,
     InvalidLength,
     InvalidLegacyId(u64),
     UnsortedOrDuplicate,
@@ -57,6 +59,7 @@ impl fmt::Display for SnapshotError {
                 write!(f, "Unsupported sync snapshot version: {version}")
             }
             Self::TooManyEntries => f.write_str("Too many sync snapshot entries"),
+            Self::PayloadTooLarge => f.write_str("Sync snapshot exceeds payload limit"),
             Self::InvalidLength => f.write_str("Invalid sync snapshot length"),
             Self::InvalidLegacyId(id) => write!(f, "Invalid legacy Prnt.sc seen ID: {id}"),
             Self::UnsortedOrDuplicate => {
@@ -120,15 +123,16 @@ pub fn serialize_snapshot(snapshot: &SyncSnapshot) -> Result<Vec<u8>, SnapshotEr
     for id in &snapshot.favorites_removed {
         out.extend_from_slice(id);
     }
-    if out.len() > MAX_PLAINTEXT {
-        return Err(SnapshotError::InvalidLength);
+    // Sections share the envelope budget, so a large Seen set leaves less room for the rest.
+    if plaintext_too_large(out.len()) {
+        return Err(SnapshotError::PayloadTooLarge);
     }
     Ok(out)
 }
 
 pub fn parse_snapshot(bytes: &[u8]) -> Result<SyncSnapshot, SnapshotError> {
-    if bytes.len() > MAX_PLAINTEXT {
-        return Err(SnapshotError::InvalidLength);
+    if plaintext_too_large(bytes.len()) {
+        return Err(SnapshotError::PayloadTooLarge);
     }
     if bytes.len() < 32 {
         return Err(SnapshotError::TruncatedHeader);
@@ -158,7 +162,10 @@ pub fn parse_snapshot(bytes: &[u8]) -> Result<SyncSnapshot, SnapshotError> {
         ) as usize;
         pos += 4;
     }
-    if counts[0] > MAX_ENTRIES || counts[1..].iter().any(|count| *count > MAX_SECTION) {
+    if counts[0] > MAX_ENTRIES {
+        return Err(SnapshotError::PayloadTooLarge);
+    }
+    if counts[1..].iter().any(|count| *count > MAX_SECTION) {
         return Err(SnapshotError::TooManyEntries);
     }
     let mut result = SyncSnapshot::default();
@@ -186,9 +193,15 @@ pub fn parse_snapshot(bytes: &[u8]) -> Result<SyncSnapshot, SnapshotError> {
     Ok(result)
 }
 
+fn plaintext_too_large(len: usize) -> bool {
+    len > MAX_PLAINTEXT
+}
+
 fn validate_snapshot(value: &SyncSnapshot) -> Result<(), SnapshotError> {
-    if value.seen.len() > MAX_ENTRIES
-        || value.history.len() > MAX_SECTION
+    if value.seen.len() > MAX_ENTRIES {
+        return Err(SnapshotError::PayloadTooLarge);
+    }
+    if value.history.len() > MAX_SECTION
         || value.history_removed.len() > MAX_SECTION
         || value.favorites.len() > MAX_SECTION
         || value.favorites_removed.len() > MAX_SECTION
@@ -223,15 +236,8 @@ fn validate_snapshot(value: &SyncSnapshot) -> Result<(), SnapshotError> {
     Ok(())
 }
 
-fn validate_fields(source: &str, id: &str, url: &str) -> Result<(), SnapshotError> {
-    if source.is_empty()
-        || source.len() > 32
-        || id.is_empty()
-        || id.len() > 128
-        || url.len() > 2048
-        || !source.is_char_boundary(source.len())
-        || !id.is_char_boundary(id.len())
-        || !url.is_char_boundary(url.len())
+pub(crate) fn validate_fields(source: &str, id: &str, url: &str) -> Result<(), SnapshotError> {
+    if source.is_empty() || source.len() > 32 || id.is_empty() || id.len() > 128 || url.len() > 2048
     {
         return Err(SnapshotError::InvalidLength);
     }
@@ -246,9 +252,6 @@ fn write_record(
     id: &[u8],
     url: &[u8],
 ) -> Result<(), SnapshotError> {
-    if source.len() > 32 || id.is_empty() || id.len() > 128 || url.len() > 2048 {
-        return Err(SnapshotError::InvalidLength);
-    }
     out.extend_from_slice(&op);
     out.extend_from_slice(&a.to_le_bytes());
     out.extend_from_slice(&b.to_le_bytes());
@@ -353,6 +356,35 @@ fn read_favorite_record(bytes: &[u8], pos: &mut usize) -> Result<FavoriteRecord,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plaintext_budget_has_exact_boundary() -> Result<(), std::num::TryFromIntError> {
+        assert_eq!(MAX_PLAINTEXT, 67_108_812);
+        assert!(!plaintext_too_large(MAX_PLAINTEXT));
+        assert!(plaintext_too_large(MAX_PLAINTEXT + 1));
+        assert_eq!(MAX_ENTRIES, 8_388_597);
+        let mut header = [0; 32];
+        header[..8].copy_from_slice(MAGIC);
+        header[8..12].copy_from_slice(&VERSION.to_le_bytes());
+        header[12..16].copy_from_slice(&u32::try_from(MAX_ENTRIES + 1)?.to_le_bytes());
+        assert_eq!(parse_snapshot(&header), Err(SnapshotError::PayloadTooLarge));
+        header[12..16].fill(0);
+        header[16..20].copy_from_slice(&u32::try_from(MAX_SECTION + 1)?.to_le_bytes());
+        assert_eq!(parse_snapshot(&header), Err(SnapshotError::TooManyEntries));
+        Ok(())
+    }
+
+    #[test]
+    fn snapshot_above_the_old_seen_limit_roundtrips() -> Result<(), SnapshotError> {
+        let snapshot = SyncSnapshot {
+            seen: (0..=2_000_000).collect(),
+            ..SyncSnapshot::default()
+        };
+        let bytes = serialize_snapshot(&snapshot)?;
+        assert_eq!(bytes.len(), 32 + 2_000_001 * 8);
+        assert_eq!(parse_snapshot(&bytes)?, snapshot);
+        Ok(())
+    }
 
     #[test]
     fn snapshot_roundtrip_is_canonical_and_rejects_unsorted_operations() -> Result<(), SnapshotError>

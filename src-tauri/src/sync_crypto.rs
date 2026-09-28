@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use std::fmt;
 use zeroize::Zeroizing;
 
-use crate::snapshot::{self, MAX_PLAINTEXT};
+use crate::{snapshot, sync_transport::MAX_ENVELOPE};
 
 const ENCRYPTION_LABEL: &[u8] = b"random-frame/sync/v1/encryption";
 const AUTH_LABEL: &[u8] = b"random-frame/sync/v1/auth";
@@ -20,7 +20,7 @@ const ENVELOPE_MAGIC: &[u8; 8] = b"RFSYNC\0\0";
 const ENVELOPE_VERSION: u32 = 1;
 const HEADER_LEN: usize = 8 + 4 + 24;
 const TAG_LEN: usize = 16;
-const MAX_SNAPSHOT_LEN: usize = MAX_PLAINTEXT;
+pub(crate) const ENVELOPE_OVERHEAD: usize = HEADER_LEN + TAG_LEN;
 
 pub struct RootSecret(Zeroizing<[u8; 32]>);
 
@@ -155,9 +155,7 @@ impl SyncKeys {
         if expected_sync_id != self.sync_id {
             return Err(CryptoError::InvalidEnvelope);
         }
-        if envelope.len() < HEADER_LEN + TAG_LEN
-            || envelope.len() > HEADER_LEN + TAG_LEN + MAX_SNAPSHOT_LEN
-        {
+        if envelope.len() < ENVELOPE_OVERHEAD || envelope.len() > MAX_ENVELOPE {
             return Err(CryptoError::InvalidEnvelope);
         }
         if &envelope[..8] != ENVELOPE_MAGIC
@@ -254,6 +252,14 @@ mod tests {
     fn fixture() -> RootSecret {
         let bytes: Vec<u8> = (0..32).collect();
         RootSecret::from_bytes(&bytes).unwrap_or_else(|_| unreachable!())
+    }
+
+    #[test]
+    fn envelope_overhead_matches_transport_and_plaintext_budget() {
+        assert_eq!(HEADER_LEN, 36);
+        assert_eq!(TAG_LEN, 16);
+        assert_eq!(ENVELOPE_OVERHEAD, 52);
+        assert_eq!(snapshot::MAX_PLAINTEXT + ENVELOPE_OVERHEAD, MAX_ENVELOPE);
     }
 
     fn snapshot() -> Vec<u8> {

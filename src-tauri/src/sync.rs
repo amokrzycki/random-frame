@@ -209,7 +209,10 @@ impl<S: SecretStore> SyncEngine<S> {
             favorites: favorite_ops,
             favorites_removed: favorite_removed,
         })
-        .map_err(|_| SyncError::Persistence)?;
+        .map_err(|error| match error {
+            snapshot::SnapshotError::PayloadTooLarge => SyncError::BodyTooLarge,
+            _ => SyncError::Persistence,
+        })?;
         Ok((bytes, (seen.1, history_generation, favorites_generation)))
     }
 
@@ -787,7 +790,7 @@ mod tests {
                     let token = get("authorization")
                         .and_then(|v| v.strip_prefix("Bearer "))
                         .unwrap_or_default();
-                    let (status, etag, payload) = {
+                    let (status, etag, payload, oversized) = {
                         let mut state = shared
                             .lock()
                             .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -814,11 +817,7 @@ mod tests {
                                 state.rate_limit_next_get = false;
                                 (429, None, Vec::new())
                             } else if method == "GET" {
-                                let payload = if state.oversized {
-                                    vec![0; MAX_ENVELOPE + 1]
-                                } else {
-                                    state.envelope.clone()
-                                };
+                                let payload = state.envelope.clone();
                                 (
                                     200,
                                     if state.omit_etag {
@@ -860,10 +859,14 @@ mod tests {
                             } else {
                                 (405, None, Vec::new())
                             };
-                        drop(state);
-                        (status, etag, payload)
+                        (status, etag, payload, state.oversized && method == "GET")
                     };
-                    let mut response = format!("HTTP/1.1 {status} Test\r\nContent-Length: {}\r\nContent-Type: application/octet-stream\r\nConnection: close\r\n", payload.len());
+                    let content_length = if oversized {
+                        MAX_ENVELOPE + 1
+                    } else {
+                        payload.len()
+                    };
+                    let mut response = format!("HTTP/1.1 {status} Test\r\nContent-Length: {content_length}\r\nContent-Type: application/octet-stream\r\nConnection: close\r\n");
                     if let Some(etag) = etag {
                         use std::fmt::Write;
                         let _ = write!(response, "ETag: {etag}\r\n");
