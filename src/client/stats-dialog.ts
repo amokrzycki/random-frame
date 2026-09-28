@@ -122,12 +122,7 @@ async function loadStats(): Promise<void> {
       exploration.viewable,
       exploration.unavailable,
     );
-    renderLedger(
-      ledgerDays(
-        activity.days,
-        state.history.map((item) => item.viewedAt),
-      ),
-    );
+    renderLedger(ledgerDays(activity.days, activity.localViewTimes));
     delete elements.statsExplored.dataset.state;
     elements.statsError.hidden = true;
     elements.ledger.hidden = false;

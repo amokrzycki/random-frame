@@ -100,10 +100,10 @@ export interface LedgerDay {
 }
 
 // One entry per day with any activity, newest first. Frames join the day of their local `viewedAt`.
-export function ledgerDays(days: readonly DailyActivity[], viewedAt: readonly number[]): LedgerDay[] {
+export function ledgerDays(days: readonly DailyActivity[], viewedAt: readonly (number | null)[]): LedgerDay[] {
   const frames = new Map<string, number[]>();
   const newestFirst = viewedAt
-    .map((millis, index) => ({ millis, index }))
+    .flatMap((millis, index) => (millis === null ? [] : [{ millis, index }]))
     .sort((a, b) => b.millis - a.millis || b.index - a.index);
   for (const { millis, index } of newestFirst) {
     const key = localDayKey(millis);

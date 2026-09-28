@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { FakeDocument, ids } from "./dom-fakes.mjs";
+import { FakeDocument, FakeStorage, ids } from "./dom-fakes.mjs";
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const unpaired = { paired: false, state: "unpaired", lastSuccessRevision: null, dirty: true, lastErrorCategory: null };
@@ -9,10 +9,11 @@ const paired = { paired: true, state: "idle", lastSuccessRevision: 1, dirty: fal
 test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key lifecycle", async (t) => {
   const document = new FakeDocument(ids);
   const original = new Map(
-    ["document", "navigator"].map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]),
+    ["document", "localStorage", "navigator"].map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]),
   );
   const copied = [];
   Object.defineProperty(globalThis, "document", { configurable: true, value: document });
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: new FakeStorage() });
   Object.defineProperty(globalThis, "navigator", {
     configurable: true,
     value: { clipboard: { writeText: async (text) => copied.push(text) } },
@@ -29,6 +30,7 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
   let pending = null;
   const calls = [];
   globalThis.window = {
+    setTimeout: () => 0,
     __TAURI_INTERNALS__: {
       async invoke(command, args) {
         calls.push({ command, args });
@@ -51,6 +53,8 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
           return structuredClone(current);
         }
         if (command === "startup_sync") return structuredClone(current);
+        if (command === "get_history") return { history: [], index: -1 };
+        if (command === "get_favorites") return [];
         throw new Error(`Unexpected command: ${command}`);
       },
     },
@@ -58,6 +62,8 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
   t.after(() => delete globalThis.window);
   const { bindSyncDialogEvents, runStartupSync } = await import("../dist/test-client/sync-dialog.js");
   bindSyncDialogEvents();
+  await runStartupSync();
+  assert.equal(document.body.children.length, 0);
 
   get("sync-button").click();
   await flush();
@@ -167,6 +173,23 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
   assert.equal(get("sync-paired").hidden, false);
   assert.equal(get("sync-recovery-input").value, "");
 
+  const { state } = await import("../dist/test-client/viewer-state.js");
+  state.loading = false;
+  state.history = [{ source: "prntsc", id: "abc123", sourcePageUrl: "https://prnt.sc/abc123", viewedAt: 1 }];
+  state.index = 0;
+  get("sync-now").click();
+  await flush();
+  assert.equal(get("history-total").textContent, "0");
+  assert.equal(get("favorite-button").disabled, true);
+
   await runStartupSync();
   assert.equal(calls.at(-1).command, "get_sync_status");
+  assert.equal(document.body.children[0].children.at(-1).textContent, "Synced");
+  assert.equal(document.body.children[0].children.at(-1).className, "toast toast--success");
+  current.dirty = true;
+  await runStartupSync();
+  assert.equal(document.body.children[0].children.length, 1);
+  fail = { command: "startup_sync", error: { category: "offline" } };
+  await runStartupSync();
+  assert.equal(document.body.children[0].children.length, 1);
 });

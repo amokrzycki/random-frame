@@ -70,7 +70,11 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
         return { explored: 12_483, total: 4_773_622_240, viewable: 8_000, unavailable: 4_483 };
       }
       if (command === "get_viewing_activity") {
-        return { viewedTotal: 2, days: [{ date: todayIso, viewed: 2, rejected: 0 }] };
+        return {
+          viewedTotal: 2,
+          days: [{ date: todayIso, viewed: 2, rejected: 0 }],
+          localViewTimes: persisted.history.map((item) => item.viewedAt),
+        };
       }
       if (command === "migrate_viewing_stats") return null;
       if (command === "get_random_frame") {

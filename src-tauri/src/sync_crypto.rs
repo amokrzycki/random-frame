@@ -1,4 +1,4 @@
-//! Local v1 pairing identity and authenticated seen-snapshot envelope.
+//! Pairing identity and authenticated sync snapshot envelope.
 
 use chacha20poly1305::{
     aead::{Aead, KeyInit, Payload},
@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use std::fmt;
 use zeroize::Zeroizing;
 
-use crate::snapshot::{self, MAX_ENTRIES};
+use crate::{snapshot, sync_transport::MAX_ENVELOPE};
 
 const ENCRYPTION_LABEL: &[u8] = b"random-frame/sync/v1/encryption";
 const AUTH_LABEL: &[u8] = b"random-frame/sync/v1/auth";
@@ -20,7 +20,7 @@ const ENVELOPE_MAGIC: &[u8; 8] = b"RFSYNC\0\0";
 const ENVELOPE_VERSION: u32 = 1;
 const HEADER_LEN: usize = 8 + 4 + 24;
 const TAG_LEN: usize = 16;
-const MAX_SNAPSHOT_LEN: usize = 16 + MAX_ENTRIES * 8;
+pub(crate) const ENVELOPE_OVERHEAD: usize = HEADER_LEN + TAG_LEN;
 
 pub struct RootSecret(Zeroizing<[u8; 32]>);
 
@@ -155,9 +155,7 @@ impl SyncKeys {
         if expected_sync_id != self.sync_id {
             return Err(CryptoError::InvalidEnvelope);
         }
-        if envelope.len() < HEADER_LEN + TAG_LEN
-            || envelope.len() > HEADER_LEN + TAG_LEN + MAX_SNAPSHOT_LEN
-        {
+        if envelope.len() < ENVELOPE_OVERHEAD || envelope.len() > MAX_ENVELOPE {
             return Err(CryptoError::InvalidEnvelope);
         }
         if &envelope[..8] != ENVELOPE_MAGIC
@@ -246,16 +244,63 @@ fn hex_decode(input: &str) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::persistence::SeenStore;
-    use std::collections::HashSet;
+    use crate::{
+        persistence::SeenStore,
+        snapshot::{FavoriteRecord, SyncRecord, SyncSnapshot},
+    };
 
     fn fixture() -> RootSecret {
         let bytes: Vec<u8> = (0..32).collect();
         RootSecret::from_bytes(&bytes).unwrap_or_else(|_| unreachable!())
     }
 
+    #[test]
+    fn envelope_overhead_matches_transport_and_plaintext_budget() {
+        assert_eq!(HEADER_LEN, 36);
+        assert_eq!(TAG_LEN, 16);
+        assert_eq!(ENVELOPE_OVERHEAD, 52);
+        assert_eq!(snapshot::MAX_PLAINTEXT + ENVELOPE_OVERHEAD, MAX_ENVELOPE);
+    }
+
     fn snapshot() -> Vec<u8> {
-        snapshot::serialize_snapshot(&HashSet::from([1, 42])).unwrap_or_else(|_| unreachable!())
+        snapshot::serialize_snapshot(&SyncSnapshot {
+            seen: vec![1, 42],
+            ..SyncSnapshot::default()
+        })
+        .unwrap_or_else(|_| unreachable!())
+    }
+
+    #[test]
+    fn envelope_roundtrip_accepts_sync_plaintext() {
+        let plain = snapshot::serialize_snapshot(&SyncSnapshot {
+            seen: vec![1, 42],
+            history: vec![SyncRecord {
+                operation_id: [1; 16],
+                first_at: 0,
+                second_at: 10,
+                source: "prntsc".into(),
+                id: "abc123".into(),
+                source_page_url: "https://prnt.sc/abc123".into(),
+            }],
+            history_removed: vec![],
+            favorites: vec![FavoriteRecord {
+                operation_id: [2; 16],
+                added_at: 11,
+                source: "prntsc".into(),
+                id: "abc123".into(),
+                source_page_url: "https://prnt.sc/abc123".into(),
+            }],
+            favorites_removed: vec![],
+        })
+        .unwrap_or_else(|_| unreachable!());
+        let keys = fixture().derive();
+        let envelope = keys
+            .encrypt_snapshot(&plain)
+            .unwrap_or_else(|_| unreachable!());
+        assert_eq!(
+            keys.decrypt_snapshot(keys.sync_id(), &envelope).ok(),
+            Some(plain)
+        );
     }
 
     #[test]
@@ -379,7 +424,15 @@ mod tests {
         let imported = keys
             .decrypt_snapshot(keys.sync_id(), &good)
             .unwrap_or_else(|_| unreachable!());
-        assert_eq!(seen.merge_snapshot(&imported).ok(), Some(2));
+        assert_eq!(
+            seen.merge(
+                snapshot::parse_snapshot(&imported)
+                    .unwrap_or_else(|_| unreachable!())
+                    .seen
+            )
+            .ok(),
+            Some(2)
+        );
         assert!(seen.contains(1));
         std::fs::remove_dir_all(directory).unwrap_or_else(|_| unreachable!());
     }

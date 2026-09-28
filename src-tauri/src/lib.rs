@@ -41,8 +41,8 @@ struct PendingFrame {
 
 struct AppState {
     prntsc: Prntsc,
-    history: HistoryStore,
-    favorites: FavoriteStore,
+    history: Arc<HistoryStore>,
+    favorites: Arc<FavoriteStore>,
     explored: Arc<ExplorationStore>,
     seen: Arc<SeenStore>,
     #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -57,13 +57,16 @@ impl AppState {
     fn new(data_directory: &Path) -> Result<Self, AppError> {
         let explored = Arc::new(ExplorationStore::new(data_directory)?);
         let activity = Arc::new(ActivityStore::new(data_directory)?);
-        let history = HistoryStore::new(data_directory)?;
+        let history = Arc::new(HistoryStore::new(data_directory)?);
         let seen = Arc::new(SeenStore::new(data_directory)?);
         reconcile_seen(&seen, &history, &explored)?;
+        let favorites = Arc::new(FavoriteStore::new(data_directory)?);
         #[cfg(any(target_os = "linux", target_os = "windows"))]
         let sync = SyncEngine::new(
             data_directory,
             Arc::clone(&seen),
+            Arc::clone(&history),
+            Arc::clone(&favorites),
             SecureStorage::default(),
             std::env::var("RANDOM_FRAME_SYNC_BASE_URL")
                 .ok()
@@ -79,7 +82,7 @@ impl AppState {
                 Arc::clone(&activity),
             )?,
             history,
-            favorites: FavoriteStore::new(data_directory)?,
+            favorites,
             explored,
             seen,
             #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -397,6 +400,7 @@ struct DailyActivity {
 struct ViewingActivity {
     viewed_total: u64,
     days: Vec<DailyActivity>,
+    local_view_times: Vec<Option<u64>>,
 }
 
 #[tauri::command]
@@ -419,6 +423,7 @@ fn get_viewing_activity(state: State<'_, AppState>) -> ViewingActivity {
     ViewingActivity {
         viewed_total: state.activity.viewed_total(),
         days,
+        local_view_times: state.history.local_view_times(),
     }
 }
 
@@ -656,9 +661,7 @@ mod tests {
         let directory = test_state_directory("remote-seen");
         let state = AppState::new(&directory)?;
         let history_before = state.history.snapshot();
-        let seen_bytes = snapshot::serialize_snapshot(&std::collections::HashSet::from([42_u64]))
-            .map_err(AppError::persistence)?;
-        assert_eq!(state.seen.merge_snapshot(&seen_bytes)?, 1);
+        assert_eq!(state.seen.merge([42_u64])?, 1);
         assert!(state.seen.contains(42));
         assert_eq!(state.explored.count(), 0);
         assert_eq!(state.activity.viewed_total(), 0);

@@ -3,7 +3,7 @@
 use reqwest::{header, Client, StatusCode, Url};
 use std::{fmt, time::Duration};
 
-pub const MAX_ENVELOPE: usize = 16_000_068;
+pub const MAX_ENVELOPE: usize = 67_108_864;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TransportError {
@@ -77,10 +77,10 @@ impl SyncTransport {
         {
             return Err(TransportError::InvalidEndpoint);
         }
-        // 5s connect and 45s whole request: enough for a 16 MB upload on a modest link.
+        // Allow a full 64 MiB transfer on a modest link.
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(5))
-            .timeout(Duration::from_secs(45))
+            .timeout(Duration::from_secs(180))
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|_| TransportError::InvalidEndpoint)?;
@@ -148,7 +148,7 @@ impl SyncTransport {
         expected: StatusCode,
         create: bool,
     ) -> Result<i64, TransportError> {
-        if envelope.len() > MAX_ENVELOPE {
+        if body_too_large(envelope.len()) {
             return Err(TransportError::BodyTooLarge);
         }
         let header_name = if create {
@@ -205,6 +205,10 @@ impl SyncTransport {
     }
 }
 
+fn body_too_large(len: usize) -> bool {
+    len > MAX_ENVELOPE
+}
+
 fn check_status(actual: StatusCode, expected: StatusCode) -> Result<(), TransportError> {
     if actual == expected {
         return Ok(());
@@ -213,6 +217,7 @@ fn check_status(actual: StatusCode, expected: StatusCode) -> Result<(), Transpor
         StatusCode::NOT_FOUND => TransportError::MissingChain,
         StatusCode::PRECONDITION_FAILED => TransportError::Conflict,
         StatusCode::TOO_MANY_REQUESTS => TransportError::RateLimited,
+        StatusCode::PAYLOAD_TOO_LARGE => TransportError::BodyTooLarge,
         code if code.is_server_error() => TransportError::ServerError,
         code => TransportError::UnexpectedStatus(code.as_u16()),
     })
@@ -284,5 +289,16 @@ mod tests {
             );
         }
         assert_eq!(parse_etag(None), Err(TransportError::InvalidEtag));
+    }
+
+    #[test]
+    fn encrypted_payload_boundary_and_server_rejection() {
+        assert_eq!(MAX_ENVELOPE, 67_108_864);
+        assert!(!body_too_large(MAX_ENVELOPE));
+        assert!(body_too_large(MAX_ENVELOPE + 1));
+        assert_eq!(
+            check_status(StatusCode::PAYLOAD_TOO_LARGE, StatusCode::NO_CONTENT),
+            Err(TransportError::BodyTooLarge)
+        );
     }
 }
