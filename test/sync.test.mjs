@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { FakeDocument, ids } from "./dom-fakes.mjs";
+import { FakeDocument, FakeStorage, ids } from "./dom-fakes.mjs";
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const unpaired = { paired: false, state: "unpaired", lastSuccessRevision: null, dirty: true, lastErrorCategory: null };
@@ -9,10 +9,11 @@ const paired = { paired: true, state: "idle", lastSuccessRevision: 1, dirty: fal
 test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key lifecycle", async (t) => {
   const document = new FakeDocument(ids);
   const original = new Map(
-    ["document", "navigator"].map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]),
+    ["document", "localStorage", "navigator"].map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]),
   );
   const copied = [];
   Object.defineProperty(globalThis, "document", { configurable: true, value: document });
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: new FakeStorage() });
   Object.defineProperty(globalThis, "navigator", {
     configurable: true,
     value: { clipboard: { writeText: async (text) => copied.push(text) } },
