@@ -497,6 +497,7 @@
               <circle class="loader__indicator" cx="18" cy="18" r="15.5" />
             </svg>
             <p id="loading-message">Finding an available frame…</p>
+            <p class="loading-hint" aria-hidden="true"><kbd>Esc</kbd> to cancel</p>
           </div>
 
           <div class="error-state" id="error-state" hidden>
@@ -660,9 +661,6 @@
           <button class="draw-button" id="draw-button" type="button" aria-keyshortcuts="N">
             <span class="draw-button__label" id="draw-label">Draw</span>
             <kbd class="draw-button__key" aria-hidden="true">N</kbd>
-            <svg class="draw-button__spinner" viewBox="0 0 20 20" aria-hidden="true">
-              <circle cx="10" cy="10" r="7.5" />
-            </svg>
           </button>
         </div>
       </section>

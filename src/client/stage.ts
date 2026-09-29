@@ -64,6 +64,7 @@ function focusLost(): boolean {
 // or to the stage's own control when that one is gone (the start button, say), unless the visitor moved on.
 export function finishLoading(): void {
   state.loading = false;
+  delete elements.loading.dataset.cancelable;
   syncControls();
   const target = state.focusBeforeLoading as HTMLElement | null;
   state.focusBeforeLoading = null;
@@ -126,7 +127,8 @@ export function syncControls(): void {
   elements.retry.textContent = "Try again";
   elements.draw.setAttribute("aria-busy", String(state.drawing));
   elements.draw.setAttribute("aria-disabled", String(state.loading || waitSeconds > 0));
-  elements.drawLabel.textContent = waitSeconds ? `Wait ${waitSeconds}s` : "Draw";
+  elements.draw.toggleAttribute("data-paused", waitSeconds > 0);
+  elements.drawLabel.textContent = waitSeconds ? `Wait ${waitSeconds}s` : state.drawing ? "Drawing" : "Draw";
   // The retry action returns after the cooldown; Draw carries the countdown.
   elements.back.hidden = !current || failedIndex === state.index;
   elements.back.textContent = `Return to frame ${state.index + 1}`;

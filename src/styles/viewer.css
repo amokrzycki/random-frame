@@ -150,6 +150,28 @@
   transform-origin: center;
   animation: spin 0.85s linear infinite;
 }
+/* Appears only if the draw is still running after 3s, so quick draws never flash it. */
+.loading-hint {
+  font-size: 12px;
+  opacity: 0;
+}
+.loading-hint kbd {
+  padding: 1px 5px;
+  border: 1px solid #595a55;
+  border-radius: 5px;
+  font: inherit;
+}
+.loading-state:not([data-cancelable]) .loading-hint {
+  display: none;
+}
+.loading-state[data-cancelable] .loading-hint {
+  animation: hint-in 240ms var(--ease-out) 3s forwards;
+}
+@keyframes hint-in {
+  to {
+    opacity: 0.7;
+  }
+}
 .loader__track,
 .loader__indicator {
   stroke-width: 1.5;
@@ -790,34 +812,16 @@ a.tools-menu__item {
   visibility: hidden;
 }
 
-.draw-button__spinner {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 18px;
-  height: 18px;
-  margin: -9px 0 0 -9px;
-  fill: none;
-  stroke: currentColor;
-  stroke-dasharray: 16 48;
-  stroke-linecap: round;
-  stroke-width: 1.8;
-  opacity: 0;
-  animation: spin 0.85s linear infinite;
-  animation-play-state: paused;
+/* Paused, not pressed: the fill lifts away and an outline waits for the countdown to end. */
+.draw-button[data-paused] {
+  color: var(--muted);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--control-line);
+  font-variant-numeric: tabular-nums;
 }
 
 .draw-button[aria-busy="true"] {
   cursor: progress;
-}
-
-.draw-button[aria-busy="true"] > :not(.draw-button__spinner) {
-  visibility: hidden;
-}
-
-.draw-button[aria-busy="true"] .draw-button__spinner {
-  opacity: 1;
-  animation-play-state: running;
 }
 
 /* Pressing → on the newest frame points here instead of drawing. */

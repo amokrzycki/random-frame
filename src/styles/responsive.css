@@ -71,10 +71,6 @@
     animation-duration: 620ms !important;
     transform: none !important;
   }
-  .draw-button[aria-busy="true"] .draw-button__spinner {
-    animation: breathe 1.6s ease-in-out infinite !important;
-    stroke-dasharray: none;
-  }
 
   .history-item:active,
   .history-pager__step:active:not(:disabled),

@@ -59,6 +59,7 @@ export async function loadRandom(): Promise<void> {
   startLoading();
   state.drawing = true;
   setState("loading");
+  elements.loading.dataset.cancelable = "";
   syncControls();
   try {
     const frame = await getRandomFrame();
