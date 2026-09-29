@@ -247,6 +247,8 @@ export const ids = [
   "image-id-value",
   "tools-menu",
   "tools-menu-button",
+  "frame-menu",
+  "frame-menu-button",
   "info-actions",
   "arrow-hint",
   "arrow-hint-dismiss",

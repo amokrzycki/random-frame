@@ -18,7 +18,7 @@ export const state = {
   pageSize: loadPageSize(localStorage),
   pageIndex: 0,
   focusBeforeLoading: null as Element | null,
-  historyReturnFocus: elements.historyButton as HTMLElement,
+  historyReturnFocus: elements.toolsMenuButton as HTMLElement,
   ledger: [] as LedgerDay[],
   ledgerShown: 0,
 };

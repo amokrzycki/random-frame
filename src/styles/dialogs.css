@@ -771,50 +771,6 @@
   text-wrap: pretty;
 }
 
-.dialog-foot__copy {
-  min-width: 0;
-}
-
-.stats-how {
-  margin-top: 4px;
-}
-
-.stats-how summary {
-  width: fit-content;
-  cursor: pointer;
-  line-height: 1.8;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.stats-how p {
-  max-width: 65ch;
-  padding: 4px 0 8px;
-}
-
-.dialog-foot__meta {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 14px;
-}
-
-/* Give the Stats footer links a comfortable target without crowding the metadata. */
-.dialog-foot__meta a {
-  min-height: 32px;
-  padding: 4px 6px;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.dialog-foot__meta svg {
-  width: 15px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.4;
-}
-
 @media (max-width: 600px) {
   .stats-headline__detail {
     display: block;
@@ -828,14 +784,6 @@
 
   .stats-headline__detail > span::before {
     display: none;
-  }
-
-  .stats-dialog .dialog-foot {
-    display: block;
-  }
-
-  .stats-dialog .dialog-foot__meta {
-    margin-top: 8px;
   }
 }
 

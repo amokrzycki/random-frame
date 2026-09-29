@@ -363,6 +363,6 @@ export function bindHistoryDialogEvents(): void {
     // Main is inert until onDialogClosed, and focus() on an inert element is ignored.
     onDialogClosed();
     state.historyReturnFocus.focus();
-    state.historyReturnFocus = elements.historyButton;
+    state.historyReturnFocus = elements.toolsMenuButton;
   });
 }

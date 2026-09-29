@@ -197,10 +197,9 @@
 
 /* The position and ID still describe the frame behind the error, so they step back with it. The icon
    tools keep full strength: fading them would take disabled marks below their 3:1 floor. */
-.viewer:has(.error-state:not([hidden])) :is(.position, .frame-id__caption) {
+.viewer:has(.error-state:not([hidden])) :is(.frame-id__caption) {
   opacity: 0.45;
 }
-.position,
 .frame-id__caption {
   transition: opacity 200ms var(--ease-out);
 }
@@ -371,43 +370,13 @@
   font-variant-numeric: tabular-nums;
 }
 
-.position {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
+/* The count and the jump field live in the frame menu, as rows of it. */
+.position__count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
 }
 
-.position__readout,
-.position__form {
-  height: 34px;
-  display: inline-flex;
-  align-items: center;
-  font-size: 14px;
-  font-weight: 650;
-  white-space: nowrap;
-}
-
-.position__readout {
-  margin-left: -8px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 8px;
-  color: var(--ink);
-  background: transparent;
-  cursor: text;
-}
-
-.position__readout:hover:not(:disabled) {
-  background: var(--paper-deep);
-}
-
-.position__readout:disabled {
-  color: var(--muted);
-  cursor: default;
-}
-
-.position__readout output,
-.position__form > span:last-child {
+.position__count output {
   color: var(--muted);
   font-weight: 400;
 }
@@ -418,13 +387,28 @@
   font-weight: 400;
 }
 
+.position__form {
+  height: 34px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.position__form label {
+  margin-right: auto;
+  color: var(--ink);
+  font-weight: 650;
+}
+
 .position__form input {
   width: 64px;
-  height: 34px;
-  margin-left: -8px;
+  height: 28px;
   padding: 0 8px;
   border: 1px solid var(--field-line);
-  border-radius: 8px;
+  border-radius: 6px;
   color: var(--ink);
   background: transparent;
   font: inherit;
@@ -445,41 +429,56 @@
   outline-offset: 2px;
 }
 
-.info-line__divider {
-  width: 1px;
-  height: 18px;
-  margin-inline: 8px 4px;
-  flex: 0 0 auto;
-  background: var(--line);
+/* The ID is the one label on the line and opens everything else about the frame. */
+.info-line__frame {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
-/* Frame actions on the left of the rule act on the shown frame; History on the right is the app's. */
-.info-line__actions > .info-line__divider {
-  margin-inline: 6px 4px;
+.info-line__frame[hidden] {
+  display: none;
 }
 
 .frame-id {
   min-width: 0;
+  height: 34px;
+  padding: 0 8px 0 10px;
   display: flex;
   align-items: center;
-  gap: 2px;
-}
-
-/* Steppers and ID read as one segmented control: the chevrons step the ID they flank. */
-.frame-id__pill {
-  min-width: 0;
-  margin-right: 6px;
-  display: flex;
-  align-items: center;
+  gap: 6px;
   border: 1px solid var(--control-line);
   border-radius: 8px;
+  color: var(--ink);
+  background: transparent;
+  cursor: pointer;
+  transition: transform 140ms var(--ease-out);
+}
+
+.frame-id:hover,
+.frame-id[aria-expanded="true"] {
+  color: var(--control-fill-text);
+  background: var(--control-fill);
+}
+
+.frame-id:active {
+  transform: scale(0.97);
+}
+
+.frame-id svg {
+  width: 14px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
 }
 
 .frame-id__caption {
   min-width: 0;
-  padding-inline: 10px;
   overflow: hidden;
-  color: var(--ink);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13px;
   text-overflow: ellipsis;
@@ -490,19 +489,9 @@
   color: var(--muted);
 }
 
-/* Empty history hides the actions but keeps their box, so Draw next never shifts on the first draw. */
-.info-line__actions[hidden] {
-  display: flex;
-  visibility: hidden;
-}
-
-.info-line__actions {
-  margin-left: auto;
-  padding-right: 6px;
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 2px;
+.frame-id:hover .frame-id__host,
+.frame-id[aria-expanded="true"] .frame-id__host {
+  color: inherit;
 }
 
 .info-icon {
@@ -592,23 +581,6 @@
   }
 }
 
-.frame-id__pill > .info-icon {
-  width: 30px;
-  height: 30px;
-  border-radius: 0 8px 8px 0;
-  border-left: 1px solid var(--line);
-}
-
-.frame-id__pill > .info-icon:first-child {
-  border-radius: 8px 0 0 8px;
-  border-left: 0;
-  border-right: 1px solid var(--line);
-}
-
-.frame-id__pill > .info-icon:focus-visible {
-  outline-offset: -2px;
-}
-
 /* app.ts pins the menu under its button when it opens. */
 .tools-menu {
   inset: auto;
@@ -641,9 +613,68 @@
   font-weight: 650;
 }
 
-.tools-menu__item:hover {
+.tools-menu__item:hover:not(:disabled, [aria-disabled="true"]),
+.tools-menu__item:focus-visible {
   color: var(--control-fill-text);
   background: var(--control-fill);
+}
+
+.tools-menu__item:disabled,
+.tools-menu__item[aria-disabled="true"] {
+  color: var(--disabled-ink);
+  cursor: default;
+}
+
+a.tools-menu__item {
+  text-decoration: none;
+}
+
+.tools-menu__item:focus-visible {
+  outline-offset: -2px;
+}
+
+.tools-menu__rule {
+  height: 1px;
+  margin: 5px 4px;
+  border: 0;
+  background: var(--line);
+}
+
+/* Source opens the page; the icon beside it copies the same address. */
+.tools-menu__split {
+  display: flex;
+  gap: 2px;
+}
+
+.tools-menu__split > a {
+  flex: 1;
+}
+
+.tools-menu__aside {
+  width: 34px;
+  padding: 0;
+  justify-content: center;
+}
+
+.tools-menu__meta {
+  margin: 0;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 28px;
+}
+
+.tools-menu__meta a {
+  color: inherit;
+  text-underline-offset: 2px;
+}
+
+.tools-menu__meta a:hover {
+  color: var(--ink);
 }
 
 .tools-menu__item[data-sync]::after {
@@ -671,7 +702,7 @@
   font: inherit;
 }
 
-.tools-menu__item:hover kbd {
+.tools-menu__item:hover:not(:disabled) kbd {
   color: inherit;
 }
 
@@ -691,6 +722,7 @@
 .draw-button {
   position: relative;
   min-width: 136px;
+  margin-left: auto;
   height: 40px;
   padding: 0 10px 0 16px;
   display: inline-flex;
@@ -806,10 +838,10 @@
 }
 
 /* Controls drawn smaller than 34px keep their look; an invisible box pads the target up to 34px. */
-:is(.text-action, .leave-action, .arrow-hint button, .frame-id__pill > .info-icon, .entry-consent input) {
+:is(.text-action, .leave-action, .arrow-hint button, .entry-consent input) {
   position: relative;
 }
-:is(.text-action, .leave-action, .arrow-hint button, .frame-id__pill > .info-icon, .entry-consent input)::after {
+:is(.text-action, .leave-action, .arrow-hint button, .entry-consent input)::after {
   content: "";
   position: absolute;
   top: 50%;

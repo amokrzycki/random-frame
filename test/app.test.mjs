@@ -151,7 +151,8 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
 
   get("history-close-button").click();
   assert.equal(get("history-dialog").open, false);
-  assert.equal(document.activeElement, get("history-button"));
+  // History lives in the More menu, so focus returns to the button that opens it.
+  assert.equal(document.activeElement, get("tools-menu-button"));
 
   // Arrows only walk history: on the newest frame → points at Draw next instead of drawing.
   assert.equal(get("position-current").textContent, "2");

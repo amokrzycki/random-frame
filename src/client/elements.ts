@@ -111,6 +111,8 @@ export const elements = {
   shortcutsClose: element<HTMLButtonElement>("#shortcuts-close-button"),
   mastheadTools: element<HTMLElement>("#masthead-tools"),
   toolsMenu: element<HTMLElement>("#tools-menu"),
+  frameMenu: element<HTMLElement>("#frame-menu"),
+  frameMenuButton: element<HTMLButtonElement>("#frame-menu-button"),
   toolsMenuButton: element<HTMLButtonElement>("#tools-menu-button"),
   infoActions: element<HTMLElement>("#info-actions"),
   arrowHint: element<HTMLElement>("#arrow-hint"),
