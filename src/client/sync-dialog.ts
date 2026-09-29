@@ -77,6 +77,10 @@ function setStatus(next: SyncStatus): void {
   const attention = next.paired && (next.state === "error" || next.state === "offline" || next.lastErrorCategory);
   if (attention) elements.toolsMenuButton.dataset.sync = "attention";
   else delete elements.toolsMenuButton.dataset.sync;
+  // The dot is visual only; the name carries it for assistive technology.
+  const label = attention ? "More, Sync needs attention" : "More";
+  elements.toolsMenuButton.setAttribute("aria-label", label);
+  elements.toolsMenuButton.title = label;
 }
 
 function statusMessage(value: SyncStatus): string {
@@ -208,6 +212,8 @@ export function bindSyncDialogEvents(): void {
     try {
       await navigator.clipboard.writeText(elements.syncRecoveryKey.textContent);
       elements.syncStatus.textContent = "Recovery key copied. Save it somewhere safe.";
+      // A visible error hides the status line; the confirmation still has to show.
+      elements.syncStatus.hidden = false;
     } catch {
       showError("Could not copy the key. Select and copy it manually.");
     }
