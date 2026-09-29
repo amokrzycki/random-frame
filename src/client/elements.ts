@@ -58,8 +58,6 @@ export const elements = {
   historyEmptyTitle: element<HTMLElement>("#history-empty-title"),
   historyEmptyDetail: element<HTMLElement>("#history-empty-detail"),
   historyBody: element<HTMLElement>("#history-body"),
-  historyThumbnailAction: element<HTMLElement>("#history-thumbnail-action"),
-  historyThumbnails: element<HTMLButtonElement>("#history-thumbnails"),
   historyPager: element<HTMLElement>("#history-pager"),
   historyPagerNav: element<HTMLElement>("#history-pager-nav"),
   historyRange: element<HTMLElement>("#history-range"),

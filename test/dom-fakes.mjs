@@ -192,8 +192,6 @@ export const ids = [
   "history-empty-title",
   "history-empty-detail",
   "history-body",
-  "history-thumbnail-action",
-  "history-thumbnails",
   "history-pager",
   "history-pager-nav",
   "history-range",

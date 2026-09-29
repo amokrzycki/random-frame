@@ -21,8 +21,8 @@ import { applyFavorites, isFavorite, state } from "./viewer-state.js";
 type HistoryDialogTab = "history" | "favourites";
 export const pendingHistoryClearKey = "random-frame-history-clear-pending";
 let filter: HistoryDialogTab = "history";
-let batchRunning = false;
-let viewVersion = 0;
+const THUMBNAIL_CONCURRENCY = 3;
+const SAVE_DELAY_MS = 600;
 
 // index is the frame's place in history, or -1 for a favorite whose history was cleared.
 interface GridEntry {
@@ -38,14 +38,98 @@ function gridEntries(): GridEntry[] {
   return state.favorites.map(({ source, id }) => ({ source, id, index: indexes.get(blobKey(source, id)) ?? -1 }));
 }
 
-function updateThumbnailAction(entries: GridEntry[], start: number, end: number): void {
-  const missing = entries.slice(start, end).some(({ source, id }) => !thumbnails.get(blobKey(source, id)));
-  elements.historyThumbnailAction.hidden = !missing;
-  // The download action lives in the pager row, so a short history still shows the row for it.
-  elements.historyPager.hidden = entries.length <= PAGE_SIZES[0] && !missing;
-  elements.historyThumbnails.disabled = batchRunning || !missing;
-  if (!missing && document.activeElement === elements.historyThumbnails) elements.historyClose.focus();
-  elements.historyThumbnails.textContent = batchRunning ? "Downloading thumbnails…" : "Download thumbnails";
+interface PendingTile {
+  button: HTMLElement;
+  image: HTMLImageElement;
+  source: string;
+  id: string;
+  started: boolean;
+}
+
+// Thumbnails load only for tiles scrolled into view, a few at a time, and are saved in one debounced write.
+const failedThumbnails = new Set<string>();
+const thumbnailQueue: PendingTile[] = [];
+const watched = new Map<Element, PendingTile>();
+let thumbnailObserver: IntersectionObserver | undefined;
+let activeFetches = 0;
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+let saveFailureShown = false;
+
+function stopThumbnailWork(): void {
+  thumbnailObserver?.disconnect();
+  watched.clear();
+  thumbnailQueue.length = 0;
+}
+
+function saveThumbnails(): void {
+  clearTimeout(saveTimer);
+  saveTimer = undefined;
+  if (persistThumbnails() || saveFailureShown) return;
+  saveFailureShown = true;
+  toast.error("Thumbnails could not be saved locally.");
+}
+
+async function loadTile(tile: PendingTile): Promise<void> {
+  const key = blobKey(tile.source, tile.id);
+  let ok = false;
+  try {
+    ok = await ensureThumbnail(tile, false);
+  } catch {
+    // The tile falls back to the striped placeholder.
+  }
+  const src = thumbnails.get(key);
+  tile.button.removeAttribute("data-loading");
+  thumbnailObserver?.unobserve(tile.button);
+  watched.delete(tile.button);
+  if (ok && src) {
+    tile.image.src = src;
+    saveTimer ??= setTimeout(saveThumbnails, SAVE_DELAY_MS);
+  } else {
+    failedThumbnails.add(key);
+    tile.button.setAttribute("data-empty", "true");
+  }
+}
+
+function pumpThumbnails(): void {
+  while (activeFetches < THUMBNAIL_CONCURRENCY) {
+    const tile = thumbnailQueue.shift();
+    if (!tile) return;
+    tile.started = true;
+    activeFetches++;
+    void loadTile(tile).finally(() => {
+      activeFetches--;
+      pumpThumbnails();
+    });
+  }
+}
+
+function watchTiles(tiles: PendingTile[]): void {
+  stopThumbnailWork();
+  if (!tiles.length) return;
+  // Without IntersectionObserver every tile counts as visible; the queue still throttles.
+  if (typeof IntersectionObserver === "undefined") {
+    thumbnailQueue.push(...tiles);
+    pumpThumbnails();
+    return;
+  }
+  thumbnailObserver ??= new IntersectionObserver(
+    (entries) => {
+      for (const { target, isIntersecting } of entries) {
+        const tile = watched.get(target);
+        if (!tile || tile.started) continue;
+        const queued = thumbnailQueue.indexOf(tile);
+        if (isIntersecting && queued < 0) thumbnailQueue.push(tile);
+        // Scrolled past before its turn: drop it so the queue serves what is on screen.
+        else if (!isIntersecting && queued >= 0) thumbnailQueue.splice(queued, 1);
+      }
+      pumpThumbnails();
+    },
+    { root: elements.historyBody, rootMargin: "120px 0px" },
+  );
+  for (const tile of tiles) {
+    watched.set(tile.button, tile);
+    thumbnailObserver.observe(tile.button);
+  }
 }
 
 // Only the current page is laid out, so the dialog never builds thousands of DOM nodes.
@@ -78,8 +162,9 @@ function renderHistoryPage(): void {
     : "";
   elements.historyPage.textContent = `Page ${view.page + 1} of ${view.pages}`;
   elements.historyPageSize.value = String(state.pageSize);
+  elements.historyPager.hidden = entries.length <= PAGE_SIZES[0];
   const visible = entries.slice(view.start, view.end);
-  updateThumbnailAction(entries, view.start, view.end);
+  const loading: PendingTile[] = [];
   const focused = document.activeElement;
   elements.historyPagePrevious.disabled = view.page === 0;
   elements.historyPageNext.disabled = view.page === view.pages - 1;
@@ -100,7 +185,11 @@ function renderHistoryPage(): void {
     if (favorite) button.dataset.favorite = "";
     const key = blobKey(source, id);
     const thumbnailSrc = blobs.get(key)?.url ?? thumbnails.get(key) ?? "";
-    if (!thumbnailSrc) button.setAttribute("data-empty", "true");
+    if (!thumbnailSrc && failedThumbnails.has(key)) button.setAttribute("data-empty", "true");
+    else if (!thumbnailSrc) {
+      button.setAttribute("data-loading", "true");
+      loading.push({ button, image, source, id, started: false });
+    }
     image.src = thumbnailSrc;
     image.alt = "";
     image.loading = "lazy";
@@ -112,6 +201,7 @@ function renderHistoryPage(): void {
     });
     elements.historyGrid.append(button);
   }
+  watchTiles(loading);
 }
 
 // Open where the visitor is: the page holding the shown frame, else the newest page.
@@ -123,7 +213,6 @@ function showCurrentPage(): void {
 }
 
 function showFilter(next: HistoryDialogTab): void {
-  viewVersion++;
   filter = next;
   showCurrentPage();
 }
@@ -131,7 +220,8 @@ function showFilter(next: HistoryDialogTab): void {
 export function openHistory(): void {
   if (state.loading) return;
   elements.historyClear.disabled = !state.history.length;
-  viewVersion++;
+  failedThumbnails.clear();
+  saveFailureShown = false;
   filter = "history";
   showCurrentPage();
   openDialog(elements.historyDialog);
@@ -139,7 +229,6 @@ export function openHistory(): void {
 }
 
 function showHistoryPage(page: number): void {
-  viewVersion++;
   state.pageIndex = page;
   renderHistoryPage();
 }
@@ -150,54 +239,6 @@ function changePageSize(): void {
   state.pageSize = parsePageSize(elements.historyPageSize.value);
   savePageSize(localStorage, state.pageSize);
   showHistoryPage(pageOf(firstShown, state.pageSize));
-}
-
-async function downloadMissingThumbnails(): Promise<void> {
-  if (batchRunning) return;
-  const entries = gridEntries();
-  const { start, end } = historyPage(entries.length, state.pageIndex, state.pageSize);
-  const pending = [
-    ...new Map(
-      entries
-        .slice(start, end)
-        .filter(({ source, id }) => !thumbnails.get(blobKey(source, id)))
-        .map((entry) => [blobKey(entry.source, entry.id), entry] as const),
-    ).values(),
-  ];
-  if (!pending.length) return;
-  batchRunning = true;
-  const version = viewVersion;
-  let completed = 0;
-  let failed = 0;
-  elements.historyThumbnails.disabled = true;
-  elements.historyThumbnails.textContent = `0 / ${pending.length}`;
-  let next = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(5, pending.length) }, async () => {
-      while (next < pending.length) {
-        const entry = pending[next++];
-        if (!entry) break;
-        try {
-          if (!(await ensureThumbnail(entry, false))) failed++;
-        } catch {
-          failed++;
-        }
-        completed++;
-        if (viewVersion === version && elements.historyDialog.open)
-          elements.historyThumbnails.textContent = `${completed} / ${pending.length}`;
-      }
-    }),
-  );
-  const saved = persistThumbnails();
-  batchRunning = false;
-  if (viewVersion === version && elements.historyDialog.open) renderHistoryPage();
-  else if (elements.historyDialog.open) {
-    const current = gridEntries();
-    const page = historyPage(current.length, state.pageIndex, state.pageSize);
-    updateThumbnailAction(current, page.start, page.end);
-  }
-  if (failed) toast.error(`${failed} thumbnail${failed === 1 ? "" : "s"} could not be downloaded.`);
-  if (!saved) toast.error("Thumbnails could not be saved locally.");
 }
 
 async function clearSavedHistory(): Promise<void> {
@@ -383,7 +424,6 @@ export function bindHistoryDialogEvents(): void {
   elements.historyPagePrevious.addEventListener("click", () => showHistoryPage(state.pageIndex - 1));
   elements.historyPageNext.addEventListener("click", () => showHistoryPage(state.pageIndex + 1));
   elements.historyPageSize.addEventListener("change", changePageSize);
-  elements.historyThumbnails.addEventListener("click", () => void downloadMissingThumbnails());
   elements.historyGrid.addEventListener("keydown", (event) => {
     if (event.altKey || event.ctrlKey || event.metaKey) return;
     const tiles = elements.historyGrid.children;
@@ -398,7 +438,8 @@ export function bindHistoryDialogEvents(): void {
     (tiles[current + delta] as HTMLElement | undefined)?.focus();
   });
   elements.historyDialog.addEventListener("close", () => {
-    viewVersion++;
+    stopThumbnailWork();
+    if (saveTimer) saveThumbnails();
     // Main is inert until onDialogClosed, and focus() on an inert element is ignored.
     onDialogClosed();
     state.historyReturnFocus.focus();

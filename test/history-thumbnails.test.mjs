@@ -4,7 +4,7 @@ import { FakeDocument, FakeStorage, ids } from "./dom-fakes.mjs";
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
-test("downloads only missing thumbnails on the visible page without viewing frames", async (t) => {
+test("loads missing thumbnails lazily, throttled, without viewing frames", async (t) => {
   const names = ["document", "localStorage", "performance", "sessionStorage", "window", "createImageBitmap"];
   const originals = new Map(names.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
   t.after(() => {
@@ -66,7 +66,7 @@ test("downloads only missing thumbnails on the visible page without viewing fram
   let peak = 0;
   let release;
   let blocked = true;
-  let gate = new Promise((resolve) => {
+  const gate = new Promise((resolve) => {
     release = resolve;
   });
   window.__TAURI_INTERNALS__ = {
@@ -95,40 +95,32 @@ test("downloads only missing thumbnails on the visible page without viewing fram
   await import("../dist/test-client/app.js");
   for (let i = 0; i < 4; i++) await flush();
   const get = (id) => document.querySelector(`#${id}`);
-  const button = get("history-thumbnails");
+  const fetchedIds = () => calls.filter(({ command }) => command === "get_thumbnail_image").map(({ args }) => args.id);
   get("history-button").click();
   assert.equal(get("history-filter-all").getAttribute("aria-pressed"), "true");
   assert.equal(get("history-page").textContent, "Page 2 of 2");
   get("history-page-previous").click();
   assert.equal(get("history-grid").children.length, 10);
-  assert.equal(get("history-thumbnail-action").hidden, false);
-  button.click();
-  button.click();
   await flush();
-  assert.equal(button.disabled, true);
-  assert.equal(peak, 5);
-  assert.equal(calls.filter(({ command }) => command === "get_thumbnail_image").length, 5);
-  const { blobKey, persistThumbnails, thumbnails } = await import("../dist/test-client/frame-cache.js");
-  thumbnails.set("prntsc:id6", "data:image/jpeg;base64,AA==");
 
-  // Finishing work for an old page and tab leaves the current view intact.
-  get("history-page-next").click();
-  assert.equal(get("history-page").textContent, "Page 2 of 2");
-  get("history-filter-favorites").click();
-  assert.equal(get("history-grid").children.length, 2);
+  // Missing tiles show a skeleton and load a few at a time, without viewing frames.
+  const tiles = get("history-grid").children;
+  assert.equal(tiles[2].getAttribute("data-loading"), "true");
+  assert.equal(tiles[0].getAttribute("data-loading"), null);
+  assert.equal(peak, 3);
+  assert.equal(fetchedIds().length, 3);
+  const { blobKey, persistThumbnails, thumbnails } = await import("../dist/test-client/frame-cache.js");
+
   blocked = false;
   release();
-  for (let i = 0; i < 8; i++) await flush();
-  assert.equal(get("history-filter-favorites").getAttribute("aria-pressed"), "true");
-  assert.equal(get("history-grid").children.length, 2);
-  assert.equal(get("history-grid").children[1].children[1].textContent, "11 · id10");
-  assert.equal(button.disabled, false);
-  assert.match(document.body.children.at(-1).children.at(-1).textContent, /1 thumbnail.*could not be downloaded/);
-
-  const fetched = calls.filter(({ command }) => command === "get_thumbnail_image").map(({ args }) => args.id);
-  assert.deepEqual(new Set(fetched), new Set(["id1", "id2", "id3", "id4", "id5", "id7", "id9"]));
-  assert.equal(fetched.length, 7);
-  assert.ok(peak <= 5);
+  for (let i = 0; i < 12; i++) await flush();
+  assert.ok(peak <= 3);
+  const fetched = fetchedIds();
+  assert.deepEqual(new Set(fetched), new Set(["id1", "id2", "id3", "id4", "id5", "id6", "id7", "id9", "id10", "id11"]));
+  assert.equal(fetched.length, 10);
+  assert.equal(tiles[3].getAttribute("data-empty"), "true"); // id3 failed
+  assert.equal(tiles[2].getAttribute("data-loading"), null);
+  assert.equal(tiles[2].children[0].src, "data:image/jpeg;base64,AA==");
   assert.equal(
     calls.some(({ command }) => ["record_history_item", "select_history_item"].includes(command)),
     false,
@@ -136,37 +128,25 @@ test("downloads only missing thumbnails on the visible page without viewing fram
   assert.equal(get("image").src, "");
   assert.equal(get("position-current").textContent, "0");
   assert.equal(history.history.length, 12);
+
+  // Closing the dialog saves what was fetched.
+  get("history-close-button").click();
   assert.equal(
     JSON.parse(localStorage.getItem("prntsc-gallery-thumbnails"))["prntsc:id2"],
     "data:image/jpeg;base64,AA==",
   );
-
-  // The Favourites action works independently; closing during its fetch is safe.
-  blocked = true;
-  gate = new Promise((resolve) => {
-    release = resolve;
-  });
-  button.click();
-  await flush();
-  get("history-close-button").click();
-  blocked = false;
-  release();
-  for (let i = 0; i < 5; i++) await flush();
   get("history-button").click();
   get("history-filter-favorites").click();
   assert.equal(get("history-filter-favorites").getAttribute("aria-pressed"), "true");
-  assert.equal(calls.filter(({ command, args }) => command === "get_thumbnail_image" && args.id === "id10").length, 1);
-  assert.equal(get("history-thumbnail-action").hidden, true);
-  assert.equal(button.disabled, true);
+  assert.equal(get("history-grid").children[1].children[1].textContent, "11 · id10");
   assert.equal(get("history-grid").children[1].children[0].src, "data:image/jpeg;base64,AA==");
 
   // Sync imports domain data only; the missing local thumbnail uses the same fetch path.
   const { applyFavorites, state } = await import("../dist/test-client/viewer-state.js");
   applyFavorites([...state.favorites, item("id11")]);
   get("history-filter-favorites").click();
-  button.click();
   for (let i = 0; i < 5; i++) await flush();
-  assert.equal(calls.filter(({ command, args }) => command === "get_thumbnail_image" && args.id === "id11").length, 1);
+  assert.equal(fetchedIds().filter((id) => id === "id11").length, 1);
   assert.equal(history.history.length, 12);
   assert.equal(get("position-current").textContent, "0");
   assert.equal(
@@ -196,5 +176,4 @@ test("downloads only missing thumbnails on the visible page without viewing fram
     get("history-grid").children.map((tile) => tile.children[0].src),
     [stored["prntsc:id1"], stored["prntsc:id10"], stored["prntsc:id11"]],
   );
-  assert.equal(get("history-thumbnail-action").hidden, true);
 });
