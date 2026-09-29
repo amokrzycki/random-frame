@@ -1,5 +1,6 @@
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check } from "@tauri-apps/plugin-updater";
+import { elements } from "./elements.js";
 
 export async function checkForUpdate(): Promise<void> {
   let update: Awaited<ReturnType<typeof check>>;
@@ -52,5 +53,7 @@ export async function checkForUpdate(): Promise<void> {
   });
 
   banner.append(message, installButton, dismissButton);
+  // A dialog may already be open by the time the check resolves.
+  banner.inert = elements.main.inert;
   document.body.append(banner);
 }

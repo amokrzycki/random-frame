@@ -13,6 +13,7 @@ colors:
   action-cobalt-dark: "#1944b8"
   hairline-stone: "#c9c5bc"
   field-stone: "#85827a"
+  control-line: "#85827a"
   disabled-ink: "#7c7c74"
   warning-terracotta: "#c86b55"
   window-close-red: "#c42b1c"
@@ -26,6 +27,7 @@ colors:
   dark-action-cobalt-dark: "#3f63d7"
   dark-hairline-stone: "#3b3c36"
   dark-field-stone: "#6f7068"
+  dark-control-line: "#6a6b63"
   dark-disabled-ink: "#77776f"
   dark-control-fill: "#343530"
   dark-floating-control: "#2b2c28"
@@ -141,8 +143,9 @@ The palette pairs warm archival neutrals with a near-black viewing environment a
 - **Archival White:** High-contrast copy and light control surfaces.
 - **Hairline Stone:** Dividers and keycap borders.
 - **Field Stone:** Text-input borders only, at 3:1 or better against the paper in both themes.
+- **Control Line (`--control-line`):** Outlines of outlined buttons, the ID pill, and the consent checkbox, at 3:1 or better against the paper in both themes. Hairline Stone stays for dividers only.
 - **Disabled Ink:** Marks of disabled info-line icons and ID menu items, solid rather than faded, at 3:1 or better against the paper in both themes.
-- **Warning Terracotta:** Error icon only.
+- **Warning Terracotta:** Error dots only (stage error headline, Sync error); never text.
 - **Window Close Red:** Hover fill of the titlebar close control only, matching the native window-close convention in both themes.
 
 **The One Cobalt Rule.** Cobalt communicates action, focus, selection, or live status; it is not decorative fill. Draw next is the only cobalt button on the main screen.
@@ -216,7 +219,7 @@ The stage uses an 8px outer radius and an 8px inset hairline, matching the compa
 
 ### Dialogs
 
-- **Shell:** Native modal behavior with mineral-paper surfaces, a graphite scrim, 14px corners, and the same ambient depth vocabulary as the stage.
+- **Shell:** Modal behavior from `show()` plus inert, not `showModal()`, which would also inert the drag region, window controls, and the live region. `dialogs.ts` inerts the main content, titlebar tools, and update banner while any dialog is open, and traps Tab inside it. Native with mineral-paper surfaces, a graphite scrim, 14px corners, and the same ambient depth vocabulary as the stage.
 - **Header:** Serif title, close control, and one hairline divider.
 - **History grid:** Graphite thumbnail tiles with a 10px frame, a 4:3 contained image over Viewing Stage Soft, and a monospace ID caption. The current frame gets a cobalt double-weight border; frames without a stored thumbnail show a diagonal graphite stripe. Favorited tiles carry a small archival-white star on a graphite chip in the top-right corner, never cobalt, so it can't be mistaken for the selection border; ledger thumbnails carry the same mark at a smaller size.
 - **History filter:** An All / Favorites pair in the dialog header, joined as one 38px outlined control in the pager's language; the chosen side holds the graphite fill. It resets to All on every open. Favorites is the same grid, pager, and empty state over the starred frames in the order they were starred, with its own hold-to-clear control shown only while favorites exist. Clearing history keeps favorites.

@@ -112,7 +112,7 @@
 .history-filter__option {
   min-height: 38px;
   padding: 0 12px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--control-line);
   color: var(--ink);
   background: transparent;
   cursor: pointer;
@@ -164,7 +164,7 @@
   min-height: 38px;
   padding: 0 12px;
   flex: 0 0 auto;
-  border: 1px solid var(--line);
+  border: 1px solid var(--control-line);
   border-radius: 8px;
   color: var(--ink);
   background: transparent;
@@ -314,7 +314,7 @@
 .sync-dialog__button {
   min-height: 42px;
   padding: 0 14px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--control-line);
   border-radius: 8px;
   color: var(--ink);
   background: var(--paper);
@@ -330,7 +330,18 @@
   cursor: wait;
 }
 .sync-dialog__error {
-  color: var(--danger);
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  color: var(--ink);
+}
+.sync-dialog__error::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--danger);
 }
 #sync-join-form {
   display: grid;
@@ -649,7 +660,7 @@
   min-height: 38px;
   margin-top: 4px;
   padding: 0 14px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--control-line);
   border-radius: 8px;
   color: var(--ink);
   background: transparent;
@@ -935,7 +946,7 @@
 .history-pager__step,
 .history-pager__select select {
   min-height: 38px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--control-line);
   border-radius: 8px;
   color: var(--ink);
   background: transparent;
@@ -1110,7 +1121,7 @@
   appearance: none;
   display: grid;
   place-content: center;
-  border: 1px solid var(--line);
+  border: 1px solid var(--control-line);
   border-radius: 5px;
   background: var(--paper);
   cursor: pointer;
