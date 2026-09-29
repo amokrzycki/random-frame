@@ -37,11 +37,8 @@
 }
 
 .masthead-tools {
-  padding-inline: 8px;
   display: flex;
   flex: 0 0 auto;
-  align-items: center;
-  gap: 8px;
 }
 
 .masthead-tools[inert] {

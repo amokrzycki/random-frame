@@ -135,7 +135,13 @@
 .loading-state p {
   margin: 0;
   font-size: 14px;
-  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.7);
+}
+/* A scrim under the text, so it holds contrast over any frame that shows through the dimming. */
+.loading-state,
+.error-state {
+  padding: 20px 24px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--stage) 78%, transparent);
 }
 .loader {
   width: 36px;
@@ -160,7 +166,6 @@
 /* A caption over the dimmed frame, not a headline: the frame behind it is still the subject. */
 .error-state {
   width: min(420px, calc(100% - 80px));
-  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.7);
 }
 .error-state p {
   margin: 0 auto;
@@ -325,13 +330,12 @@
 }
 
 /* One info line under the stage: where you are, what you are looking at, what you can do with it,
-   and the single way forward. Container queries shed detail in a fixed order as it narrows. */
+   and the single way forward. */
 .info-line {
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 6px;
-  container: info-line / inline-size;
   font-variant-numeric: tabular-nums;
 }
 
@@ -346,10 +350,20 @@
   font-weight: 400;
 }
 
+.position__readout:hover:not(:disabled) .position__count {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
 .position__slash {
   padding-inline: 0.32em;
   color: var(--muted);
   font-weight: 400;
+}
+
+.position__readout:focus-visible :is(output, .position__slash),
+.position__readout:hover:not(:disabled) :is(output, .position__slash) {
+  color: inherit;
 }
 
 .position__form {

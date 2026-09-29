@@ -77,7 +77,6 @@
   }
 
   .history-item:active,
-  .stats-button:active,
   .history-pager__step:active:not(:disabled),
   .history-pager__select select:active,
   .history-close:active,
