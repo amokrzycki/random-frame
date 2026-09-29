@@ -184,6 +184,7 @@ test("downloads only missing thumbnails on the visible page without viewing fram
   get("history-filter-all").click();
   const clear = get("history-clear-button");
   clear.click();
+  await new Promise((resolve) => setTimeout(resolve, 520));
   clear.click();
   toastExpiry();
   await flush();

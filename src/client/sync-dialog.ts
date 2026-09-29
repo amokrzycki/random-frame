@@ -85,7 +85,7 @@ function setStatus(next: SyncStatus): void {
   // The dot is visual only; the name carries it for assistive technology.
   const label = attention ? "More, Sync needs attention" : "More";
   elements.toolsMenuButton.setAttribute("aria-label", label);
-  elements.toolsMenuButton.title = label;
+  elements.toolsMenuButton.dataset.tip = label;
 }
 
 const lastSyncedKey = "random-frame-last-synced";

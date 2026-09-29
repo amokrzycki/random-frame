@@ -153,6 +153,8 @@ export const ids = [
   "lightbox-view",
   "lightbox-caption",
   "lightbox-zoom-button",
+  "lightbox-favorite",
+  "lightbox-save",
   "lightbox-previous",
   "lightbox-next",
   "lightbox-close-button",

@@ -13,6 +13,7 @@ import { bindShortcutsEvents } from "./shortcuts.js";
 import { bindStageEvents, setState, showError, syncControls } from "./stage.js";
 import { bindStatsDialogEvents, migrateLegacyStats } from "./stats-dialog.js";
 import { bindSyncDialogEvents, refreshAfterStartup, runStartupSync } from "./sync-dialog.js";
+import { bindTooltipEvents } from "./tooltip.js";
 import { checkForUpdate } from "./update.js";
 import { applyFavorites, applyHistory, state } from "./viewer-state.js";
 
@@ -182,6 +183,29 @@ document.querySelectorAll<HTMLAnchorElement>(".external-link").forEach((link) =>
   });
 });
 
+// Arrow keys move along a toolbar's own buttons (not the menu items its popovers hold). They stop here,
+// so ← and → do not also step through frames while a toolbar button has focus.
+function bindToolbar(toolbar: HTMLElement): void {
+  toolbar.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key) || event.shiftKey) return;
+    const buttons = [...toolbar.querySelectorAll<HTMLButtonElement>(":scope > button:not(:disabled)")];
+    const current = buttons.indexOf(event.target as HTMLButtonElement);
+    if (current < 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const next =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? buttons.length - 1
+          : (current + (event.key === "ArrowRight" ? 1 : -1) + buttons.length) % buttons.length;
+    buttons[next]?.focus();
+  });
+}
+
+bindToolbar(elements.mastheadTools);
+bindToolbar(elements.infoActions);
+bindTooltipEvents();
 bindDialogChromeEvents();
 bindStageEvents();
 bindNavigationEvents();

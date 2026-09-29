@@ -354,9 +354,15 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   clearButton.click();
   await flush();
   assert.equal(clears(), 0);
-  assert.equal(clearButton.textContent, "Confirm clear history & stats");
+  assert.equal(clearButton.textContent, "Confirm · 5 frames");
+  // A click inside the arm delay cannot confirm what it just armed.
   clearButton.click();
+  await flush();
+  toastExpiry();
   assert.equal(clears(), 0);
+  assert.equal(get("history-total").textContent, "5");
+  await new Promise((resolve) => setTimeout(resolve, 520));
+  clearButton.click();
   toastExpiry();
   await flush();
   assert.deepEqual(persisted, { history: [], index: -1 });
@@ -384,7 +390,8 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   clearButton.click();
   await flush();
   assert.equal(clears(), 1);
-  assert.equal(get("announcer").textContent, "Activate again to clear history & stats");
+  assert.match(get("announcer").textContent, /^Activate again to clear history & stats: \d+ frames?$/);
+  await new Promise((resolve) => setTimeout(resolve, 520));
   clearButton.click();
   toastExpiry();
   await flush();

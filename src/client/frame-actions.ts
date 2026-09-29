@@ -111,6 +111,7 @@ function setLightboxZoom(zoomed: boolean): void {
   elements.lightboxView.classList.toggle("is-zoomed", zoomed);
   elements.lightboxZoom.setAttribute("aria-pressed", String(zoomed));
   elements.lightboxZoom.textContent = zoomed ? "Fit" : "1:1";
+  elements.lightboxZoom.dataset.tip = zoomed ? "Fit to window. Shift+arrows pan" : "Actual size. Shift+arrows pan";
   if (zoomed) {
     elements.lightboxView.scrollLeft = (elements.lightboxView.scrollWidth - elements.lightboxView.clientWidth) / 2;
     elements.lightboxView.scrollTop = (elements.lightboxView.scrollHeight - elements.lightboxView.clientHeight) / 2;
@@ -133,6 +134,14 @@ function openLightbox(): void {
   openDialog(elements.lightboxDialog, "dark");
 }
 
+const PAN_STEP = 120;
+const PAN: Record<string, [number, number] | undefined> = {
+  ArrowLeft: [-1, 0],
+  ArrowRight: [1, 0],
+  ArrowUp: [0, -1],
+  ArrowDown: [0, 1],
+};
+
 export function bindFrameActionEvents(): void {
   elements.favoriteButton.addEventListener("click", () => void toggleCurrentFavorite());
   elements.save.addEventListener("click", () => void saveCurrent());
@@ -140,6 +149,8 @@ export function bindFrameActionEvents(): void {
   elements.copyLink.addEventListener("click", () => void copySourceLink());
   elements.imageZoom.addEventListener("click", openLightbox);
   elements.lightboxClose.addEventListener("click", () => closeDialog(elements.lightboxDialog));
+  elements.lightboxFavorite.addEventListener("click", () => void toggleCurrentFavorite());
+  elements.lightboxSave.addEventListener("click", () => void saveCurrent());
   elements.lightboxZoom.addEventListener("click", () =>
     setLightboxZoom(!elements.lightboxView.classList.contains("is-zoomed")),
   );
@@ -149,10 +160,27 @@ export function bindFrameActionEvents(): void {
   elements.lightboxPrevious.addEventListener("click", () => void stepLightbox(-1));
   elements.lightboxNext.addEventListener("click", () => void stepLightbox(1));
   elements.lightboxDialog.addEventListener("keydown", (event) => {
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    const arrow = PAN[event.key];
+    if (arrow && event.shiftKey) {
+      // Shift+arrow pans a zoomed image; unzoomed there is nothing to pan, and it must not step frames.
+      event.preventDefault();
+      event.stopPropagation();
+      if (elements.lightboxView.classList.contains("is-zoomed"))
+        elements.lightboxView.scrollBy(arrow[0] * PAN_STEP, arrow[1] * PAN_STEP);
+      return;
+    }
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      event.preventDefault();
+      event.stopPropagation();
+      void stepLightbox(event.key === "ArrowLeft" ? -1 : 1);
+      return;
+    }
+    const key = event.key.toLowerCase();
+    if ((key !== "s" && key !== "f") || event.repeat) return;
     event.preventDefault();
     event.stopPropagation();
-    void stepLightbox(event.key === "ArrowLeft" ? -1 : 1);
+    void (key === "s" ? saveCurrent() : toggleCurrentFavorite());
   });
   let pointer: { id: number; x: number; y: number; left: number; top: number } | null = null;
   elements.lightboxView.addEventListener("pointerdown", (event) => {

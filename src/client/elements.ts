@@ -13,6 +13,8 @@ export const elements = {
   lightboxView: element<HTMLElement>("#lightbox-view"),
   lightboxCaption: element<HTMLElement>("#lightbox-caption"),
   lightboxZoom: element<HTMLButtonElement>("#lightbox-zoom-button"),
+  lightboxFavorite: element<HTMLButtonElement>("#lightbox-favorite"),
+  lightboxSave: element<HTMLButtonElement>("#lightbox-save"),
   lightboxPrevious: element<HTMLButtonElement>("#lightbox-previous"),
   lightboxNext: element<HTMLButtonElement>("#lightbox-next"),
   lightboxClose: element<HTMLButtonElement>("#lightbox-close-button"),

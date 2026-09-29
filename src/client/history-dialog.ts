@@ -1,7 +1,7 @@
 import { closeDialog, onDialogClosed, openDialog } from "./dialogs.js";
 import { elements } from "./elements.js";
 import { describeError } from "./errors.js";
-import { clearFavorites } from "./favorites.js";
+import { clearFavorites, type FavoriteItem, toggleFavorite } from "./favorites.js";
 import {
   blobKey,
   blobs,
@@ -274,6 +274,7 @@ async function clearSavedHistory(): Promise<void> {
 
 async function clearSavedFavorites(): Promise<void> {
   if (state.loading) return;
+  const previous = [...state.favorites];
   try {
     await clearFavorites();
     applyFavorites([]);
@@ -281,35 +282,71 @@ async function clearSavedFavorites(): Promise<void> {
     renderHistoryPage();
     // The favorites filter now hides its clear action; keep focus inside the dialog.
     elements.historyClose.focus();
-    toast.success("Favorites cleared");
+    if (!previous.length) return toast.success("Favorites cleared");
+    toast.info("Favorites cleared", { label: "Undo", run: () => void restoreFavorites(previous) });
   } catch (error) {
     toast.error(describeError(error, "Favorites could not be cleared. Try again.").message);
   }
 }
 
+// Re-stars each frame with its original date, so the list keeps its order. Stops at the first failure.
+async function restoreFavorites(items: FavoriteItem[]): Promise<void> {
+  try {
+    for (const item of items) if (!isFavorite(item)) applyFavorites(await toggleFavorite(item));
+  } catch (error) {
+    toast.error(describeError(error, "Favorites could not be restored. Try again.").message);
+  }
+  syncControls();
+  if (elements.historyDialog.open) renderHistoryPage();
+  for (const item of state.favorites) void ensureThumbnail(item).catch(() => false);
+}
+
 // Confirmation stays explicit for pointer, keyboard, and assistive-technology activation.
 // The group shows its hint only while armed; the button keeps aria-describedby either way.
-function bindClearConfirmation(button: HTMLButtonElement, group: HTMLElement, clear: () => Promise<void>): () => void {
+// Arming ignores clicks for ARM_DELAY_MS, so a double-click cannot confirm what it just armed.
+const ARM_DELAY_MS = 500;
+const plural = (count: number, noun: string): string => `${count} ${noun}${count === 1 ? "" : "s"}`;
+
+function bindClearConfirmation(
+  button: HTMLButtonElement,
+  group: HTMLElement,
+  clear: () => Promise<void>,
+  count: () => string,
+): () => void {
+  let armedAt = 0;
   let armedUntil = 0;
   let confirmationTimeout: ReturnType<typeof setTimeout>;
+  let armTimeout: ReturnType<typeof setTimeout>;
   const initialLabel = button.textContent.trim();
   const reset = (): void => {
     clearTimeout(confirmationTimeout);
-    armedUntil = 0;
+    clearTimeout(armTimeout);
+    armedAt = armedUntil = 0;
     group.removeAttribute("data-armed");
+    group.removeAttribute("data-arming");
+    button.removeAttribute("aria-disabled");
     button.textContent = initialLabel;
   };
   button.addEventListener("click", () => {
     if (state.loading || button.disabled) return;
-    if (Date.now() < armedUntil) {
+    const now = Date.now();
+    if (now < armedUntil) {
+      if (now - armedAt < ARM_DELAY_MS) return;
       reset();
       void clear();
       return;
     }
-    armedUntil = Date.now() + 5000;
+    armedAt = now;
+    armedUntil = now + 5000;
     group.setAttribute("data-armed", "");
-    button.textContent = `Confirm ${initialLabel.toLowerCase()}`;
-    elements.announcer.textContent = `Activate again to ${initialLabel.toLowerCase()}`;
+    group.setAttribute("data-arming", "");
+    button.setAttribute("aria-disabled", "true");
+    armTimeout = setTimeout(() => {
+      group.removeAttribute("data-arming");
+      button.removeAttribute("aria-disabled");
+    }, ARM_DELAY_MS);
+    button.textContent = `Confirm · ${count()}`;
+    elements.announcer.textContent = `Activate again to ${initialLabel.toLowerCase()}: ${count()}`;
     confirmationTimeout = setTimeout(() => {
       if (Date.now() >= armedUntil) reset();
     }, 5000);
@@ -325,11 +362,13 @@ export function bindHistoryDialogEvents(): void {
     elements.historyClear,
     elements.historyClearGroup,
     clearSavedHistory,
+    () => plural(state.history.length, "frame"),
   );
   const resetFavoritesConfirmation = bindClearConfirmation(
     elements.historyClearFavorites,
     elements.historyClearFavoritesGroup,
     clearSavedFavorites,
+    () => plural(state.favorites.length, "favorite"),
   );
   elements.historyFilterAll.addEventListener("click", () => {
     resetHistoryConfirmation();

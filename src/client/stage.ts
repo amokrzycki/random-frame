@@ -87,7 +87,8 @@ export function syncControls(): void {
   // A saved frame keeps its check while shown; only a fresh save plays the arrow-to-check.
   if (current && savedFrames.has(blobKey(current.source, current.id))) elements.save.dataset.saved ??= "shown";
   else delete elements.save.dataset.saved;
-  elements.save.title = elements.save.dataset.saved ? "Saved · Save again (S)" : "Save image (S)";
+  elements.save.dataset.tip = elements.save.dataset.saved ? "Saved · Save again (S)" : "Save image (S)";
+  elements.lightboxSave.disabled = elements.save.disabled;
   elements.copyImage.disabled = state.loading || !currentBlob;
   elements.copyLink.disabled = state.loading || !current;
   const favorite = Boolean(current && isFavorite(current));
@@ -95,7 +96,11 @@ export function syncControls(): void {
   elements.favoriteButton.disabled = state.loading || !current;
   elements.favoriteButton.setAttribute("aria-pressed", String(favorite));
   elements.favoriteButton.setAttribute("aria-label", favoriteLabel);
-  elements.favoriteButton.title = `${favoriteLabel} (F)`;
+  elements.favoriteButton.dataset.tip = `${favoriteLabel} (F)`;
+  elements.lightboxFavorite.disabled = elements.favoriteButton.disabled;
+  elements.lightboxFavorite.setAttribute("aria-pressed", String(favorite));
+  elements.lightboxFavorite.setAttribute("aria-label", favoriteLabel);
+  elements.lightboxFavorite.dataset.tip = `${favoriteLabel} (F)`;
   elements.previousId.disabled =
     state.loading || current?.source !== "prntsc" || adjacentPrntscId(current.id, -1) === null;
   elements.nextId.disabled = state.loading || current?.source !== "prntsc" || adjacentPrntscId(current.id, 1) === null;

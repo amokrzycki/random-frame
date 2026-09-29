@@ -113,7 +113,7 @@
               class="history-thumbnail-action__button"
               id="history-thumbnails"
               type="button"
-              title="Download missing thumbnails on this page"
+              data-tip="Download missing thumbnails on this page"
               aria-label="Download missing thumbnails on this page">
               Download thumbnails
             </button>
@@ -183,7 +183,36 @@
       <header class="lightbox-toolbar">
         <span class="lightbox-caption" id="lightbox-caption"></span>
         <div class="lightbox-tools">
-          <button class="lightbox-control" id="lightbox-zoom-button" type="button" aria-pressed="false">1:1</button>
+          <button
+            class="lightbox-control lightbox-favorite"
+            id="lightbox-favorite"
+            type="button"
+            aria-label="Add to favorites"
+            aria-keyshortcuts="F"
+            aria-pressed="false"
+            data-tip="Add to favorites (F)">
+            <svg viewBox="0 0 18 18" aria-hidden="true">
+              <path d="M9 2.5l1.9 4 4.35.55-3.2 3 .82 4.3L9 12.25 5.13 14.35l.82-4.3-3.2-3 4.35-.55z" />
+            </svg>
+          </button>
+          <button
+            class="lightbox-control"
+            id="lightbox-save"
+            type="button"
+            aria-label="Save image"
+            aria-keyshortcuts="S"
+            data-tip="Save image (S)">
+            <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M9 3v8m-3.5-3.5L9 11l3.5-3.5M3.5 14.5h11" /></svg>
+          </button>
+          <button
+            class="lightbox-control"
+            id="lightbox-zoom-button"
+            type="button"
+            aria-pressed="false"
+            aria-keyshortcuts="Shift+ArrowLeft Shift+ArrowRight Shift+ArrowUp Shift+ArrowDown"
+            data-tip="Zoom to actual size. Shift+arrows pan">
+            1:1
+          </button>
           <button
             class="lightbox-control lightbox-close"
             id="lightbox-close-button"
@@ -253,6 +282,10 @@
           <div class="shortcuts__row">
             <dt>Undo last favorite removal</dt>
             <dd><kbd>Z</kbd><kbd>Ctrl+Z</kbd></dd>
+          </div>
+          <div class="shortcuts__row">
+            <dt>Pan a zoomed image in the enlarged view</dt>
+            <dd><kbd>Shift</kbd><kbd aria-label="Arrow keys">←↑↓→</kbd></dd>
           </div>
           <div class="shortcuts__row">
             <dt>Open history</dt>
@@ -365,8 +398,8 @@
           <span>Random Frame</span>
         </div>
       </div>
-      <div class="masthead-tools" id="masthead-tools">
-        <button class="stats-button" id="stats-button" type="button" aria-label="Stats" title="Stats">
+      <div class="masthead-tools" id="masthead-tools" role="toolbar" aria-label="App tools">
+        <button class="stats-button" id="stats-button" type="button" aria-label="Stats" data-tip="Stats">
           <svg viewBox="0 0 20 20" aria-hidden="true">
             <path d="M4 16V10m6 6V4m6 12V7" />
           </svg>
@@ -377,7 +410,7 @@
           type="button"
           popovertarget="tools-menu"
           aria-label="More"
-          title="More">
+          data-tip="More">
           <svg viewBox="0 0 20 20" aria-hidden="true">
             <path d="M4.5 10h.01M10 10h.01M15.5 10h.01" />
           </svg>
@@ -420,10 +453,22 @@
         </div>
       </div>
       <div class="window-controls">
-        <button class="window-control" id="window-minimize" type="button" aria-label="Minimize window" title="Minimize">
+        <button
+          class="window-control"
+          id="window-minimize"
+          type="button"
+          tabindex="-1"
+          aria-label="Minimize window"
+          data-tip="Minimize">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8h9" /></svg>
         </button>
-        <button class="window-control" id="window-maximize" type="button" aria-label="Maximize window" title="Maximize">
+        <button
+          class="window-control"
+          id="window-maximize"
+          type="button"
+          tabindex="-1"
+          aria-label="Maximize window"
+          data-tip="Maximize">
           <svg id="window-maximize-icon" viewBox="0 0 16 16" aria-hidden="true">
             <rect x="3.5" y="3.5" width="9" height="9" />
           </svg>
@@ -435,8 +480,9 @@
           class="window-control window-control--close"
           id="window-close"
           type="button"
+          tabindex="-1"
           aria-label="Close window"
-          title="Close">
+          data-tip="Close">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8m0-8-8 8" /></svg>
         </button>
       </div>
@@ -497,14 +543,14 @@
         </div>
 
         <div class="info-line">
-          <div class="info-line__frame" id="info-actions" hidden>
+          <div class="info-line__frame" id="info-actions" role="toolbar" aria-label="Frame actions" hidden>
             <button
               class="frame-id"
               id="frame-menu-button"
               type="button"
               popovertarget="frame-menu"
               aria-label="Frame options"
-              title="Frame options">
+              data-tip="Frame options">
               <span class="frame-id__caption" id="image-id"
                 ><span class="frame-id__host">prnt.sc/</span><span id="image-id-value">———</span></span
               >
@@ -516,7 +562,7 @@
                 id="position-button"
                 type="button"
                 data-keep
-                title="Jump to a frame"
+                data-tip="Jump to a frame"
                 aria-label="Frame 0 of 0. Jump to a frame"
                 disabled>
                 Frame
@@ -566,7 +612,7 @@
                   class="tools-menu__item external-link"
                   target="_blank"
                   rel="noopener noreferrer"
-                  title="Open source page"
+                  data-tip="Open source page"
                   aria-disabled="true">
                   <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M7 4H4v10h10v-3M9 4h5v5m0-5L8 10" /></svg>
                   Source
@@ -576,7 +622,7 @@
                   id="copy-link-button"
                   type="button"
                   aria-label="Copy source link"
-                  title="Copy source link"
+                  data-tip="Copy source link"
                   disabled>
                   <svg viewBox="0 0 18 18" aria-hidden="true">
                     <path
@@ -609,7 +655,7 @@
               aria-label="Add to favorites"
               aria-keyshortcuts="F"
               aria-pressed="false"
-              title="Add to favorites (F)"
+              data-tip="Add to favorites (F)"
               disabled>
               <svg viewBox="0 0 18 18" aria-hidden="true">
                 <path

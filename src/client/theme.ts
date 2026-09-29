@@ -9,17 +9,6 @@ const choices = [...(document.querySelectorAll?.<HTMLButtonElement>("[data-theme
 const themeColor = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
 const systemDark = globalThis.matchMedia?.("(prefers-color-scheme: dark)");
 
-// WebKitGTK treats script focus() as :focus-visible even right after a click, so rings would follow
-// every mouse-closed dialog. Track the last input ourselves; the CSS hides rings until a real key press.
-document.addEventListener(
-  "keydown",
-  (event) => {
-    if (!["Shift", "Control", "Alt", "Meta"].includes(event.key)) root.dataset.keyboardNavigation = "";
-  },
-  true,
-);
-document.addEventListener("pointerdown", () => delete root.dataset.keyboardNavigation, true);
-
 function storedChoice(): Choice {
   try {
     const value = localStorage.getItem(storageKey);

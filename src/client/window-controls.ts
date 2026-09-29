@@ -32,7 +32,7 @@ async function syncMaximizedState(): Promise<void> {
     restoreIcon.toggleAttribute("hidden", !maximized);
     const action = maximized ? "Restore" : "Maximize";
     maximize.setAttribute("aria-label", `${action} window`);
-    maximize.title = action;
+    maximize.dataset.tip = action;
     clearFailure();
   } catch {
     reportFailure();
