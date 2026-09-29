@@ -18,6 +18,26 @@ let cooldownUntil = 0;
 let cooldownTimer: ReturnType<typeof setInterval> | undefined;
 let cooldownNoticeShown = false;
 
+const arrowHintStorageKey = "random-frame-arrow-hint-dismissed";
+let arrowHintDismissed = false;
+try {
+  arrowHintDismissed = localStorage.getItem(arrowHintStorageKey) === "true";
+} catch {
+  // Keep the hint available when storage is disabled.
+}
+
+// The hint teaches the arrows, so the first step back through history (key or button) retires it.
+export function dismissArrowHint(): void {
+  if (arrowHintDismissed) return;
+  arrowHintDismissed = true;
+  elements.arrowHint.hidden = true;
+  try {
+    localStorage.setItem(arrowHintStorageKey, "true");
+  } catch {
+    // The hint stays dismissed for this session.
+  }
+}
+
 export function getViewState(): ViewState {
   return viewState;
 }
@@ -96,9 +116,9 @@ export function syncControls(): void {
   elements.previousId.disabled =
     state.loading || current?.source !== "prntsc" || adjacentPrntscId(current.id, -1) === null;
   elements.nextId.disabled = state.loading || current?.source !== "prntsc" || adjacentPrntscId(current.id, 1) === null;
-  elements.previousIdMenuItem.disabled = elements.previousId.disabled;
-  elements.nextIdMenuItem.disabled = elements.nextId.disabled;
-  elements.idMenuButton.disabled = elements.previousId.disabled && elements.nextId.disabled;
+  // Frame actions have nothing to act on until the first draw.
+  elements.infoActions.hidden = !state.history.length;
+  elements.arrowHint.hidden = arrowHintDismissed || state.history.length < 2;
   // History, the position readout, and the arrows stay enabled while loading (goTo ignores them), so they keep focus.
   const position = state.history.length ? state.index + 1 : 0;
   elements.positionButton.disabled = !state.history.length;
@@ -220,6 +240,7 @@ export function swapImage(url: string, id: string): void {
 }
 
 export function bindStageEvents(): void {
+  elements.arrowHintDismiss.addEventListener("click", dismissArrowHint);
   elements.imageGhost.addEventListener("animationend", () => {
     elements.imageGhost.hidden = true;
   });

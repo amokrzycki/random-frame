@@ -344,12 +344,6 @@
         </div>
       </div>
       <div class="masthead-tools" id="masthead-tools">
-        <button class="stats-button" id="sync-button" type="button" aria-label="Sync" title="Sync">
-          <svg viewBox="0 0 20 20" aria-hidden="true">
-            <path
-              d="M16.5 8A6.5 6.5 0 0 0 5.4 4.4L3.5 6.3M3.5 3.5v2.8h2.8M3.5 12A6.5 6.5 0 0 0 14.6 15.6l1.9-1.9M13.7 13.7h2.8v2.8" />
-          </svg>
-        </button>
         <button class="stats-button" id="stats-button" type="button" aria-label="Stats" title="Stats">
           <svg viewBox="0 0 20 20" aria-hidden="true">
             <path d="M4 16V10m6 6V4m6 12V7" />
@@ -357,29 +351,47 @@
         </button>
         <button
           class="stats-button"
-          id="shortcuts-button"
+          id="tools-menu-button"
           type="button"
-          aria-label="Keyboard shortcuts"
-          aria-keyshortcuts="?"
-          title="Keyboard shortcuts (?)">
+          popovertarget="tools-menu"
+          aria-label="More"
+          title="More">
           <svg viewBox="0 0 20 20" aria-hidden="true">
-            <path d="M3 5.5h14v9H3zM6 8.5h.01M9 8.5h.01M12 8.5h.01M15 8.5h.01M7 11.5h6" />
+            <path d="M4.5 10h.01M10 10h.01M15.5 10h.01" />
           </svg>
         </button>
-        <button class="theme-toggle" type="button" aria-label="Switch to dark mode" aria-pressed="false">
-          <span class="theme-toggle__knob" aria-hidden="true">
-            <span class="theme-toggle__icon">
-              <svg class="theme-toggle__sun" viewBox="0 0 24 24" aria-hidden="true">
-                <circle cx="12" cy="12" r="4" />
-                <path
-                  d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
-              </svg>
-              <svg class="theme-toggle__moon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" />
-              </svg>
-            </span>
-          </span>
-        </button>
+        <div class="tools-menu" id="tools-menu" popover>
+          <button class="tools-menu__item" id="sync-button" type="button">
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <path
+                d="M16.5 8A6.5 6.5 0 0 0 5.4 4.4L3.5 6.3M3.5 3.5v2.8h2.8M3.5 12A6.5 6.5 0 0 0 14.6 15.6l1.9-1.9M13.7 13.7h2.8v2.8" />
+            </svg>
+            Sync
+          </button>
+          <button class="tools-menu__item" id="shortcuts-button" type="button" aria-keyshortcuts="?">
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <path d="M3 5.5h14v9H3zM6 8.5h.01M9 8.5h.01M12 8.5h.01M15 8.5h.01M7 11.5h6" />
+            </svg>
+            Keyboard shortcuts
+            <kbd aria-hidden="true">?</kbd>
+          </button>
+          <button
+            class="tools-menu__item theme-toggle"
+            type="button"
+            aria-label="Switch to dark mode"
+            aria-pressed="false">
+            <svg class="theme-toggle__moon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" />
+            </svg>
+            <svg class="theme-toggle__sun" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="4" />
+              <path
+                d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+            </svg>
+            <span class="theme-toggle__to-dark">Dark mode</span>
+            <span class="theme-toggle__to-light">Light mode</span>
+          </button>
+        </div>
       </div>
       <div class="window-controls">
         <button class="window-control" id="window-minimize" type="button" aria-label="Minimize window" title="Minimize">
@@ -517,25 +529,6 @@
                 disabled>
                 <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m7.5 5 4 4-4 4" /></svg>
               </button>
-              <button
-                class="info-icon frame-id__menu"
-                id="id-menu-button"
-                type="button"
-                popovertarget="id-menu"
-                aria-label="Adjacent Prnt.sc identifiers"
-                title="Adjacent IDs">
-                <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m6 7.5 3 3 3-3" /></svg>
-              </button>
-            </div>
-            <div class="id-menu" id="id-menu" popover>
-              <button class="id-menu__item" id="previous-id-menu-item" type="button" disabled>
-                <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m10.5 5-4 4 4 4" /></svg>
-                Previous ID
-              </button>
-              <button class="id-menu__item" id="next-id-menu-item" type="button" disabled>
-                <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m7.5 5 4 4-4 4" /></svg>
-                Next ID
-              </button>
             </div>
             <button
               id="copy-link-button"
@@ -562,7 +555,7 @@
             </a>
           </div>
 
-          <div class="info-line__actions">
+          <div class="info-line__actions" id="info-actions" hidden>
             <button
               class="info-icon"
               id="favorite-button"

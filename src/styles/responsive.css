@@ -1,34 +1,3 @@
-/* The info line sheds detail in a fixed order as it narrows: labels first, then the ID steppers fold
-   into a menu, then the position tightens to 12/48. Draw next never collapses. */
-@container info-line (max-width: 720px) {
-  .frame-id__host,
-  .draw-button__key {
-    display: none;
-  }
-  .draw-button {
-    min-width: 104px;
-    justify-content: center;
-  }
-}
-
-@container info-line (max-width: 600px) {
-  .frame-id__step {
-    display: none;
-  }
-  .info-icon.frame-id__menu {
-    display: grid;
-  }
-}
-
-@container info-line (max-width: 480px) {
-  .position__slash {
-    padding-inline: 0;
-  }
-  .info-line__divider {
-    margin-inline: 4px 0;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -74,18 +43,6 @@
     .toast {
       transform: none;
     }
-  }
-
-  /* Icons crossfade in place; no spin or scale. */
-  .theme-toggle__sun,
-  .theme-toggle__icon .theme-toggle__moon,
-  .theme-toggle[aria-pressed="true"] .theme-toggle__sun,
-  .theme-toggle[aria-pressed="true"] .theme-toggle__moon {
-    transform: translate(-50%, -50%);
-  }
-
-  .theme-toggle:active .theme-toggle__knob {
-    transform: none;
   }
 
   .nav-button:active:not([aria-disabled="true"]) {

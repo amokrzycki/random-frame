@@ -18,25 +18,6 @@ import { applyFavorites, applyHistory, state } from "./viewer-state.js";
 
 const storageKey = "prntsc-gallery-history";
 const entryStorageKey = "random-frame-risk-accepted";
-const arrowHintStorageKey = "random-frame-arrow-hint-dismissed";
-const arrowHint = document.querySelector<HTMLElement>("#arrow-hint");
-const arrowHintDismiss = document.querySelector<HTMLButtonElement>("#arrow-hint-dismiss");
-
-try {
-  if (arrowHint && localStorage.getItem(arrowHintStorageKey) !== "true") arrowHint.hidden = false;
-} catch {
-  // Keep the hint available when storage is disabled.
-  if (arrowHint) arrowHint.hidden = false;
-}
-arrowHintDismiss?.addEventListener("click", () => {
-  if (arrowHint) arrowHint.hidden = true;
-  try {
-    localStorage.setItem(arrowHintStorageKey, "true");
-  } catch {
-    // The hint stays dismissed for this session.
-  }
-});
-
 try {
   if (shouldShowEntryDialog(localStorage.getItem(entryStorageKey))) openDialog(elements.entryDialog);
 } catch {
@@ -108,6 +89,16 @@ elements.entryButton.addEventListener("click", () => {
 });
 
 window.addEventListener("pagehide", releaseAllBlobs);
+
+// Pinned under its button when it opens. Closing on pick, before the item's own handler runs, returns focus
+// to the button so a dialog opened from the menu hands it back there.
+elements.toolsMenu.addEventListener("beforetoggle", (event) => {
+  if ((event as ToggleEvent).newState !== "open") return;
+  const rect = elements.toolsMenuButton.getBoundingClientRect();
+  elements.toolsMenu.style.top = `${rect.bottom + 6}px`;
+  elements.toolsMenu.style.right = `${window.innerWidth - rect.right}px`;
+});
+elements.toolsMenu.addEventListener("click", () => elements.toolsMenu.hidePopover?.(), true);
 
 document.querySelectorAll<HTMLAnchorElement>(".external-link").forEach((link) => {
   link.addEventListener("click", (event) => {

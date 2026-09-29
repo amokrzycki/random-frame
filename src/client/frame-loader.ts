@@ -6,6 +6,7 @@ import { adjacentPrntscId, frameNumberToIndex, historyIndexForId, nextHistoryInd
 import { recordHistoryItem, selectHistoryItem } from "./persistence.js";
 import {
   decodedUrl,
+  dismissArrowHint,
   drawPaused,
   finishLoading,
   getViewState,
@@ -38,7 +39,6 @@ export async function loadRandom(): Promise<void> {
   if (state.loading || drawPaused()) return;
   startLoading();
   state.drawing = true;
-  elements.idMenu.hidePopover?.();
   setState("loading");
   syncControls();
   try {
@@ -86,6 +86,7 @@ export async function goTo(targetIndex: number): Promise<void> {
 }
 
 export function goBack(): void {
+  dismissArrowHint();
   void goTo(state.index - 1);
 }
 
@@ -150,21 +151,6 @@ export function bindNavigationEvents(): void {
   elements.previous.addEventListener("click", goBack);
   elements.previousId.addEventListener("click", () => void loadAdjacent(-1));
   elements.nextId.addEventListener("click", () => void loadAdjacent(1));
-  elements.idMenu.addEventListener("beforetoggle", (event) => {
-    if ((event as ToggleEvent).newState !== "open") return;
-    const rect = elements.idMenuButton.getBoundingClientRect();
-    elements.idMenu.style.left = `${rect.left}px`;
-    elements.idMenu.style.bottom = `${window.innerHeight - rect.top + 6}px`;
-  });
-  for (const [item, offset] of [
-    [elements.previousIdMenuItem, -1],
-    [elements.nextIdMenuItem, 1],
-  ] as const) {
-    item.addEventListener("click", () => {
-      elements.idMenu.hidePopover?.();
-      void loadAdjacent(offset);
-    });
-  }
 
   elements.positionButton.addEventListener("click", () => editPosition(true));
   elements.jumpInput.addEventListener("input", () => elements.jumpInput.setCustomValidity(""));

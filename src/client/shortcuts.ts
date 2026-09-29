@@ -32,8 +32,8 @@ export function bindShortcutsEvents(): void {
       else if (!dialogs.some((dialog) => dialog.open)) openShortcuts();
       return;
     }
-    // The ID menu popover is not a dialog but still owns the keyboard while open.
-    if (dialogs.some((dialog) => dialog.open) || elements.idMenu.matches?.(":popover-open")) return;
+    // The tools menu popover is not a dialog but still owns the keyboard while open.
+    if (dialogs.some((dialog) => dialog.open) || elements.toolsMenu.matches?.(":popover-open")) return;
     if (event.key === "ArrowLeft") goBack();
     if (event.key === "ArrowRight") goNext();
     if (!event.repeat) {
