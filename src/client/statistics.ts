@@ -84,7 +84,7 @@ export function ledgerDateLabel(iso: string, todayIso: string): string {
 }
 
 export function formatLedgerCounts(drawn: number, unavailable: number): string {
-  const counts = `${drawn.toLocaleString("en-US")} drawn`;
+  const counts = `${drawn.toLocaleString("en-US")} found`;
   return unavailable ? `${counts} · ${unavailable.toLocaleString("en-US")} unavailable` : counts;
 }
 

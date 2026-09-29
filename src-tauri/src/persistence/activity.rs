@@ -197,7 +197,12 @@ impl ActivityStore {
             .data
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let next = ActivityData::default();
+        // Clearing supersedes pending legacy import and one-time revisit repair.
+        let next = ActivityData {
+            migrated: true,
+            revisit_views_repaired: true,
+            ..ActivityData::default()
+        };
         self.save(&next)?;
         *data = next;
         drop(data);

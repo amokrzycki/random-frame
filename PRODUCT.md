@@ -24,7 +24,7 @@ Instead of an endless feed, Random Frame offers one deliberate draw at a time ac
 
 ## Operating Context
 
-The gallery is used as a focused desktop utility in a resizable window, primarily with keyboard and mouse. Browsing history and exploration statistics stay locally on the device until the user clears the history.
+The gallery is used as a focused desktop utility in a resizable window, primarily with keyboard and mouse. History, favorites, and Seen IDs can Sync across linked devices. Activity and exploration stats stay local and reset when the user clears history.
 
 ## Capabilities and Constraints
 
@@ -48,7 +48,7 @@ The supplied Chris Hannah implementation establishes the current Prnt.sc identif
 
 - The displayed media is always the focal point.
 - One clear action advances exploration; history stays effortless.
-- Browsing records and exploration statistics stay local to the device.
+- History, favorites, and Seen IDs can Sync; activity and exploration stats stay local to the device.
 - Every item keeps a clear link to its source.
 - Upstream failures are explained plainly and recover gracefully.
 

@@ -50,6 +50,12 @@ fn activity_clear_resets_totals_and_days() -> Result<(), AppError> {
         store.recent_days(today, 1),
         vec![("2026-09-20".to_owned(), DailyActivitySnapshot::default())]
     );
+    // A pending legacy browser key must not re-import pre-clear totals, even after restart.
+    store.migrate("2026-09-20", 5, 42, "2026-09-20")?;
+    assert_eq!(store.viewed_total(), 0);
+    let reloaded = ActivityStore::new(&directory)?;
+    reloaded.migrate("2026-09-20", 5, 42, "2026-09-20")?;
+    assert_eq!(reloaded.viewed_total(), 0);
     fs::remove_dir_all(directory).map_err(AppError::persistence)
 }
 

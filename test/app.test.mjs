@@ -187,7 +187,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(get("ledger-empty").hidden, true);
   assert.equal(get("ledger-more").hidden, true);
   const [row] = get("ledger-list").children;
-  assert.equal(row.getAttribute("aria-label"), "Today: 2 drawn");
+  assert.equal(row.getAttribute("aria-label"), "Today: 2 found");
   const strip = row.children[2];
   assert.deepEqual(
     strip.children.map((child) => child.getAttribute("aria-label") ?? child.textContent),

@@ -53,9 +53,9 @@ test("names ledger days relative to today, adding the year only when it differs"
 });
 
 test("counts a ledger day, leaving out unavailable when there were none", () => {
-  assert.equal(formatLedgerCounts(12, 3), "12 drawn · 3 unavailable");
-  assert.equal(formatLedgerCounts(1_204, 0), "1,204 drawn");
-  assert.equal(formatLedgerCounts(0, 7), "0 drawn · 7 unavailable");
+  assert.equal(formatLedgerCounts(12, 3), "12 found · 3 unavailable");
+  assert.equal(formatLedgerCounts(1_204, 0), "1,204 found");
+  assert.equal(formatLedgerCounts(0, 7), "0 found · 7 unavailable");
 });
 
 test("builds ledger days newest first, skipping idle days and grouping frames by local viewedAt", () => {

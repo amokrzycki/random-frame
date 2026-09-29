@@ -63,8 +63,9 @@
               Clear history
             </button>
             <span class="history-clear-hint" id="history-clear-hint">
-              Clears known shared history after Sync and local stats. Seen progress and favorites stay. Offline entries
-              may return after Sync.
+              Clears history and local stats on this device. Seen IDs and favorites remain. After this device syncs,
+              known history is removed from linked devices when they sync. New history created on an offline device may
+              appear later.
             </span>
           </div>
           <div class="history-clear-group" id="history-clear-favorites-group" hidden>
@@ -76,7 +77,8 @@
               Clear favorites
             </button>
             <span class="history-clear-hint" id="history-clear-favorites-hint">
-              Clears synced favorites. Offline favorites may return after the next Sync.
+              Clears favorites on this device. After this device syncs, known favorites are removed from linked devices
+              when they sync. New favorites created on an offline device may appear later.
             </span>
           </div>
         </header>
@@ -125,8 +127,8 @@
         </footer>
         <footer class="dialog-foot">
           <p>
-            Clearing history does not reset exploration progress. Seen progress may sync if you enable Sync. Respect the
-            privacy of people whose information may appear in public uploads.
+            Clearing history resets local stats but keeps Seen IDs used to avoid repeats. Seen IDs sync when Sync is
+            enabled. Respect the privacy of people whose information may appear in public uploads.
           </p>
         </footer>
       </div>
@@ -152,12 +154,12 @@
                 <dd id="stats-today">0</dd>
               </div>
               <div class="stats-tally__item">
-                <dt>Day streak</dt>
+                <dt>Activity streak</dt>
                 <dd id="stats-streak">0</dd>
               </div>
             </dl>
             <p class="stats-headline__detail stats-explored">
-              <span>Prnt.sc explored <span id="stats-explored">0 / 4,773,622,240</span></span>
+              <span>Prnt.sc checked <span id="stats-explored">0 / 4,773,622,240</span></span>
               <span id="stats-explored-percent">0% of known legacy ID space</span>
               <span id="stats-explored-breakdown">0 viewable · 0 unavailable</span>
             </p>
@@ -167,17 +169,17 @@
             </p>
           </div>
           <section class="ledger" id="ledger" aria-labelledby="ledger-title">
-            <h3 class="stats-subhead" id="ledger-title">Draw ledger</h3>
+            <h3 class="stats-subhead" id="ledger-title">Local results by day</h3>
             <ol class="ledger__list" id="ledger-list"></ol>
-            <p class="ledger__empty" id="ledger-empty" hidden>Nothing drawn yet.</p>
+            <p class="ledger__empty" id="ledger-empty" hidden>No local results yet.</p>
             <button class="ledger__more" id="ledger-more" type="button" hidden>Show earlier days</button>
           </section>
         </div>
         <footer class="dialog-foot">
           <p>
-            History is stored on this device. With Sync on, encrypted seen progress, history, and favorites are shared
-            with your linked devices. Stats and settings stay on this device. Respect the privacy of people whose
-            information may appear in public uploads.
+            Found counts first viewable results recorded on this device. Activity streak counts consecutive days with a
+            viewable or unavailable result. Stats stay local and reset when history is cleared; Seen IDs remain and can
+            Sync.
           </p>
           <div class="dialog-foot__meta">
             <span>v{{VERSION}}</span>
