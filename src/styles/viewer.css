@@ -758,9 +758,9 @@
   transform: scale(0.97);
 }
 
-/* The privacy page's status bar, and the same strip closing the History and Stats dialogs. */
+/* The privacy page's status bar, and the same strip closing the History and Stats dialogs. */  
 footer {
-  min-height: 34px;
+  min-height: 50px;
   padding: 0 16px;
   display: flex;
   align-items: center;
