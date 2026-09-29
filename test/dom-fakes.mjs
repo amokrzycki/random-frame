@@ -153,6 +153,8 @@ export const ids = [
   "history-button",
   "history-dialog",
   "history-close-button",
+  "history-clear-group",
+  "history-clear-favorites-group",
   "history-clear-button",
   "history-clear-favorites-button",
   "history-filter-all",

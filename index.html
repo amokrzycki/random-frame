@@ -47,25 +47,27 @@
         <header class="history-dialog__header">
           <h2 id="history-title">History</h2>
           <div class="history-dialog__actions">
-            <button class="history-clear" id="history-clear-button" type="button" aria-describedby="history-clear-hint">
-              Hold to clear
-            </button>
-            <span class="sr-only" id="history-clear-hint">
-              Removes known shared history after Sync, clears statistics only on this device, and does not reset Seen
-              progress or favorites. Offline entries may arrive later. You can also activate it twice.
-            </span>
-            <button
-              class="history-clear"
-              id="history-clear-favorites-button"
-              type="button"
-              aria-describedby="history-clear-favorites-hint"
-              hidden>
-              Hold to clear favorites
-            </button>
-            <span class="sr-only" id="history-clear-favorites-hint">
-              Removes all known shared favorites after Sync. Offline additions may arrive later. You can also activate
-              it twice.
-            </span>
+            <div class="history-clear-group" id="history-clear-group">
+              <button class="history-clear" id="history-clear-button" type="button" aria-describedby="history-clear-hint">
+                Clear history
+              </button>
+              <span class="history-clear-hint" id="history-clear-hint">
+                Removes known shared history after Sync and stats on this device. Keeps Seen progress and favorites.
+                Offline entries may return after Sync.
+              </span>
+            </div>
+            <div class="history-clear-group" id="history-clear-favorites-group" hidden>
+              <button
+                class="history-clear"
+                id="history-clear-favorites-button"
+                type="button"
+                aria-describedby="history-clear-favorites-hint">
+                Clear favorites
+              </button>
+              <span class="history-clear-hint" id="history-clear-favorites-hint">
+                Removes synced favorites. Offline favorites may return after the next sync.
+              </span>
+            </div>
             <div class="history-filter">
               <button class="history-filter__option" id="history-filter-all" type="button" aria-pressed="true">
                 All

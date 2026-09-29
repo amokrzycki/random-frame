@@ -38,6 +38,8 @@ function renderHistoryPage(): void {
   elements.historyFilterFavorites.setAttribute("aria-pressed", String(favoritesView));
   elements.historyClear.hidden = favoritesView;
   elements.historyClearFavorites.hidden = !favoritesView || !state.favorites.length;
+  elements.historyClearGroup.hidden = favoritesView;
+  elements.historyClearFavoritesGroup.hidden = !favoritesView || !state.favorites.length;
   elements.historyGrid.replaceChildren();
   elements.historyGrid.hidden = !entries.length;
   elements.historyEmpty.hidden = Boolean(entries.length);
@@ -155,7 +157,7 @@ async function clearSavedFavorites(): Promise<void> {
     applyFavorites([]);
     syncControls();
     renderHistoryPage();
-    // The clear button just hid itself; keep focus inside the dialog.
+    // The favorites filter now hides its clear action; keep focus inside the dialog.
     elements.historyClose.focus();
     toast.success("Favorites cleared");
   } catch (error) {
@@ -163,56 +165,30 @@ async function clearSavedFavorites(): Promise<void> {
   }
 }
 
-// Hold-to-confirm: the fill's transitionend (dialogs.css) is the confirmation; releasing early cancels.
-function bindHoldToClear(button: HTMLButtonElement, what: string, clear: () => Promise<void>): () => void {
-  let pressed = false;
+// Confirmation stays explicit for pointer, keyboard, and assistive-technology activation.
+function bindClearConfirmation(button: HTMLButtonElement, clear: () => Promise<void>): () => void {
   let armedUntil = 0;
-  const startHold = (): void => {
-    pressed = true;
-    if (state.loading || button.disabled) return;
-    button.dataset.holding = "";
-  };
-  const stopHold = (): boolean => {
-    if (!("holding" in button.dataset)) return false;
-    delete button.dataset.holding;
-    return true;
-  };
+  let confirmationTimeout: ReturnType<typeof setTimeout>;
+  const initialLabel = button.textContent.trim();
   const reset = (): void => {
-    stopHold();
-    pressed = false;
+    clearTimeout(confirmationTimeout);
     armedUntil = 0;
+    button.textContent = initialLabel;
   };
-  button.addEventListener("pointerdown", (event) => {
-    if (event.button === 0) startHold();
-  });
-  button.addEventListener("keydown", (event) => {
-    if (!event.repeat && (event.key === " " || event.key === "Enter")) startHold();
-  });
-  for (const type of ["pointerup", "pointerleave", "pointercancel", "keyup", "blur"]) {
-    button.addEventListener(type, () => {
-      if (stopHold()) toast.info(`Hold to clear ${what}`);
-    });
-  }
-  button.addEventListener("transitionend", (event) => {
-    if (event.pseudoElement !== "::before" || !stopHold()) return;
-    void clear();
-  });
-  // Assistive tech activates with a bare click (no pointer or key press first) and can't hold,
-  // so a second activation within 5s confirms instead.
   button.addEventListener("click", () => {
-    if (pressed) {
-      pressed = false;
-      return;
-    }
+    if (state.loading || button.disabled) return;
     if (Date.now() < armedUntil) {
-      armedUntil = 0;
+      reset();
       void clear();
       return;
     }
     armedUntil = Date.now() + 5000;
-    elements.announcer.textContent = `Activate again to clear ${what}`;
+    button.textContent = `Confirm ${initialLabel.toLowerCase()}`;
+    elements.announcer.textContent = `Activate again to ${initialLabel.toLowerCase()}`;
+    confirmationTimeout = setTimeout(() => {
+      if (Date.now() >= armedUntil) reset();
+    }, 5000);
   });
-  // Hiding mid-hold cancels the fill without a transitionend; drop the hold silently.
   elements.historyDialog.addEventListener("close", reset);
   return reset;
 }
@@ -220,16 +196,16 @@ function bindHoldToClear(button: HTMLButtonElement, what: string, clear: () => P
 export function bindHistoryDialogEvents(): void {
   elements.historyButton.addEventListener("click", openHistory);
   elements.historyClose.addEventListener("click", () => closeDialog(elements.historyDialog));
-  const resetHistoryHold = bindHoldToClear(elements.historyClear, "history", clearSavedHistory);
-  const resetFavoritesHold = bindHoldToClear(elements.historyClearFavorites, "favorites", clearSavedFavorites);
+  const resetHistoryConfirmation = bindClearConfirmation(elements.historyClear, clearSavedHistory);
+  const resetFavoritesConfirmation = bindClearConfirmation(elements.historyClearFavorites, clearSavedFavorites);
   elements.historyFilterAll.addEventListener("click", () => {
-    resetHistoryHold();
-    resetFavoritesHold();
+    resetHistoryConfirmation();
+    resetFavoritesConfirmation();
     showFilter("all");
   });
   elements.historyFilterFavorites.addEventListener("click", () => {
-    resetHistoryHold();
-    resetFavoritesHold();
+    resetHistoryConfirmation();
+    resetFavoritesConfirmation();
     showFilter("favorites");
   });
   elements.historyPagePrevious.addEventListener("click", () => showHistoryPage(state.pageIndex - 1));

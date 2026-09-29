@@ -63,19 +63,6 @@
     }
   }
 
-  /* The hold still gates clearing; the fill fades in instead of sweeping. */
-  .history-clear::before {
-    clip-path: none;
-    opacity: 0;
-    transition: opacity 200ms var(--ease-out);
-  }
-
-  .history-clear[data-holding]::before {
-    clip-path: none;
-    opacity: 1;
-    transition: opacity 1500ms linear;
-  }
-
   .toast,
   .toast--leaving,
   .entry-consent input::before,

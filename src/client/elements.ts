@@ -43,6 +43,8 @@ export const elements = {
   historyButton: element<HTMLButtonElement>("#history-button"),
   historyDialog: element<HTMLDialogElement>("#history-dialog"),
   historyClose: element<HTMLButtonElement>("#history-close-button"),
+  historyClearGroup: element<HTMLDivElement>("#history-clear-group"),
+  historyClearFavoritesGroup: element<HTMLDivElement>("#history-clear-favorites-group"),
   historyClear: element<HTMLButtonElement>("#history-clear-button"),
   historyClearFavorites: element<HTMLButtonElement>("#history-clear-favorites-button"),
   historyFilterAll: element<HTMLButtonElement>("#history-filter-all"),

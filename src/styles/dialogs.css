@@ -141,12 +141,25 @@
   transform: scale(0.97);
 }
 
+.history-clear-group {
+  display: grid;
+  gap: 4px;
+}
+
+.history-clear-group[hidden] {
+  display: none;
+}
+
+.history-clear-hint {
+  max-width: 250px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
 .history-clear {
-  position: relative;
   min-height: 38px;
   padding: 0 12px;
-  overflow: hidden;
-  isolation: isolate;
   border: 1px solid var(--line);
   border-radius: 8px;
   color: var(--ink);
@@ -155,22 +168,6 @@
   font: inherit;
   font-size: 13px;
   font-weight: 650;
-}
-
-/* Hold-to-confirm: app.ts clears history on this fill's transitionend; release snaps it back. */
-.history-clear::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background: color-mix(in srgb, var(--danger) 40%, transparent);
-  clip-path: inset(0 100% 0 0);
-  transition: clip-path 200ms var(--ease-out);
-}
-
-.history-clear[data-holding]::before {
-  clip-path: inset(0);
-  transition: clip-path 1500ms linear;
 }
 
 .history-clear:hover:not(:disabled) {
