@@ -96,6 +96,14 @@ export class FakeDocument extends EventTarget {
     super();
     this.activeElement = null;
     this.elements = new Map(ids.map((id) => [`#${id}`, new FakeElement(this)]));
+    const lightboxClasses = new Set();
+    this.elements.get("#lightbox-view").classList = {
+      contains: (name) => lightboxClasses.has(name),
+      toggle: (name, force) => {
+        if (force) lightboxClasses.add(name);
+        else lightboxClasses.delete(name);
+      },
+    };
     this.body = new FakeElement(this);
     this.elements.get("#history-clear-button").textContent = "Clear history & stats";
     this.elements.get("#history-clear-favorites-button").textContent = "Clear favorites";
@@ -110,7 +118,13 @@ export class FakeDocument extends EventTarget {
   }
 
   createElement() {
-    return new FakeElement(this);
+    const element = new FakeElement(this);
+    element.classList = {
+      add() {
+        // Toast exit animation is outside these tests.
+      },
+    };
+    return element;
   }
 }
 
@@ -136,6 +150,11 @@ export const ids = [
   "image-ghost",
   "lightbox-dialog",
   "lightbox-image",
+  "lightbox-view",
+  "lightbox-caption",
+  "lightbox-zoom-button",
+  "lightbox-previous",
+  "lightbox-next",
   "lightbox-close-button",
   "empty-state",
   "loading-state",

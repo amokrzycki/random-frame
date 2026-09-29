@@ -6,7 +6,7 @@ test("explains rate limits plainly and asks for a pause before the next request"
   const upstream = describeError(
     Object.assign(new Error("Prnt.sc returned status 429"), { kind: "upstream-rate-limited" }),
   );
-  assert.equal(upstream.title, "Prnt.sc is limiting requests.");
+  assert.equal(upstream.title, "The source needs a moment.");
   assert.doesNotMatch(upstream.message, /429/);
   assert.equal(upstream.cooldownSeconds, 10);
   assert.equal(describeError({ kind: "rate-limited", message: "Too many requests." }).cooldownSeconds, 2);
