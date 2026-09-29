@@ -65,6 +65,8 @@ export const elements = {
   syncClose: element<HTMLButtonElement>("#sync-close"),
   syncStatus: element<HTMLElement>("#sync-status"),
   syncError: element<HTMLElement>("#sync-error"),
+  syncErrorMessage: element<HTMLElement>("#sync-error-message"),
+  syncRetry: element<HTMLButtonElement>("#sync-retry"),
   syncUnpaired: element<HTMLElement>("#sync-unpaired"),
   syncEnable: element<HTMLButtonElement>("#sync-enable"),
   syncShowJoin: element<HTMLButtonElement>("#sync-show-join"),

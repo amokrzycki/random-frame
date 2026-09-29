@@ -379,9 +379,22 @@
 }
 .sync-dialog__error {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 10px;
+  gap: 8px 10px;
   color: var(--ink);
+}
+.sync-dialog__error p {
+  flex: 1 1 24ch;
+  min-width: 0;
+}
+.sync-dialog__error .sync-dialog__button {
+  min-height: 34px;
+  margin-left: 17px;
+}
+/* With the status line stepped aside, the error is the first thing in the body. */
+.sync-dialog__status[hidden] + .sync-dialog__error {
+  margin-top: 0;
 }
 .sync-dialog__error::before {
   content: "";

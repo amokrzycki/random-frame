@@ -1,7 +1,7 @@
 import { closeDialog, onDialogClosed, openDialog } from "./dialogs.js";
 import { elements } from "./elements.js";
 import { describeError } from "./errors.js";
-import { toggleFavorite } from "./favorites.js";
+import { type FavoriteItem, toggleFavorite } from "./favorites.js";
 import { blobKey, blobs, savedFrames } from "./frame-cache.js";
 import { copyImage, saveImage } from "./image-actions.js";
 import { syncControls } from "./stage.js";
@@ -32,19 +32,35 @@ export async function toggleCurrentFavorite(): Promise<void> {
   const current = state.history[state.index];
   if (state.loading || favoritePending || !current) return;
   favoritePending = true;
-  const adding = !isFavorite(current);
+  const previous = state.favorites.find((favorite) => favorite.source === current.source && favorite.id === current.id);
   try {
     applyFavorites(
-      await toggleFavorite({
-        source: current.source,
-        id: current.id,
-        sourcePageUrl: current.sourcePageUrl,
-        addedAt: Date.now(),
-      }),
+      await toggleFavorite(
+        previous ?? {
+          source: current.source,
+          id: current.id,
+          sourcePageUrl: current.sourcePageUrl,
+          addedAt: Date.now(),
+        },
+      ),
     );
     syncControls();
-    if (adding) toast.success("Added to favorites");
-    else toast.info("Removed from favorites");
+    if (!previous) toast.success("Added to favorites");
+    else toast.info("Removed from favorites", { label: "Undo", run: () => void restoreFavorite(previous) });
+  } catch (error) {
+    toast.error(describeError(error, "Favorites could not be updated. Try again.").message);
+  } finally {
+    favoritePending = false;
+  }
+}
+
+// Undo toggles the removed favorite back on with its original date, so it keeps its place in the list.
+async function restoreFavorite(item: FavoriteItem): Promise<void> {
+  if (favoritePending || isFavorite(item)) return;
+  favoritePending = true;
+  try {
+    applyFavorites(await toggleFavorite(item));
+    syncControls();
   } catch (error) {
     toast.error(describeError(error, "Favorites could not be updated. Try again.").message);
   } finally {

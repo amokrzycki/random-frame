@@ -174,10 +174,16 @@ export function drawPaused(): boolean {
 }
 
 // Try again repeats the request that failed; failedAt names the history frame it was restoring, if any.
-export function showError(error: unknown, retry: () => Promise<void>, failedAt = -1): void {
+// `copy` replaces the source-oriented wording for failures that are not about a frame.
+export function showError(
+  error: unknown,
+  retry: () => Promise<void>,
+  failedAt = -1,
+  copy?: { title: string; message: string },
+): void {
   retryAction = retry;
   failedIndex = failedAt;
-  const { title, message, cooldownSeconds: seconds } = describeError(error);
+  const { title, message, cooldownSeconds: seconds } = copy ? { ...copy, cooldownSeconds: 0 } : describeError(error);
   elements.errorTitle.textContent = title;
   elements.errorMessage.textContent = message;
   setState("error");

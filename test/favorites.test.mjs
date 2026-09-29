@@ -175,6 +175,17 @@ test("favorites toggle from the info line and filter the history grid", async (t
   assert.equal(lastToast().className, "toast toast--info");
   assert.equal(lastToast().textContent, "Removed from favorites");
 
+  // Undo puts the favorite back with its original date, so it keeps its place.
+  const undo = lastToast().children[0];
+  assert.equal(undo.textContent, "Undo");
+  undo.click();
+  await flush();
+  assert.equal(star.getAttribute("aria-pressed"), "true");
+  assert.equal(invocations.filter(({ command }) => command === "toggle_favorite").at(-1).args.item.addedAt, 2);
+  star.click();
+  await flush();
+  assert.equal(star.getAttribute("aria-pressed"), "false");
+
   // Clearing favorites uses the history clear's double activation and leaves the Favorites empty state.
   get("history-button").click();
   get("history-filter-favorites").click();

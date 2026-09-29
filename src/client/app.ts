@@ -24,8 +24,19 @@ try {
   openDialog(elements.entryDialog);
 }
 
+let startupSyncStarted = false;
+let initializing = false;
+
 async function initialize(): Promise<void> {
-  void runStartupSync();
+  // Try again re-enters here; a double click must not run two loads, and Sync starts once.
+  if (initializing) return;
+  initializing = true;
+  if (!startupSyncStarted) {
+    startupSyncStarted = true;
+    void runStartupSync();
+  }
+  state.loading = true;
+  syncControls();
   try {
     let [snapshot, favorites] = await Promise.all([getHistory(), getFavorites()]);
     applyFavorites(favorites);
@@ -57,9 +68,15 @@ async function initialize(): Promise<void> {
     await refreshAfterStartup();
     syncControls();
   } catch (error) {
+    console.error(error);
     state.loading = false;
-    showError(error, initialize);
+    showError(error, initialize, -1, {
+      title: "Your history couldn't be loaded",
+      message: "Random Frame could not read its saved data. Try again, and restart the app if it keeps failing.",
+    });
     syncControls();
+  } finally {
+    initializing = false;
   }
 }
 

@@ -23,6 +23,10 @@ class FakeElement extends EventTarget {
     this.children.push(...children);
   }
 
+  remove() {
+    // Toasts leave the page when dismissed; nothing here inspects the removal.
+  }
+
   replaceChildren(...children) {
     this.children = children;
   }
@@ -181,6 +185,8 @@ export const ids = [
   "sync-close",
   "sync-status",
   "sync-error",
+  "sync-error-message",
+  "sync-retry",
   "sync-unpaired",
   "sync-enable",
   "sync-show-join",

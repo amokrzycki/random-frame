@@ -33,6 +33,18 @@ function category(error: unknown): string | null {
   return typeof error.category === "string" ? error.category : null;
 }
 
+// Errors the visitor has to fix first; running the same request again cannot help.
+const notRetryable = new Set([
+  "invalid_endpoint",
+  "invalid_recovery_key",
+  "already_paired",
+  "unpaired",
+  "corrupt_local_state",
+  "body_too_large",
+  "rollback_detected",
+  "server_rollback_detected",
+]);
+
 function safeError(error: unknown): string {
   return errorCopy[category(error) ?? ""] ?? "Sync could not complete. Try again.";
 }
@@ -42,15 +54,29 @@ let busy = false;
 let busyMessage = "";
 let opener: HTMLElement | null = null;
 let refreshAfterInitialize = false;
+// What Try again repeats: the failed action, or the status check itself.
+let retryAction: (() => Promise<unknown>) | null = null;
 
-function showError(message: string): void {
-  elements.syncError.textContent = message;
+function showError(message: string, retry: (() => Promise<unknown>) | null = null): void {
+  retryAction = retry;
+  elements.syncErrorMessage.textContent = message;
+  elements.syncRetry.hidden = !retry;
   elements.syncError.hidden = false;
+  render();
 }
 
 function clearError(): void {
-  elements.syncError.textContent = "";
+  retryAction = null;
+  elements.syncErrorMessage.textContent = "";
   elements.syncError.hidden = true;
+}
+
+// Only problems flag the titlebar: a quiet icon means Sync is fine or not in use.
+function setStatus(next: SyncStatus): void {
+  status = next;
+  const attention = next.paired && (next.state === "error" || next.state === "offline" || next.lastErrorCategory);
+  if (attention) elements.toolsMenuButton.dataset.sync = "attention";
+  else delete elements.toolsMenuButton.dataset.sync;
 }
 
 function statusMessage(value: SyncStatus): string {
@@ -65,6 +91,8 @@ function statusMessage(value: SyncStatus): string {
 function render(): void {
   const paired = status?.paired ?? false;
   const showingKey = Boolean(elements.syncRecoveryKey.textContent);
+  // An error already says what is wrong; the status line steps aside so the message appears once.
+  elements.syncStatus.hidden = !elements.syncError.hidden;
   elements.syncStatus.textContent = busy ? busyMessage : status ? statusMessage(status) : "Checking Sync status…";
   elements.syncStatus.dataset.state = busy
     ? "syncing"
@@ -89,10 +117,12 @@ function render(): void {
 
 async function refresh(): Promise<void> {
   try {
-    status = await getSyncStatus();
+    setStatus(await getSyncStatus());
+    if (retryAction === refresh) clearError();
     if (elements.syncDialog.open) render();
   } catch (error) {
-    if (elements.syncDialog.open) showError(safeError(error));
+    // An action's own error is worth more than a failed follow-up check.
+    if (elements.syncDialog.open && elements.syncError.hidden) showError(safeError(error), refresh);
   }
 }
 
@@ -104,7 +134,7 @@ async function operate(message: string, action: () => Promise<SyncStatus>): Prom
   clearError();
   render();
   try {
-    status = await action();
+    setStatus(await action());
     if (!state.loading) {
       await refreshPersistedView();
       syncControls();
@@ -113,7 +143,7 @@ async function operate(message: string, action: () => Promise<SyncStatus>): Prom
     render();
     return true;
   } catch (error) {
-    showError(safeError(error));
+    showError(safeError(error), notRetryable.has(category(error) ?? "") ? null : () => operate(message, action));
     await refresh();
     return false;
   } finally {
@@ -137,6 +167,14 @@ export function bindSyncDialogEvents(): void {
     void refresh();
   });
   elements.syncClose.addEventListener("click", () => closeDialog(elements.syncDialog));
+  elements.syncRetry.addEventListener("click", async () => {
+    const again = retryAction;
+    clearError();
+    await again?.();
+    // The button just left the page; keep focus inside the dialog, on the error if it came back.
+    if (!elements.syncDialog.contains(document.activeElement))
+      (elements.syncError.hidden ? elements.syncClose : elements.syncRetry).focus();
+  });
   elements.syncKeySaved.addEventListener("change", render);
   elements.syncDialog.addEventListener("close", () => {
     elements.syncRecoveryKey.textContent = "";
@@ -205,15 +243,17 @@ export function bindSyncDialogEvents(): void {
 
 export async function runStartupSync(): Promise<void> {
   try {
-    status = await startupSync();
-    if (status.paired && status.state === "idle" && !status.dirty) toast.success("Synced");
+    setStatus(await startupSync());
+    if (status?.paired && status.state === "idle" && !status.dirty) toast.success("Synced");
     if (state.loading) refreshAfterInitialize = true;
     else {
       await refreshPersistedView();
       syncControls();
     }
   } catch {
-    // Rust keeps the typed error in SyncStatus; an unpaired device needs no startup notice.
+    // Rust keeps the typed error in SyncStatus; read it for the titlebar flag. An unpaired device needs no notice.
+    await refresh();
+    return;
   }
   if (elements.syncDialog.open) await refresh();
 }

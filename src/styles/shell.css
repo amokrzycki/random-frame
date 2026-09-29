@@ -12,6 +12,25 @@
   transition: transform 140ms var(--ease-out);
 }
 
+/* Sync needs attention: the Sync entry lives in this menu, so the flag rides on its button. */
+.stats-button[data-sync] {
+  position: relative;
+}
+.stats-button[data-sync]::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 0 2px var(--paper-deep);
+}
+.stats-button[data-sync]:hover::after {
+  box-shadow: 0 0 0 2px var(--control-fill);
+}
+
 .stats-button:hover {
   color: var(--control-fill-text);
   background: var(--control-fill);

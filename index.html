@@ -259,7 +259,10 @@
         </header>
         <div class="history-dialog__body sync-dialog__body">
           <p class="sync-dialog__status" id="sync-status" role="status" aria-live="polite">Checking Sync status…</p>
-          <p class="sync-dialog__error" id="sync-error" role="alert" hidden></p>
+          <div class="sync-dialog__error" id="sync-error" role="alert" hidden>
+            <p id="sync-error-message"></p>
+            <button class="sync-dialog__button" id="sync-retry" type="button" hidden>Try again</button>
+          </div>
           <div id="sync-unpaired" hidden>
             <p class="sync-dialog__copy">
               Sync shares your seen Prnt.sc progress, history, and favorites with your linked devices. An encrypted
