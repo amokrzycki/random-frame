@@ -858,6 +858,17 @@
   white-space: nowrap;
 }
 
+.history-thumbnail-action {
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px 22px;
+  border-top: 1px solid var(--line);
+}
+
+.history-thumbnail-action[hidden] {
+  display: none;
+}
+
 .history-pager {
   min-height: 62px;
   padding: 11px 22px 11px 28px;

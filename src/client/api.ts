@@ -43,3 +43,8 @@ export function getRandomFrame(source = "prntsc"): Promise<Frame> {
 export function getFrameById(id: string, source = "prntsc"): Promise<Frame> {
   return receiveFrame("get_frame_by_id", { source, id });
 }
+
+export async function getThumbnailBlob(id: string, source: string): Promise<Blob> {
+  const bytes = await invoke<ArrayBuffer>("get_thumbnail_image", { source, id });
+  return new Blob([bytes]);
+}

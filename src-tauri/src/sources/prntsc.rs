@@ -100,10 +100,7 @@ impl Prntsc {
 
     pub async fn get_frame(&self, id: &str) -> Result<FetchedFrame, AppError> {
         let value = item_id_value(id)?;
-        let result = match self.resolve_item(id).await {
-            Ok(item) => self.fetch_asset(item).await,
-            Err(error) => Err(error),
-        };
+        let result = self.get_thumbnail(id).await;
         if classify_rejection(&result) {
             record_exploration(
                 &self.explored,
@@ -114,6 +111,11 @@ impl Prntsc {
             )?;
         }
         result
+    }
+
+    pub async fn get_thumbnail(&self, id: &str) -> Result<FetchedFrame, AppError> {
+        let item = self.resolve_item(id).await?;
+        self.fetch_asset(item).await
     }
 
     pub fn record_viewed(&self, id: u64) -> Result<(), AppError> {

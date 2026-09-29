@@ -59,16 +59,12 @@
             </button>
           </div>
           <div class="history-clear-group" id="history-clear-group">
-            <button
-              class="history-clear"
-              id="history-clear-button"
-              type="button"
-              aria-describedby="history-clear-hint">
+            <button class="history-clear" id="history-clear-button" type="button" aria-describedby="history-clear-hint">
               Clear history
             </button>
             <span class="history-clear-hint" id="history-clear-hint">
-              Clears known shared history after Sync and local stats. Seen progress and favorites stay. Offline entries may
-              return after Sync.
+              Clears known shared history after Sync and local stats. Seen progress and favorites stay. Offline entries
+              may return after Sync.
             </span>
           </div>
           <div class="history-clear-group" id="history-clear-favorites-group" hidden>
@@ -90,6 +86,16 @@
             <p id="history-empty-title">No saved frames yet.</p>
             <span id="history-empty-detail">Draw a frame to begin your history.</span>
           </div>
+        </div>
+        <div class="history-thumbnail-action" id="history-thumbnail-action" hidden>
+          <button
+            class="history-pager__step"
+            id="history-thumbnails"
+            type="button"
+            title="Download missing thumbnails on this page"
+            aria-label="Download missing thumbnails on this page">
+            Download missing thumbnails
+          </button>
         </div>
         <footer class="history-pager" id="history-pager" hidden>
           <p class="history-pager__range" id="history-range" aria-live="polite"></p>

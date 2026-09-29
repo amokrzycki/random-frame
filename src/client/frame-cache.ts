@@ -1,4 +1,4 @@
-import { state } from "./viewer-state.js";
+import { getThumbnailBlob } from "./api.js";
 
 export interface CachedBlob {
   blob: Blob;
@@ -22,7 +22,11 @@ function loadThumbnails(): Map<string, string> {
   try {
     const stored: unknown = JSON.parse(localStorage.getItem(thumbnailStorageKey) ?? "{}");
     if (typeof stored !== "object" || stored === null) return new Map();
-    return new Map(Object.entries(stored as Record<string, string>));
+    return new Map(
+      Object.entries(stored as Record<string, unknown>).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].startsWith("data:image/"),
+      ),
+    );
   } catch {
     return new Map();
   }
@@ -31,9 +35,8 @@ function loadThumbnails(): Map<string, string> {
 export const thumbnails = loadThumbnails();
 
 function persistThumbnails(): void {
-  // ponytail: keeps the newest THUMBNAIL_LIMIT history entries; older tiles fall back to the stripe placeholder
-  const keep = new Set(state.history.slice(-THUMBNAIL_LIMIT).map((item) => blobKey(item.source, item.id)));
-  for (const key of thumbnails.keys()) if (!keep.has(key)) thumbnails.delete(key);
+  // ponytail: cache keeps the latest 300 generated thumbnails; older tiles use the placeholder.
+  while (thumbnails.size > THUMBNAIL_LIMIT) thumbnails.delete(thumbnails.keys().next().value as string);
   try {
     localStorage.setItem(thumbnailStorageKey, JSON.stringify(Object.fromEntries(thumbnails)));
   } catch {
@@ -41,8 +44,8 @@ function persistThumbnails(): void {
   }
 }
 
-export async function cacheThumbnail(key: string, blob: Blob): Promise<void> {
-  if (thumbnails.has(key)) return;
+export async function cacheThumbnail(key: string, blob: Blob): Promise<boolean> {
+  if (thumbnails.get(key)) return true;
   try {
     const bitmap = await createImageBitmap(blob);
     const scale = Math.min(1, THUMBNAIL_MAX_DIMENSION / Math.max(bitmap.width, bitmap.height));
@@ -50,14 +53,27 @@ export async function cacheThumbnail(key: string, blob: Blob): Promise<void> {
     canvas.width = Math.round(bitmap.width * scale);
     canvas.height = Math.round(bitmap.height * scale);
     const context = canvas.getContext("2d");
-    if (!context) return;
+    if (!context) {
+      bitmap.close();
+      return false;
+    }
     context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
     bitmap.close();
     thumbnails.set(key, canvas.toDataURL("image/jpeg", 0.6));
     persistThumbnails();
+    return Boolean(thumbnails.get(key));
   } catch {
     // Thumbnail generation is best-effort; the grid falls back to a placeholder
+    return false;
   }
+}
+
+export async function ensureThumbnail(frame: { source: string; id: string }): Promise<boolean> {
+  const key = blobKey(frame.source, frame.id);
+  if (thumbnails.get(key)) return true;
+  const blob = blobs.get(key)?.blob ?? (await getThumbnailBlob(frame.id, frame.source));
+  if (thumbnails.get(key)) return true;
+  return cacheThumbnail(key, blob);
 }
 
 export function releaseAllBlobs(): void {
@@ -65,7 +81,9 @@ export function releaseAllBlobs(): void {
   blobs.clear();
 }
 
-export function clearThumbnails(): void {
-  thumbnails.clear();
-  localStorage.removeItem(thumbnailStorageKey);
+export function clearThumbnails(keep: readonly { source: string; id: string }[]): void {
+  const retained = new Set(keep.map(({ source, id }) => blobKey(source, id)));
+  for (const key of thumbnails.keys()) if (!retained.has(key)) thumbnails.delete(key);
+  if (thumbnails.size) persistThumbnails();
+  else localStorage.removeItem(thumbnailStorageKey);
 }

@@ -263,6 +263,27 @@ async fn get_frame_image(
 }
 
 #[tauri::command]
+async fn get_thumbnail_image(
+    source: Option<String>,
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<Response, AppError> {
+    let source = select_source(source.as_deref().unwrap_or("prntsc"))?;
+    prntsc::validate_item_id(&id)?;
+    state.take_api_token()?;
+    let frame = match source {
+        Source::Prntsc => state.prntsc.get_thumbnail(&id).await?,
+        Source::InternetArchive => {
+            return Err(AppError::new(
+                ErrorKind::UnavailableSource,
+                "Internet Archive source is not available yet",
+            ));
+        }
+    };
+    Ok(Response::new(frame.bytes))
+}
+
+#[tauri::command]
 #[allow(
     clippy::needless_pass_by_value,
     reason = "Tauri command state extractors must be passed by value"
@@ -507,6 +528,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             get_random_frame,
             get_frame_by_id,
             get_frame_image,
+            get_thumbnail_image,
             get_history,
             record_history_item,
             select_history_item,

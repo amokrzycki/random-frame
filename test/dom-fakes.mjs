@@ -93,6 +93,8 @@ export class FakeDocument extends EventTarget {
     this.activeElement = null;
     this.elements = new Map(ids.map((id) => [`#${id}`, new FakeElement(this)]));
     this.body = new FakeElement(this);
+    this.elements.get("#history-clear-button").textContent = "Clear history";
+    this.elements.get("#history-clear-favorites-button").textContent = "Clear favorites";
   }
 
   querySelector(selector) {
@@ -164,6 +166,8 @@ export const ids = [
   "history-empty-title",
   "history-empty-detail",
   "history-body",
+  "history-thumbnail-action",
+  "history-thumbnails",
   "history-pager",
   "history-pager-nav",
   "history-range",
