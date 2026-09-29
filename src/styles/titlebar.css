@@ -44,6 +44,10 @@
   gap: 8px;
 }
 
+.masthead-tools[inert] {
+  opacity: 0.5;
+}
+
 .window-controls {
   display: flex;
   flex: 0 0 auto;

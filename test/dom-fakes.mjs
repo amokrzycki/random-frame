@@ -39,6 +39,14 @@ class FakeElement extends EventTarget {
     this.attributes.delete(name);
   }
 
+  contains(node) {
+    return this === node || this.children.some((child) => child.contains?.(node));
+  }
+
+  querySelectorAll() {
+    return [];
+  }
+
   // Blobs whose first byte is 255 stand in for images that will not decode.
   async decode() {
     const [first] = new Uint8Array(await resolveObjectURL(this.src).arrayBuffer());
@@ -202,6 +210,7 @@ export const ids = [
   "entry-button",
   "leave-button",
   "main-content",
+  "masthead-tools",
   "dialog-backdrop",
   "image-id-value",
   "id-menu",

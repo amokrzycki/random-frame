@@ -1,7 +1,5 @@
-/* Dialogs open via show(), not showModal(): showModal() makes the rest of
-   the document (including the titlebar) inert, which blocks window drag and
-   the window controls. app.ts inerts main/footer instead and drives a plain
-   backdrop element so the titlebar stays interactive. */
+/* Dialogs open via show() so the titlebar's drag region and window controls
+   remain available; dialogs.ts inerts the main content and titlebar tools. */
 .entry-dialog,
 .history-dialog,
 .lightbox-dialog {

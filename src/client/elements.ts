@@ -101,6 +101,7 @@ export const elements = {
   shortcutsButton: element<HTMLButtonElement>("#shortcuts-button"),
   shortcutsDialog: element<HTMLDialogElement>("#shortcuts-dialog"),
   shortcutsClose: element<HTMLButtonElement>("#shortcuts-close-button"),
+  mastheadTools: element<HTMLElement>("#masthead-tools"),
   main: element<HTMLElement>("#main-content"),
   dialogBackdrop: element<HTMLElement>("#dialog-backdrop"),
   announcer: element<HTMLElement>("#announcer"),
