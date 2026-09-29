@@ -60,10 +60,10 @@
           </div>
           <div class="history-clear-group" id="history-clear-group">
             <button class="history-clear" id="history-clear-button" type="button" aria-describedby="history-clear-hint">
-              Clear history
+              Clear history &amp; stats
             </button>
             <span class="history-clear-hint" id="history-clear-hint">
-              Clears history and stats. Favorites and Seen IDs stay. Linked devices drop it when they sync.
+              Removes saved frames and local stats. Favorites and seen frame IDs (kept to avoid repeats) stay. Linked devices remove known history when they sync.
             </span>
           </div>
           <div class="history-clear-group" id="history-clear-favorites-group" hidden>
@@ -171,7 +171,7 @@
           <p>
             Found counts first viewable results here; Activity streak counts consecutive days with a result. Found,
             Today, streak, and daily results reset when history is cleared. Prnt.sc exploration stays here and does not
-            Sync. Seen IDs remain to avoid repeats and can Sync.
+            Sync. Seen IDs are identifiers of frames you viewed; they stay to help avoid repeats and can Sync.
           </p>
           <div class="dialog-foot__meta">
             <span>v{{VERSION}}</span>
@@ -269,7 +269,7 @@
           </div>
           <div id="sync-unpaired" hidden>
             <p class="sync-dialog__copy">
-              Sync shares your seen Prnt.sc progress, history, and favorites with your linked devices. An encrypted
+              Sync shares Seen IDs (frame identifiers kept to avoid repeats), history, and favorites with your linked devices. An encrypted
               snapshot is sent to the Sync server; settings and statistics stay on this device.
             </p>
             <p class="sync-dialog__copy">
@@ -297,21 +297,21 @@
           </div>
           <div id="sync-recovery" hidden>
             <p>
-              This key lets another device join your Sync. Save it before closing this window; the app cannot show it
-              again.
+              This key lets another device join your Sync. The app cannot show it again.
             </p>
             <output id="sync-recovery-key" aria-label="Recovery key"></output>
             <button class="sync-dialog__button" id="sync-copy-key" type="button">Copy recovery key</button>
+            <p class="sync-dialog__blocked-note">Closing is blocked until you confirm you’ve saved the key.</p>
             <label class="sync-dialog__saved">
               <input id="sync-key-saved" type="checkbox">
               I’ve saved this recovery key somewhere safe
             </label>
+            <div class="sync-dialog__actions">
+              <button class="primary-action" id="sync-done" type="button" disabled>Done</button>
+            </div>
           </div>
           <div id="sync-paired" hidden>
-            <div class="sync-dialog__meta">
-              <p id="sync-revision"></p>
-              <p id="sync-dirty"></p>
-            </div>
+            <div class="sync-dialog__meta"><p id="sync-dirty"></p></div>
             <div class="sync-dialog__actions">
               <button class="primary-action" id="sync-now" type="button">Sync now</button>
               <button class="sync-dialog__button sync-dialog__button--danger" id="sync-leave" type="button">
@@ -321,8 +321,8 @@
           </div>
           <div id="sync-leave-confirm" hidden>
             <p>
-              This device will stop syncing. Local seen progress, history and favorites will remain. The remote Sync
-              chain will not be deleted. To join again, you will need your recovery key.
+              This device will stop syncing. Local Seen IDs, history, and favorites will remain. The remote Sync
+              data stays on the server. To join again, you will need your recovery key.
             </p>
             <div class="sync-dialog__actions">
               <button class="sync-dialog__button" id="sync-leave-cancel" type="button">Cancel</button>
@@ -439,7 +439,7 @@
               <circle class="loader__track" cx="18" cy="18" r="15.5" />
               <circle class="loader__indicator" cx="18" cy="18" r="15.5" />
             </svg>
-            <p>Finding an available frame…</p>
+            <p id="loading-message">Finding an available frame…</p>
           </div>
 
           <div class="error-state" id="error-state" hidden>
@@ -447,7 +447,7 @@
             <p id="error-message">The source may have limited access, or this address may be empty.</p>
             <div class="error-actions">
               <button class="text-action" id="retry-button" type="button">Try again</button>
-              <button class="text-action" id="back-button" type="button" hidden>Show frame 1</button>
+              <button class="text-action" id="back-button" type="button" hidden>Return to frame 1</button>
             </div>
           </div>
 

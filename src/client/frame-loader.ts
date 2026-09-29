@@ -97,6 +97,8 @@ export async function goTo(targetIndex: number): Promise<void> {
   try {
     if (!cached) {
       setState("loading");
+      elements.loadingMessage.textContent = `Restoring frame ${targetIndex + 1}…`;
+      elements.announcer.textContent = `Restoring frame ${targetIndex + 1}`;
       syncControls();
       const frame = await getFrameById(current.id, current.source);
       showFrame(frame.source, frame.id, frame.blob, await decodedUrl(frame.blob));

@@ -18,7 +18,11 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   const globalNames = ["document", "localStorage", "performance", "sessionStorage", "window"];
   const originalGlobals = new Map(globalNames.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
   // Toasts schedule their own dismissal; the test never waits for it.
-  window.setTimeout = () => 0;
+  let toastExpiry;
+  window.setTimeout = (callback) => {
+    toastExpiry = callback;
+    return 0;
+  };
   localStorage.setItem("random-frame-risk-accepted", "accepted");
   sessionStorage.setItem(
     "prntsc-gallery-history",
@@ -318,7 +322,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(get("retry-button").textContent, "Try again");
   assert.equal(get("image-zoom").hidden, false);
   assert.equal(get("back-button").hidden, false);
-  assert.equal(get("back-button").textContent, "Show frame 5");
+  assert.equal(get("back-button").textContent, "Return to frame 5");
   get("back-button").click();
   await flush();
   await flush();
@@ -350,8 +354,10 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   clearButton.click();
   await flush();
   assert.equal(clears(), 0);
-  assert.equal(clearButton.textContent, "Confirm clear history");
+  assert.equal(clearButton.textContent, "Confirm clear history & stats");
   clearButton.click();
+  assert.equal(clears(), 0);
+  toastExpiry();
   await flush();
   assert.deepEqual(persisted, { history: [], index: -1 });
   assert.equal(get("history-total").textContent, "0");
@@ -378,8 +384,9 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   clearButton.click();
   await flush();
   assert.equal(clears(), 1);
-  assert.equal(get("announcer").textContent, "Activate again to clear history");
+  assert.equal(get("announcer").textContent, "Activate again to clear history & stats");
   clearButton.click();
+  toastExpiry();
   await flush();
   assert.equal(clears(), 2);
 });

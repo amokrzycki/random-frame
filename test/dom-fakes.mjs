@@ -97,7 +97,7 @@ export class FakeDocument extends EventTarget {
     this.activeElement = null;
     this.elements = new Map(ids.map((id) => [`#${id}`, new FakeElement(this)]));
     this.body = new FakeElement(this);
-    this.elements.get("#history-clear-button").textContent = "Clear history";
+    this.elements.get("#history-clear-button").textContent = "Clear history & stats";
     this.elements.get("#history-clear-favorites-button").textContent = "Clear favorites";
   }
 
@@ -139,6 +139,7 @@ export const ids = [
   "lightbox-close-button",
   "empty-state",
   "loading-state",
+  "loading-message",
   "error-state",
   "error-title",
   "error-message",
@@ -183,6 +184,7 @@ export const ids = [
   "sync-button",
   "sync-dialog",
   "sync-close",
+  "sync-done",
   "sync-status",
   "sync-error",
   "sync-error-message",
@@ -199,7 +201,6 @@ export const ids = [
   "sync-copy-key",
   "sync-key-saved",
   "sync-paired",
-  "sync-revision",
   "sync-dirty",
   "sync-now",
   "sync-leave",

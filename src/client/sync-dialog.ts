@@ -106,8 +106,6 @@ function render(): void {
   elements.syncUnpaired.hidden = paired || showingKey || !status;
   elements.syncRecovery.hidden = !showingKey;
   elements.syncPaired.hidden = !paired || showingKey || !elements.syncLeaveConfirm.hidden;
-  elements.syncRevision.textContent =
-    status?.lastSuccessRevision == null ? "" : `Last synced revision: ${status.lastSuccessRevision}`;
   // The status line already says so when idle; offline and error states hide it.
   const settled = status?.state === "idle" && !status?.lastErrorCategory;
   elements.syncDirty.textContent = paired && status?.dirty && !settled ? "Changes waiting to sync" : "";
@@ -117,6 +115,7 @@ function render(): void {
   elements.syncLeave.disabled = busy || status?.state === "syncing";
   elements.syncLeaveConfirmButton.disabled = busy;
   elements.syncClose.disabled = busy || (showingKey && !elements.syncKeySaved.checked);
+  elements.syncDone.disabled = busy || !elements.syncKeySaved.checked;
 }
 
 async function refresh(): Promise<void> {
@@ -171,6 +170,7 @@ export function bindSyncDialogEvents(): void {
     void refresh();
   });
   elements.syncClose.addEventListener("click", () => closeDialog(elements.syncDialog));
+  elements.syncDone.addEventListener("click", () => closeDialog(elements.syncDialog));
   elements.syncRetry.addEventListener("click", async () => {
     const again = retryAction;
     clearError();

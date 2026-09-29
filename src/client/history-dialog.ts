@@ -14,11 +14,12 @@ import {
 import { goTo, loadById } from "./frame-loader.js";
 import { historyPage, PAGE_SIZES, pageOf, parsePageSize, savePageSize } from "./history-pagination.js";
 import { clearHistory } from "./persistence.js";
-import { setState, syncControls } from "./stage.js";
+import { getViewState, setState, syncControls } from "./stage.js";
 import { toast } from "./toast.js";
 import { applyFavorites, isFavorite, state } from "./viewer-state.js";
 
 type HistoryDialogTab = "history" | "favourites";
+export const pendingHistoryClearKey = "random-frame-history-clear-pending";
 let filter: HistoryDialogTab = "history";
 let batchRunning = false;
 let viewVersion = 0;
@@ -199,27 +200,58 @@ async function downloadMissingThumbnails(): Promise<void> {
 
 async function clearSavedHistory(): Promise<void> {
   if (state.loading) return;
+  const previousHistory = [...state.history];
+  const previousIndex = state.index;
+  const previousView = getViewState();
   state.loading = true;
-  syncControls();
   try {
-    await clearHistory();
-    state.history.length = 0;
-    state.index = -1;
-    releaseAllBlobs();
-    clearThumbnails(state.favorites);
-    elements.image.src = "";
-    elements.image.alt = "";
-    setState("empty");
-    // The History button no longer leads anywhere useful; the next step is a draw.
-    state.historyReturnFocus = elements.draw;
-    closeDialog(elements.historyDialog);
-    toast.success("History cleared");
-  } catch (error) {
-    toast.error(describeError(error, "History could not be cleared. Try again.").message);
-  } finally {
+    localStorage.setItem(pendingHistoryClearKey, "true");
+  } catch {
+    // The in-window Undo still works when storage is unavailable.
+  }
+  state.history.length = 0;
+  state.index = -1;
+  setState("empty");
+  syncControls();
+  state.historyReturnFocus = elements.draw;
+  closeDialog(elements.historyDialog);
+  const restore = (): void => {
+    try {
+      localStorage.removeItem(pendingHistoryClearKey);
+    } catch {
+      // Storage was unavailable when the clear began.
+    }
+    state.history.splice(0, state.history.length, ...previousHistory);
+    state.index = previousIndex;
+    setState(previousView);
     state.loading = false;
     syncControls();
-  }
+  };
+  toast.info(
+    "History cleared",
+    { label: "Undo", run: restore },
+    () => {
+      void clearHistory().then(
+        () => {
+          try {
+            localStorage.removeItem(pendingHistoryClearKey);
+          } catch {
+            // The next launch may repeat the already completed clear.
+          }
+          releaseAllBlobs();
+          clearThumbnails(state.favorites);
+          elements.image.src = "";
+          elements.image.alt = "";
+          state.loading = false;
+          syncControls();
+        },
+        (error: unknown) => {
+          restore();
+          toast.error(describeError(error, "History could not be cleared. Try again.").message);
+        },
+      );
+    },
+  );
 }
 
 async function clearSavedFavorites(): Promise<void> {

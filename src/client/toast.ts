@@ -21,14 +21,18 @@ function region(): HTMLDivElement {
   return element;
 }
 
-function show(message: string, tone: ToastTone, action?: ToastAction): void {
+function show(message: string, tone: ToastTone, action?: ToastAction, onExpire?: () => void): void {
   const notification = document.createElement("div");
   notification.className = `toast toast--${tone}`;
   notification.textContent = message;
   region().append(notification);
 
   let timer = 0;
+  let expired = false;
   const dismiss = (): void => {
+    if (expired) return;
+    expired = true;
+    onExpire?.();
     notification.classList.add("toast--leaving");
     notification.addEventListener("transitionend", () => notification.remove(), { once: true });
   };
@@ -55,6 +59,8 @@ function show(message: string, tone: ToastTone, action?: ToastAction): void {
     button.className = "toast__action";
     button.textContent = action.label;
     button.addEventListener("click", () => {
+      if (expired) return;
+      expired = true;
       clearTimeout(timer);
       notification.remove();
       action.run();
@@ -65,6 +71,6 @@ function show(message: string, tone: ToastTone, action?: ToastAction): void {
 
 export const toast = {
   success: (message: string): void => show(message, "success"),
-  info: (message: string, action?: ToastAction): void => show(message, "info", action),
+  info: (message: string, action?: ToastAction, onExpire?: () => void): void => show(message, "info", action, onExpire),
   error: (message: string): void => show(message, "error"),
 };

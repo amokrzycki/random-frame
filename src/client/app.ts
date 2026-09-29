@@ -6,9 +6,9 @@ import { getFavorites } from "./favorites.js";
 import { bindFrameActionEvents } from "./frame-actions.js";
 import { releaseAllBlobs } from "./frame-cache.js";
 import { bindNavigationEvents, goTo } from "./frame-loader.js";
-import { bindHistoryDialogEvents } from "./history-dialog.js";
+import { bindHistoryDialogEvents, pendingHistoryClearKey } from "./history-dialog.js";
 import { historyFromStorage, shouldShowEntryDialog } from "./navigation.js";
-import { getHistory, recordHistoryItem, selectHistoryItem } from "./persistence.js";
+import { clearHistory, getHistory, recordHistoryItem, selectHistoryItem } from "./persistence.js";
 import { bindShortcutsEvents } from "./shortcuts.js";
 import { bindStageEvents, setState, showError, syncControls } from "./stage.js";
 import { bindStatsDialogEvents, migrateLegacyStats } from "./stats-dialog.js";
@@ -31,13 +31,17 @@ async function initialize(): Promise<void> {
   // Try again re-enters here; a double click must not run two loads, and Sync starts once.
   if (initializing) return;
   initializing = true;
-  if (!startupSyncStarted) {
-    startupSyncStarted = true;
-    void runStartupSync();
-  }
   state.loading = true;
   syncControls();
   try {
+    if (localStorage.getItem(pendingHistoryClearKey) === "true") {
+      await clearHistory();
+      localStorage.removeItem(pendingHistoryClearKey);
+    }
+    if (!startupSyncStarted) {
+      startupSyncStarted = true;
+      void runStartupSync();
+    }
     let [snapshot, favorites] = await Promise.all([getHistory(), getFavorites()]);
     applyFavorites(favorites);
     const legacy = historyFromStorage(sessionStorage.getItem(storageKey));

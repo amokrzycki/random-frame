@@ -58,7 +58,10 @@ export function setState(next: ViewState): void {
   elements.imageZoom.inert = keepFrame;
   if (keepFrame) elements.imageZoom.dataset.dimmed = "";
   else delete elements.imageZoom.dataset.dimmed;
-  if (next === "loading") elements.announcer.textContent = "Finding an available frame";
+  if (next === "loading") {
+    elements.loadingMessage.textContent = "Finding an available frame…";
+    elements.announcer.textContent = "Finding an available frame";
+  }
 }
 
 const stateControls: Record<ViewState, HTMLElement | null> = {
@@ -138,11 +141,11 @@ export function syncControls(): void {
   elements.retry.setAttribute("aria-disabled", String(waitSeconds > 0));
   elements.retry.textContent = waitSeconds ? `Try again in ${waitSeconds}s` : "Try again";
   elements.draw.setAttribute("aria-busy", String(state.drawing));
-  elements.draw.setAttribute("aria-disabled", String(waitSeconds > 0));
+  elements.draw.setAttribute("aria-disabled", String(state.loading || waitSeconds > 0));
   elements.drawLabel.textContent = waitSeconds ? `Wait ${waitSeconds}s` : "Draw next";
   // When the failed request was this very frame, Try again already says it.
   elements.back.hidden = !current || failedIndex === state.index;
-  elements.back.textContent = `Show frame ${state.index + 1}`;
+  elements.back.textContent = `Return to frame ${state.index + 1}`;
 }
 
 function cooldownSeconds(): number {

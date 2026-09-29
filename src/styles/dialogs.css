@@ -452,6 +452,12 @@
   color: var(--ink);
   cursor: pointer;
 }
+.sync-dialog__body .sync-dialog__blocked-note {
+  margin: 16px 0 18px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
 .sync-dialog__saved input {
   margin: 4px 0 0;
   accent-color: var(--blue);
