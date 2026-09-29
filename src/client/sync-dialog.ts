@@ -59,7 +59,7 @@ function statusMessage(value: SyncStatus): string {
   if (!value.paired) return "Sync is not configured on this device.";
   if (value.state === "offline") return "Offline — local exploration still works.";
   if (value.state === "error") return "Sync needs attention.";
-  return value.dirty ? "Local changes waiting to sync" : "Synced";
+  return value.dirty ? "Changes waiting to sync" : "Synced";
 }
 
 function render(): void {
@@ -75,8 +75,10 @@ function render(): void {
   elements.syncRecovery.hidden = !showingKey;
   elements.syncPaired.hidden = !paired || showingKey || !elements.syncLeaveConfirm.hidden;
   elements.syncRevision.textContent =
-    status?.lastSuccessRevision == null ? "" : `Last accepted revision: ${status.lastSuccessRevision}`;
-  elements.syncDirty.textContent = paired ? `Local changes pending: ${status?.dirty ? "yes" : "no"}` : "";
+    status?.lastSuccessRevision == null ? "" : `Last synced revision: ${status.lastSuccessRevision}`;
+  // The status line already says so when idle; offline and error states hide it.
+  const settled = status?.state === "idle" && !status?.lastErrorCategory;
+  elements.syncDirty.textContent = paired && status?.dirty && !settled ? "Changes waiting to sync" : "";
   elements.syncNow.disabled = busy || status?.state === "syncing";
   elements.syncEnable.disabled = busy || !status;
   elements.syncJoin.disabled = busy || !status;

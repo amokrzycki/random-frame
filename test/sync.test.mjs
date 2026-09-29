@@ -104,8 +104,8 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
   current.dirty = true;
   get("sync-button").click();
   await flush();
-  assert.equal(get("sync-status").textContent, "Local changes waiting to sync");
-  assert.equal(get("sync-dirty").textContent, "Local changes pending: yes");
+  assert.equal(get("sync-status").textContent, "Changes waiting to sync");
+  assert.equal(get("sync-dirty").textContent, "");
   current.state = "syncing";
   get("sync-button").click();
   await flush();

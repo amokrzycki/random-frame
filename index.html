@@ -63,9 +63,7 @@
               Clear history
             </button>
             <span class="history-clear-hint" id="history-clear-hint">
-              Clears history and local activity stats on this device. Prnt.sc exploration, Seen IDs, and favorites
-              remain. After this device syncs, known history is removed from linked devices when they sync. New history
-              created offline may appear later.
+              Clears history and stats. Favorites and Seen IDs stay.
             </span>
           </div>
           <div class="history-clear-group" id="history-clear-favorites-group" hidden>
@@ -267,6 +265,10 @@
               Sync shares your seen Prnt.sc progress, history, and favorites with your linked devices. An encrypted
               snapshot is sent to the Sync server; settings and statistics stay on this device.
             </p>
+            <p class="sync-dialog__copy">
+              Enable Sync creates a recovery key. You need it to link another device or to rejoin later, and the app
+              can’t show it again, so you’ll save it next.
+            </p>
             <div class="sync-dialog__actions">
               <button class="primary-action" id="sync-enable" type="button">Enable Sync</button>
               <button class="sync-dialog__button" id="sync-show-join" type="button">Join existing Sync</button>
@@ -415,6 +417,7 @@
         <div class="stage" id="stage">
           <div class="empty-state" id="empty-state" hidden>
             <p class="empty-title">See a random corner of the internet.</p>
+            <p>Random screenshots strangers uploaded to Prnt.sc, one at a time.</p>
             <p>Public uploads may contain personal or unsuitable content. Browse thoughtfully.</p>
             <p class="empty-hint">Press <kbd>N</kbd> or <span class="empty-hint__action">Draw next</span></p>
           </div>
