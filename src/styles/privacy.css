@@ -50,6 +50,7 @@
   overflow-y: auto;
 }
 .privacy-page {
+  max-width: 68ch;
   font-size: 14px;
   line-height: 1.75;
 }

@@ -490,6 +490,12 @@
   color: var(--muted);
 }
 
+/* Empty history hides the actions but keeps their box, so Draw next never shifts on the first draw. */
+.info-line__actions[hidden] {
+  display: flex;
+  visibility: hidden;
+}
+
 .info-line__actions {
   margin-left: auto;
   padding-right: 6px;
