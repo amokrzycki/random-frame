@@ -228,31 +228,27 @@ async function clearSavedHistory(): Promise<void> {
     state.loading = false;
     syncControls();
   };
-  toast.info(
-    "History cleared",
-    { label: "Undo", run: restore },
-    () => {
-      void clearHistory().then(
-        () => {
-          try {
-            localStorage.removeItem(pendingHistoryClearKey);
-          } catch {
-            // The next launch may repeat the already completed clear.
-          }
-          releaseAllBlobs();
-          clearThumbnails(state.favorites);
-          elements.image.src = "";
-          elements.image.alt = "";
-          state.loading = false;
-          syncControls();
-        },
-        (error: unknown) => {
-          restore();
-          toast.error(describeError(error, "History could not be cleared. Try again.").message);
-        },
-      );
-    },
-  );
+  toast.info("History cleared", { label: "Undo", run: restore }, () => {
+    void clearHistory().then(
+      () => {
+        try {
+          localStorage.removeItem(pendingHistoryClearKey);
+        } catch {
+          // The next launch may repeat the already completed clear.
+        }
+        releaseAllBlobs();
+        clearThumbnails(state.favorites);
+        elements.image.src = "";
+        elements.image.alt = "";
+        state.loading = false;
+        syncControls();
+      },
+      (error: unknown) => {
+        restore();
+        toast.error(describeError(error, "History could not be cleared. Try again.").message);
+      },
+    );
+  });
 }
 
 async function clearSavedFavorites(): Promise<void> {

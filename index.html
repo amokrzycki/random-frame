@@ -63,7 +63,8 @@
               Clear history &amp; stats
             </button>
             <span class="history-clear-hint" id="history-clear-hint">
-              Removes saved frames and local stats. Favorites and seen frame IDs (kept to avoid repeats) stay. Linked devices remove known history when they sync.
+              Removes saved frames and local stats. Favorites and seen frame IDs (kept to avoid repeats) stay. Linked
+              devices remove known history when they sync.
             </span>
           </div>
           <div class="history-clear-group" id="history-clear-favorites-group" hidden>
@@ -173,7 +174,11 @@
             <p>Activity stats reset with History. Exploration stays on this device.</p>
             <details class="stats-how">
               <summary>How stats work</summary>
-              <p>Found counts first viewable results here. Activity streak counts consecutive days with a result. Found, Today, streak, and daily results reset when History is cleared. Prnt.sc exploration stays on this device and does not Sync. Seen IDs track viewed frames to help avoid repeats and can Sync.</p>
+              <p>
+                Found counts first viewable results here. Activity streak counts consecutive days with a result. Found,
+                Today, streak, and daily results reset when History is cleared. Prnt.sc exploration stays on this device
+                and does not Sync. Seen IDs track viewed frames to help avoid repeats and can Sync.
+              </p>
             </details>
           </div>
           <div class="dialog-foot__meta">
@@ -193,7 +198,11 @@
         <span class="lightbox-caption" id="lightbox-caption"></span>
         <div class="lightbox-tools">
           <button class="lightbox-control" id="lightbox-zoom-button" type="button" aria-pressed="false">1:1</button>
-          <button class="lightbox-control lightbox-close" id="lightbox-close-button" type="button" aria-label="Close enlarged image">
+          <button
+            class="lightbox-control lightbox-close"
+            id="lightbox-close-button"
+            type="button"
+            aria-label="Close enlarged image">
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
           </button>
         </div>
@@ -205,7 +214,11 @@
           alt=""
           draggable="false">
       </div>
-      <button class="lightbox-step lightbox-step--previous" id="lightbox-previous" type="button" aria-label="Previous frame">
+      <button
+        class="lightbox-step lightbox-step--previous"
+        id="lightbox-previous"
+        type="button"
+        aria-label="Previous frame">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg>
       </button>
       <button class="lightbox-step lightbox-step--next" id="lightbox-next" type="button" aria-label="Next frame">
@@ -287,8 +300,8 @@
           </div>
           <div id="sync-unpaired" hidden>
             <p class="sync-dialog__copy">
-              Sync shares Seen IDs (frame identifiers kept to avoid repeats), history, and favorites with your linked devices. An encrypted
-              snapshot is sent to the Sync server; settings and statistics stay on this device.
+              Sync shares Seen IDs (frame identifiers kept to avoid repeats), history, and favorites with your linked
+              devices. An encrypted snapshot is sent to the Sync server; settings and statistics stay on this device.
             </p>
             <p class="sync-dialog__copy">
               Enable Sync creates a recovery key. You need it to link another device or to rejoin later, and the app
@@ -314,9 +327,7 @@
             </form>
           </div>
           <div id="sync-recovery" hidden>
-            <p>
-              This key lets another device join your Sync. The app cannot show it again.
-            </p>
+            <p>This key lets another device join your Sync. The app cannot show it again.</p>
             <output id="sync-recovery-key" aria-label="Recovery key"></output>
             <button class="sync-dialog__button" id="sync-copy-key" type="button">Copy recovery key</button>
             <p class="sync-dialog__blocked-note">Closing is blocked until you confirm you’ve saved the key.</p>
@@ -339,8 +350,8 @@
           </div>
           <div id="sync-leave-confirm" hidden>
             <p>
-              This device will stop syncing. Local Seen IDs, history, and favorites will remain. The remote Sync
-              data stays on the server. To join again, you will need your recovery key.
+              This device will stop syncing. Local Seen IDs, history, and favorites will remain. The remote Sync data
+              stays on the server. To join again, you will need your recovery key.
             </p>
             <div class="sync-dialog__actions">
               <button class="sync-dialog__button" id="sync-leave-cancel" type="button">Cancel</button>

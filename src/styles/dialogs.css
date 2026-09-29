@@ -851,7 +851,9 @@
   color: var(--white);
 }
 
-.lightbox-dialog[open] { display: grid; }
+.lightbox-dialog[open] {
+  display: grid;
+}
 
 .lightbox-toolbar {
   display: flex;
@@ -863,7 +865,11 @@
 }
 
 .lightbox-caption {
-  font: 13px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font:
+    13px / 1.2 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
   color: color-mix(in srgb, var(--white) 78%, var(--stage));
   font-variant-numeric: tabular-nums;
 }
@@ -893,7 +899,9 @@
   min-width: 42px;
   height: 38px;
   padding: 0 12px;
-  font: 600 13px "Archive Sans", sans-serif;
+  font:
+    600 13px "Archive Sans",
+    sans-serif;
 }
 
 .lightbox-view {
@@ -925,6 +933,14 @@
   cursor: grabbing;
 }
 
+.history-item img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  display: block;
+  object-fit: contain;
+  background: var(--stage-soft);
+}
+
 .lightbox-view.is-zoomed img {
   max-width: none;
   max-height: none;
@@ -942,8 +958,12 @@
   transform: translateY(-50%);
 }
 
-.lightbox-step--previous { left: 16px; }
-.lightbox-step--next { right: 16px; }
+.lightbox-step--previous {
+  left: 16px;
+}
+.lightbox-step--next {
+  right: 16px;
+}
 
 .lightbox-step[aria-disabled="true"] {
   opacity: 0.35;
@@ -959,11 +979,23 @@
 }
 
 @media (max-width: 600px) {
-  .lightbox-toolbar { padding-inline: 16px; }
-  .lightbox-view { padding: 16px 52px; }
-  .lightbox-view img { max-width: calc(100vw - 104px); }
-  .lightbox-step { width: 36px; left: 8px; }
-  .lightbox-step--next { left: auto; right: 8px; }
+  .lightbox-toolbar {
+    padding-inline: 16px;
+  }
+  .lightbox-view {
+    padding: 16px 52px;
+  }
+  .lightbox-view img {
+    max-width: calc(100vw - 104px);
+  }
+  .lightbox-step {
+    width: 36px;
+    left: 8px;
+  }
+  .lightbox-step--next {
+    left: auto;
+    right: 8px;
+  }
 }
 
 .history-grid {
@@ -999,14 +1031,6 @@
 
 .history-item:hover {
   border-color: var(--muted);
-}
-
-.history-item img {
-  width: 100%;
-  aspect-ratio: 4 / 3;
-  display: block;
-  object-fit: contain;
-  background: var(--stage-soft);
 }
 
 /* Favorited tiles carry a plain archival-white star on a graphite chip; cobalt stays the current-frame border. */
@@ -1078,11 +1102,6 @@
   display: none;
 }
 
-/* Short histories have no pages to turn: the row keeps only the download action. */
-.history-pager[data-compact] .history-pager__summary {
-  display: none;
-}
-
 .history-pager[data-compact] {
   justify-content: flex-end;
 }
@@ -1118,6 +1137,11 @@
   align-items: center;
   gap: 16px;
   margin-right: auto;
+}
+
+/* Short histories have no pages to turn: the row keeps only the download action. */
+.history-pager[data-compact] .history-pager__summary {
+  display: none;
 }
 
 .history-pager__nav {
