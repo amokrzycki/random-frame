@@ -280,6 +280,11 @@
   stroke-width: 1.6;
 }
 
+:is(.history-dialog, .lightbox-dialog)[open] :is(.history-close, .lightbox-close):focus {
+  outline: 3px solid var(--blue);
+  outline-offset: -3px;
+}
+
 .history-dialog__body {
   min-height: 0;
   flex: 1;
@@ -770,9 +775,10 @@
   gap: 14px;
 }
 
-/* WCAG 2.5.8: the 34px strip still gives each link a 24px target. */
+/* Give the Stats footer links a comfortable target without crowding the metadata. */
 .dialog-foot__meta a {
-  min-height: 24px;
+  min-height: 32px;
+  padding: 4px 6px;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -1078,7 +1084,8 @@
 }
 
 .history-pager__step:disabled {
-  opacity: 0.4;
+  color: var(--disabled-ink);
+  border-color: var(--control-line);
   cursor: not-allowed;
 }
 

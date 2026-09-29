@@ -8,6 +8,41 @@
   text-underline-offset: 5px;
 }
 
+.masthead-tools .theme-toggle {
+  width: 46px;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid var(--control-line);
+  border-radius: 14px;
+  color: var(--ink);
+  background: var(--paper);
+  cursor: pointer;
+}
+
+.masthead-tools .theme-toggle__knob {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--paper-deep);
+  transition: transform 180ms var(--ease-out);
+}
+
+.masthead-tools .theme-toggle[aria-pressed="true"] .theme-toggle__knob {
+  transform: translateX(18px);
+}
+
+.masthead-tools .theme-toggle__icon svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .app-shell .privacy-main {
   max-width: 760px;
   height: 100%;

@@ -21,8 +21,12 @@ import {
 } from "./stage.js";
 import { applyHistory, state } from "./viewer-state.js";
 
-async function recordFrame(frame: Frame): Promise<void> {
+async function recordFrame(frame: Frame, canRecord = () => true): Promise<void> {
   const url = await decodedUrl(frame.blob);
+  if (!canRecord()) {
+    URL.revokeObjectURL(url);
+    return;
+  }
   applyHistory(
     await recordHistoryItem({
       source: frame.source,
@@ -35,20 +39,44 @@ async function recordFrame(frame: Frame): Promise<void> {
 }
 
 // Always a new frame, even mid-history: it joins the end of history and the view jumps to it.
+let drawVersion = 0;
+let drawCommitting = false;
+let viewBeforeDraw: ReturnType<typeof getViewState> = "empty";
+
+export function cancelDraw(): boolean {
+  if (!state.drawing || drawCommitting) return false;
+  drawVersion++;
+  state.drawing = false;
+  setState(viewBeforeDraw);
+  finishLoading();
+  elements.announcer.textContent = "Draw canceled";
+  return true;
+}
+
 export async function loadRandom(): Promise<void> {
   if (state.loading || drawPaused()) return;
+  const version = ++drawVersion;
+  viewBeforeDraw = getViewState();
   startLoading();
   state.drawing = true;
   setState("loading");
   syncControls();
   try {
     const frame = await getRandomFrame();
-    await recordFrame(frame);
+    if (version !== drawVersion) return;
+    await recordFrame(frame, () => {
+      if (version !== drawVersion) return false;
+      drawCommitting = true;
+      return true;
+    });
   } catch (error) {
-    showError(error, loadRandom);
+    if (version === drawVersion) showError(error, loadRandom);
   } finally {
-    state.drawing = false;
-    finishLoading();
+    if (version === drawVersion) {
+      drawCommitting = false;
+      state.drawing = false;
+      finishLoading();
+    }
   }
 }
 
