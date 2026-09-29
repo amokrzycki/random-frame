@@ -8,6 +8,7 @@ interface ToastAction {
 // Errors and toasts with an action need time to be read and used; a passing confirmation does not.
 const DWELL_MS = 3200;
 const LONG_DWELL_MS = 6000;
+let replaceCurrent: (() => void) | undefined;
 
 // The region ships in the page markup: screen readers only watch live regions that exist before content lands.
 function region(): HTMLDivElement {
@@ -22,16 +23,26 @@ function region(): HTMLDivElement {
 }
 
 function show(message: string, tone: ToastTone, action?: ToastAction, onExpire?: () => void): void {
+  replaceCurrent?.();
   const notification = document.createElement("div");
   notification.className = `toast toast--${tone}`;
   notification.textContent = message;
-  region().append(notification);
+  region().replaceChildren(notification);
 
   let timer = 0;
   let expired = false;
+  replaceCurrent = (): void => {
+    if (expired) return;
+    expired = true;
+    clearTimeout(timer);
+    replaceCurrent = undefined;
+    onExpire?.();
+    notification.remove();
+  };
   const dismiss = (): void => {
     if (expired) return;
     expired = true;
+    replaceCurrent = undefined;
     onExpire?.();
     notification.classList.add("toast--leaving");
     notification.addEventListener("transitionend", () => notification.remove(), { once: true });
@@ -62,6 +73,7 @@ function show(message: string, tone: ToastTone, action?: ToastAction, onExpire?:
       if (expired) return;
       expired = true;
       clearTimeout(timer);
+      replaceCurrent = undefined;
       notification.remove();
       action.run();
     });

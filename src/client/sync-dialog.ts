@@ -77,6 +77,9 @@ function setStatus(next: SyncStatus): void {
   const attention = next.paired && (next.state === "error" || next.state === "offline" || next.lastErrorCategory);
   if (attention) elements.toolsMenuButton.dataset.sync = "attention";
   else delete elements.toolsMenuButton.dataset.sync;
+  if (attention) elements.syncButton.dataset.sync = "attention";
+  else delete elements.syncButton.dataset.sync;
+  elements.syncButton.setAttribute("aria-label", attention ? "Sync needs attention" : "Sync");
   // The dot is visual only; the name carries it for assistive technology.
   const label = attention ? "More, Sync needs attention" : "More";
   elements.toolsMenuButton.setAttribute("aria-label", label);

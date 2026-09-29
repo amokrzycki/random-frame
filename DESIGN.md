@@ -181,7 +181,7 @@ The viewer fills the work area with two rows: the flexible graphite stage and a 
 
 **The Single Frame Rule.** Never turn the viewing stage into a grid: one image owns it at a time. Thumbnail grids live only inside the history dialog, as a way back to a frame.
 
-The history dialog grid auto-fills 138px-minimum columns with 12px gaps. Transient notices float above the frame: toasts stack above the info line, clear of Draw next, and the update banner centers 16px below the top edge.
+The history dialog grid auto-fills 138px-minimum columns with 12px gaps. Transient notices float above the frame: the current toast sits above the info line, clear of Draw next, and the update banner centers 16px below the top edge.
 
 **The Desktop Frame Rule.** Treat 800×600 as the compact floor: preserve the titlebar, stage, and info line, and let the stage flex before hiding persistent controls. The info line is a size container that sheds detail in a fixed order: below 720px the `prnt.sc/` prefix and the Draw next keycap drop; below 600px the ID steppers fold into a menu, whose chevron takes their place as the pill's right segment; below 480px the position tightens from `12 / 48` to `12/48`. Draw next never collapses and nothing wraps. The full line fits at the 800px floor.
 
@@ -251,7 +251,7 @@ The stage uses an 8px outer radius and an 8px inset hairline, matching the compa
 
 ### Notices
 
-- **Toast:** Near-black 97% pill-cornered (10px) note with a cobalt status dot and 13px semibold archival-white text; enters over 220ms. Stacks above the info line, clear of Draw next, rather than at the window's own corner.
+- **Toast:** Near-black 97% pill-cornered (10px) note with a white success dot, muted info dot, or terracotta error dot and 13px semibold archival-white text; enters over 220ms. New notices replace the current toast above the info line, clear of Draw next.
 - **Update banner:** The same dark surface centered at the top, with a cobalt install action and a dimmed dismiss.
 
 ### Reading Pages

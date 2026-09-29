@@ -120,6 +120,26 @@ elements.toolsMenu.addEventListener("beforetoggle", (event) => {
   elements.toolsMenu.style.right = `${window.innerWidth - rect.right}px`;
 });
 elements.toolsMenu.addEventListener("click", () => elements.toolsMenu.hidePopover?.(), true);
+elements.toolsMenuButton.addEventListener("keydown", (event) => {
+  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+  event.preventDefault();
+  elements.toolsMenu.showPopover();
+  const items = elements.toolsMenu.querySelectorAll<HTMLButtonElement>("button:not(:disabled)");
+  (event.key === "ArrowDown" ? items[0] : items[items.length - 1])?.focus();
+});
+elements.toolsMenu.addEventListener("keydown", (event) => {
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+  const items = [...elements.toolsMenu.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
+  const current = items.indexOf(document.activeElement as HTMLButtonElement);
+  const next =
+    event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? items.length - 1
+        : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+  event.preventDefault();
+  items[next]?.focus();
+});
 
 document.querySelectorAll<HTMLAnchorElement>(".external-link").forEach((link) => {
   link.addEventListener("click", (event) => {

@@ -639,6 +639,15 @@
   background: var(--control-fill);
 }
 
+.tools-menu__item[data-sync]::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: var(--danger);
+}
+
 .tools-menu__item svg {
   width: 18px;
   flex: 0 0 auto;

@@ -354,6 +354,9 @@
 .sync-dialog__meta {
   color: var(--muted);
 }
+.sync-dialog__copy + .sync-dialog__copy {
+  margin-top: 12px;
+}
 .sync-dialog__meta {
   display: grid;
   gap: 3px;
