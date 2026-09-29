@@ -19,26 +19,9 @@ import { toast } from "./toast.js";
 import { applyFavorites, isFavorite, state } from "./viewer-state.js";
 
 type HistoryDialogTab = "history" | "favourites";
-const tabStorageKey = "random-frame-history-dialog-tab";
 let filter: HistoryDialogTab = "history";
 let batchRunning = false;
 let viewVersion = 0;
-
-function loadTab(): HistoryDialogTab {
-  try {
-    return localStorage.getItem(tabStorageKey) === "favourites" ? "favourites" : "history";
-  } catch {
-    return "history";
-  }
-}
-
-function saveTab(tab: HistoryDialogTab): void {
-  try {
-    localStorage.setItem(tabStorageKey, tab);
-  } catch {
-    // Storage may be unavailable; the current dialog still uses the selected tab.
-  }
-}
 
 // index is the frame's place in history, or -1 for a favorite whose history was cleared.
 interface GridEntry {
@@ -141,7 +124,6 @@ function showCurrentPage(): void {
 function showFilter(next: HistoryDialogTab): void {
   viewVersion++;
   filter = next;
-  saveTab(next);
   showCurrentPage();
 }
 
@@ -149,7 +131,7 @@ export function openHistory(): void {
   if (state.loading) return;
   elements.historyClear.disabled = !state.history.length;
   viewVersion++;
-  filter = loadTab();
+  filter = "history";
   showCurrentPage();
   openDialog(elements.historyDialog);
 }

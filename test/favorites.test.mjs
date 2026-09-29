@@ -110,7 +110,6 @@ test("favorites toggle from the info line and filter the history grid", async (t
 
   // All shows every frame; starred tiles carry the badge, separate from the current-frame border.
   get("history-button").click();
-  assert.equal(localStorage.getItem("random-frame-history-dialog-tab"), null);
   assert.equal(get("history-filter-all").getAttribute("aria-pressed"), "true");
   assert.deepEqual(labels(), [
     "Show frame 1, aaa111",
@@ -127,7 +126,6 @@ test("favorites toggle from the info line and filter the history grid", async (t
 
   // Favorites narrows the same grid to starred frames, in the order they were starred.
   get("history-filter-favorites").click();
-  assert.equal(localStorage.getItem("random-frame-history-dialog-tab"), "favourites");
   assert.equal(get("history-filter-favorites").getAttribute("aria-pressed"), "true");
   assert.equal(get("history-filter-all").getAttribute("aria-pressed"), "false");
   assert.deepEqual(labels(), [
@@ -139,19 +137,8 @@ test("favorites toggle from the info line and filter the history grid", async (t
   assert.equal(get("history-clear-button").hidden, true);
   assert.equal(get("history-clear-favorites-button").hidden, false);
 
-  // The tab choice survives closing and reopening.
+  // The filter resets to All on every open.
   get("history-close-button").click();
-  get("history-button").click();
-  assert.equal(get("history-filter-favorites").getAttribute("aria-pressed"), "true");
-  assert.equal(get("history-grid").children.length, 3);
-
-  get("history-filter-all").click();
-  assert.equal(localStorage.getItem("random-frame-history-dialog-tab"), "history");
-  get("history-close-button").click();
-  get("history-button").click();
-  assert.equal(get("history-filter-all").getAttribute("aria-pressed"), "true");
-  get("history-close-button").click();
-  localStorage.setItem("random-frame-history-dialog-tab", "invalid");
   get("history-button").click();
   assert.equal(get("history-filter-all").getAttribute("aria-pressed"), "true");
 

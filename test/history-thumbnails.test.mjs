@@ -149,6 +149,7 @@ test("downloads only missing thumbnails on the visible page without viewing fram
   release();
   for (let i = 0; i < 5; i++) await flush();
   get("history-button").click();
+  get("history-filter-favorites").click();
   assert.equal(get("history-filter-favorites").getAttribute("aria-pressed"), "true");
   assert.equal(calls.filter(({ command, args }) => command === "get_thumbnail_image" && args.id === "id10").length, 1);
   assert.equal(get("history-thumbnail-action").hidden, true);

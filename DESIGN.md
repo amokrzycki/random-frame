@@ -145,7 +145,7 @@ The palette pairs warm archival neutrals with a near-black viewing environment a
 - **Field Stone:** Text-input borders only, at 3:1 or better against the paper in both themes.
 - **Control Line (`--control-line`):** Outlines of outlined buttons, the ID pill, and the consent checkbox, at 3:1 or better against the paper in both themes. Hairline Stone stays for dividers only.
 - **Disabled Ink:** Marks of disabled info-line icons and ID menu items, solid rather than faded, at 3:1 or better against the paper in both themes.
-- **Warning Terracotta:** Error dots only (stage error headline, Sync error, error toast); never text. Holds 3:1 or better on the paper in light mode and on the stage.
+- **Warning Terracotta:** Error dots (stage error headline, Sync error, error toast) and the 1–2px outline of a destructive confirmation (Leave Sync, the armed clear-history button); never text. Holds 3:1 or better on the paper in light mode and on the stage.
 - **Window Close Red:** Hover fill of the titlebar close control only, matching the native window-close convention in both themes.
 
 **The One Cobalt Rule.** Cobalt communicates action, focus, selection, or live status; it is not decorative fill. Draw next is the only cobalt button on the main screen.
@@ -200,7 +200,7 @@ Depth is concentrated on the viewing stage and floating controls. The titlebar, 
 
 ## Shapes
 
-The stage uses an 8px outer radius and an 8px inset hairline, matching the compact titlebar and navigation controls. Secondary actions use 9px corners; the primary action, Draw next, history thumbnails, toasts, the ID menu, and the update banner use 10px; ledger thumbnails and ID menu items use 5px; and dialogs retain their softer 14px outer frames. The session indicator and loading spinner are circular. Thin strokes and open SVG icons preserve the technical, machined feel.
+The stage uses an 8px outer radius and an 8px inset hairline, matching the compact titlebar and navigation controls. Secondary actions use 9px corners; the primary action, Draw next, history thumbnails, toasts, the ID menu, and the update banner use 10px; ledger thumbnails, ID menu items, and the update banner's buttons use 5px; and dialogs retain their softer 14px outer frames. The session indicator and loading spinner are circular. Thin strokes and open SVG icons preserve the technical, machined feel.
 
 ## Components
 
@@ -208,6 +208,7 @@ The stage uses an 8px outer radius and an 8px inset hairline, matching the compa
 
 - **Primary:** Cobalt, semibold, compact, and paired with a forward arrow; it is the single dominant call to action.
 - **Secondary:** Transparent, 34px tall, and outlined in graphite; hover inverts to graphite with archival-white text.
+- **Destructive:** Outlined like a secondary button with a Warning Terracotta border and ink text (never terracotta text). Used for Leave Sync and for the armed "Confirm clear history" state, which doubles the border to 2px. Confirmation dialogs focus Cancel first.
 - **Text action:** Unboxed archival-white text with a thin underline, used only inside the dark error state.
 - **Hover / Focus:** Hover changes color or inverts the surface. Keyboard focus uses a high-contrast cobalt outline offset from the component.
 - **Icon controls:** 34px paper-deep squares in the titlebar; hover inverts to graphite and active state compresses slightly.

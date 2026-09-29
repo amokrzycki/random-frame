@@ -310,7 +310,9 @@
             </div>
             <div class="sync-dialog__actions">
               <button class="primary-action" id="sync-now" type="button">Sync now</button>
-              <button class="sync-dialog__button" id="sync-leave" type="button">Leave Sync</button>
+              <button class="sync-dialog__button sync-dialog__button--danger" id="sync-leave" type="button">
+                Leave Sync
+              </button>
             </div>
           </div>
           <div id="sync-leave-confirm" hidden>
@@ -320,7 +322,10 @@
             </p>
             <div class="sync-dialog__actions">
               <button class="sync-dialog__button" id="sync-leave-cancel" type="button">Cancel</button>
-              <button class="primary-action" id="sync-leave-confirm-button" type="button">
+              <button
+                class="sync-dialog__button sync-dialog__button--danger"
+                id="sync-leave-confirm-button"
+                type="button">
                 Leave Sync on this device
               </button>
             </div>

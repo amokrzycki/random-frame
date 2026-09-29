@@ -167,6 +167,7 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
 
   get("sync-leave").click();
   assert.equal(get("sync-leave-confirm").hidden, false);
+  assert.equal(document.activeElement, get("sync-leave-cancel"));
   fail = { command: "leave_sync", error: { category: "secure_storage" } };
   get("sync-leave-confirm-button").click();
   await flush();

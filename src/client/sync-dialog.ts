@@ -225,7 +225,7 @@ export function bindSyncDialogEvents(): void {
   elements.syncLeave.addEventListener("click", () => {
     elements.syncLeaveConfirm.hidden = false;
     render();
-    elements.syncLeaveConfirmButton.focus();
+    elements.syncLeaveCancel.focus();
   });
   elements.syncLeaveCancel.addEventListener("click", () => {
     elements.syncLeaveConfirm.hidden = true;
