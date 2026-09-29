@@ -18,6 +18,24 @@ import { applyFavorites, applyHistory, state } from "./viewer-state.js";
 
 const storageKey = "prntsc-gallery-history";
 const entryStorageKey = "random-frame-risk-accepted";
+const arrowHintStorageKey = "random-frame-arrow-hint-dismissed";
+const arrowHint = document.querySelector<HTMLElement>("#arrow-hint");
+const arrowHintDismiss = document.querySelector<HTMLButtonElement>("#arrow-hint-dismiss");
+
+try {
+  if (arrowHint && localStorage.getItem(arrowHintStorageKey) !== "true") arrowHint.hidden = false;
+} catch {
+  // Keep the hint available when storage is disabled.
+  if (arrowHint) arrowHint.hidden = false;
+}
+arrowHintDismiss?.addEventListener("click", () => {
+  if (arrowHint) arrowHint.hidden = true;
+  try {
+    localStorage.setItem(arrowHintStorageKey, "true");
+  } catch {
+    // The hint stays dismissed for this session.
+  }
+});
 
 try {
   if (shouldShowEntryDialog(localStorage.getItem(entryStorageKey))) openDialog(elements.entryDialog);
