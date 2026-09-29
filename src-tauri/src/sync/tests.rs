@@ -453,6 +453,7 @@ async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
     let seen_before = a_state.seen.snapshot_with_generation().0;
     let key = a.create().await?.recovery_key;
     b.join(&key).await?;
+    assert_eq!(b_state.explored.count(), 0);
     b_state.explored.mark(11, ExplorationOutcome::Rejected)?;
     b_state
         .activity
@@ -473,9 +474,9 @@ async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
     assert!(a_state.history.snapshot().history.is_empty());
     assert_eq!(a_state.history.sync_state().1.len(), 3);
     assert_eq!(a_state.activity.viewed_total(), 0);
-    assert_eq!(a_state.explored.count(), 0);
-    assert_eq!(a_state.explored.viewable_count(), 0);
-    assert_eq!(a_state.explored.unavailable_count(), 0);
+    assert_eq!(a_state.explored.count(), 4);
+    assert_eq!(a_state.explored.viewable_count(), 3);
+    assert_eq!(a_state.explored.unavailable_count(), 1);
     assert_eq!(
         a_state.activity.recent_days(today_date, 183),
         vec![(
@@ -516,6 +517,7 @@ async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
     assert_eq!(after_clear.history_removed.len(), 3);
     assert_eq!(after_clear.seen, seen_before);
     assert_eq!(after_clear.favorites.len(), 1);
+    assert_eq!(a_state.explored.count(), 4);
 
     b.sync_now().await?;
     let b_ids: Vec<_> = b_state
@@ -532,6 +534,9 @@ async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
     assert_eq!(b_state.explored.count(), 3);
     assert_eq!(b_state.explored.viewable_count(), 2);
     assert_eq!(b_state.explored.unavailable_count(), 1);
+    assert_eq!(a_state.explored.count(), 4);
+    assert_eq!(a_state.explored.viewable_count(), 3);
+    assert_eq!(a_state.explored.unavailable_count(), 1);
     let days = b_state.activity.recent_days(today_date, 183);
     assert_eq!(
         days[0],
@@ -604,7 +609,9 @@ async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
         b_restarted.seen.snapshot_with_generation().0
     );
     assert_eq!(a_restarted.activity.viewed_total(), 0);
-    assert_eq!(a_restarted.explored.count(), 0);
+    assert_eq!(a_restarted.explored.count(), 4);
+    assert_eq!(a_restarted.explored.viewable_count(), 3);
+    assert_eq!(a_restarted.explored.unavailable_count(), 1);
     assert_eq!(b_restarted.activity.viewed_total(), 2);
     assert_eq!(b_restarted.explored.count(), 3);
     engine(&a_path, &a_restarted, a_secret.clone())
@@ -614,6 +621,8 @@ async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
         .startup_sync()
         .await?;
     assert_eq!(remote()?, stable);
+    assert_eq!(a_restarted.explored.count(), 4);
+    assert_eq!(b_restarted.explored.count(), 3);
     task.abort();
     fs::remove_dir_all(a_path)?;
     fs::remove_dir_all(b_path)?;

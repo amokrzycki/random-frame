@@ -39,25 +39,26 @@ test("builds static Tauri assets with the package version", async () => {
   );
 });
 
-test("history and Stats copy distinguishes synced Seen IDs from reset local counters", async () => {
+test("history and Stats copy distinguishes reset activity from persistent exploration", async () => {
   const index = await readFile(new URL("../dist/index.html", import.meta.url), "utf8");
   const copy = index.replace(/\s+/g, " ");
-  assert.match(copy, /Clears history and local stats on this device/);
-  assert.match(copy, /Seen IDs and favorites remain/);
-  assert.match(copy, /known history is removed from linked devices when they sync/);
-  assert.match(copy, /New history created on an offline device may appear later/);
+  assert.match(copy, /Clears history and resets activity stats/);
+  assert.match(copy, /Prnt\.sc exploration progress, Seen IDs, and favorites remain/);
+  assert.match(copy, /Known history removals reach linked devices through Sync/);
+  assert.match(copy, /new history created offline may appear later/);
   assert.match(copy, /Clears favorites on this device/);
   assert.match(copy, /known favorites are removed from linked devices when they sync/);
   assert.match(copy, /New favorites created on an offline device may appear later/);
-  assert.match(copy, /resets local stats but keeps Seen IDs used to avoid repeats/);
+  assert.match(
+    copy,
+    /resets activity stats but does not reset Prnt\.sc exploration progress or Seen IDs used to avoid repeats/,
+  );
   assert.match(copy, /<dt>Found<\/dt>.*<dt>Today<\/dt>.*<dt>Activity streak<\/dt>/);
-  assert.match(copy, /Prnt\.sc checked/);
+  assert.match(copy, /Prnt\.sc explored/);
   assert.match(copy, /Found counts first viewable results recorded on this device/);
   assert.match(copy, /Activity streak counts consecutive days with a viewable or unavailable result/);
-  assert.match(copy, /Stats stay local and reset when history is cleared; Seen IDs remain and can Sync/);
+  assert.match(copy, /Found, Today, streak, and daily results reset with history/);
+  assert.match(copy, /Prnt\.sc exploration progress remains on this device; Seen IDs can Sync/);
   assert.match(copy, /Local results by day/);
-  assert.doesNotMatch(
-    copy,
-    /Clearing history does not reset exploration progress|Offline entries may return after Sync/,
-  );
+  assert.doesNotMatch(copy, /Stats stay local and reset when history is cleared|since history clear/);
 });

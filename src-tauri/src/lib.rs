@@ -343,14 +343,13 @@ fn select_history_item(
     clippy::needless_pass_by_value,
     reason = "Tauri command state extractors must be passed by value"
 )]
-// Favorites and seen frames outlive a local history clear.
+// Favorites, seen frames, and classified exploration outlive a local history clear.
 fn clear_history(state: State<'_, AppState>) -> Result<(), AppError> {
     clear_local_history(&state)
 }
 
 fn clear_local_history(state: &AppState) -> Result<(), AppError> {
     reconcile_seen(&state.seen, &state.history, &state.explored)?;
-    state.explored.clear()?;
     state.activity.clear()?;
     state.history.clear()
 }
@@ -640,11 +639,16 @@ mod tests {
         assert_eq!(state.activity.viewed_total(), 1);
         clear_local_history(&state)?;
         assert!(state.history.snapshot().history.is_empty());
-        assert_eq!(state.explored.count(), 0);
+        assert_eq!(state.explored.count(), 1);
+        assert_eq!(state.explored.viewable_count(), 1);
         assert_eq!(state.activity.viewed_total(), 0);
         assert!(state.seen.contains(id));
         drop(state);
-        assert!(AppState::new(&directory)?.seen.contains(id));
+        let restarted = AppState::new(&directory)?;
+        assert!(restarted.seen.contains(id));
+        assert_eq!(restarted.explored.count(), 1);
+        assert_eq!(restarted.explored.viewable_count(), 1);
+        assert_eq!(restarted.activity.viewed_total(), 0);
         std::fs::remove_dir_all(directory).map_err(AppError::persistence)
     }
 
@@ -692,7 +696,9 @@ mod tests {
             history_before.history.len()
         );
         drop(state);
-        assert!(AppState::new(&directory)?.seen.contains(42));
+        let restarted = AppState::new(&directory)?;
+        assert!(restarted.seen.contains(42));
+        assert_eq!(restarted.explored.count(), 0);
         std::fs::remove_dir_all(directory).map_err(AppError::persistence)
     }
 

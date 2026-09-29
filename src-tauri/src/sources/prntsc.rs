@@ -527,15 +527,12 @@ mod tests {
     }
 
     #[test]
-    fn clearing_local_exploration_does_not_restore_seen_random_candidates() -> Result<(), AppError>
-    {
-        let directory = temp_store_directory("clear-seen");
+    fn seen_without_local_classification_is_not_picked_again() -> Result<(), AppError> {
+        let directory = temp_store_directory("remote-seen");
         let explored = ExplorationStore::new(&directory)?;
         let seen = SeenStore::new(&directory)?;
         let id = item_id_value("abc123")?;
-        explored.mark(id, ExplorationOutcome::Viewed)?;
         seen.insert(id)?;
-        explored.clear()?;
         let picked = pick_unexplored_id(&explored, &seen, pick_from(&["abc123", "abc124"]))?;
         assert_eq!(picked, "abc124");
         Ok(())

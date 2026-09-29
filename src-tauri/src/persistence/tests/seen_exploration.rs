@@ -204,10 +204,8 @@ fn explored_ids_are_unique_race_safe_and_persistent() -> Result<(), AppError> {
         assert!(worker.join().is_ok_and(|result| result.is_ok()));
     }
     assert_eq!(store.count(), 1);
-    store.clear()?;
-    assert_eq!(store.count(), 0);
     drop(store);
-    assert_eq!(ExplorationStore::new(&directory)?.count(), 0);
+    assert_eq!(ExplorationStore::new(&directory)?.count(), 1);
     fs::remove_dir_all(directory).map_err(AppError::persistence)
 }
 

@@ -147,21 +147,6 @@ impl ExplorationStore {
         drop(ids);
         result
     }
-
-    pub fn clear(&self) -> Result<(), AppError> {
-        let mut ids = self
-            .ids
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        match fs::remove_file(&self.path) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(AppError::persistence(error)),
-        }
-        ids.clear();
-        drop(ids);
-        Ok(())
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

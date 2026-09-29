@@ -63,9 +63,8 @@
               Clear history
             </button>
             <span class="history-clear-hint" id="history-clear-hint">
-              Clears history and local stats on this device. Seen IDs and favorites remain. After this device syncs,
-              known history is removed from linked devices when they sync. New history created on an offline device may
-              appear later.
+              Clears history and resets activity stats. Prnt.sc exploration progress, Seen IDs, and favorites remain.
+              Known history removals reach linked devices through Sync; new history created offline may appear later.
             </span>
           </div>
           <div class="history-clear-group" id="history-clear-favorites-group" hidden>
@@ -127,8 +126,9 @@
         </footer>
         <footer class="dialog-foot">
           <p>
-            Clearing history resets local stats but keeps Seen IDs used to avoid repeats. Seen IDs sync when Sync is
-            enabled. Respect the privacy of people whose information may appear in public uploads.
+            Clearing history resets activity stats but does not reset Prnt.sc exploration progress or Seen IDs used to
+            avoid repeats. Seen IDs can Sync; exploration progress stays on this device. Respect the privacy of people
+            whose information may appear in public uploads.
           </p>
         </footer>
       </div>
@@ -159,7 +159,7 @@
               </div>
             </dl>
             <p class="stats-headline__detail stats-explored">
-              <span>Prnt.sc checked <span id="stats-explored">0 / 4,773,622,240</span></span>
+              <span>Prnt.sc explored <span id="stats-explored">0 / 4,773,622,240</span></span>
               <span id="stats-explored-percent">0% of known legacy ID space</span>
               <span id="stats-explored-breakdown">0 viewable · 0 unavailable</span>
             </p>
@@ -178,8 +178,8 @@
         <footer class="dialog-foot">
           <p>
             Found counts first viewable results recorded on this device. Activity streak counts consecutive days with a
-            viewable or unavailable result. Stats stay local and reset when history is cleared; Seen IDs remain and can
-            Sync.
+            viewable or unavailable result. Found, Today, streak, and daily results reset with history. Prnt.sc
+            exploration progress remains on this device; Seen IDs can Sync.
           </p>
           <div class="dialog-foot__meta">
             <span>v{{VERSION}}</span>
