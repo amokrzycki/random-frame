@@ -63,8 +63,9 @@
               Clear history
             </button>
             <span class="history-clear-hint" id="history-clear-hint">
-              Clears history and resets activity stats. Prnt.sc exploration progress, Seen IDs, and favorites remain.
-              Known history removals reach linked devices through Sync; new history created offline may appear later.
+              Clears history and local activity stats on this device. Prnt.sc exploration, Seen IDs, and favorites
+              remain. After this device syncs, known history is removed from linked devices when they sync. New history
+              created offline may appear later.
             </span>
           </div>
           <div class="history-clear-group" id="history-clear-favorites-group" hidden>
@@ -126,9 +127,9 @@
         </footer>
         <footer class="dialog-foot">
           <p>
-            Clearing history resets activity stats but does not reset Prnt.sc exploration progress or Seen IDs used to
-            avoid repeats. Seen IDs can Sync; exploration progress stays on this device. Respect the privacy of people
-            whose information may appear in public uploads.
+            Clearing history resets local activity but keeps Prnt.sc exploration and Seen IDs used to avoid repeats.
+            Seen IDs can Sync; Prnt.sc exploration stays on this device. Respect the privacy of people whose information
+            may appear in public uploads.
           </p>
         </footer>
       </div>
@@ -159,7 +160,7 @@
               </div>
             </dl>
             <p class="stats-headline__detail stats-explored">
-              <span>Prnt.sc explored <span id="stats-explored">0 / 4,773,622,240</span></span>
+              <span>Prnt.sc explored locally <span id="stats-explored">0 / 4,773,622,240</span></span>
               <span id="stats-explored-percent">0% of known legacy ID space</span>
               <span id="stats-explored-breakdown">0 viewable · 0 unavailable</span>
             </p>
@@ -177,9 +178,9 @@
         </div>
         <footer class="dialog-foot">
           <p>
-            Found counts first viewable results recorded on this device. Activity streak counts consecutive days with a
-            viewable or unavailable result. Found, Today, streak, and daily results reset with history. Prnt.sc
-            exploration progress remains on this device; Seen IDs can Sync.
+            Found counts first viewable results here; Activity streak counts consecutive days with a result. Found,
+            Today, streak, and daily results reset when history is cleared. Prnt.sc exploration stays here and does not
+            Sync. Seen IDs remain to avoid repeats and can Sync.
           </p>
           <div class="dialog-foot__meta">
             <span>v{{VERSION}}</span>

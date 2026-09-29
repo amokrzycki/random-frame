@@ -705,6 +705,30 @@
   stroke-width: 1.4;
 }
 
+@media (max-width: 600px) {
+  .stats-headline__detail {
+    display: block;
+    margin-left: 0 !important;
+    clip-path: none;
+  }
+
+  .stats-headline__detail > span {
+    display: block;
+  }
+
+  .stats-headline__detail > span::before {
+    display: none;
+  }
+
+  .stats-dialog .dialog-foot {
+    display: block;
+  }
+
+  .stats-dialog .dialog-foot__meta {
+    margin-top: 8px;
+  }
+}
+
 .lightbox-dialog {
   top: var(--titlebar-height);
   width: 100vw;

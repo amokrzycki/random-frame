@@ -67,7 +67,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
       }
       if (command === "get_exploration_stats") {
         if (failStats) throw new Error("unreadable");
-        return { explored: 12_483, total: 4_773_622_240, viewable: 8_000, unavailable: 4_483 };
+        return { explored: 12_483, total: 4_773_622_240, viewable: 8_000, unavailable: 4_483, unclassified: 0 };
       }
       if (command === "get_viewing_activity") {
         return {

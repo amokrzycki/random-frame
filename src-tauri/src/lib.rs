@@ -154,9 +154,9 @@ const LEGACY_ID_SPACE_SIZE: u64 = 4_773_622_240;
 struct ExplorationStats {
     explored: usize,
     total: u64,
-    // Classified since tracking began; may not sum to `explored` on upgraded installs.
     viewable: usize,
     unavailable: usize,
+    unclassified: usize,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -394,11 +394,13 @@ fn clear_favorites(state: State<'_, AppState>) -> Result<(), AppError> {
     reason = "Tauri command state extractors must be passed by value"
 )]
 fn get_exploration_stats(state: State<'_, AppState>) -> ExplorationStats {
+    let (explored, viewable, unavailable, unclassified) = state.explored.counts();
     ExplorationStats {
-        explored: state.explored.count(),
+        explored,
         total: LEGACY_ID_SPACE_SIZE,
-        viewable: state.explored.viewable_count(),
-        unavailable: state.explored.unavailable_count(),
+        viewable,
+        unavailable,
+        unclassified,
     }
 }
 
@@ -605,7 +607,7 @@ mod tests {
         history.record(history_item("abc123"))?;
         std::fs::write(
             directory.join("prntsc-explored.txt"),
-            "1,v\n2,r\n3\n1,v\n4,v\n5,x\n",
+            "1,v\n2,r\n3\n1,v\n4,v\n5\n",
         )
         .map_err(AppError::persistence)?;
         // A prior launch may have saved only part of the migration.

@@ -397,6 +397,95 @@ async fn devices_converge_history_and_favorites() -> Result<(), Box<dyn std::err
 }
 
 #[tokio::test]
+async fn exploration_stays_local_while_seen_history_and_favorites_sync(
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::{
+        clear_local_history,
+        persistence::{ExplorationOutcome, FavoriteItem, HistoryItem},
+        AppState,
+    };
+
+    let (url, _, task) = server().await?;
+    let a_path = directory("local-exploration-a");
+    let b_path = directory("local-exploration-b");
+    fs::create_dir_all(&a_path)?;
+    fs::write(a_path.join("prntsc-explored.txt"), "200\n")?;
+    let a_state = AppState::new(&a_path)?;
+    let b_state = AppState::new(&b_path)?;
+    for id in 0..100 {
+        a_state.explored.mark(id, ExplorationOutcome::Viewed)?;
+        a_state.seen.insert(id)?;
+    }
+    for id in 100..120 {
+        a_state.explored.mark(id, ExplorationOutcome::Rejected)?;
+    }
+    b_state.explored.mark(300, ExplorationOutcome::Viewed)?;
+    b_state.seen.insert(300)?;
+    a_state.history.record(HistoryItem {
+        source: "prntsc".into(),
+        id: "1".into(),
+        source_page_url: "https://prnt.sc/1".into(),
+        viewed_at: 1,
+    })?;
+    a_state.favorites.toggle(FavoriteItem {
+        source: "prntsc".into(),
+        id: "1".into(),
+        source_page_url: "https://prnt.sc/1".into(),
+        added_at: 1,
+    })?;
+    let a_counts = (121, 100, 20, 1);
+    let b_counts = (1, 1, 0, 0);
+    assert_eq!(a_state.explored.counts(), a_counts);
+    assert_eq!(b_state.explored.counts(), b_counts);
+
+    let a = SyncEngine::new(
+        &a_path,
+        Arc::clone(&a_state.seen),
+        Arc::clone(&a_state.history),
+        Arc::clone(&a_state.favorites),
+        MemorySecret::default(),
+        Some(&url),
+    );
+    let key = a.create().await?.recovery_key;
+    let b = SyncEngine::new(
+        &b_path,
+        Arc::clone(&b_state.seen),
+        Arc::clone(&b_state.history),
+        Arc::clone(&b_state.favorites),
+        MemorySecret::default(),
+        Some(&url),
+    );
+    b.join(&key).await?;
+    b.sync_now().await?;
+    a.sync_now().await?;
+    assert!(a_state.seen.contains(300));
+    assert!(b_state.seen.contains(0));
+    assert_eq!(b_state.history.snapshot().history.len(), 1);
+    assert_eq!(b_state.favorites.snapshot().len(), 1);
+    assert!(b_state.seen.snapshot_with_generation().0.len() > b_state.explored.count());
+    assert_eq!(a_state.explored.counts(), a_counts);
+    assert_eq!(b_state.explored.counts(), b_counts);
+
+    clear_local_history(&a_state)?;
+    a.sync_now().await?;
+    b.sync_now().await?;
+    assert!(b_state.history.snapshot().history.is_empty());
+    assert_eq!(b_state.favorites.snapshot().len(), 1);
+    assert_eq!(a_state.explored.counts(), a_counts);
+    assert_eq!(b_state.explored.counts(), b_counts);
+    drop(a);
+    drop(b);
+    drop(a_state);
+    drop(b_state);
+    assert_eq!(AppState::new(&a_path)?.explored.counts(), a_counts);
+    assert_eq!(AppState::new(&b_path)?.explored.counts(), b_counts);
+    task.abort();
+    fs::remove_dir_all(a_path)?;
+    fs::remove_dir_all(b_path)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
 ) -> Result<(), Box<dyn std::error::Error>> {
     use crate::{
@@ -408,6 +497,8 @@ async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
     let (url, server, task) = server().await?;
     let a_path = directory("clear-a");
     let b_path = directory("clear-b");
+    fs::create_dir_all(&a_path)?;
+    fs::write(a_path.join("prntsc-explored.txt"), "200\n")?;
     let a_secret = MemorySecret::default();
     let b_secret = MemorySecret::default();
     let a_state = AppState::new(&a_path)?;
@@ -449,7 +540,7 @@ async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
         added_at: 1,
     })?;
     assert_eq!(a_state.activity.viewed_total(), 3);
-    assert_eq!(a_state.explored.count(), 4);
+    assert_eq!(a_state.explored.counts(), (5, 3, 1, 1));
     let seen_before = a_state.seen.snapshot_with_generation().0;
     let key = a.create().await?.recovery_key;
     b.join(&key).await?;
@@ -474,7 +565,7 @@ async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
     assert!(a_state.history.snapshot().history.is_empty());
     assert_eq!(a_state.history.sync_state().1.len(), 3);
     assert_eq!(a_state.activity.viewed_total(), 0);
-    assert_eq!(a_state.explored.count(), 4);
+    assert_eq!(a_state.explored.counts(), (5, 3, 1, 1));
     assert_eq!(a_state.explored.viewable_count(), 3);
     assert_eq!(a_state.explored.unavailable_count(), 1);
     assert_eq!(
@@ -517,7 +608,7 @@ async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
     assert_eq!(after_clear.history_removed.len(), 3);
     assert_eq!(after_clear.seen, seen_before);
     assert_eq!(after_clear.favorites.len(), 1);
-    assert_eq!(a_state.explored.count(), 4);
+    assert_eq!(a_state.explored.counts(), (5, 3, 1, 1));
 
     b.sync_now().await?;
     let b_ids: Vec<_> = b_state
@@ -534,7 +625,7 @@ async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
     assert_eq!(b_state.explored.count(), 3);
     assert_eq!(b_state.explored.viewable_count(), 2);
     assert_eq!(b_state.explored.unavailable_count(), 1);
-    assert_eq!(a_state.explored.count(), 4);
+    assert_eq!(a_state.explored.counts(), (5, 3, 1, 1));
     assert_eq!(a_state.explored.viewable_count(), 3);
     assert_eq!(a_state.explored.unavailable_count(), 1);
     let days = b_state.activity.recent_days(today_date, 183);
@@ -609,7 +700,7 @@ async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
         b_restarted.seen.snapshot_with_generation().0
     );
     assert_eq!(a_restarted.activity.viewed_total(), 0);
-    assert_eq!(a_restarted.explored.count(), 4);
+    assert_eq!(a_restarted.explored.counts(), (5, 3, 1, 1));
     assert_eq!(a_restarted.explored.viewable_count(), 3);
     assert_eq!(a_restarted.explored.unavailable_count(), 1);
     assert_eq!(b_restarted.activity.viewed_total(), 2);
@@ -621,7 +712,7 @@ async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
         .startup_sync()
         .await?;
     assert_eq!(remote()?, stable);
-    assert_eq!(a_restarted.explored.count(), 4);
+    assert_eq!(a_restarted.explored.counts(), (5, 3, 1, 1));
     assert_eq!(b_restarted.explored.count(), 3);
     task.abort();
     fs::remove_dir_all(a_path)?;

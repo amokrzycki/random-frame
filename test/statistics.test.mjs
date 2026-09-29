@@ -16,16 +16,18 @@ test("keeps tiny explored percentages visible", () => {
   assert.equal(formatExploredPercent(0), "0%");
   assert.equal(formatExploredPercent(12_483), "< 0.001%");
   assert.notEqual(formatExploredPercent(1), "0.00%");
+  assert.equal(formatExploredPercent(4_773_622_240), "100.00%");
+  assert.throws(() => formatExploredPercent(4_773_622_241), /Invalid exploration total/);
 });
 
 test("formats the explored breakdown plainly once every explored id is classified", () => {
-  assert.equal(formatExploredBreakdown(101, 49, 52), "49 viewable · 52 unavailable");
+  assert.equal(formatExploredBreakdown(101, 49, 52, 0), "49 viewable · 52 unavailable");
 });
 
-test("flags the breakdown as partial when legacy, unclassified ids remain", () => {
-  // Upgraded installs keep unclassified legacy ids, so viewable + unavailable < explored.
-  assert.equal(formatExploredBreakdown(101, 49, 50), "49 viewable · 50 unavailable since tracking began");
-  assert.equal(formatExploredBreakdown(10, 0, 0), "0 viewable · 0 unavailable since tracking began");
+test("shows every explored category and rejects inconsistent counts", () => {
+  assert.equal(formatExploredBreakdown(101, 49, 50, 2), "49 viewable · 50 unavailable · 2 unclassified");
+  assert.equal(formatExploredBreakdown(10, 0, 0, 10), "0 viewable · 0 unavailable · 10 unclassified");
+  assert.throws(() => formatExploredBreakdown(101, 49, 50, 0), /Inconsistent exploration counts/);
 });
 
 test("parses valid legacy stats and rejects malformed or missing ones", () => {

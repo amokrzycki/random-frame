@@ -3,19 +3,28 @@ import type { DailyActivity } from "./persistence.js";
 export const LEGACY_ID_SPACE_SIZE = 4_773_622_240;
 
 export function formatExploredPercent(explored: number, total = LEGACY_ID_SPACE_SIZE): string {
-  if (explored <= 0 || total <= 0) return "0%";
+  if (!Number.isSafeInteger(explored) || !Number.isSafeInteger(total) || explored < 0 || total <= 0 || explored > total)
+    throw new Error("Invalid exploration total");
+  if (explored === 0) return "0%";
   const percent = (explored / total) * 100;
   if (percent < 0.001) return "< 0.001%";
   const decimals = Math.max(2, Math.ceil(-Math.log10(percent)) + 3);
   return `${percent.toFixed(decimals)}%`;
 }
 
-// viewable/unavailable are unique-id counts from ExplorationStore, not derived from the activity counter.
-// Sum may be less than explored on upgraded installs with unclassified legacy ids.
-export function formatExploredBreakdown(explored: number, viewable: number, unavailable: number): string {
-  const classified = viewable + unavailable;
+export function formatExploredBreakdown(
+  explored: number,
+  viewable: number,
+  unavailable: number,
+  unclassified: number,
+): string {
+  if (
+    [explored, viewable, unavailable, unclassified].some((count) => !Number.isSafeInteger(count) || count < 0) ||
+    viewable + unavailable + unclassified !== explored
+  )
+    throw new Error("Inconsistent exploration counts");
   const breakdown = `${viewable.toLocaleString("en-US")} viewable · ${unavailable.toLocaleString("en-US")} unavailable`;
-  return classified < explored ? `${breakdown} since tracking began` : breakdown;
+  return unclassified ? `${breakdown} · ${unclassified.toLocaleString("en-US")} unclassified` : breakdown;
 }
 
 export const LEGACY_STATS_STORAGE_KEY = "random-frame-viewing-stats";

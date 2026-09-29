@@ -121,6 +121,7 @@ async function loadStats(): Promise<void> {
       exploration.explored,
       exploration.viewable,
       exploration.unavailable,
+      exploration.unclassified,
     );
     renderLedger(ledgerDays(activity.days, activity.localViewTimes));
     delete elements.statsExplored.dataset.state;

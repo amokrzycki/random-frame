@@ -274,14 +274,62 @@ fn legacy_plain_id_lines_are_counted_as_explored_but_not_classified() -> Result<
     assert_eq!(store.count(), 2);
     assert_eq!(store.viewable_count(), 0);
     assert_eq!(store.unavailable_count(), 0);
+    assert_eq!(store.counts(), (2, 0, 0, 2));
 
     store.mark(12, ExplorationOutcome::Viewed)?;
     assert_eq!(store.count(), 3);
     assert_eq!(store.viewable_count(), 1);
+    assert_eq!(store.counts(), (3, 1, 0, 2));
+    assert_eq!(
+        fs::read_to_string(directory.join("prntsc-explored.txt")).map_err(AppError::persistence)?,
+        "10\n11\n12,v\n"
+    );
     assert_eq!(
         store.viewable_count() + store.unavailable_count(),
         1,
         "classified subset must stay smaller than the explored total while legacy ids remain"
     );
+    fs::remove_dir_all(directory).map_err(AppError::persistence)
+}
+
+#[test]
+fn classifications_are_first_write_wins_across_all_transitions_and_restart() -> Result<(), AppError>
+{
+    let directory = test_directory("explored-transitions");
+    fs::create_dir_all(&directory).map_err(AppError::persistence)?;
+    fs::write(directory.join("prntsc-explored.txt"), "1\n2\n").map_err(AppError::persistence)?;
+    let store = ExplorationStore::new(&directory)?;
+    for (id, outcome) in [
+        (1, ExplorationOutcome::Viewed),
+        (2, ExplorationOutcome::Rejected),
+    ] {
+        assert!(!store.mark(id, outcome)?);
+    }
+    assert!(store.mark(3, ExplorationOutcome::Viewed)?);
+    assert!(store.mark(4, ExplorationOutcome::Rejected)?);
+    assert!(!store.mark(3, ExplorationOutcome::Rejected)?);
+    assert!(!store.mark(4, ExplorationOutcome::Viewed)?);
+    assert_eq!(store.counts(), (4, 1, 1, 2));
+    drop(store);
+    assert_eq!(ExplorationStore::new(&directory)?.counts(), (4, 1, 1, 2));
+    fs::remove_dir_all(directory).map_err(AppError::persistence)
+}
+
+#[test]
+fn corrupt_rows_and_out_of_range_ids_fail_instead_of_inflating_progress() -> Result<(), AppError> {
+    let directory = test_directory("explored-corrupt");
+    fs::create_dir_all(&directory).map_err(AppError::persistence)?;
+    let path = directory.join("prntsc-explored.txt");
+    for contents in ["1,x\n", "4773622240,v\n", "1,v\n1,r\n", "1\n1,v\n"] {
+        fs::write(&path, contents).map_err(AppError::persistence)?;
+        assert!(ExplorationStore::new(&directory).is_err());
+    }
+    fs::write(&path, "1,v\n1,v\n").map_err(AppError::persistence)?;
+    let store = ExplorationStore::new(&directory)?;
+    assert_eq!(store.counts(), (1, 1, 0, 0));
+    assert!(store
+        .mark(4_773_622_240, ExplorationOutcome::Viewed)
+        .is_err());
+    assert_eq!(store.counts(), (1, 1, 0, 0));
     fs::remove_dir_all(directory).map_err(AppError::persistence)
 }
