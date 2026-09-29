@@ -343,6 +343,17 @@
   font-size: 13px;
   overflow-wrap: anywhere;
 }
+.sync-dialog__saved {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.sync-dialog__saved input {
+  margin: 4px 0 0;
+  accent-color: var(--blue);
+}
 #sync-recovery-input {
   min-width: 0;
 }

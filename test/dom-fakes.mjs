@@ -185,6 +185,7 @@ export const ids = [
   "sync-recovery",
   "sync-recovery-key",
   "sync-copy-key",
+  "sync-key-saved",
   "sync-paired",
   "sync-revision",
   "sync-dirty",

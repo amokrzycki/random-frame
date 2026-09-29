@@ -75,6 +75,7 @@ export const elements = {
   syncRecovery: element<HTMLElement>("#sync-recovery"),
   syncRecoveryKey: element<HTMLOutputElement>("#sync-recovery-key"),
   syncCopyKey: element<HTMLButtonElement>("#sync-copy-key"),
+  syncKeySaved: element<HTMLInputElement>("#sync-key-saved"),
   syncPaired: element<HTMLElement>("#sync-paired"),
   syncRevision: element<HTMLElement>("#sync-revision"),
   syncDirty: element<HTMLElement>("#sync-dirty"),
