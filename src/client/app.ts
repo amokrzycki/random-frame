@@ -34,9 +34,19 @@ async function initialize(): Promise<void> {
   state.loading = true;
   syncControls();
   try {
-    if (localStorage.getItem(pendingHistoryClearKey) === "true") {
+    let pendingHistoryClear = false;
+    try {
+      pendingHistoryClear = localStorage.getItem(pendingHistoryClearKey) === "true";
+    } catch {
+      // History still loads when browser storage is unavailable.
+    }
+    if (pendingHistoryClear) {
       await clearHistory();
-      localStorage.removeItem(pendingHistoryClearKey);
+      try {
+        localStorage.removeItem(pendingHistoryClearKey);
+      } catch {
+        // The already completed clear is safe to repeat on the next launch.
+      }
     }
     if (!startupSyncStarted) {
       startupSyncStarted = true;

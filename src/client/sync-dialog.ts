@@ -132,6 +132,19 @@ async function refresh(): Promise<void> {
   }
 }
 
+async function refreshView(): Promise<boolean> {
+  try {
+    await refreshPersistedView();
+    syncControls();
+    if (retryAction === refreshView) clearError();
+    render();
+    return true;
+  } catch (error) {
+    showError(`Sync completed, but saved data could not be reloaded. ${safeError(error)}`, refreshView);
+    return false;
+  }
+}
+
 async function operate(message: string, action: () => Promise<SyncStatus>): Promise<boolean> {
   if (busy) return false;
   busy = true;
@@ -140,18 +153,19 @@ async function operate(message: string, action: () => Promise<SyncStatus>): Prom
   clearError();
   render();
   try {
-    setStatus(await action());
-    if (!state.loading) {
-      await refreshPersistedView();
-      syncControls();
+    let result: SyncStatus;
+    try {
+      result = await action();
+    } catch (error) {
+      showError(safeError(error), notRetryable.has(category(error) ?? "") ? null : () => operate(message, action));
+      await refresh();
+      return false;
     }
+    setStatus(result);
+    if (!state.loading && !(await refreshView())) return false;
     await refresh();
     render();
     return true;
-  } catch (error) {
-    showError(safeError(error), notRetryable.has(category(error) ?? "") ? null : () => operate(message, action));
-    await refresh();
-    return false;
   } finally {
     busy = false;
     delete elements.syncDialog.dataset.busy;

@@ -52,16 +52,18 @@ function show(message: string, tone: ToastTone, action?: ToastAction, onExpire?:
   };
   arm();
 
-  // Reading or reaching for a toast holds it; leaving restarts the full dwell.
-  for (const [enter, leave] of [
-    ["pointerenter", "pointerleave"],
-    ["focusin", "focusout"],
-  ] as const) {
-    notification.addEventListener(enter, () => clearTimeout(timer));
-    notification.addEventListener(leave, () => {
-      clearTimeout(timer);
-      arm();
-    });
+  // A toast that commits work on expiry must keep its deadline even while hovered or focused.
+  if (!onExpire) {
+    for (const [enter, leave] of [
+      ["pointerenter", "pointerleave"],
+      ["focusin", "focusout"],
+    ] as const) {
+      notification.addEventListener(enter, () => clearTimeout(timer));
+      notification.addEventListener(leave, () => {
+        clearTimeout(timer);
+        arm();
+      });
+    }
   }
 
   if (action) {

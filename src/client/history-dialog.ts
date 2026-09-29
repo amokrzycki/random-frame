@@ -205,10 +205,22 @@ async function clearSavedHistory(): Promise<void> {
   const previousIndex = state.index;
   const previousView = getViewState();
   state.loading = true;
+  let durable = false;
   try {
     localStorage.setItem(pendingHistoryClearKey, "true");
+    durable = true;
   } catch {
-    // The in-window Undo still works when storage is unavailable.
+    // Without a restart marker, finish the clear before showing success.
+  }
+  if (!durable) {
+    try {
+      await clearHistory();
+    } catch (error) {
+      state.loading = false;
+      syncControls();
+      toast.error(describeError(error, "History could not be cleared. Try again.").message);
+      return;
+    }
   }
   state.history.length = 0;
   state.index = -1;
@@ -216,6 +228,19 @@ async function clearSavedHistory(): Promise<void> {
   syncControls();
   state.historyReturnFocus = elements.draw;
   closeDialog(elements.historyDialog);
+  const finishClear = (): void => {
+    releaseAllBlobs();
+    clearThumbnails(state.favorites);
+    elements.image.src = "";
+    elements.image.alt = "";
+    state.loading = false;
+    syncControls();
+  };
+  if (!durable) {
+    finishClear();
+    toast.success("History cleared");
+    return;
+  }
   const restore = (): void => {
     try {
       localStorage.removeItem(pendingHistoryClearKey);
@@ -236,12 +261,7 @@ async function clearSavedHistory(): Promise<void> {
         } catch {
           // The next launch may repeat the already completed clear.
         }
-        releaseAllBlobs();
-        clearThumbnails(state.favorites);
-        elements.image.src = "";
-        elements.image.alt = "";
-        state.loading = false;
-        syncControls();
+        finishClear();
       },
       (error: unknown) => {
         restore();
