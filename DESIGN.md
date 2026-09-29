@@ -229,7 +229,7 @@ The stage uses an 8px outer radius and an 8px inset hairline, matching the compa
 - **Statistics headline:** Found, Today, and Day streak sit as a three-up tabular serif tally, each a label over its figure and divided by a hairline. "Prnt.sc explored" and its share-of-ID-space and viewable/unavailable breakdown follow as a muted detail line. Unreadable local data replaces every figure with an em dash and swaps the detail line for a plain explanation and a "Try again" action; the Draw ledger below is hidden until stats read successfully.
 - **Draw ledger:** A plain ordered list, one hairline-ruled row per active day, newest first: the date ("Today", "Yesterday", then weekday and date), a muted "N drawn · M unavailable" count (the unavailable part only when nonzero), and a strip of up to six 48×36 thumbnails from that day's frames, grouped by the local day of `viewedAt`, with a "+X" overflow. Clicking a thumbnail closes the dialog and shows that frame; the current frame gets the cobalt selection border. Days with no saved thumbnails show a 1px muted hairline sized to their share of the busiest day. Rows are focusable and render 14 days at a time behind an outlined "Show earlier days" button.
 - **Dialog footer:** History and Stats end in the Mineral Paper Deep status strip carrying the local-history and privacy sentence; the Stats strip also holds the version, Privacy, and Prnt.sc links.
-- **Lightbox:** Zooming opens the image edge to edge below the titlebar on a near-black 94% scrim with 24px padding and a zoom-out cursor.
+- **Lightbox:** A near-black inspection view sits below the titlebar. Its top rail holds the frame ID, session position, 1:1/Fit toggle, and close button. Side arrows and ←/→ move through saved history; at 1:1 the image can be dragged or scrolled.
 - **Motion:** Dialogs scale from 0.97 while fading over 220ms; reduced-motion mode removes the scale.
 
 ### Navigation
@@ -245,7 +245,7 @@ The stage uses an 8px outer radius and an 8px inset hairline, matching the compa
 
 ### Status States
 
-- **Empty:** Serif invitation, concise public-content warning, and a muted hint naming the N keycap or Draw next; no in-stage button. Draw next in the info line takes initial focus.
+- **Empty:** A small outlined frame mark gives the dark stage presence above the serif invitation, public-content warning, and muted N keycap or Draw next hint; no in-stage button. Draw next in the info line takes initial focus.
 - **Loading:** A fine circular spinner and plain status line.
 - **Error:** A small terracotta dot before the sans-serif headline, a recovery explanation, and an underlined retry action that repeats the exact request that failed, captioned over the dimmed prior frame rather than replacing it. The position readout and frame ID caption dim to match; the icon tools beside them stay at full strength so disabled marks keep their 3:1.
 

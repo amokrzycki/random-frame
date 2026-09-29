@@ -89,7 +89,7 @@ export function finishLoading(): void {
   state.focusBeforeLoading = null;
   if (!target || target === document.body || !focusLost()) return;
   target.focus();
-  if (focusLost()) stateControls[viewState]?.focus();
+  if (focusLost()) (viewState === "error" && elements.retry.hidden ? elements.draw : stateControls[viewState])?.focus();
 }
 
 export function syncControls(): void {
@@ -138,12 +138,12 @@ export function syncControls(): void {
   elements.source.setAttribute("aria-disabled", String(!current));
   // aria-disabled rather than disabled, so a focused retry or Draw next keeps focus through the countdown.
   const waitSeconds = cooldownSeconds();
-  elements.retry.setAttribute("aria-disabled", String(waitSeconds > 0));
-  elements.retry.textContent = waitSeconds ? `Try again in ${waitSeconds}s` : "Try again";
+  elements.retry.hidden = waitSeconds > 0;
+  elements.retry.textContent = "Try again";
   elements.draw.setAttribute("aria-busy", String(state.drawing));
   elements.draw.setAttribute("aria-disabled", String(state.loading || waitSeconds > 0));
   elements.drawLabel.textContent = waitSeconds ? `Wait ${waitSeconds}s` : "Draw next";
-  // When the failed request was this very frame, Try again already says it.
+  // The retry action returns after the cooldown; Draw next carries the countdown.
   elements.back.hidden = !current || failedIndex === state.index;
   elements.back.textContent = `Return to frame ${state.index + 1}`;
 }

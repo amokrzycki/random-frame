@@ -53,6 +53,18 @@
   font-size: 14px;
   line-height: 1.65;
 }
+
+.empty-state::before {
+  content: "";
+  width: 78px;
+  height: 56px;
+  display: block;
+  margin: 0 auto 34px;
+  border: 1px solid rgba(249, 248, 244, 0.42);
+  border-radius: 5px;
+  background: linear-gradient(rgba(249, 248, 244, 0.42), rgba(249, 248, 244, 0.42)) center / 12px 1px no-repeat,
+    linear-gradient(rgba(249, 248, 244, 0.42), rgba(249, 248, 244, 0.42)) center / 1px 12px no-repeat;
+}
 .empty-state .empty-title {
   margin-bottom: 10px;
   color: var(--white);
