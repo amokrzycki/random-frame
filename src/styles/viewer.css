@@ -436,6 +436,11 @@
   background: var(--line);
 }
 
+/* Frame actions on the left of the rule act on the shown frame; History on the right is the app's. */
+.info-line__actions > .info-line__divider {
+  margin-inline: 6px 4px;
+}
+
 .frame-id {
   min-width: 0;
   display: flex;

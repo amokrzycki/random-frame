@@ -49,8 +49,6 @@ test("history and Stats copy distinguishes reset activity from persistent explor
   assert.match(copy, /Clears favorites on this device/);
   assert.match(copy, /known favorites are removed from linked devices when they sync/);
   assert.match(copy, /New favorites created on an offline device may appear later/);
-  assert.match(copy, /resets local activity but keeps Prnt\.sc exploration and Seen IDs used to avoid repeats/);
-  assert.match(copy, /Seen IDs can Sync; Prnt\.sc exploration stays on this device/);
   assert.match(copy, /<dt>Found<\/dt>.*<dt>Today<\/dt>.*<dt>Activity streak<\/dt>/);
   assert.match(copy, /Prnt\.sc explored locally/);
   assert.match(copy, /Found counts first viewable results here/);

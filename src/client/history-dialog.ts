@@ -57,6 +57,8 @@ function gridEntries(): GridEntry[] {
 function updateThumbnailAction(entries: GridEntry[], start: number, end: number): void {
   const missing = entries.slice(start, end).some(({ source, id }) => !thumbnails.get(blobKey(source, id)));
   elements.historyThumbnailAction.hidden = !missing;
+  // The download action lives in the pager row, so a short history still shows the row for it.
+  elements.historyPager.hidden = entries.length <= PAGE_SIZES[0] && !missing;
   elements.historyThumbnails.disabled = batchRunning || !missing;
   if (!missing && document.activeElement === elements.historyThumbnails) elements.historyClose.focus();
   elements.historyThumbnails.textContent = batchRunning ? "Downloading thumbnails…" : "Download missing thumbnails";
@@ -84,7 +86,8 @@ function renderHistoryPage(): void {
   elements.historyBody.scrollTop = 0;
 
   // Below the smallest page size neither paging nor the size choice changes anything.
-  elements.historyPager.hidden = entries.length <= PAGE_SIZES[0];
+  if (entries.length <= PAGE_SIZES[0]) elements.historyPager.setAttribute("data-compact", "");
+  else elements.historyPager.removeAttribute("data-compact");
   elements.historyPagerNav.hidden = view.pages === 1;
   elements.historyRange.textContent = entries.length
     ? `${favoritesView ? "Favorites" : "Frames"} ${(view.start + 1).toLocaleString("en-US")}–${view.end.toLocaleString("en-US")} of ${entries.length.toLocaleString("en-US")}`
@@ -253,13 +256,15 @@ async function clearSavedFavorites(): Promise<void> {
 }
 
 // Confirmation stays explicit for pointer, keyboard, and assistive-technology activation.
-function bindClearConfirmation(button: HTMLButtonElement, clear: () => Promise<void>): () => void {
+// The group shows its hint only while armed; the button keeps aria-describedby either way.
+function bindClearConfirmation(button: HTMLButtonElement, group: HTMLElement, clear: () => Promise<void>): () => void {
   let armedUntil = 0;
   let confirmationTimeout: ReturnType<typeof setTimeout>;
   const initialLabel = button.textContent.trim();
   const reset = (): void => {
     clearTimeout(confirmationTimeout);
     armedUntil = 0;
+    group.removeAttribute("data-armed");
     button.textContent = initialLabel;
   };
   button.addEventListener("click", () => {
@@ -270,6 +275,7 @@ function bindClearConfirmation(button: HTMLButtonElement, clear: () => Promise<v
       return;
     }
     armedUntil = Date.now() + 5000;
+    group.setAttribute("data-armed", "");
     button.textContent = `Confirm ${initialLabel.toLowerCase()}`;
     elements.announcer.textContent = `Activate again to ${initialLabel.toLowerCase()}`;
     confirmationTimeout = setTimeout(() => {
@@ -283,8 +289,16 @@ function bindClearConfirmation(button: HTMLButtonElement, clear: () => Promise<v
 export function bindHistoryDialogEvents(): void {
   elements.historyButton.addEventListener("click", openHistory);
   elements.historyClose.addEventListener("click", () => closeDialog(elements.historyDialog));
-  const resetHistoryConfirmation = bindClearConfirmation(elements.historyClear, clearSavedHistory);
-  const resetFavoritesConfirmation = bindClearConfirmation(elements.historyClearFavorites, clearSavedFavorites);
+  const resetHistoryConfirmation = bindClearConfirmation(
+    elements.historyClear,
+    elements.historyClearGroup,
+    clearSavedHistory,
+  );
+  const resetFavoritesConfirmation = bindClearConfirmation(
+    elements.historyClearFavorites,
+    elements.historyClearFavoritesGroup,
+    clearSavedFavorites,
+  );
   elements.historyFilterAll.addEventListener("click", () => {
     resetHistoryConfirmation();
     resetFavoritesConfirmation();

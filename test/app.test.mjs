@@ -139,8 +139,9 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(get("history-dialog").open, true);
   assert.equal(get("history-grid").children.length, 2);
   assert.match(get("image").alt, /saved2/);
-  // Pre-pagination users have no page-size setting; a short history shows no pager and nothing is written.
-  assert.equal(get("history-pager").hidden, true);
+  // Pre-pagination users have no page-size setting; a short history keeps only the compact pager row and nothing is written.
+  assert.equal(get("history-pager-nav").hidden, true);
+  assert.equal(get("history-pager").getAttribute("data-compact"), "");
   assert.equal(get("history-page-size").value, "25");
   assert.equal(localStorage.getItem("random-frame-history-page-size"), null);
 
