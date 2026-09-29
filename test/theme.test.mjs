@@ -15,6 +15,7 @@ test("theme toggle updates and persists the selected theme", async (t) => {
   const values = new Map();
   const document = new EventTarget();
   document.documentElement = root;
+  document.querySelectorAll = () => [];
   document.querySelector = (selector) => (selector === ".theme-toggle" ? toggle : themeColor);
   const globals = {
     document,

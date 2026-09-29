@@ -115,8 +115,6 @@ export const elements = {
   frameMenuButton: element<HTMLButtonElement>("#frame-menu-button"),
   toolsMenuButton: element<HTMLButtonElement>("#tools-menu-button"),
   infoActions: element<HTMLElement>("#info-actions"),
-  arrowHint: element<HTMLElement>("#arrow-hint"),
-  arrowHintDismiss: element<HTMLButtonElement>("#arrow-hint-dismiss"),
   main: element<HTMLElement>("#main-content"),
   dialogBackdrop: element<HTMLElement>("#dialog-backdrop"),
   announcer: element<HTMLElement>("#announcer"),

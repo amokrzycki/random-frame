@@ -42,13 +42,13 @@ test("builds static Tauri assets with the package version", async () => {
 test("history and Stats copy distinguishes reset activity from persistent exploration", async () => {
   const index = await readFile(new URL("../dist/index.html", import.meta.url), "utf8");
   const copy = index.replace(/\s+/g, " ");
-  assert.match(copy, /Removes saved frames and local stats\. Favorites and seen frame IDs/);
+  assert.match(copy, /Removes saved frames and local stats\. Favorites and drawn IDs/);
   assert.match(copy, /Clears favorites on this device/);
   assert.match(copy, /known favorites are removed from linked devices when they sync/);
   assert.match(copy, /New favorites created on an offline device may appear later/);
-  assert.match(copy, /<dt>Found<\/dt>.*<dt>Today<\/dt>.*<dt>Activity streak<\/dt>/);
-  assert.match(copy, /Prnt\.sc explored locally/);
-  assert.match(copy, /Activity stats reset with History\. Exploration stays on this device/);
+  assert.match(copy, /<dt>Frames drawn<\/dt>.*<dt>Today<\/dt>.*<dt>Activity streak<\/dt>/);
+  assert.match(copy, /Prnt\.sc IDs checked/);
+  assert.match(copy, /Stats reset with History\. IDs checked stay on this device/);
   assert.doesNotMatch(copy, /How stats work/);
   assert.match(copy, /Local results by day/);
   assert.doesNotMatch(copy, /Stats stay local and reset when history is cleared|since history clear/);

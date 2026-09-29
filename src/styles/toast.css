@@ -1,7 +1,7 @@
 .toast-region {
   position: fixed;
   z-index: 20;
-  /* Inside the stage's lower-right, above the 56px info line (main pads 16px sides, 4px bottom), so Draw next stays clear. */
+  /* Inside the stage's lower-right, above the 56px info line (main pads 16px sides, 4px bottom), so Draw stays clear. */
   right: 36px;
   bottom: 80px;
   max-height: calc(100dvh - 160px);

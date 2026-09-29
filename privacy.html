@@ -12,9 +12,13 @@
 
     <script>
     try {
+      const stored = localStorage.getItem("random-frame-theme");
       document.documentElement.dataset.theme =
-        localStorage.getItem("random-frame-theme") ||
-        (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        stored === "light" || stored === "dark"
+          ? stored
+          : matchMedia("(prefers-color-scheme: dark)").matches
+            ? "dark"
+            : "light";
     } catch {
       document.documentElement.dataset.theme = "light";
     }
@@ -108,23 +112,23 @@
         <p>This may include:</p>
 
         <ul>
-          <li>the selected theme,</li>
+          <li>the selected theme (System, Light, or Dark),</li>
           <li>acknowledgement of the entry notice,</li>
           <li>browsing history and favorites,</li>
-          <li>viewing statistics and Seen IDs (identifiers of frames you have viewed, kept to help avoid repeats),</li>
-          <li>Prnt.sc exploration progress.</li>
+          <li>viewing statistics and drawn IDs (identifiers of frames you have drawn, kept to skip repeats),</li>
+          <li>Prnt.sc IDs checked (including ones with no image).</li>
         </ul>
 
         <p>
-          Settings, statistics, and Prnt.sc exploration progress remain on your device. If you enable Sync, Seen IDs,
-          history, and favorites are sent in encrypted form to the Sync server. Local exploration still works without
-          Sync.
+          Settings, statistics, and Prnt.sc IDs checked remain on your device. If you enable Sync, drawn IDs,
+          history, and favorites are sent in encrypted form to the Sync server. Drawing frames and browsing history still
+          work without Sync.
         </p>
 
         <h2>3. Optional Sync</h2>
 
         <p>
-          Sync transfers an encrypted snapshot of Seen IDs, history, and favorites. Encryption and decryption happen on
+          Sync transfers an encrypted copy of drawn IDs, history, and favorites. Encryption and decryption happen on
           your device. The server operator does not receive the plaintext list of identifiers or your recovery key. The
           server can see connection metadata, the sync ID, and the size and timing of transfers. Keep your recovery key
           safe: it allows another device to join your Sync and cannot be shown again automatically.
@@ -134,7 +138,7 @@
 
         <p>
           The app checks GitHub for updates when it starts. GitHub may receive connection information such as your IP
-          address and request details. Checking does not send your history, favorites, or Seen IDs.
+          address and request details. Checking does not send your history, favorites, or drawn IDs.
         </p>
 
         <p>
@@ -171,7 +175,7 @@
     </main>
 
     <footer>
-      <p>Local by default. Optional Sync transfers encrypted Seen IDs, history, and favorites.</p>
+      <p>Local by default. Optional Sync transfers encrypted drawn IDs, history, and favorites.</p>
 
       <div class="footer-meta">
         <span>Privacy</span>

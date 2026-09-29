@@ -9,9 +9,13 @@
     <title>Random Frame</title>
     <script>
     try {
+      const stored = localStorage.getItem("random-frame-theme");
       document.documentElement.dataset.theme =
-        localStorage.getItem("random-frame-theme") ||
-        (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        stored === "light" || stored === "dark"
+          ? stored
+          : matchMedia("(prefers-color-scheme: dark)").matches
+            ? "dark"
+            : "light";
     } catch {
       document.documentElement.dataset.theme = "light";
     }
@@ -63,8 +67,8 @@
               Clear history &amp; stats
             </button>
             <span class="history-clear-hint" id="history-clear-hint">
-              Removes saved frames and local stats. Favorites and seen frame IDs (kept to avoid repeats) stay. Linked
-              devices remove known history when they sync.
+              Removes saved frames and local stats. Favorites and drawn IDs (kept to skip repeats) stay. Linked devices
+              remove known history when they sync.
             </span>
           </div>
           <div class="history-clear-group" id="history-clear-favorites-group" hidden>
@@ -141,7 +145,7 @@
           <div class="stats-headline">
             <dl class="stats-tally">
               <div class="stats-tally__item">
-                <dt>Found</dt>
+                <dt>Frames drawn</dt>
                 <dd id="stats-total">0</dd>
               </div>
               <div class="stats-tally__item">
@@ -154,8 +158,8 @@
               </div>
             </dl>
             <p class="stats-headline__detail stats-explored">
-              <span>Prnt.sc explored locally <span id="stats-explored">0</span></span>
-              <span id="stats-explored-breakdown">0 viewable · 0 unavailable</span>
+              <span>Prnt.sc IDs checked <span id="stats-explored">0</span></span>
+              <span id="stats-explored-breakdown">0 opened · 0 unavailable</span>
             </p>
             <p class="stats-headline__error" id="stats-error" hidden>
               <span>Stats couldn’t be read from this device.</span>
@@ -170,7 +174,7 @@
           </section>
         </div>
         <footer class="dialog-foot">
-          <p>Activity stats reset with History. Exploration stays on this device.</p>
+          <p>Stats reset with History. IDs checked stay on this device, and don’t sync.</p>
         </footer>
       </div>
     </dialog>
@@ -223,11 +227,11 @@
         </header>
         <dl class="shortcuts">
           <div class="shortcuts__row">
-            <dt>Draw next frame</dt>
+            <dt>Draw a frame</dt>
             <dd><kbd>N</kbd></dd>
           </div>
           <div class="shortcuts__row">
-            <dt>Draw next, when nothing has focus</dt>
+            <dt>Draw, when nothing has focus</dt>
             <dd><kbd>Space</kbd><kbd>Enter</kbd></dd>
           </div>
           <div class="shortcuts__row">
@@ -282,15 +286,15 @@
           </div>
           <div id="sync-unpaired" hidden>
             <p class="sync-dialog__copy">
-              Sync shares Seen IDs (frame identifiers kept to avoid repeats), history, and favorites with your linked
-              devices. An encrypted snapshot is sent to the Sync server; settings and statistics stay on this device.
+              Keep your history, favorites, and drawn IDs (used to skip repeats) in step across your devices. Everything
+              is encrypted before it leaves this device. Stats stay here.
             </p>
             <p class="sync-dialog__copy">
-              Enable Sync creates a recovery key. You need it to link another device or to rejoin later, and the app
-              can’t show it again, so you’ll save it next.
+              Turning on Sync gives you a recovery key. You’ll need it to add another device or to rejoin later, and the
+              app can’t show it again, so you’ll save it next.
             </p>
             <div class="sync-dialog__actions">
-              <button class="primary-action" id="sync-enable" type="button">Enable Sync</button>
+              <button class="primary-action" id="sync-enable" type="button">Turn on Sync</button>
               <button class="sync-dialog__button" id="sync-show-join" type="button">Join existing Sync</button>
             </div>
             <form id="sync-join-form" hidden>
@@ -332,7 +336,7 @@
           </div>
           <div id="sync-leave-confirm" hidden>
             <p>
-              This device will stop syncing. Local Seen IDs, history, and favorites will remain. The remote Sync data
+              This device will stop syncing. History, favorites, and drawn IDs stay on this device. The remote Sync data
               stays on the server. To join again, you will need your recovery key.
             </p>
             <div class="sync-dialog__actions">
@@ -400,22 +404,14 @@
             Keyboard shortcuts
             <kbd aria-hidden="true">?</kbd>
           </button>
-          <button
-            class="tools-menu__item theme-toggle"
-            type="button"
-            aria-label="Switch to dark mode"
-            aria-pressed="false">
-            <svg class="theme-toggle__moon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" />
-            </svg>
-            <svg class="theme-toggle__sun" viewBox="0 0 24 24" aria-hidden="true">
-              <circle cx="12" cy="12" r="4" />
-              <path
-                d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
-            </svg>
-            <span class="theme-toggle__to-dark">Dark mode</span>
-            <span class="theme-toggle__to-light">Light mode</span>
-          </button>
+          <fieldset class="theme-picker">
+            <legend>Theme</legend>
+            <div class="theme-picker__options">
+              <button type="button" data-theme-choice="system" data-keep aria-pressed="false">System</button>
+              <button type="button" data-theme-choice="light" data-keep aria-pressed="false">Light</button>
+              <button type="button" data-theme-choice="dark" data-keep aria-pressed="false">Dark</button>
+            </div>
+          </fieldset>
           <hr class="tools-menu__rule">
           <p class="tools-menu__meta">
             <a href="privacy.html">Privacy</a>
@@ -454,7 +450,7 @@
             <p class="empty-title">See a random corner of the internet.</p>
             <p>Random screenshots strangers uploaded to Prnt.sc, one at a time.</p>
             <p>Public uploads may contain personal or unsuitable content. Browse thoughtfully.</p>
-            <p class="empty-hint">Press <kbd>N</kbd> or <span class="empty-hint__action">Draw next</span></p>
+            <p class="empty-hint">Press <kbd>N</kbd> or <span class="empty-hint__action">Draw a frame</span></p>
           </div>
 
           <div class="loading-state" id="loading-state" hidden>
@@ -498,13 +494,6 @@
             aria-disabled="true">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
           </button>
-          <aside class="arrow-hint" id="arrow-hint" hidden aria-label="Arrow navigation help">
-            <span
-              ><strong>Stage arrows</strong>
-              browse history; <strong>ID arrows</strong> scan neighboring Prnt.sc IDs.</span
-            >
-            <button id="arrow-hint-dismiss" type="button">Got it</button>
-          </aside>
         </div>
 
         <div class="info-line">
@@ -631,7 +620,7 @@
           </div>
 
           <button class="draw-button" id="draw-button" type="button" aria-keyshortcuts="N">
-            <span class="draw-button__label" id="draw-label">Draw next</span>
+            <span class="draw-button__label" id="draw-label">Draw</span>
             <kbd class="draw-button__key" aria-hidden="true">N</kbd>
             <svg class="draw-button__spinner" viewBox="0 0 20 20" aria-hidden="true">
               <circle cx="10" cy="10" r="7.5" />

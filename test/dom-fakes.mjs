@@ -250,8 +250,6 @@ export const ids = [
   "frame-menu",
   "frame-menu-button",
   "info-actions",
-  "arrow-hint",
-  "arrow-hint-dismiss",
   "position-button",
   "position-current",
   "jump-total",

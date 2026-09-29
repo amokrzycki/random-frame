@@ -13,7 +13,7 @@ export const state = {
   favorites: [] as FavoriteItem[],
   index: -1,
   loading: true,
-  // A network draw in flight, as opposed to any loading; only this spins the Draw next button.
+  // A network draw in flight, as opposed to any loading; only this spins the Draw button.
   drawing: false,
   pageSize: loadPageSize(localStorage),
   pageIndex: 0,

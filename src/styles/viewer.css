@@ -324,41 +324,6 @@
   cursor: not-allowed;
 }
 
-.arrow-hint {
-  position: absolute;
-  z-index: 5;
-  inset: auto 12px 12px;
-  width: fit-content;
-  max-width: calc(100% - 24px);
-  margin-inline: auto;
-  padding: 8px 10px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 8px;
-  color: var(--white);
-  background: var(--stage);
-  font-size: 12px;
-  line-height: 1.4;
-}
-.arrow-hint[hidden] {
-  display: none;
-}
-.arrow-hint button {
-  flex: 0 0 auto;
-  padding: 2px 0;
-  border: 0;
-  color: #aabcf4;
-  background: transparent;
-  font: inherit;
-  cursor: pointer;
-}
-.arrow-hint button:focus-visible {
-  outline: 2px solid var(--blue);
-  outline-offset: 3px;
-}
-
 /* One info line under the stage: where you are, what you are looking at, what you can do with it,
    and the single way forward. Container queries shed detail in a fixed order as it narrows. */
 .info-line {
@@ -706,16 +671,46 @@ a.tools-menu__item {
   color: inherit;
 }
 
-/* The item names the theme it switches to, and shows that theme's icon. */
-.theme-toggle__moon,
-.theme-toggle__to-dark,
-.theme-toggle[aria-pressed="true"] :is(.theme-toggle__sun, .theme-toggle__to-light) {
-  display: revert;
+.theme-picker {
+  min-width: 0;
+  margin: 0;
+  padding: 6px 8px 4px;
+  border: 0;
+  font-size: 13px;
+  font-weight: 650;
 }
-.theme-toggle__sun,
-.theme-toggle__to-light,
-.theme-toggle[aria-pressed="true"] :is(.theme-toggle__moon, .theme-toggle__to-dark) {
-  display: none;
+.theme-picker legend {
+  padding: 0 0 6px;
+}
+.theme-picker__options {
+  padding: 2px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  border-radius: 7px;
+  background: var(--surface-ring);
+}
+.theme-picker button {
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 5px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
+.theme-picker button:hover {
+  color: var(--ink);
+}
+.theme-picker button[aria-pressed="true"] {
+  color: var(--ink);
+  background: var(--paper);
+  box-shadow: 0 0 0 1px var(--surface-ring);
+}
+.theme-picker button:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
 }
 
 /* The only cobalt control on the main screen. Busy and cooldown states keep its width and its focus. */
@@ -838,10 +833,10 @@ a.tools-menu__item {
 }
 
 /* Controls drawn smaller than 34px keep their look; an invisible box pads the target up to 34px. */
-:is(.text-action, .leave-action, .arrow-hint button, .entry-consent input) {
+:is(.text-action, .leave-action, .entry-consent input) {
   position: relative;
 }
-:is(.text-action, .leave-action, .arrow-hint button, .entry-consent input)::after {
+:is(.text-action, .leave-action, .entry-consent input)::after {
   content: "";
   position: absolute;
   top: 50%;

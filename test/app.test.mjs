@@ -154,14 +154,14 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   // History lives in the More menu, so focus returns to the button that opens it.
   assert.equal(document.activeElement, get("tools-menu-button"));
 
-  // Arrows only walk history: on the newest frame → points at Draw next instead of drawing.
+  // Arrows only walk history: on the newest frame → points at Draw instead of drawing.
   assert.equal(get("position-current").textContent, "2");
   assert.equal(get("history-total").textContent, "2");
   assert.equal(get("next-button").getAttribute("aria-disabled"), "true");
   keydown(document, "ArrowRight");
   await flush();
   assert.equal("pulse" in get("draw-button").dataset, true);
-  assert.match(get("announcer").textContent, /Press N to draw next/);
+  assert.match(get("announcer").textContent, /Press N to draw another/);
   assert.equal(invocations.filter(({ command }) => command === "get_random_frame").length, 0);
 
   get("draw-button").click();
@@ -186,13 +186,13 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(get("stats-total").textContent, "2");
   assert.equal(get("stats-streak").textContent, "1");
   assert.equal(get("stats-explored").textContent, "12,483");
-  assert.equal(get("stats-explored-breakdown").textContent, "8,000 viewable · 4,483 unavailable");
+  assert.equal(get("stats-explored-breakdown").textContent, "8,000 opened · 4,483 unavailable");
   // One ledger row for today; frames shown this session (saved2, abc123, def456) have thumbnails, newest first.
   assert.equal(get("ledger-list").children.length, 1);
   assert.equal(get("ledger-empty").hidden, true);
   assert.equal(get("ledger-more").hidden, true);
   const [row] = get("ledger-list").children;
-  assert.equal(row.getAttribute("aria-label"), "Today: 2 found");
+  assert.equal(row.getAttribute("aria-label"), "Today: 2 drawn");
   const strip = row.children[2];
   assert.deepEqual(
     strip.children.map((child) => child.getAttribute("aria-label") ?? child.textContent),
@@ -298,7 +298,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   await flush();
   assert.equal(invocations.filter(({ command }) => command === "plugin:fs|write_file").length, writesBefore + 1);
 
-  // Draw next always draws, even mid-history: the frame joins the end and the view jumps to it.
+  // Draw always draws, even mid-history: the frame joins the end and the view jumps to it.
   get("jump-input").value = "1";
   get("jump-form").dispatchEvent(new Event("submit", { cancelable: true }));
   await flush();

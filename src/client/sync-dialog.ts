@@ -2,30 +2,32 @@ import { closeDialog, onDialogClosed, openDialog } from "./dialogs.js";
 import { elements } from "./elements.js";
 import { syncControls } from "./stage.js";
 import { createSync, getSyncStatus, joinSync, leaveSync, type SyncStatus, startupSync, syncNow } from "./sync-api.js";
-import { toast } from "./toast.js";
 import { refreshPersistedView, state } from "./viewer-state.js";
 
+const OFFLINE = "You’re offline. Try again when you’re back online.";
+const OLDER_DATA = "Synced data looks older than what this device already has, so it was not applied.";
+
 const errorCopy: Record<string, string> = {
-  invalid_endpoint: "Sync is unavailable because its server is not configured.",
+  invalid_endpoint: "Sync isn’t available because no server is set up.",
   invalid_recovery_key: "This recovery key is not valid.",
-  already_paired: "This device is already paired.",
-  unpaired: "Sync is not configured on this device.",
+  already_paired: "This device is already using Sync.",
+  unpaired: "Sync isn’t turned on for this device.",
   already_syncing: "Sync is already in progress.",
-  corrupt_local_state: "Local Sync configuration is inconsistent.",
-  secure_storage: "Secure credential storage is unavailable.",
-  persistence: "Local Sync data could not be saved.",
-  invalid_remote_data: "Remote Sync data could not be verified.",
-  offline: "Offline — local exploration still works.",
-  timeout: "Sync server did not respond in time.",
-  tls: "A secure connection to the Sync server could not be made.",
-  malformed_response: "Sync server sent an unexpected response.",
+  corrupt_local_state: "Sync settings on this device are damaged.",
+  secure_storage: "This device’s secure storage isn’t available.",
+  persistence: "Sync data could not be saved on this device.",
+  invalid_remote_data: "Synced data could not be verified, so it was not applied.",
+  offline: OFFLINE,
+  timeout: "Sync took too long to respond. Try again.",
+  tls: "Sync could not make a secure connection. Try again.",
+  malformed_response: "Sync got a response it couldn’t read. Try again.",
   missing_chain: "This Sync could not be reached. Check the key and try again.",
-  conflict: "Sync changed on another device. Try again.",
-  rate_limited: "Sync is temporarily rate limited.",
-  server_error: "Sync server is unavailable.",
-  body_too_large: "Sync data is too large for the server.",
-  rollback_detected: "Remote Sync state appears older than the state previously accepted by this device.",
-  server_rollback_detected: "Remote Sync state appears older than the state previously accepted by this device.",
+  conflict: "Another device just synced. Try again.",
+  rate_limited: "Give it a moment. Sync is busy, so try again shortly.",
+  server_error: "Sync is unavailable right now. Try again later.",
+  body_too_large: "Your synced data is too large to upload.",
+  rollback_detected: OLDER_DATA,
+  server_rollback_detected: OLDER_DATA,
 };
 
 function category(error: unknown): string | null {
@@ -86,20 +88,47 @@ function setStatus(next: SyncStatus): void {
   elements.toolsMenuButton.title = label;
 }
 
+const lastSyncedKey = "random-frame-last-synced";
+
+function markSynced(value: SyncStatus): void {
+  if (!value.paired || value.state !== "idle" || value.lastErrorCategory) return;
+  try {
+    localStorage.setItem(lastSyncedKey, String(Date.now()));
+  } catch {
+    // The time is a courtesy; Sync itself does not depend on it.
+  }
+}
+
+// Time alone for today, date and time otherwise.
+function lastSyncedAt(): string | null {
+  try {
+    const stored = Number(localStorage.getItem(lastSyncedKey));
+    if (!stored) return null;
+    const when = new Date(stored);
+    const today = when.toDateString() === new Date().toDateString();
+    return when.toLocaleString(undefined, today ? { timeStyle: "short" } : { dateStyle: "medium", timeStyle: "short" });
+  } catch {
+    return null;
+  }
+}
+
 function statusMessage(value: SyncStatus): string {
   if (value.state === "syncing") return "Syncing…";
   if (value.lastErrorCategory) return errorCopy[value.lastErrorCategory] ?? "Sync needs attention.";
-  if (!value.paired) return "Sync is not configured on this device.";
-  if (value.state === "offline") return "Offline — local exploration still works.";
+  if (value.state === "offline") return OFFLINE;
   if (value.state === "error") return "Sync needs attention.";
-  return value.dirty ? "Changes waiting to sync" : "Synced";
+  if (value.dirty) return "Changes waiting to sync";
+  const at = lastSyncedAt();
+  return at ? `Up to date · last synced ${at}` : "Up to date";
 }
 
 function render(): void {
   const paired = status?.paired ?? false;
   const showingKey = Boolean(elements.syncRecoveryKey.textContent);
   // An error already says what is wrong; the status line steps aside so the message appears once.
-  elements.syncStatus.hidden = !elements.syncError.hidden;
+  // Not being paired is the default, not a status: the copy below already offers to turn Sync on.
+  const idleUnpaired = !busy && status !== null && !status.paired && !status.lastErrorCategory;
+  elements.syncStatus.hidden = !elements.syncError.hidden || idleUnpaired;
   elements.syncStatus.textContent = busy ? busyMessage : status ? statusMessage(status) : "Checking Sync status…";
   elements.syncStatus.dataset.state = busy
     ? "syncing"
@@ -162,6 +191,7 @@ async function operate(message: string, action: () => Promise<SyncStatus>): Prom
       return false;
     }
     setStatus(result);
+    markSynced(result);
     if (!state.loading && !(await refreshView())) return false;
     await refresh();
     render();
@@ -267,7 +297,7 @@ export function bindSyncDialogEvents(): void {
 export async function runStartupSync(): Promise<void> {
   try {
     setStatus(await startupSync());
-    if (status?.paired && status.state === "idle" && !status.dirty) toast.success("Synced");
+    if (status) markSynced(status);
     if (state.loading) refreshAfterInitialize = true;
     else {
       await refreshPersistedView();

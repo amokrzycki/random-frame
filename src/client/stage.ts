@@ -18,26 +18,6 @@ let cooldownUntil = 0;
 let cooldownTimer: ReturnType<typeof setInterval> | undefined;
 let cooldownNoticeShown = false;
 
-const arrowHintStorageKey = "random-frame-arrow-hint-dismissed";
-let arrowHintDismissed = false;
-try {
-  arrowHintDismissed = localStorage.getItem(arrowHintStorageKey) === "true";
-} catch {
-  // Keep the hint available when storage is disabled.
-}
-
-// The hint teaches the arrows, so the first step back through history (key or button) retires it.
-export function dismissArrowHint(): void {
-  if (arrowHintDismissed) return;
-  arrowHintDismissed = true;
-  elements.arrowHint.hidden = true;
-  try {
-    localStorage.setItem(arrowHintStorageKey, "true");
-  } catch {
-    // The hint stays dismissed for this session.
-  }
-}
-
 export function getViewState(): ViewState {
   return viewState;
 }
@@ -94,7 +74,7 @@ export function finishLoading(): void {
 
 export function syncControls(): void {
   const current = state.history[state.index];
-  // At 0/0 the arrows have nowhere to go; the empty stage points at Draw next instead.
+  // At 0/0 the arrows have nowhere to go; the empty stage points at Draw instead.
   elements.previous.hidden = elements.next.hidden = !state.history.length;
   elements.previous.setAttribute("aria-disabled", String(state.loading || state.index <= 0));
   elements.next.setAttribute(
@@ -121,7 +101,6 @@ export function syncControls(): void {
   elements.nextId.disabled = state.loading || current?.source !== "prntsc" || adjacentPrntscId(current.id, 1) === null;
   // Frame actions have nothing to act on until the first draw.
   elements.infoActions.hidden = !state.history.length;
-  elements.arrowHint.hidden = arrowHintDismissed || state.history.length < 2;
   // History, the position readout, and the arrows stay enabled while loading (goTo ignores them), so they keep focus.
   const position = state.history.length ? state.index + 1 : 0;
   elements.positionButton.disabled = !state.history.length;
@@ -136,14 +115,14 @@ export function syncControls(): void {
   if (current) elements.source.href = current.sourcePageUrl;
   else elements.source.removeAttribute("href");
   elements.source.setAttribute("aria-disabled", String(!current));
-  // aria-disabled rather than disabled, so a focused retry or Draw next keeps focus through the countdown.
+  // aria-disabled rather than disabled, so a focused retry or Draw keeps focus through the countdown.
   const waitSeconds = cooldownSeconds();
   elements.retry.hidden = waitSeconds > 0;
   elements.retry.textContent = "Try again";
   elements.draw.setAttribute("aria-busy", String(state.drawing));
   elements.draw.setAttribute("aria-disabled", String(state.loading || waitSeconds > 0));
-  elements.drawLabel.textContent = waitSeconds ? `Wait ${waitSeconds}s` : "Draw next";
-  // The retry action returns after the cooldown; Draw next carries the countdown.
+  elements.drawLabel.textContent = waitSeconds ? `Wait ${waitSeconds}s` : "Draw";
+  // The retry action returns after the cooldown; Draw carries the countdown.
   elements.back.hidden = !current || failedIndex === state.index;
   elements.back.textContent = `Return to frame ${state.index + 1}`;
 }
@@ -249,7 +228,6 @@ export function swapImage(url: string, id: string): void {
 }
 
 export function bindStageEvents(): void {
-  elements.arrowHintDismiss.addEventListener("click", dismissArrowHint);
   elements.imageGhost.addEventListener("animationend", () => {
     elements.imageGhost.hidden = true;
   });
