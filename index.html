@@ -153,8 +153,7 @@
               </div>
             </dl>
             <p class="stats-headline__detail stats-explored">
-              <span>Prnt.sc explored locally <span id="stats-explored">0 / 4,773,622,240</span></span>
-              <span id="stats-explored-percent">0% of known legacy ID space</span>
+              <span>Prnt.sc explored locally <span id="stats-explored">0</span></span>
               <span id="stats-explored-breakdown">0 viewable · 0 unavailable</span>
             </p>
             <p class="stats-headline__error" id="stats-error" hidden>
@@ -170,11 +169,13 @@
           </section>
         </div>
         <footer class="dialog-foot">
-          <p>
-            Found counts first viewable results here; Activity streak counts consecutive days with a result. Found,
-            Today, streak, and daily results reset when history is cleared. Prnt.sc exploration stays here and does not
-            Sync. Seen IDs are identifiers of frames you viewed; they stay to help avoid repeats and can Sync.
-          </p>
+          <div class="dialog-foot__copy">
+            <p>Activity stats reset with History. Exploration stays on this device.</p>
+            <details class="stats-how">
+              <summary>How stats work</summary>
+              <p>Found counts first viewable results here. Activity streak counts consecutive days with a result. Found, Today, streak, and daily results reset when History is cleared. Prnt.sc exploration stays on this device and does not Sync. Seen IDs track viewed frames to help avoid repeats and can Sync.</p>
+            </details>
+          </div>
           <div class="dialog-foot__meta">
             <span>v{{VERSION}}</span>
             <a href="privacy.html">Privacy</a>

@@ -184,8 +184,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(get("stats-today").textContent, "2");
   assert.equal(get("stats-total").textContent, "2");
   assert.equal(get("stats-streak").textContent, "1");
-  assert.equal(get("stats-explored").textContent, "12,483 / 4,773,622,240");
-  assert.equal(get("stats-explored-percent").textContent, "< 0.001% of known legacy ID space");
+  assert.equal(get("stats-explored").textContent, "12,483");
   assert.equal(get("stats-explored-breakdown").textContent, "8,000 viewable · 4,483 unavailable");
   // One ledger row for today; frames shown this session (saved2, abc123, def456) have thumbnails, newest first.
   assert.equal(get("ledger-list").children.length, 1);

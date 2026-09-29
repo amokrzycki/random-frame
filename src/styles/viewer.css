@@ -624,6 +624,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  white-space: nowrap;
   border: 0;
   border-radius: 5px;
   color: inherit;

@@ -46,7 +46,7 @@ function dismissibleOpenDialog(): HTMLDialogElement | undefined {
   return [...dialogs].reverse().find((dialog) => dialog.open && dialog !== elements.entryDialog);
 }
 
-const focusableSelector = 'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])';
+const focusableSelector = 'a[href], button, input, select, textarea, summary, [tabindex]:not([tabindex="-1"])';
 
 function activeDialog(): HTMLDialogElement | undefined {
   return [...dialogs].reverse().find((dialog) => dialog.open);

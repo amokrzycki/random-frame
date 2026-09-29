@@ -719,14 +719,6 @@
   font-weight: 650;
 }
 
-/* Days whose thumbnails are gone: a hairline measured against the busiest day in the ledger. */
-.ledger__bar {
-  width: calc(var(--share, 1) * 100%);
-  min-width: 10px;
-  height: 1px;
-  background: var(--muted);
-}
-
 .ledger__empty {
   margin: 10px 0 0;
   padding-top: 14px;
@@ -772,6 +764,27 @@
   margin: 0;
   line-height: 1.45;
   text-wrap: pretty;
+}
+
+.dialog-foot__copy {
+  min-width: 0;
+}
+
+.stats-how {
+  margin-top: 4px;
+}
+
+.stats-how summary {
+  width: fit-content;
+  cursor: pointer;
+  line-height: 1.8;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.stats-how p {
+  max-width: 65ch;
+  padding: 4px 0 8px;
 }
 
 .dialog-foot__meta {

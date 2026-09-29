@@ -7,7 +7,6 @@ import type { LedgerDay } from "./statistics.js";
 import {
   drawStreak,
   formatExploredBreakdown,
-  formatExploredPercent,
   formatLedgerCounts,
   LEDGER_PAGE_DAYS,
   LEDGER_STRIP_MAX,
@@ -46,7 +45,7 @@ function ledgerThumbnail(itemIndex: number): HTMLButtonElement | null {
   return button;
 }
 
-function ledgerRow(day: LedgerDay, todayIso: string, maxDrawn: number): HTMLLIElement {
+function ledgerRow(day: LedgerDay, todayIso: string): HTMLLIElement {
   const row = document.createElement("li");
   const date = document.createElement("span");
   const counts = document.createElement("span");
@@ -75,14 +74,6 @@ function ledgerRow(day: LedgerDay, todayIso: string, maxDrawn: number): HTMLLIEl
     more.textContent = `+${overflow.toLocaleString("en-US")}`;
     strip.append(more);
   }
-  if (!thumbs.length && day.drawn) {
-    // No saved thumbnails for this day: a hairline sized to its share of the busiest day.
-    const bar = document.createElement("span");
-    bar.className = "ledger__bar";
-    bar.setAttribute("aria-hidden", "true");
-    bar.style.setProperty?.("--share", String(day.drawn / maxDrawn));
-    strip.append(bar);
-  }
   row.append(date, counts, strip);
   return row;
 }
@@ -90,10 +81,9 @@ function ledgerRow(day: LedgerDay, todayIso: string, maxDrawn: number): HTMLLIEl
 // Rows render in pages of LEDGER_PAGE_DAYS, so months of activity never build one long list up front.
 function renderLedgerPage(): HTMLLIElement | undefined {
   const todayIso = localDayKey(Date.now());
-  const maxDrawn = Math.max(1, ...state.ledger.map((day) => day.drawn));
   const rows = state.ledger
     .slice(state.ledgerShown, state.ledgerShown + LEDGER_PAGE_DAYS)
-    .map((day) => ledgerRow(day, todayIso, maxDrawn));
+    .map((day) => ledgerRow(day, todayIso));
   elements.ledgerList.append(...rows);
   state.ledgerShown += rows.length;
   elements.ledgerMore.hidden = state.ledgerShown >= state.ledger.length;
@@ -115,9 +105,8 @@ async function loadStats(): Promise<void> {
     elements.statsToday.textContent = String(activity.days.at(-1)?.viewed ?? 0);
     elements.statsTotal.textContent = activity.viewedTotal.toLocaleString("en-US");
     elements.statsStreak.textContent = drawStreak(activity.days).toLocaleString("en-US");
-    elements.statsExplored.textContent = `${exploration.explored.toLocaleString("en-US")} / ${exploration.total.toLocaleString("en-US")}`;
+    elements.statsExplored.textContent = exploration.explored.toLocaleString("en-US");
     try {
-      elements.statsExploredPercent.textContent = `${formatExploredPercent(exploration.explored, exploration.total)} of known legacy ID space`;
       elements.statsExploredBreakdown.textContent = formatExploredBreakdown(
         exploration.explored,
         exploration.viewable,
@@ -126,7 +115,6 @@ async function loadStats(): Promise<void> {
       );
     } catch {
       // Inconsistent exploration counts must not hide the activity stats.
-      elements.statsExploredPercent.textContent = "";
       elements.statsExploredBreakdown.textContent = "Exploration breakdown unavailable";
     }
     renderLedger(ledgerDays(activity.days, activity.localViewTimes));
@@ -140,7 +128,6 @@ async function loadStats(): Promise<void> {
     elements.statsStreak.textContent = "—";
     elements.statsExplored.textContent = "Unavailable";
     elements.statsExplored.dataset.state = "unavailable";
-    elements.statsExploredPercent.textContent = "";
     elements.statsExploredBreakdown.textContent = "";
     elements.statsError.hidden = false;
     elements.ledger.hidden = true;

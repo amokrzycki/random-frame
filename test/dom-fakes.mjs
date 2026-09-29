@@ -216,7 +216,6 @@ export const ids = [
   "stats-total",
   "stats-streak",
   "stats-explored",
-  "stats-explored-percent",
   "stats-explored-breakdown",
   "announcer",
   "entry-dialog",

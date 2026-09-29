@@ -48,11 +48,13 @@ test("history and Stats copy distinguishes reset activity from persistent explor
   assert.match(copy, /New favorites created on an offline device may appear later/);
   assert.match(copy, /<dt>Found<\/dt>.*<dt>Today<\/dt>.*<dt>Activity streak<\/dt>/);
   assert.match(copy, /Prnt\.sc explored locally/);
+  assert.match(copy, /Activity stats reset with History\. Exploration stays on this device/);
+  assert.match(copy, /<summary>How stats work<\/summary>/);
   assert.match(copy, /Found counts first viewable results here/);
   assert.match(copy, /Activity streak counts consecutive days with a result/);
-  assert.match(copy, /Found, Today, streak, and daily results reset when history is cleared/);
-  assert.match(copy, /Prnt\.sc exploration stays here and does not Sync/);
-  assert.match(copy, /Seen IDs are identifiers of frames you viewed/);
+  assert.match(copy, /Found, Today, streak, and daily results reset when History is cleared/);
+  assert.match(copy, /Prnt\.sc exploration stays on this device and does not Sync/);
+  assert.match(copy, /Seen IDs track viewed frames/);
   assert.match(copy, /Local results by day/);
   assert.doesNotMatch(copy, /Stats stay local and reset when history is cleared|since history clear/);
 });

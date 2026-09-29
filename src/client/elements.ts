@@ -98,7 +98,6 @@ export const elements = {
   statsTotal: element<HTMLElement>("#stats-total"),
   statsStreak: element<HTMLElement>("#stats-streak"),
   statsExplored: element<HTMLElement>("#stats-explored"),
-  statsExploredPercent: element<HTMLElement>("#stats-explored-percent"),
   statsExploredBreakdown: element<HTMLElement>("#stats-explored-breakdown"),
   statsBody: element<HTMLElement>("#stats-body"),
   statsError: element<HTMLElement>("#stats-error"),

@@ -4,21 +4,12 @@ import {
   drawStreak,
   formatDayLabel,
   formatExploredBreakdown,
-  formatExploredPercent,
   formatLedgerCounts,
   ledgerDateLabel,
   ledgerDays,
   localDayKey,
   parseLegacyStats,
 } from "../dist/test-client/statistics.js";
-
-test("keeps tiny explored percentages visible", () => {
-  assert.equal(formatExploredPercent(0), "0%");
-  assert.equal(formatExploredPercent(12_483), "< 0.001%");
-  assert.notEqual(formatExploredPercent(1), "0.00%");
-  assert.equal(formatExploredPercent(4_773_622_240), "100.00%");
-  assert.throws(() => formatExploredPercent(4_773_622_241), /Invalid exploration total/);
-});
 
 test("formats the explored breakdown plainly once every explored id is classified", () => {
   assert.equal(formatExploredBreakdown(101, 49, 52, 0), "49 viewable · 52 unavailable");
