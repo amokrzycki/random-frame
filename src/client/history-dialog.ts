@@ -45,7 +45,7 @@ function updateThumbnailAction(entries: GridEntry[], start: number, end: number)
   elements.historyPager.hidden = entries.length <= PAGE_SIZES[0] && !missing;
   elements.historyThumbnails.disabled = batchRunning || !missing;
   if (!missing && document.activeElement === elements.historyThumbnails) elements.historyClose.focus();
-  elements.historyThumbnails.textContent = batchRunning ? "Downloading thumbnails…" : "Download missing thumbnails";
+  elements.historyThumbnails.textContent = batchRunning ? "Downloading thumbnails…" : "Download thumbnails";
 }
 
 // Only the current page is laid out, so the dialog never builds thousands of DOM nodes.
@@ -135,6 +135,7 @@ export function openHistory(): void {
   filter = "history";
   showCurrentPage();
   openDialog(elements.historyDialog);
+  (elements.historyGrid.children[state.index - state.pageIndex * state.pageSize] as HTMLElement | undefined)?.focus();
 }
 
 function showHistoryPage(page: number): void {
@@ -327,6 +328,19 @@ export function bindHistoryDialogEvents(): void {
   elements.historyPageNext.addEventListener("click", () => showHistoryPage(state.pageIndex + 1));
   elements.historyPageSize.addEventListener("change", changePageSize);
   elements.historyThumbnails.addEventListener("click", () => void downloadMissingThumbnails());
+  elements.historyGrid.addEventListener("keydown", (event) => {
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    const tiles = elements.historyGrid.children;
+    const current = Array.prototype.indexOf.call(tiles, event.target) as number;
+    if (current < 0) return;
+    const columns = getComputedStyle(elements.historyGrid).gridTemplateColumns.split(" ").length;
+    const delta = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -columns, ArrowDown: columns }[
+      event.key as "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown"
+    ];
+    if (delta === undefined) return;
+    event.preventDefault();
+    (tiles[current + delta] as HTMLElement | undefined)?.focus();
+  });
   elements.historyDialog.addEventListener("close", () => {
     viewVersion++;
     // Main is inert until onDialogClosed, and focus() on an inert element is ignored.

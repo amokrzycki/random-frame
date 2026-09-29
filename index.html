@@ -88,15 +88,29 @@
           </div>
         </div>
         <footer class="history-pager" id="history-pager" hidden>
-          <p class="history-pager__range" id="history-range" aria-live="polite"></p>
+          <div class="history-pager__summary">
+            <p class="history-pager__range" id="history-range" aria-live="polite"></p>
+            <div class="history-pager__size">
+              <label for="history-page-size">Per page</label>
+              <span class="history-pager__select">
+                <select id="history-page-size">
+                  <option value="10">10</option>
+                  <option value="25">25</option>
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                </select>
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg>
+              </span>
+            </div>
+          </div>
           <div class="history-thumbnail-action" id="history-thumbnail-action" hidden>
             <button
-              class="history-pager__step"
+              class="history-thumbnail-action__button"
               id="history-thumbnails"
               type="button"
               title="Download missing thumbnails on this page"
               aria-label="Download missing thumbnails on this page">
-              Download missing thumbnails
+              Download thumbnails
             </button>
           </div>
           <nav class="history-pager__nav" id="history-pager-nav" aria-label="History pages">
@@ -110,18 +124,6 @@
               <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m8 5 5 5-5 5" /></svg>
             </button>
           </nav>
-          <div class="history-pager__size">
-            <label for="history-page-size">Per page</label>
-            <span class="history-pager__select">
-              <select id="history-page-size">
-                <option value="10">10</option>
-                <option value="25">25</option>
-                <option value="50">50</option>
-                <option value="100">100</option>
-              </select>
-              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg>
-            </span>
-          </div>
         </footer>
       </div>
     </dialog>

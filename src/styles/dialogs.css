@@ -984,7 +984,7 @@
 }
 
 /* Short histories have no pages to turn: the row keeps only the download action. */
-.history-pager[data-compact] :is(.history-pager__range, .history-pager__size) {
+.history-pager[data-compact] .history-pager__summary {
   display: none;
 }
 
@@ -997,10 +997,10 @@
   flex: 0 0 auto;
   padding: 11px 22px 11px 28px;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: space-between;
-  column-gap: 24px;
+  column-gap: 12px;
   row-gap: 8px;
   border-top: 1px solid var(--line);
   color: var(--muted);
@@ -1015,8 +1015,14 @@
 
 .history-pager__range {
   margin: 0;
-  margin-right: auto;
   white-space: nowrap;
+}
+
+.history-pager__summary {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-right: auto;
 }
 
 .history-pager__nav {
@@ -1063,8 +1069,25 @@
   padding-right: 8px;
 }
 
-.history-thumbnail-action > .history-pager__step {
-  padding: 0 12px;
+.history-thumbnail-action__button {
+  padding: 8px 0;
+  border: 0;
+  color: var(--ink);
+  background: transparent;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.history-thumbnail-action__button:hover:not(:disabled) {
+  color: var(--blue);
+}
+
+.history-thumbnail-action__button:disabled {
+  color: var(--disabled-ink);
+  cursor: default;
 }
 
 .history-pager__step svg,
@@ -1132,6 +1155,16 @@
 
 .history-pager__select:hover svg {
   color: var(--control-fill-text);
+}
+
+@media (max-width: 840px) {
+  .history-pager__step span {
+    display: none;
+  }
+
+  .history-pager__page {
+    min-width: 11ch;
+  }
 }
 
 .history-empty {
