@@ -724,7 +724,7 @@ a.tools-menu__item {
   grid-template-columns: repeat(3, 1fr);
   gap: 2px;
   border-radius: 7px;
-  background: var(--surface-ring);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
 }
 .theme-picker button {
   height: 28px;
@@ -740,9 +740,8 @@ a.tools-menu__item {
   color: var(--ink);
 }
 .theme-picker button[aria-pressed="true"] {
-  color: var(--ink);
-  background: var(--paper);
-  box-shadow: 0 0 0 1px var(--surface-ring);
+  color: var(--control-fill-text);
+  background: var(--control-fill);
 }
 .theme-picker button:focus-visible {
   outline: 2px solid var(--blue);

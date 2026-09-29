@@ -104,18 +104,52 @@ function showLightboxFrame(): void {
   elements.lightboxCaption.textContent = `${current.id}  ·  ${state.index + 1} / ${state.history.length}`;
   elements.lightboxPrevious.setAttribute("aria-disabled", String(state.index <= 0));
   elements.lightboxNext.setAttribute("aria-disabled", String(state.index >= state.history.length - 1));
-  setLightboxZoom(false);
+  setLightboxZoom(1);
 }
 
-function setLightboxZoom(zoomed: boolean): void {
-  elements.lightboxView.classList.toggle("is-zoomed", zoomed);
+const MAX_ZOOM = 16;
+let zoom = 1;
+let fitWidth = 0;
+
+// zoom is a multiple of the fit-to-window width; 1 = fit. Scaling the width (not toggling natural size)
+// keeps zoom working for images smaller than the window.
+function setLightboxZoom(next: number, anchorX?: number, anchorY?: number): void {
+  const view = elements.lightboxView;
+  const img = elements.lightboxImage;
+  next = Math.min(MAX_ZOOM, Math.max(1, next));
+  if (zoom === 1) fitWidth = img.getBoundingClientRect().width;
+  const before = img.getBoundingClientRect();
+  zoom = next;
+  const zoomed = zoom > 1;
+  view.classList.toggle("is-zoomed", zoomed);
+  img.style.width = zoomed ? `${fitWidth * zoom}px` : "";
   elements.lightboxZoom.setAttribute("aria-pressed", String(zoomed));
   elements.lightboxZoom.textContent = zoomed ? "Fit" : "1:1";
-  elements.lightboxZoom.dataset.tip = zoomed ? "Fit to window. Shift+arrows pan" : "Actual size. Shift+arrows pan";
-  if (zoomed) {
-    elements.lightboxView.scrollLeft = (elements.lightboxView.scrollWidth - elements.lightboxView.clientWidth) / 2;
-    elements.lightboxView.scrollTop = (elements.lightboxView.scrollHeight - elements.lightboxView.clientHeight) / 2;
+  elements.lightboxZoom.dataset.tip = zoomed
+    ? "Fit to window. Ctrl+scroll zooms, Shift+arrows pan"
+    : "Actual size. Ctrl+scroll zooms, Shift+arrows pan";
+  if (!zoomed) return;
+  const after = img.getBoundingClientRect();
+  if (anchorX === undefined || anchorY === undefined || !before.width) {
+    view.scrollLeft = (view.scrollWidth - view.clientWidth) / 2;
+    view.scrollTop = (view.scrollHeight - view.clientHeight) / 2;
+    return;
   }
+  // keep the image point under the cursor fixed
+  const fx = Math.min(1, Math.max(0, (anchorX - before.left) / before.width));
+  const fy = Math.min(1, Math.max(0, (anchorY - before.top) / before.height));
+  view.scrollLeft += after.left + fx * after.width - anchorX;
+  view.scrollTop += after.top + fy * after.height - anchorY;
+}
+
+function toggleLightboxZoom(): void {
+  if (zoom > 1) {
+    setLightboxZoom(1);
+    return;
+  }
+  const fit = elements.lightboxImage.getBoundingClientRect().width;
+  const actual = fit ? elements.lightboxImage.naturalWidth / fit : 1;
+  setLightboxZoom(actual > 1.05 ? actual : 2);
 }
 
 async function stepLightbox(offset: -1 | 1): Promise<void> {
@@ -151,11 +185,17 @@ export function bindFrameActionEvents(): void {
   elements.lightboxClose.addEventListener("click", () => closeDialog(elements.lightboxDialog));
   elements.lightboxFavorite.addEventListener("click", () => void toggleCurrentFavorite());
   elements.lightboxSave.addEventListener("click", () => void saveCurrent());
-  elements.lightboxZoom.addEventListener("click", () =>
-    setLightboxZoom(!elements.lightboxView.classList.contains("is-zoomed")),
-  );
-  elements.lightboxImage.addEventListener("click", () =>
-    setLightboxZoom(!elements.lightboxView.classList.contains("is-zoomed")),
+  elements.lightboxZoom.addEventListener("click", toggleLightboxZoom);
+  elements.lightboxImage.addEventListener("click", toggleLightboxZoom);
+  elements.lightboxView.addEventListener(
+    "wheel",
+    (event) => {
+      if (!event.ctrlKey) return;
+      event.preventDefault(); // also stops the webview zooming the whole page (trackpad pinch sends ctrl+wheel)
+      const delta = event.deltaY * (event.deltaMode === 1 ? 16 : 1);
+      setLightboxZoom(zoom * Math.exp(-delta * 0.0015), event.clientX, event.clientY);
+    },
+    { passive: false },
   );
   elements.lightboxPrevious.addEventListener("click", () => void stepLightbox(-1));
   elements.lightboxNext.addEventListener("click", () => void stepLightbox(1));

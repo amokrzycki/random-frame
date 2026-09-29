@@ -864,7 +864,7 @@
   min-width: 0;
   min-height: 0;
   display: grid;
-  place-items: center;
+  place-items: safe center;
   overflow: auto;
   padding: 24px 70px;
   overscroll-behavior: contain;
@@ -880,7 +880,6 @@
 }
 
 .lightbox-view.is-zoomed {
-  display: block;
   cursor: grab;
   touch-action: none;
 }
@@ -902,7 +901,6 @@
   max-height: none;
   width: auto;
   height: auto;
-  margin: auto;
   cursor: inherit;
 }
 
