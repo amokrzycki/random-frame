@@ -23,7 +23,7 @@
   --control-line: #85827a;
   /* Disabled icon marks: visibly off, still 3:1 on the paper. */
   --disabled-ink: #7c7c74;
-  --danger: #c86b55;
+  --danger: #b85a43;
   --page-glow: rgba(255, 255, 255, 0.82);
   --stage-shadow: rgba(35, 32, 25, 0.18);
   --stage-shadow-small: rgba(35, 32, 25, 0.1);
@@ -41,16 +41,16 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --paper: #171815;
-  --paper-deep: #22231f;
+  --paper: #1c1d19;
+  --paper-deep: #252621;
   --ink: #f0eee8;
   --muted: #aaa99f;
   --stage: #0d0e0c;
-  --stage-soft: #1b1c19;
+  --stage-soft: #151613;
   --white: #f9f8f4;
   --blue: #496adc;
   --blue-dark: #3f63d7;
-  --line: #3b3c36;
+  --line: #40413a;
   --field-line: #6f7068;
   --control-line: #6a6b63;
   --disabled-ink: #77776f;

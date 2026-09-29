@@ -20,7 +20,7 @@ function setTheme(theme: Theme): void {
   const dark = theme === "dark";
   root.dataset.theme = theme;
   root.style.colorScheme = theme;
-  themeColor?.setAttribute("content", dark ? "#171815" : "#ebe8e1");
+  themeColor?.setAttribute("content", dark ? "#1c1d19" : "#ebe8e1");
   toggle?.setAttribute("aria-pressed", String(dark));
   toggle?.setAttribute("aria-label", `Switch to ${dark ? "light" : "dark"} mode`);
   if (toggle) toggle.title = `Switch to ${dark ? "light" : "dark"} mode`;

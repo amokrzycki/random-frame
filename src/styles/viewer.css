@@ -182,12 +182,13 @@
   font-size: 13px;
 }
 
-/* The ID, position, and source tools still describe the frame behind the error, so they step back with it. */
-.viewer:has(.error-state:not([hidden])) :is(.position, .frame-id) {
+/* The position and ID still describe the frame behind the error, so they step back with it. The icon
+   tools keep full strength: fading them would take disabled marks below their 3:1 floor. */
+.viewer:has(.error-state:not([hidden])) :is(.position, .frame-id__caption) {
   opacity: 0.45;
 }
 .position,
-.frame-id {
+.frame-id__caption {
   transition: opacity 200ms var(--ease-out);
 }
 .text-action {

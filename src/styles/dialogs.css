@@ -78,6 +78,7 @@
   border: 0;
   border-radius: 14px;
   box-shadow:
+    0 0 0 1px var(--surface-ring),
     0 28px 70px rgba(35, 32, 25, 0.22),
     0 3px 10px rgba(35, 32, 25, 0.12);
 }
@@ -750,6 +751,7 @@
   overflow: hidden;
   background: rgba(10, 10, 10, 0.94);
   border: 0;
+  box-shadow: 0 0 0 1px var(--surface-ring);
   cursor: zoom-out;
 }
 

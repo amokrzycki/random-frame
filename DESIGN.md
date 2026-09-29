@@ -15,17 +15,17 @@ colors:
   field-stone: "#85827a"
   control-line: "#85827a"
   disabled-ink: "#7c7c74"
-  warning-terracotta: "#c86b55"
+  warning-terracotta: "#b85a43"
   window-close-red: "#c42b1c"
-  dark-mineral-paper: "#171815"
-  dark-mineral-paper-deep: "#22231f"
+  dark-mineral-paper: "#1c1d19"
+  dark-mineral-paper-deep: "#252621"
   dark-graphite-ink: "#f0eee8"
   dark-muted-olive-gray: "#aaa99f"
   dark-viewing-stage: "#0d0e0c"
-  dark-viewing-stage-soft: "#1b1c19"
+  dark-viewing-stage-soft: "#151613"
   dark-action-cobalt: "#496adc"
   dark-action-cobalt-dark: "#3f63d7"
-  dark-hairline-stone: "#3b3c36"
+  dark-hairline-stone: "#40413a"
   dark-field-stone: "#6f7068"
   dark-control-line: "#6a6b63"
   dark-disabled-ink: "#77776f"
@@ -145,7 +145,7 @@ The palette pairs warm archival neutrals with a near-black viewing environment a
 - **Field Stone:** Text-input borders only, at 3:1 or better against the paper in both themes.
 - **Control Line (`--control-line`):** Outlines of outlined buttons, the ID pill, and the consent checkbox, at 3:1 or better against the paper in both themes. Hairline Stone stays for dividers only.
 - **Disabled Ink:** Marks of disabled info-line icons and ID menu items, solid rather than faded, at 3:1 or better against the paper in both themes.
-- **Warning Terracotta:** Error dots only (stage error headline, Sync error); never text.
+- **Warning Terracotta:** Error dots only (stage error headline, Sync error, error toast); never text. Holds 3:1 or better on the paper in light mode and on the stage.
 - **Window Close Red:** Hover fill of the titlebar close control only, matching the native window-close convention in both themes.
 
 **The One Cobalt Rule.** Cobalt communicates action, focus, selection, or live status; it is not decorative fill. Draw next is the only cobalt button on the main screen.
@@ -192,7 +192,7 @@ Depth is concentrated on the viewing stage and floating controls. The titlebar, 
 
 - **Stage Ambient:** A compact two-layer shadow (`0 12px 32px` and `0 2px 6px`) that separates the graphite stage from the surrounding workbench without making it float like a web card.
 - **Cobalt Lift:** A colored soft shadow below the primary action and Draw next, mixed from the current theme's cobalt at 28%.
-- **Dark Hairline Ring:** In dark mode the stage, toasts, update banner, and ID menu add a 1px warm-white ring at 10% so their edges survive on charcoal paper; light mode omits it.
+- **Dark Hairline Ring:** In dark mode the stage, toasts, update banner, ID menu, and the History and Lightbox dialogs add a 1px warm-white ring at 10% so their edges survive on charcoal paper; light mode omits it.
 - **Control Lift:** A compact neutral shadow below previous/next controls.
 - **Notice Lift:** A soft `0 10px 28px` warm shadow at 20% under the dark toasts, the update banner, and the ID menu, so they read as momentary overlays. It pairs with the Dark Hairline Ring instead of a border.
 
@@ -245,7 +245,7 @@ The stage uses an 8px outer radius and an 8px inset hairline, matching the compa
 
 - **Empty:** Serif invitation, concise public-content warning, and a muted hint naming the N keycap or Draw next; no in-stage button. Draw next in the info line takes initial focus.
 - **Loading:** A fine circular spinner and plain status line.
-- **Error:** A small terracotta dot before the sans-serif headline, a recovery explanation, and an underlined retry action that repeats the exact request that failed, captioned over the dimmed prior frame rather than replacing it. The position readout and frame ID dim to match.
+- **Error:** A small terracotta dot before the sans-serif headline, a recovery explanation, and an underlined retry action that repeats the exact request that failed, captioned over the dimmed prior frame rather than replacing it. The position readout and frame ID caption dim to match; the icon tools beside them stay at full strength so disabled marks keep their 3:1.
 
 ### Notices
 
