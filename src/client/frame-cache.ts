@@ -1,4 +1,5 @@
 import { getThumbnailBlob } from "./api.js";
+import { state } from "./viewer-state.js";
 
 export interface CachedBlob {
   blob: Blob;
@@ -7,8 +8,10 @@ export interface CachedBlob {
 
 const thumbnailStorageKey = "prntsc-gallery-thumbnails";
 const THUMBNAIL_MAX_DIMENSION = 160;
-// ~5-8 KB each as base64 JPEG; 300 stays well inside the webview's ~5 MB localStorage quota.
+// ~5-8 KB each as base64 JPEG; only non-favourites count toward this budget.
 const THUMBNAIL_LIMIT = 300;
+let clearGeneration = 0;
+const pendingThumbnails = new Map<string, Promise<boolean>>();
 
 export const blobs = new Map<string, CachedBlob>();
 // Blob keys saved to disk this session, so revisiting a saved frame still shows its check.
@@ -34,24 +37,42 @@ function loadThumbnails(): Map<string, string> {
 
 export const thumbnails = loadThumbnails();
 
-export function persistThumbnails(): void {
-  // ponytail: cache keeps the latest 300 generated thumbnails; older tiles use the placeholder.
-  while (thumbnails.size > THUMBNAIL_LIMIT) thumbnails.delete(thumbnails.keys().next().value as string);
-  // On quota errors drop the oldest quarter and retry; the in-memory map keeps them for this session.
-  const stored = new Map(thumbnails);
-  while (stored.size) {
+export function persistThumbnails(): boolean {
+  const pinned = new Set(state.favorites.map(({ source, id }) => blobKey(source, id)));
+  const ordinary = [...thumbnails.keys()].filter((key) => !pinned.has(key));
+  for (const key of ordinary.slice(0, Math.max(0, ordinary.length - THUMBNAIL_LIMIT))) thumbnails.delete(key);
+  const write = (entries: Map<string, string>) =>
+    localStorage.setItem(thumbnailStorageKey, JSON.stringify(Object.fromEntries(entries)));
+  try {
+    write(thumbnails);
+    return true;
+  } catch (error) {
+    if (!(error instanceof Error && error.name === "QuotaExceededError")) return false;
+    for (const key of thumbnails.keys()) if (!pinned.has(key)) thumbnails.delete(key);
     try {
-      localStorage.setItem(thumbnailStorageKey, JSON.stringify(Object.fromEntries(stored)));
-      return;
+      write(thumbnails);
+      return true;
     } catch {
-      const drop = Math.ceil(stored.size / 4);
-      for (const key of [...stored.keys()].slice(0, drop)) stored.delete(key);
+      // If a new pinned image does not fit, still free old ordinary entries on disk.
+      const previouslySaved = loadThumbnails();
+      for (const key of previouslySaved.keys()) if (!pinned.has(key)) previouslySaved.delete(key);
+      try {
+        write(previouslySaved);
+      } catch {
+        // Keep the previous value if storage itself is unavailable.
+      }
+      return false;
     }
   }
 }
 
-export async function cacheThumbnail(key: string, blob: Blob, persist = true): Promise<boolean> {
-  if (thumbnails.get(key)) return true;
+export async function cacheThumbnail(
+  key: string,
+  blob: Blob,
+  persist = true,
+  generation = clearGeneration,
+): Promise<boolean> {
+  if (thumbnails.get(key)) return persist ? persistThumbnails() : true;
   try {
     const bitmap = await createImageBitmap(blob);
     const scale = Math.min(1, THUMBNAIL_MAX_DIMENSION / Math.max(bitmap.width, bitmap.height));
@@ -65,9 +86,11 @@ export async function cacheThumbnail(key: string, blob: Blob, persist = true): P
     }
     context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
     bitmap.close();
+    if (generation !== clearGeneration && !state.favorites.some(({ source, id }) => blobKey(source, id) === key))
+      return false;
+    if (thumbnails.get(key)) return persist ? persistThumbnails() : true;
     thumbnails.set(key, canvas.toDataURL("image/jpeg", 0.6));
-    if (persist) persistThumbnails();
-    return Boolean(thumbnails.get(key));
+    return persist ? persistThumbnails() : true;
   } catch {
     // Thumbnail generation is best-effort; the grid falls back to a placeholder
     return false;
@@ -76,10 +99,20 @@ export async function cacheThumbnail(key: string, blob: Blob, persist = true): P
 
 export async function ensureThumbnail(frame: { source: string; id: string }, persist = true): Promise<boolean> {
   const key = blobKey(frame.source, frame.id);
-  if (thumbnails.get(key)) return true;
-  const blob = blobs.get(key)?.blob ?? (await getThumbnailBlob(frame.id, frame.source));
-  if (thumbnails.get(key)) return true;
-  return cacheThumbnail(key, blob, persist);
+  if (thumbnails.get(key)) return persist ? persistThumbnails() : true;
+  const pending = pendingThumbnails.get(key);
+  if (pending) return pending;
+  const generation = clearGeneration;
+  const work = (async () => {
+    const blob = blobs.get(key)?.blob ?? (await getThumbnailBlob(frame.id, frame.source));
+    return cacheThumbnail(key, blob, persist, generation);
+  })();
+  pendingThumbnails.set(key, work);
+  try {
+    return await work;
+  } finally {
+    pendingThumbnails.delete(key);
+  }
 }
 
 export function releaseAllBlobs(): void {
@@ -88,8 +121,15 @@ export function releaseAllBlobs(): void {
 }
 
 export function clearThumbnails(keep: readonly { source: string; id: string }[]): void {
+  clearGeneration++;
   const retained = new Set(keep.map(({ source, id }) => blobKey(source, id)));
   for (const key of thumbnails.keys()) if (!retained.has(key)) thumbnails.delete(key);
   if (thumbnails.size) persistThumbnails();
-  else localStorage.removeItem(thumbnailStorageKey);
+  else {
+    try {
+      localStorage.removeItem(thumbnailStorageKey);
+    } catch {
+      // Clearing history still succeeds when local thumbnail storage is unavailable.
+    }
+  }
 }

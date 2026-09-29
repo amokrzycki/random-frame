@@ -2,7 +2,7 @@ import { closeDialog, onDialogClosed, openDialog } from "./dialogs.js";
 import { elements } from "./elements.js";
 import { describeError } from "./errors.js";
 import { type FavoriteItem, toggleFavorite } from "./favorites.js";
-import { blobKey, blobs, savedFrames } from "./frame-cache.js";
+import { blobKey, blobs, ensureThumbnail, savedFrames } from "./frame-cache.js";
 import { goTo } from "./frame-loader.js";
 import { copyImage, saveImage } from "./image-actions.js";
 import { getViewState, syncControls } from "./stage.js";
@@ -57,8 +57,10 @@ export async function toggleCurrentFavorite(): Promise<void> {
       ),
     );
     syncControls();
-    if (!previous) toast.success("Added to favorites");
-    else {
+    if (!previous) {
+      toast.success("Added to favorites");
+      void ensureThumbnail(current).catch(() => false);
+    } else {
       lastRemovedFavorite = previous;
       toast.info("Removed from favorites", { label: "Undo", run: () => void restoreFavorite(previous) });
     }
@@ -76,6 +78,7 @@ async function restoreFavorite(item: FavoriteItem): Promise<void> {
   try {
     applyFavorites(await toggleFavorite(item));
     syncControls();
+    void ensureThumbnail(item).catch(() => false);
     if (lastRemovedFavorite === item) lastRemovedFavorite = null;
   } catch (error) {
     toast.error(describeError(error, "Favorites could not be updated. Try again.").message);
