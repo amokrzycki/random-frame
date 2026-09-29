@@ -18,11 +18,16 @@ Images come from [prnt.sc](https://prnt.sc/). The Rust backend resolves each ran
 
 ### Keyboard shortcuts
 
-| Key                 | Action                         |
-| ------------------- | ------------------------------ |
-| `N`, `Space`, `Enter` | Draw a new random image      |
+| Key                 | Action                           |
+| ------------------- | -------------------------------- |
+| `N`, `Space`, `Enter` | Draw a new random image        |
 | `←` / `→`           | Previous / next frame in history |
-| `Esc`               | Close dialogs                  |
+| `S`                 | Save the current image           |
+| `C`                 | Copy the current image           |
+| `F`                 | Add or remove a favorite         |
+| `H`                 | Open History                     |
+| `?`                 | Toggle Keyboard shortcuts        |
+| `Esc`               | Close dialogs                    |
 
 ## Download
 
