@@ -188,7 +188,7 @@ async function downloadMissingThumbnails(): Promise<void> {
       }
     }),
   );
-  persistThumbnails();
+  const saved = persistThumbnails();
   batchRunning = false;
   if (viewVersion === version && elements.historyDialog.open) renderHistoryPage();
   else if (elements.historyDialog.open) {
@@ -197,6 +197,7 @@ async function downloadMissingThumbnails(): Promise<void> {
     updateThumbnailAction(current, page.start, page.end);
   }
   if (failed) toast.error(`${failed} thumbnail${failed === 1 ? "" : "s"} could not be downloaded.`);
+  if (!saved) toast.error("Thumbnails could not be saved locally.");
 }
 
 async function clearSavedHistory(): Promise<void> {

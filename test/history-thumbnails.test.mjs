@@ -108,7 +108,7 @@ test("downloads only missing thumbnails on the visible page without viewing fram
   assert.equal(button.disabled, true);
   assert.equal(peak, 5);
   assert.equal(calls.filter(({ command }) => command === "get_thumbnail_image").length, 5);
-  const { thumbnails } = await import("../dist/test-client/frame-cache.js");
+  const { blobKey, persistThumbnails, thumbnails } = await import("../dist/test-client/frame-cache.js");
   thumbnails.set("prntsc:id6", "data:image/jpeg;base64,AA==");
 
   // Finishing work for an old page and tab leaves the current view intact.
@@ -160,6 +160,26 @@ test("downloads only missing thumbnails on the visible page without viewing fram
   assert.equal(button.disabled, true);
   assert.equal(get("history-grid").children[1].children[0].src, "data:image/jpeg;base64,AA==");
 
+  // Sync imports domain data only; the missing local thumbnail uses the same fetch path.
+  const { applyFavorites, state } = await import("../dist/test-client/viewer-state.js");
+  applyFavorites([...state.favorites, item("id11")]);
+  get("history-filter-favorites").click();
+  button.click();
+  for (let i = 0; i < 5; i++) await flush();
+  assert.equal(calls.filter(({ command, args }) => command === "get_thumbnail_image" && args.id === "id11").length, 1);
+  assert.equal(history.history.length, 12);
+  assert.equal(get("position-current").textContent, "0");
+  assert.equal(
+    calls.some(({ command }) => ["record_history_item", "select_history_item"].includes(command)),
+    false,
+  );
+  for (let i = 0; i < 301; i++) thumbnails.set(blobKey("prntsc", `overflow${i}`), "data:image/jpeg;base64,AA==");
+  persistThumbnails();
+  assert.equal(
+    JSON.parse(localStorage.getItem("prntsc-gallery-thumbnails"))["prntsc:id11"],
+    "data:image/jpeg;base64,AA==",
+  );
+
   // History clearing retains cached thumbnails used by Favourites, including one no longer in History.
   get("history-filter-all").click();
   const clear = get("history-clear-button");
@@ -168,12 +188,12 @@ test("downloads only missing thumbnails on the visible page without viewing fram
   toastExpiry();
   await flush();
   const stored = JSON.parse(localStorage.getItem("prntsc-gallery-thumbnails"));
-  assert.deepEqual(Object.keys(stored).sort(), ["prntsc:id1", "prntsc:id10"]);
+  assert.deepEqual(Object.keys(stored).sort(), ["prntsc:id1", "prntsc:id10", "prntsc:id11"]);
   get("history-button").click();
   get("history-filter-favorites").click();
   assert.deepEqual(
     get("history-grid").children.map((tile) => tile.children[0].src),
-    [stored["prntsc:id1"], stored["prntsc:id10"]],
+    [stored["prntsc:id1"], stored["prntsc:id10"], stored["prntsc:id11"]],
   );
   assert.equal(get("history-thumbnail-action").hidden, true);
 });
