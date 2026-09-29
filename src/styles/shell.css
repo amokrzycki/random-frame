@@ -1,12 +1,3 @@
-.theme-toggle {
-  padding: 0;
-  display: inline-flex;
-  border: 0;
-  color: var(--ink);
-  background: none;
-  cursor: pointer;
-}
-
 .stats-button {
   width: 34px;
   height: 34px;
@@ -19,6 +10,25 @@
   background: var(--paper-deep);
   cursor: pointer;
   transition: transform 140ms var(--ease-out);
+}
+
+/* Sync needs attention: the Sync entry lives in this menu, so the flag rides on its button. */
+.stats-button[data-sync] {
+  position: relative;
+}
+.stats-button[data-sync]::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 0 2px var(--paper-deep);
+}
+.stats-button[data-sync]:hover::after {
+  box-shadow: 0 0 0 2px var(--control-fill);
 }
 
 .stats-button:hover {
@@ -36,71 +46,6 @@
   stroke: currentColor;
   stroke-linecap: round;
   stroke-width: 1.7;
-}
-
-.theme-toggle__knob {
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--paper-deep);
-  transition: transform 140ms var(--ease-out);
-}
-
-.theme-toggle:hover .theme-toggle__knob {
-  color: var(--control-fill-text);
-  background: var(--control-fill);
-}
-
-.theme-toggle:active .theme-toggle__knob {
-  transform: scale(0.97);
-}
-
-.theme-toggle__icon {
-  position: relative;
-  width: 20px;
-  height: 20px;
-}
-
-.theme-toggle__icon svg {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 20px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 2;
-  transition:
-    opacity 200ms var(--ease-out),
-    transform 200ms var(--ease-out);
-}
-
-/* The icon names the theme the button switches to, matching its label. */
-.theme-toggle__sun {
-  opacity: 0;
-  transform: translate(-50%, -50%) rotate(90deg) scale(0.6);
-}
-
-.theme-toggle__icon .theme-toggle__moon {
-  width: 16px;
-  fill: currentColor;
-  stroke: none;
-  opacity: 1;
-  transform: translate(-50%, -50%) rotate(0deg) scale(1);
-}
-
-.theme-toggle[aria-pressed="true"] .theme-toggle__sun {
-  opacity: 1;
-  transform: translate(-50%, -50%) rotate(0deg) scale(1);
-}
-
-.theme-toggle[aria-pressed="true"] .theme-toggle__moon {
-  opacity: 0;
-  transform: translate(-50%, -50%) rotate(-90deg) scale(0.6);
 }
 
 .app-shell main {
@@ -141,9 +86,4 @@ footer a {
   fill: none;
   stroke: currentColor;
   stroke-width: 1.4;
-}
-
-:root.theme-init .theme-toggle__knob,
-:root.theme-init .theme-toggle__icon svg {
-  transition: none;
 }

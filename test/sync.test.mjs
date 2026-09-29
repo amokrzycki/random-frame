@@ -28,13 +28,17 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
   let current = structuredClone(unpaired);
   let fail = null;
   let pending = null;
+  let statusFails = false;
   const calls = [];
   globalThis.window = {
     setTimeout: () => 0,
     __TAURI_INTERNALS__: {
       async invoke(command, args) {
         calls.push({ command, args });
-        if (command === "get_sync_status") return structuredClone(current);
+        if (command === "get_sync_status") {
+          if (statusFails) throw { category: "timeout" };
+          return structuredClone(current);
+        }
         if (fail && command === fail.command) throw fail.error;
         if (command === "create_sync") {
           current = structuredClone(paired);
@@ -75,11 +79,21 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
   fail = { command: "create_sync", error: { category: "invalid_endpoint" } };
   get("sync-enable").click();
   await flush();
-  assert.match(get("sync-error").textContent, /not configured/);
+  assert.match(get("sync-error-message").textContent, /not configured/);
   assert.equal(get("sync-unpaired").hidden, false);
-  fail = null;
+  // Nothing to retry until the server is configured, and the message is not repeated in the status line.
+  assert.equal(get("sync-retry").hidden, true);
+  assert.equal(get("sync-status").hidden, true);
+  fail = { command: "create_sync", error: { category: "offline" } };
   get("sync-enable").click();
   await flush();
+  assert.match(get("sync-error-message").textContent, /Offline/);
+  assert.equal(get("sync-retry").hidden, false);
+  fail = null;
+  get("sync-retry").click();
+  await flush();
+  assert.equal(get("sync-error").hidden, true);
+  assert.equal(get("sync-status").hidden, false);
   assert.equal(get("sync-recovery-key").textContent, "test-recovery-key");
   assert.equal(get("sync-recovery").hidden, false);
   assert.equal(get("sync-close").disabled, true);
@@ -104,8 +118,8 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
   current.dirty = true;
   get("sync-button").click();
   await flush();
-  assert.equal(get("sync-status").textContent, "Local changes waiting to sync");
-  assert.equal(get("sync-dirty").textContent, "Local changes pending: yes");
+  assert.equal(get("sync-status").textContent, "Changes waiting to sync");
+  assert.equal(get("sync-dirty").textContent, "");
   current.state = "syncing";
   get("sync-button").click();
   await flush();
@@ -124,6 +138,7 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
     get("sync-button").click();
     await flush();
     assert.match(get("sync-status").textContent, expected);
+    assert.equal(get("tools-menu-button").dataset.sync, "attention");
   }
 
   current = structuredClone(paired);
@@ -137,6 +152,7 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
   pending = null;
   await flush();
   assert.equal(get("sync-now").disabled, false);
+  assert.equal(get("tools-menu-button").dataset.sync, undefined);
   assert.ok(calls.filter(({ command }) => command === "get_sync_status").length > 1);
 
   fail = {
@@ -145,18 +161,19 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
   };
   get("sync-now").click();
   await flush();
-  assert.match(get("sync-error").textContent, /older/);
-  assert.doesNotMatch(get("sync-error").textContent, /9|3/);
+  assert.match(get("sync-error-message").textContent, /older/);
+  assert.doesNotMatch(get("sync-error-message").textContent, /9|3/);
   fail = null;
 
   get("sync-leave").click();
   assert.equal(get("sync-leave-confirm").hidden, false);
+  assert.equal(document.activeElement, get("sync-leave-cancel"));
   fail = { command: "leave_sync", error: { category: "secure_storage" } };
   get("sync-leave-confirm-button").click();
   await flush();
   assert.equal(get("sync-paired").hidden, true);
   assert.equal(get("sync-leave-confirm").hidden, false);
-  assert.match(get("sync-error").textContent, /Secure credential/);
+  assert.match(get("sync-error-message").textContent, /Secure credential/);
   fail = null;
   get("sync-leave-confirm-button").click();
   await flush();
@@ -172,8 +189,8 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
   get("sync-recovery-input").value = "bad";
   get("sync-join-form").dispatchEvent(new Event("submit", { cancelable: true }));
   await flush();
-  assert.match(get("sync-error").textContent, /not valid/);
-  assert.doesNotMatch(get("sync-error").textContent, /private/);
+  assert.match(get("sync-error-message").textContent, /not valid/);
+  assert.doesNotMatch(get("sync-error-message").textContent, /private/);
   fail = null;
   get("sync-join-form").dispatchEvent(new Event("submit", { cancelable: true }));
   await flush();
@@ -199,4 +216,18 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
   fail = { command: "startup_sync", error: { category: "offline" } };
   await runStartupSync();
   assert.equal(document.body.children[0].children.length, 1);
+
+  // A failed status check is an error with a retry, never a status line stuck on "Checking".
+  statusFails = true;
+  get("sync-button").click();
+  await flush();
+  assert.equal(get("sync-error").hidden, false);
+  assert.equal(get("sync-status").hidden, true);
+  assert.match(get("sync-error-message").textContent, /did not respond/);
+  assert.equal(get("sync-retry").hidden, false);
+  statusFails = false;
+  get("sync-retry").click();
+  await flush();
+  assert.equal(get("sync-error").hidden, true);
+  assert.doesNotMatch(get("sync-status").textContent, /Checking/);
 });

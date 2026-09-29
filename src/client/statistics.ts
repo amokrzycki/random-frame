@@ -1,17 +1,5 @@
 import type { DailyActivity } from "./persistence.js";
 
-export const LEGACY_ID_SPACE_SIZE = 4_773_622_240;
-
-export function formatExploredPercent(explored: number, total = LEGACY_ID_SPACE_SIZE): string {
-  if (!Number.isSafeInteger(explored) || !Number.isSafeInteger(total) || explored < 0 || total <= 0 || explored > total)
-    throw new Error("Invalid exploration total");
-  if (explored === 0) return "0%";
-  const percent = (explored / total) * 100;
-  if (percent < 0.001) return "< 0.001%";
-  const decimals = Math.max(2, Math.ceil(-Math.log10(percent)) + 3);
-  return `${percent.toFixed(decimals)}%`;
-}
-
 export function formatExploredBreakdown(
   explored: number,
   viewable: number,

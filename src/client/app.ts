@@ -6,9 +6,9 @@ import { getFavorites } from "./favorites.js";
 import { bindFrameActionEvents } from "./frame-actions.js";
 import { releaseAllBlobs } from "./frame-cache.js";
 import { bindNavigationEvents, goTo } from "./frame-loader.js";
-import { bindHistoryDialogEvents } from "./history-dialog.js";
+import { bindHistoryDialogEvents, pendingHistoryClearKey } from "./history-dialog.js";
 import { historyFromStorage, shouldShowEntryDialog } from "./navigation.js";
-import { getHistory, recordHistoryItem, selectHistoryItem } from "./persistence.js";
+import { clearHistory, getHistory, recordHistoryItem, selectHistoryItem } from "./persistence.js";
 import { bindShortcutsEvents } from "./shortcuts.js";
 import { bindStageEvents, setState, showError, syncControls } from "./stage.js";
 import { bindStatsDialogEvents, migrateLegacyStats } from "./stats-dialog.js";
@@ -18,34 +18,40 @@ import { applyFavorites, applyHistory, state } from "./viewer-state.js";
 
 const storageKey = "prntsc-gallery-history";
 const entryStorageKey = "random-frame-risk-accepted";
-const arrowHintStorageKey = "random-frame-arrow-hint-dismissed";
-const arrowHint = document.querySelector<HTMLElement>("#arrow-hint");
-const arrowHintDismiss = document.querySelector<HTMLButtonElement>("#arrow-hint-dismiss");
-
-try {
-  if (arrowHint && localStorage.getItem(arrowHintStorageKey) !== "true") arrowHint.hidden = false;
-} catch {
-  // Keep the hint available when storage is disabled.
-  if (arrowHint) arrowHint.hidden = false;
-}
-arrowHintDismiss?.addEventListener("click", () => {
-  if (arrowHint) arrowHint.hidden = true;
-  try {
-    localStorage.setItem(arrowHintStorageKey, "true");
-  } catch {
-    // The hint stays dismissed for this session.
-  }
-});
-
 try {
   if (shouldShowEntryDialog(localStorage.getItem(entryStorageKey))) openDialog(elements.entryDialog);
 } catch {
   openDialog(elements.entryDialog);
 }
 
+let startupSyncStarted = false;
+let initializing = false;
+
 async function initialize(): Promise<void> {
-  void runStartupSync();
+  // Try again re-enters here; a double click must not run two loads, and Sync starts once.
+  if (initializing) return;
+  initializing = true;
+  state.loading = true;
+  syncControls();
   try {
+    let pendingHistoryClear = false;
+    try {
+      pendingHistoryClear = localStorage.getItem(pendingHistoryClearKey) === "true";
+    } catch {
+      // History still loads when browser storage is unavailable.
+    }
+    if (pendingHistoryClear) {
+      await clearHistory();
+      try {
+        localStorage.removeItem(pendingHistoryClearKey);
+      } catch {
+        // The already completed clear is safe to repeat on the next launch.
+      }
+    }
+    if (!startupSyncStarted) {
+      startupSyncStarted = true;
+      void runStartupSync();
+    }
     let [snapshot, favorites] = await Promise.all([getHistory(), getFavorites()]);
     applyFavorites(favorites);
     const legacy = historyFromStorage(sessionStorage.getItem(storageKey));
@@ -76,9 +82,15 @@ async function initialize(): Promise<void> {
     await refreshAfterStartup();
     syncControls();
   } catch (error) {
+    console.error(error);
     state.loading = false;
-    showError(error, initialize);
+    showError(error, initialize, -1, {
+      title: "Your history couldn't be loaded",
+      message: "Random Frame could not read its saved data. Try again, and restart the app if it keeps failing.",
+    });
     syncControls();
+  } finally {
+    initializing = false;
   }
 }
 
@@ -108,6 +120,36 @@ elements.entryButton.addEventListener("click", () => {
 });
 
 window.addEventListener("pagehide", releaseAllBlobs);
+
+// Pinned under its button when it opens. Closing on pick, before the item's own handler runs, returns focus
+// to the button so a dialog opened from the menu hands it back there.
+elements.toolsMenu.addEventListener("beforetoggle", (event) => {
+  if ((event as ToggleEvent).newState !== "open") return;
+  const rect = elements.toolsMenuButton.getBoundingClientRect();
+  elements.toolsMenu.style.top = `${rect.bottom + 6}px`;
+  elements.toolsMenu.style.right = `${window.innerWidth - rect.right}px`;
+});
+elements.toolsMenu.addEventListener("click", () => elements.toolsMenu.hidePopover?.(), true);
+elements.toolsMenuButton.addEventListener("keydown", (event) => {
+  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+  event.preventDefault();
+  elements.toolsMenu.showPopover();
+  const items = elements.toolsMenu.querySelectorAll<HTMLButtonElement>("button:not(:disabled)");
+  (event.key === "ArrowDown" ? items[0] : items[items.length - 1])?.focus();
+});
+elements.toolsMenu.addEventListener("keydown", (event) => {
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+  const items = [...elements.toolsMenu.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
+  const current = items.indexOf(document.activeElement as HTMLButtonElement);
+  const next =
+    event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? items.length - 1
+        : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+  event.preventDefault();
+  items[next]?.focus();
+});
 
 document.querySelectorAll<HTMLAnchorElement>(".external-link").forEach((link) => {
   link.addEventListener("click", (event) => {

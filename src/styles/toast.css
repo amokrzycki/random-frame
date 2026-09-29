@@ -8,7 +8,6 @@
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 8px;
   overflow: hidden;
   pointer-events: none;
 }
@@ -31,6 +30,8 @@
   font-size: 13px;
   font-weight: 650;
   line-height: 1.35;
+  /* The region ignores the pointer so it never blocks the stage; a toast itself takes it, to pause on hover. */
+  pointer-events: auto;
   transition:
     opacity 220ms var(--ease-out),
     transform 220ms var(--ease-out);
@@ -49,7 +50,7 @@
   height: 8px;
   flex: 0 0 auto;
   border-radius: 50%;
-  background: var(--blue);
+  background: var(--white);
 }
 .toast--info::before {
   background: var(--muted);
@@ -61,4 +62,20 @@
   opacity: 0;
   transform: translateX(8px);
   transition-duration: 140ms;
+}
+
+.toast__action {
+  margin-left: 6px;
+  min-height: 28px;
+  padding: 0 4px;
+  border: 0;
+  border-bottom: 1px solid currentColor;
+  border-radius: 0;
+  color: var(--white);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.toast__action:hover {
+  color: #aabcf4;
 }

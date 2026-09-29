@@ -24,21 +24,17 @@ export function describeError(error: unknown, fallback = DEFAULT_MESSAGE): Error
   });
   switch (field(error, "kind")) {
     case "rate-limited":
-      return copy(
-        "Drawing a little too fast.",
-        "Random Frame spaces out requests so Prnt.sc keeps answering. Try again in a moment.",
-        2,
-      );
+      return copy("A short pause between frames.", "Please give the source a moment before drawing again.", 2);
     case "upstream-rate-limited":
       return copy(
-        "Prnt.sc is limiting requests.",
-        "Too many frames were requested in a short time. Wait a few seconds, then draw again.",
+        "The source needs a moment.",
+        "Prnt.sc is taking a short pause. Your earlier frames are still here.",
         10,
       );
     case "upstream-forbidden":
       return copy(
-        "Prnt.sc refused the request.",
-        "The source is blocking access for now. Wait a little, then try again.",
+        "The source is taking a pause.",
+        "Prnt.sc is not opening new frames right now. You can browse your earlier frames while you wait.",
         10,
       );
     case "timeout":

@@ -1,7 +1,8 @@
 import { elements } from "./elements.js";
 
-// showModal() blocks window drag and controls. Keep those available while
-// making the app's content and titlebar tools inert around a shown dialog.
+// showModal() would also inert the titlebar's drag region and window controls, and would silence the live
+// region outside the dialog. Keep those available and inert the rest ourselves: the app's content, the
+// titlebar tools, and the update banner. Inert also drops them from the accessibility tree.
 export const dialogs = [
   elements.entryDialog,
   elements.historyDialog,
@@ -11,9 +12,14 @@ export const dialogs = [
   elements.syncDialog,
 ];
 
+export function setBackgroundInert(inert: boolean): void {
+  elements.main.inert = inert;
+  elements.mastheadTools.inert = inert;
+  for (const banner of document.querySelectorAll<HTMLElement>(".update-banner")) banner.inert = inert;
+}
+
 export function openDialog(dialog: HTMLDialogElement, variant?: "dark"): void {
-  elements.main.inert = true;
-  elements.mastheadTools.inert = true;
+  setBackgroundInert(true);
   if (variant) elements.dialogBackdrop.dataset.variant = variant;
   else delete elements.dialogBackdrop.dataset.variant;
   elements.dialogBackdrop.hidden = false;
@@ -29,8 +35,7 @@ export function onDialogClosed(): void {
     focusInDialog(open);
     return;
   }
-  elements.main.inert = false;
-  elements.mastheadTools.inert = false;
+  setBackgroundInert(false);
   // closeDialog already faded the backdrop alongside the dialog.
   delete elements.dialogBackdrop.dataset.open;
   elements.dialogBackdrop.hidden = true;
@@ -41,7 +46,7 @@ function dismissibleOpenDialog(): HTMLDialogElement | undefined {
   return [...dialogs].reverse().find((dialog) => dialog.open && dialog !== elements.entryDialog);
 }
 
-const focusableSelector = 'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])';
+const focusableSelector = 'a[href], button, input, select, textarea, summary, [tabindex]:not([tabindex="-1"])';
 
 function activeDialog(): HTMLDialogElement | undefined {
   return [...dialogs].reverse().find((dialog) => dialog.open);

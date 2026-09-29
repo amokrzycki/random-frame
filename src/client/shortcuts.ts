@@ -1,7 +1,7 @@
 import { closeDialog, dialogs, onDialogClosed, openDialog } from "./dialogs.js";
 import { elements } from "./elements.js";
-import { copyCurrentImage, saveCurrent, toggleCurrentFavorite } from "./frame-actions.js";
-import { goBack, goNext, loadRandom } from "./frame-loader.js";
+import { copyCurrentImage, saveCurrent, toggleCurrentFavorite, undoFavoriteRemoval } from "./frame-actions.js";
+import { cancelDraw, goBack, goNext, loadRandom } from "./frame-loader.js";
 import { openHistory } from "./history-dialog.js";
 
 // Focus returns to whatever had it: the sheet opens from the titlebar or from ? anywhere.
@@ -22,7 +22,17 @@ export function bindShortcutsEvents(): void {
   });
 
   document.addEventListener("keydown", (event) => {
-    if (event.altKey || event.ctrlKey || event.metaKey || elements.entryDialog.open) return;
+    if (event.key === "Escape" && !dialogs.some((dialog) => dialog.open) && cancelDraw()) {
+      event.preventDefault();
+      return;
+    }
+    if (
+      event.altKey ||
+      event.metaKey ||
+      (event.ctrlKey && event.key.toLowerCase() !== "z") ||
+      elements.entryDialog.open
+    )
+      return;
     const target = event.target as HTMLElement | null;
     // The jump field owns its own keys: arrows move the caret, Enter submits.
     if (target?.tagName === "INPUT") return;
@@ -32,8 +42,12 @@ export function bindShortcutsEvents(): void {
       else if (!dialogs.some((dialog) => dialog.open)) openShortcuts();
       return;
     }
-    // The ID menu popover is not a dialog but still owns the keyboard while open.
-    if (dialogs.some((dialog) => dialog.open) || elements.idMenu.matches?.(":popover-open")) return;
+    // The tools menu popover is not a dialog but still owns the keyboard while open.
+    if (dialogs.some((dialog) => dialog.open) || elements.toolsMenu.matches?.(":popover-open")) return;
+    if (event.key.toLowerCase() === "z" && !event.shiftKey && !event.repeat) {
+      if (undoFavoriteRemoval()) event.preventDefault();
+      return;
+    }
     if (event.key === "ArrowLeft") goBack();
     if (event.key === "ArrowRight") goNext();
     if (!event.repeat) {

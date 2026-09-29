@@ -6,6 +6,7 @@ import { adjacentPrntscId, frameNumberToIndex, historyIndexForId, nextHistoryInd
 import { recordHistoryItem, selectHistoryItem } from "./persistence.js";
 import {
   decodedUrl,
+  dismissArrowHint,
   drawPaused,
   finishLoading,
   getViewState,
@@ -20,8 +21,12 @@ import {
 } from "./stage.js";
 import { applyHistory, state } from "./viewer-state.js";
 
-async function recordFrame(frame: Frame): Promise<void> {
+async function recordFrame(frame: Frame, canRecord = () => true): Promise<void> {
   const url = await decodedUrl(frame.blob);
+  if (!canRecord()) {
+    URL.revokeObjectURL(url);
+    return;
+  }
   applyHistory(
     await recordHistoryItem({
       source: frame.source,
@@ -34,21 +39,44 @@ async function recordFrame(frame: Frame): Promise<void> {
 }
 
 // Always a new frame, even mid-history: it joins the end of history and the view jumps to it.
+let drawVersion = 0;
+let drawCommitting = false;
+let viewBeforeDraw: ReturnType<typeof getViewState> = "empty";
+
+export function cancelDraw(): boolean {
+  if (!state.drawing || drawCommitting) return false;
+  drawVersion++;
+  state.drawing = false;
+  setState(viewBeforeDraw);
+  finishLoading();
+  elements.announcer.textContent = "Draw canceled";
+  return true;
+}
+
 export async function loadRandom(): Promise<void> {
   if (state.loading || drawPaused()) return;
+  const version = ++drawVersion;
+  viewBeforeDraw = getViewState();
   startLoading();
   state.drawing = true;
-  elements.idMenu.hidePopover?.();
   setState("loading");
   syncControls();
   try {
     const frame = await getRandomFrame();
-    await recordFrame(frame);
+    if (version !== drawVersion) return;
+    await recordFrame(frame, () => {
+      if (version !== drawVersion) return false;
+      drawCommitting = true;
+      return true;
+    });
   } catch (error) {
-    showError(error, loadRandom);
+    if (version === drawVersion) showError(error, loadRandom);
   } finally {
-    state.drawing = false;
-    finishLoading();
+    if (version === drawVersion) {
+      drawCommitting = false;
+      state.drawing = false;
+      finishLoading();
+    }
   }
 }
 
@@ -69,6 +97,8 @@ export async function goTo(targetIndex: number): Promise<void> {
   try {
     if (!cached) {
       setState("loading");
+      elements.loadingMessage.textContent = `Restoring frame ${targetIndex + 1}…`;
+      elements.announcer.textContent = `Restoring frame ${targetIndex + 1}`;
       syncControls();
       const frame = await getFrameById(current.id, current.source);
       showFrame(frame.source, frame.id, frame.blob, await decodedUrl(frame.blob));
@@ -86,6 +116,7 @@ export async function goTo(targetIndex: number): Promise<void> {
 }
 
 export function goBack(): void {
+  dismissArrowHint();
   void goTo(state.index - 1);
 }
 
@@ -150,21 +181,6 @@ export function bindNavigationEvents(): void {
   elements.previous.addEventListener("click", goBack);
   elements.previousId.addEventListener("click", () => void loadAdjacent(-1));
   elements.nextId.addEventListener("click", () => void loadAdjacent(1));
-  elements.idMenu.addEventListener("beforetoggle", (event) => {
-    if ((event as ToggleEvent).newState !== "open") return;
-    const rect = elements.idMenuButton.getBoundingClientRect();
-    elements.idMenu.style.left = `${rect.left}px`;
-    elements.idMenu.style.bottom = `${window.innerHeight - rect.top + 6}px`;
-  });
-  for (const [item, offset] of [
-    [elements.previousIdMenuItem, -1],
-    [elements.nextIdMenuItem, 1],
-  ] as const) {
-    item.addEventListener("click", () => {
-      elements.idMenu.hidePopover?.();
-      void loadAdjacent(offset);
-    });
-  }
 
   elements.positionButton.addEventListener("click", () => editPosition(true));
   elements.jumpInput.addEventListener("input", () => elements.jumpInput.setCustomValidity(""));

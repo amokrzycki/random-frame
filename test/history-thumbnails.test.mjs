@@ -34,7 +34,11 @@ test("downloads only missing thumbnails on the visible page without viewing fram
   localStorage.setItem("random-frame-history-page-size", "10");
   localStorage.setItem("prntsc-gallery-thumbnails", JSON.stringify({ "prntsc:id0": "data:image/jpeg;base64,AA==" }));
   const window = new EventTarget();
-  window.setTimeout = () => 0;
+  let toastExpiry;
+  window.setTimeout = (callback) => {
+    toastExpiry = callback;
+    return 0;
+  };
   Object.assign(globalThis, {
     document,
     localStorage,
@@ -149,6 +153,7 @@ test("downloads only missing thumbnails on the visible page without viewing fram
   release();
   for (let i = 0; i < 5; i++) await flush();
   get("history-button").click();
+  get("history-filter-favorites").click();
   assert.equal(get("history-filter-favorites").getAttribute("aria-pressed"), "true");
   assert.equal(calls.filter(({ command, args }) => command === "get_thumbnail_image" && args.id === "id10").length, 1);
   assert.equal(get("history-thumbnail-action").hidden, true);
@@ -160,6 +165,7 @@ test("downloads only missing thumbnails on the visible page without viewing fram
   const clear = get("history-clear-button");
   clear.click();
   clear.click();
+  toastExpiry();
   await flush();
   const stored = JSON.parse(localStorage.getItem("prntsc-gallery-thumbnails"));
   assert.deepEqual(Object.keys(stored).sort(), ["prntsc:id1", "prntsc:id10"]);

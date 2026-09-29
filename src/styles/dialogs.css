@@ -78,6 +78,7 @@
   border: 0;
   border-radius: 14px;
   box-shadow:
+    0 0 0 1px var(--surface-ring),
     0 28px 70px rgba(35, 32, 25, 0.22),
     0 3px 10px rgba(35, 32, 25, 0.12);
 }
@@ -112,7 +113,7 @@
 .history-filter__option {
   min-height: 38px;
   padding: 0 12px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--control-line);
   color: var(--ink);
   background: transparent;
   cursor: pointer;
@@ -141,11 +142,26 @@
   transform: scale(0.97);
 }
 
+/* History header: title, clear, then the filter and close on one row. The group dissolves into the grid so
+   the hint can take its own row, and only while armed. */
+.history-dialog__header--tools {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  column-gap: 12px;
+  padding-bottom: 18px;
+}
+
+.history-dialog__header--tools > h2 {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.history-dialog__header--tools > .history-dialog__actions {
+  grid-column: 3;
+  grid-row: 1;
+}
+
 .history-clear-group {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  gap: 16px;
+  display: contents;
 }
 
 .history-clear-group[hidden] {
@@ -153,6 +169,9 @@
 }
 
 .history-clear-hint {
+  display: none;
+  grid-column: 1 / -1;
+  grid-row: 2;
   max-width: 75ch;
   color: var(--muted);
   font-size: 13px;
@@ -160,11 +179,15 @@
   text-wrap: pretty;
 }
 
+.history-clear-group[data-armed] .history-clear-hint {
+  display: block;
+}
+
 .history-clear {
   min-height: 38px;
   padding: 0 12px;
   flex: 0 0 auto;
-  border: 1px solid var(--line);
+  border: 1px solid var(--control-line);
   border-radius: 8px;
   color: var(--ink);
   background: transparent;
@@ -172,6 +195,11 @@
   font: inherit;
   font-size: 13px;
   font-weight: 650;
+}
+
+.history-clear-group > .history-clear {
+  grid-column: 2;
+  grid-row: 1;
 }
 
 @media (max-width: 600px) {
@@ -183,11 +211,24 @@
     justify-content: space-between;
   }
 
-  .history-clear-group {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 6px;
+  /* Title and clear share the first row; filter and close drop to the second, the hint to the third. */
+  .history-dialog__header--tools {
+    grid-template-columns: minmax(0, 1fr) auto;
   }
+
+  .history-dialog__header--tools > .history-dialog__actions {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .history-clear-hint {
+    grid-row: 3;
+  }
+}
+
+.history-clear-group[data-armed] > .history-clear {
+  border-color: var(--danger);
+  box-shadow: inset 0 0 0 1px var(--danger);
 }
 
 .history-clear:hover:not(:disabled) {
@@ -203,7 +244,7 @@
 .history-dialog h2 {
   margin: 0;
   font-family: "Archive Serif", serif;
-  font-size: clamp(26px, 3vw, 42px);
+  font-size: var(--type-dialog-title);
   font-weight: 400;
   letter-spacing: -0.03em;
 }
@@ -239,12 +280,29 @@
   stroke-width: 1.6;
 }
 
+:is(.history-dialog, .lightbox-dialog)[open] :is(.history-close, .lightbox-close):focus {
+  outline: 3px solid var(--blue);
+  outline-offset: -3px;
+}
+
 .history-dialog__body {
   min-height: 0;
   flex: 1;
   padding: 24px 28px 28px;
   overflow: auto;
   scrollbar-color: var(--muted) var(--paper-deep);
+}
+
+/* The grid is the point of the dialog: it keeps at least 55% of the dialog's height, and the
+   header and pager share the rest. Short or narrow windows drop the floor so the pager is never clipped. */
+#history-dialog .history-dialog__body {
+  min-height: calc(min(82dvh, 760px) * 0.55);
+}
+
+@media (max-height: 520px), (max-width: 600px) {
+  #history-dialog .history-dialog__body {
+    min-height: 0;
+  }
 }
 
 .stats-dialog {
@@ -296,6 +354,9 @@
 .sync-dialog__meta {
   color: var(--muted);
 }
+.sync-dialog__copy + .sync-dialog__copy {
+  margin-top: 12px;
+}
 .sync-dialog__meta {
   display: grid;
   gap: 3px;
@@ -314,7 +375,7 @@
 .sync-dialog__button {
   min-height: 42px;
   padding: 0 14px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--control-line);
   border-radius: 8px;
   color: var(--ink);
   background: var(--paper);
@@ -325,12 +386,39 @@
   color: var(--control-fill-text);
   background: var(--control-fill);
 }
+.sync-dialog__button--danger {
+  border-color: var(--danger);
+}
 .sync-dialog__button:disabled {
   opacity: 0.5;
   cursor: wait;
 }
 .sync-dialog__error {
-  color: var(--danger);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 10px;
+  color: var(--ink);
+}
+.sync-dialog__error p {
+  flex: 1 1 24ch;
+  min-width: 0;
+}
+.sync-dialog__error .sync-dialog__button {
+  min-height: 34px;
+  margin-left: 17px;
+}
+/* With the status line stepped aside, the error is the first thing in the body. */
+.sync-dialog__status[hidden] + .sync-dialog__error {
+  margin-top: 0;
+}
+.sync-dialog__error::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--danger);
 }
 #sync-join-form {
   display: grid;
@@ -366,6 +454,12 @@
   gap: 9px;
   color: var(--ink);
   cursor: pointer;
+}
+.sync-dialog__body .sync-dialog__blocked-note {
+  margin: 16px 0 18px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
 }
 .sync-dialog__saved input {
   margin: 4px 0 0;
@@ -628,14 +722,6 @@
   font-weight: 650;
 }
 
-/* Days whose thumbnails are gone: a hairline measured against the busiest day in the ledger. */
-.ledger__bar {
-  width: calc(var(--share, 1) * 100%);
-  min-width: 10px;
-  height: 1px;
-  background: var(--muted);
-}
-
 .ledger__empty {
   margin: 10px 0 0;
   padding-top: 14px;
@@ -649,7 +735,7 @@
   min-height: 38px;
   margin-top: 4px;
   padding: 0 14px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--control-line);
   border-radius: 8px;
   color: var(--ink);
   background: transparent;
@@ -683,6 +769,27 @@
   text-wrap: pretty;
 }
 
+.dialog-foot__copy {
+  min-width: 0;
+}
+
+.stats-how {
+  margin-top: 4px;
+}
+
+.stats-how summary {
+  width: fit-content;
+  cursor: pointer;
+  line-height: 1.8;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.stats-how p {
+  max-width: 65ch;
+  padding: 4px 0 8px;
+}
+
 .dialog-foot__meta {
   display: flex;
   flex: 0 0 auto;
@@ -690,9 +797,10 @@
   gap: 14px;
 }
 
-/* WCAG 2.5.8: the 34px strip still gives each link a 24px target. */
+/* Give the Stats footer links a comfortable target without crowding the metadata. */
 .dialog-foot__meta a {
-  min-height: 24px;
+  min-height: 32px;
+  padding: 4px 6px;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -735,47 +843,159 @@
   max-width: none;
   height: calc(100dvh - var(--titlebar-height));
   max-height: none;
-  padding: 24px;
+  padding: 0;
   overflow: hidden;
+  grid-template-rows: 64px minmax(0, 1fr);
   background: rgba(10, 10, 10, 0.94);
   border: 0;
-  cursor: zoom-out;
+  color: var(--white);
 }
 
-.lightbox-dialog img {
-  width: 100%;
-  height: 100%;
-  display: block;
-  object-fit: contain;
-  cursor: zoom-out;
+.lightbox-dialog[open] {
+  display: grid;
 }
 
-.lightbox-close {
-  position: fixed;
-  top: 24px;
-  right: 24px;
-  z-index: 1;
-  width: 42px;
-  height: 42px;
-  padding: 0;
+.lightbox-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 24px;
+  border-bottom: 1px solid rgba(249, 248, 244, 0.14);
+}
+
+.lightbox-caption {
+  font:
+    13px / 1.2 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  color: color-mix(in srgb, var(--white) 78%, var(--stage));
+  font-variant-numeric: tabular-nums;
+}
+
+.lightbox-tools {
+  display: flex;
+  gap: 8px;
+}
+
+.lightbox-control,
+.lightbox-step {
   display: grid;
   place-items: center;
-  border: 0;
-  border-radius: 9px;
+  border: 1px solid rgba(249, 248, 244, 0.2);
+  border-radius: 8px;
   color: var(--white);
-  background: color-mix(in srgb, var(--white) 12%, transparent);
+  background: var(--stage-soft);
   cursor: pointer;
 }
 
-.lightbox-close:hover {
-  background: color-mix(in srgb, var(--white) 22%, transparent);
+.lightbox-control:hover,
+.lightbox-step:hover:not([aria-disabled="true"]) {
+  background: color-mix(in srgb, var(--white) 20%, var(--stage));
 }
 
-.lightbox-close svg {
+.lightbox-control {
+  min-width: 42px;
+  height: 38px;
+  padding: 0 12px;
+  font:
+    600 13px "Archive Sans",
+    sans-serif;
+}
+
+.lightbox-view {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  padding: 24px 70px;
+  overscroll-behavior: contain;
+}
+
+.lightbox-view img {
+  max-width: calc(100vw - 140px);
+  max-height: calc(100dvh - var(--titlebar-height) - 112px);
+  display: block;
+  object-fit: contain;
+  cursor: zoom-in;
+  user-select: none;
+}
+
+.lightbox-view.is-zoomed {
+  display: block;
+  cursor: grab;
+  touch-action: none;
+}
+
+.lightbox-view.is-zoomed:active {
+  cursor: grabbing;
+}
+
+.history-item img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  display: block;
+  object-fit: contain;
+  background: var(--stage-soft);
+}
+
+.lightbox-view.is-zoomed img {
+  max-width: none;
+  max-height: none;
+  width: auto;
+  height: auto;
+  margin: auto;
+  cursor: inherit;
+}
+
+.lightbox-step {
+  position: absolute;
+  top: calc(50% + 32px);
+  width: 42px;
+  height: 52px;
+  transform: translateY(-50%);
+}
+
+.lightbox-step--previous {
+  left: 16px;
+}
+.lightbox-step--next {
+  right: 16px;
+}
+
+.lightbox-step[aria-disabled="true"] {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.lightbox-control svg,
+.lightbox-step svg {
   width: 20px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.6;
+}
+
+@media (max-width: 600px) {
+  .lightbox-toolbar {
+    padding-inline: 16px;
+  }
+  .lightbox-view {
+    padding: 16px 52px;
+  }
+  .lightbox-view img {
+    max-width: calc(100vw - 104px);
+  }
+  .lightbox-step {
+    width: 36px;
+    left: 8px;
+  }
+  .lightbox-step--next {
+    left: auto;
+    right: 8px;
+  }
 }
 
 .history-grid {
@@ -811,14 +1031,6 @@
 
 .history-item:hover {
   border-color: var(--muted);
-}
-
-.history-item img {
-  width: 100%;
-  aspect-ratio: 4 / 3;
-  display: block;
-  object-fit: contain;
-  background: var(--stage-soft);
 }
 
 /* Favorited tiles carry a plain archival-white star on a graphite chip; cobalt stays the current-frame border. */
@@ -884,23 +1096,25 @@
 
 .history-thumbnail-action {
   display: flex;
-  justify-content: flex-end;
-  padding: 10px 22px;
-  border-top: 1px solid var(--line);
 }
 
 .history-thumbnail-action[hidden] {
   display: none;
 }
 
+.history-pager[data-compact] {
+  justify-content: flex-end;
+}
+
 .history-pager {
   min-height: 62px;
+  flex: 0 0 auto;
   padding: 11px 22px 11px 28px;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: space-between;
-  column-gap: 24px;
+  column-gap: 12px;
   row-gap: 8px;
   border-top: 1px solid var(--line);
   color: var(--muted);
@@ -915,8 +1129,19 @@
 
 .history-pager__range {
   margin: 0;
-  margin-right: auto;
   white-space: nowrap;
+}
+
+.history-pager__summary {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-right: auto;
+}
+
+/* Short histories have no pages to turn: the row keeps only the download action. */
+.history-pager[data-compact] .history-pager__summary {
+  display: none;
 }
 
 .history-pager__nav {
@@ -935,7 +1160,7 @@
 .history-pager__step,
 .history-pager__select select {
   min-height: 38px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--control-line);
   border-radius: 8px;
   color: var(--ink);
   background: transparent;
@@ -963,6 +1188,27 @@
   padding-right: 8px;
 }
 
+.history-thumbnail-action__button {
+  padding: 8px 0;
+  border: 0;
+  color: var(--ink);
+  background: transparent;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.history-thumbnail-action__button:hover:not(:disabled) {
+  color: var(--blue);
+}
+
+.history-thumbnail-action__button:disabled {
+  color: var(--disabled-ink);
+  cursor: default;
+}
+
 .history-pager__step svg,
 .history-pager__select svg {
   width: 16px;
@@ -986,7 +1232,8 @@
 }
 
 .history-pager__step:disabled {
-  opacity: 0.4;
+  color: var(--disabled-ink);
+  border-color: var(--control-line);
   cursor: not-allowed;
 }
 
@@ -1029,6 +1276,16 @@
   color: var(--control-fill-text);
 }
 
+@media (max-width: 840px) {
+  .history-pager__step span {
+    display: none;
+  }
+
+  .history-pager__page {
+    min-width: 11ch;
+  }
+}
+
 .history-empty {
   min-height: 260px;
   display: grid;
@@ -1062,7 +1319,7 @@
 .entry-dialog h2 {
   margin: 0 0 18px;
   font-family: "Archive Serif", serif;
-  font-size: clamp(26px, 5vw, 42px);
+  font-size: var(--type-entry-title);
   font-weight: 400;
   line-height: 1.08;
   letter-spacing: -0.035em;
@@ -1110,7 +1367,7 @@
   appearance: none;
   display: grid;
   place-content: center;
-  border: 1px solid var(--line);
+  border: 1px solid var(--control-line);
   border-radius: 5px;
   background: var(--paper);
   cursor: pointer;

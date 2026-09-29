@@ -11,21 +11,25 @@ colors:
   archival-white: "#f9f8f4"
   action-cobalt: "#2759dc"
   action-cobalt-dark: "#1944b8"
+  stage-link-hover: "#aabcf4"
+  stage-muted: "#b8b8b1"
   hairline-stone: "#c9c5bc"
   field-stone: "#85827a"
+  control-line: "#85827a"
   disabled-ink: "#7c7c74"
-  warning-terracotta: "#c86b55"
+  warning-terracotta: "#b85a43"
   window-close-red: "#c42b1c"
-  dark-mineral-paper: "#171815"
-  dark-mineral-paper-deep: "#22231f"
+  dark-mineral-paper: "#1c1d19"
+  dark-mineral-paper-deep: "#252621"
   dark-graphite-ink: "#f0eee8"
   dark-muted-olive-gray: "#aaa99f"
   dark-viewing-stage: "#0d0e0c"
-  dark-viewing-stage-soft: "#1b1c19"
+  dark-viewing-stage-soft: "#151613"
   dark-action-cobalt: "#496adc"
   dark-action-cobalt-dark: "#3f63d7"
-  dark-hairline-stone: "#3b3c36"
+  dark-hairline-stone: "#40413a"
   dark-field-stone: "#6f7068"
+  dark-control-line: "#6a6b63"
   dark-disabled-ink: "#77776f"
   dark-control-fill: "#343530"
   dark-floating-control: "#2b2c28"
@@ -38,15 +42,23 @@ typography:
     lineHeight: 1.15
     letterSpacing: "-0.035em"
   body:
-    fontFamily: "Avenir Next, Avenir, Helvetica Neue, Arial, sans-serif"
+    fontFamily: "Archive Sans, Avenir Next, Avenir, Helvetica Neue, Arial, sans-serif"
     fontSize: "14px"
     fontWeight: 400
     lineHeight: 1.65
   label:
-    fontFamily: "Avenir Next, Avenir, Helvetica Neue, Arial, sans-serif"
+    fontFamily: "Archive Sans, Avenir Next, Avenir, Helvetica Neue, Arial, sans-serif"
     fontSize: "13px"
     fontWeight: 650
     lineHeight: 1.2
+  dialog-title:
+    fontFamily: "Archive Serif, serif"
+    fontSize: "clamp(26px, 3vw, 32px)"
+    fontWeight: 400
+  entry-title:
+    fontFamily: "Archive Serif, serif"
+    fontSize: "clamp(28px, 4vw, 34px)"
+    fontWeight: 400
   metric:
     fontFamily: "Archive Serif, serif"
     fontSize: "clamp(38px, 8vw, 58px)"
@@ -100,6 +112,17 @@ components:
     rounded: "{rounded.control}"
     width: "38px"
     height: "52px"
+  status-bar:
+    backgroundColor: "{colors.mineral-paper-deep}"
+    textColor: "{colors.muted-olive-gray}"
+    height: "50px"
+  tools-menu:
+    backgroundColor: "{colors.mineral-paper}"
+    textColor: "{colors.graphite-ink}"
+    rounded: "{rounded.primary}"
+  tools-menu-item:
+    rounded: "{rounded.compact}"
+    height: "34px"
 ---
 
 # Design System: Random Frame
@@ -129,6 +152,7 @@ The palette pairs warm archival neutrals with a near-black viewing environment a
 
 - **Action Cobalt:** Primary actions, focus outlines, selection, and the live session indicator.
 - **Action Cobalt Dark:** Hover state for the primary action.
+- **Stage Link Hover:** Pale blue for hovered text actions and toast actions on dark surfaces.
 
 ### Neutral
 
@@ -138,11 +162,13 @@ The palette pairs warm archival neutrals with a near-black viewing environment a
 - **Muted Olive Gray:** Explanatory copy, session labels, disabled source metadata, and footer text.
 - **Viewing Stage:** The media field and empty, loading, and error-state backdrop.
 - **Viewing Stage Soft:** Supporting dark neutral for stage-adjacent layering.
+- **Stage Muted:** Secondary copy inside the viewing stage, where paper-surface metadata colors do not apply.
 - **Archival White:** High-contrast copy and light control surfaces.
 - **Hairline Stone:** Dividers and keycap borders.
 - **Field Stone:** Text-input borders only, at 3:1 or better against the paper in both themes.
+- **Control Line (`--control-line`):** Outlines of outlined buttons, the ID pill, and the consent checkbox, at 3:1 or better against the paper in both themes. Hairline Stone stays for dividers only.
 - **Disabled Ink:** Marks of disabled info-line icons and ID menu items, solid rather than faded, at 3:1 or better against the paper in both themes.
-- **Warning Terracotta:** Error icon only.
+- **Warning Terracotta:** Error dots (stage error headline, Sync error, error toast) and the 1px outline of destructive controls (Leave Sync and armed clear-history buttons); never text. Holds 3:1 or better on the paper in light mode and on the stage.
 - **Window Close Red:** Hover fill of the titlebar close control only, matching the native window-close convention in both themes.
 
 **The One Cobalt Rule.** Cobalt communicates action, focus, selection, or live status; it is not decorative fill. Draw next is the only cobalt button on the main screen.
@@ -154,7 +180,7 @@ Light mode uses the original warm mineral paper. Dark mode keeps the archival ch
 ## Typography
 
 **Display Font:** Archive Serif (local Noto Serif Display asset, with serif fallback)  
-**Body Font:** Avenir Next (with Avenir, Helvetica Neue, Arial, and sans-serif fallbacks)  
+**Body Font:** Archive Sans (local Noto Sans regular and bold assets, with Avenir Next, Avenir, Helvetica Neue, Arial, and sans-serif fallbacks)
 **Mono Font:** SF Mono via `ui-monospace` (with SFMono-Regular, Menlo, and monospace fallbacks) for source identifiers only; 13px in the info line, 12px tabular in history captions
 
 **Character:** The serif adds archival gravity to titles and state headlines. The sans-serif keeps navigation, warnings, and controls direct; monospace makes the source identifier feel precise and inspectable.
@@ -162,6 +188,7 @@ Light mode uses the original warm mineral paper. Dark mode keeps the archival ch
 ### Hierarchy
 
 - **Display:** Regular-weight serif with tight tracking for the viewer title and prominent state headings.
+- **Dialog titles:** Utility dialogs use a 26–32px serif off-ramp; the entry dialog uses 28–34px.
 - **Body:** Compact sans-serif for descriptions and warnings, with generous leading inside the dark stage.
 - **Label:** Semibold sans-serif for controls and terse interface labels.
 - **Metadata:** Small muted sans-serif or tabular/monospace figures for counters, shortcuts, and source IDs.
@@ -171,13 +198,13 @@ Light mode uses the original warm mineral paper. Dark mode keeps the archival ch
 
 ## Layout
 
-The Tauri window is a full-height desktop workbench. The body fills `100dvh` and uses two rows: a 42px custom titlebar and a flexible `minmax(0, 1fr)` work area. The work area is inset 14px from the titlebar, 16px from each side, and 4px from the bottom, with overflow clipped so the application chrome never becomes a scrolling web page. The privacy page adds its 34px status bar as an implicit third row.
+The Tauri window is a full-height desktop workbench. The body fills `100dvh` and uses two rows: a 42px custom titlebar and a flexible `minmax(0, 1fr)` work area. The work area is inset 14px from the titlebar, 16px from each side, and 4px from the bottom, with overflow clipped so the application chrome never becomes a scrolling web page. The privacy page adds its 50px status bar as an implicit third row.
 
 The viewer fills the work area with two rows: the flexible graphite stage and a 56px info line. The stage absorbs window resizing while the info line stays stable. The shipped window opens at 1440×900 and may resize down to 800×600; both sizes must show the complete workbench without document scrolling.
 
 **The Single Frame Rule.** Never turn the viewing stage into a grid: one image owns it at a time. Thumbnail grids live only inside the history dialog, as a way back to a frame.
 
-The history dialog grid auto-fills 138px-minimum columns with 12px gaps. Transient notices float above the frame: toasts stack above the info line, clear of Draw next, and the update banner centers 16px below the top edge.
+The history dialog grid auto-fills 138px-minimum columns with 12px gaps. Transient notices float above the frame: the current toast sits above the info line, clear of Draw next, and the update banner centers 16px below the top edge.
 
 **The Desktop Frame Rule.** Treat 800×600 as the compact floor: preserve the titlebar, stage, and info line, and let the stage flex before hiding persistent controls. The info line is a size container that sheds detail in a fixed order: below 720px the `prnt.sc/` prefix and the Draw next keycap drop; below 600px the ID steppers fold into a menu, whose chevron takes their place as the pill's right segment; below 480px the position tightens from `12 / 48` to `12/48`. Draw next never collapses and nothing wraps. The full line fits at the 800px floor.
 
@@ -189,7 +216,7 @@ Depth is concentrated on the viewing stage and floating controls. The titlebar, 
 
 - **Stage Ambient:** A compact two-layer shadow (`0 12px 32px` and `0 2px 6px`) that separates the graphite stage from the surrounding workbench without making it float like a web card.
 - **Cobalt Lift:** A colored soft shadow below the primary action and Draw next, mixed from the current theme's cobalt at 28%.
-- **Dark Hairline Ring:** In dark mode the stage, toasts, update banner, and ID menu add a 1px warm-white ring at 10% so their edges survive on charcoal paper; light mode omits it.
+- **Dark Hairline Ring:** In dark mode the stage, toasts, update banner, ID menu, More menu, and the History and Lightbox dialogs add a 1px warm-white ring at 10% so their edges survive on charcoal paper; light mode omits it. The entry dialog has no ring.
 - **Control Lift:** A compact neutral shadow below previous/next controls.
 - **Notice Lift:** A soft `0 10px 28px` warm shadow at 20% under the dark toasts, the update banner, and the ID menu, so they read as momentary overlays. It pairs with the Dark Hairline Ring instead of a border.
 
@@ -197,7 +224,7 @@ Depth is concentrated on the viewing stage and floating controls. The titlebar, 
 
 ## Shapes
 
-The stage uses an 8px outer radius and an 8px inset hairline, matching the compact titlebar and navigation controls. Secondary actions use 9px corners; the primary action, Draw next, history thumbnails, toasts, the ID menu, and the update banner use 10px; ledger thumbnails and ID menu items use 5px; and dialogs retain their softer 14px outer frames. The session indicator and loading spinner are circular. Thin strokes and open SVG icons preserve the technical, machined feel.
+The stage uses an 8px outer radius and an 8px inset hairline, matching the compact titlebar and navigation controls. Secondary actions use 9px corners; the primary action, Draw next, history thumbnails, toasts, the ID menu, and the update banner use 10px; ledger thumbnails, ID menu items, and the update banner's buttons use 5px; and dialogs retain their softer 14px outer frames. The session indicator and loading spinner are circular. Thin strokes and open SVG icons preserve the technical, machined feel.
 
 ## Components
 
@@ -205,6 +232,7 @@ The stage uses an 8px outer radius and an 8px inset hairline, matching the compa
 
 - **Primary:** Cobalt, semibold, compact, and paired with a forward arrow; it is the single dominant call to action.
 - **Secondary:** Transparent, 34px tall, and outlined in graphite; hover inverts to graphite with archival-white text.
+- **Destructive:** Outlined like a secondary button with a 1px Warning Terracotta border and ink text (never terracotta text). Used for Leave Sync and for the armed "Confirm clear history" state, whose inset 1px shadow reinforces the outline. Confirmation dialogs focus Cancel first.
 - **Text action:** Unboxed archival-white text with a thin underline, used only inside the dark error state.
 - **Hover / Focus:** Hover changes color or inverts the surface. Keyboard focus uses a high-contrast cobalt outline offset from the component.
 - **Icon controls:** 34px paper-deep squares in the titlebar; hover inverts to graphite and active state compresses slightly.
@@ -216,37 +244,37 @@ The stage uses an 8px outer radius and an 8px inset hairline, matching the compa
 
 ### Dialogs
 
-- **Shell:** Native modal behavior with mineral-paper surfaces, a graphite scrim, 14px corners, and the same ambient depth vocabulary as the stage.
+- **Shell:** Modal behavior from `show()` plus inert, not `showModal()`, which would also inert the drag region, window controls, and the live region. `dialogs.ts` inerts the main content, titlebar tools, and update banner while any dialog is open, and traps Tab inside it. Native with mineral-paper surfaces, a graphite scrim, 14px corners, and the same ambient depth vocabulary as the stage.
 - **Header:** Serif title, close control, and one hairline divider.
 - **History grid:** Graphite thumbnail tiles with a 10px frame, a 4:3 contained image over Viewing Stage Soft, and a monospace ID caption. The current frame gets a cobalt double-weight border; frames without a stored thumbnail show a diagonal graphite stripe. Favorited tiles carry a small archival-white star on a graphite chip in the top-right corner, never cobalt, so it can't be mistaken for the selection border; ledger thumbnails carry the same mark at a smaller size.
 - **History filter:** An All / Favorites pair in the dialog header, joined as one 38px outlined control in the pager's language; the chosen side holds the graphite fill. It resets to All on every open. Favorites is the same grid, pager, and empty state over the starred frames in the order they were starred, with its own hold-to-clear control shown only while favorites exist. Clearing history keeps favorites.
-- **History pager:** A flat 62px footer below one hairline: muted frame range on the left, outlined Previous/Next steps around a "Page n of m" label, and a native "Per page" select (10/25/50/100, default 25). Steps and select share a 38px outlined control that fills with graphite on hover. The footer is omitted when history fits the smallest page, and the step buttons are omitted when everything fits on one page.
-- **Statistics headline:** Found, Today, and Day streak sit as a three-up tabular serif tally, each a label over its figure and divided by a hairline. "Prnt.sc explored" and its share-of-ID-space and viewable/unavailable breakdown follow as a muted detail line. Unreadable local data replaces every figure with an em dash and swaps the detail line for a plain explanation and a "Try again" action; the Draw ledger below is hidden until stats read successfully.
-- **Draw ledger:** A plain ordered list, one hairline-ruled row per active day, newest first: the date ("Today", "Yesterday", then weekday and date), a muted "N drawn · M unavailable" count (the unavailable part only when nonzero), and a strip of up to six 48×36 thumbnails from that day's frames, grouped by the local day of `viewedAt`, with a "+X" overflow. Clicking a thumbnail closes the dialog and shows that frame; the current frame gets the cobalt selection border. Days with no saved thumbnails show a 1px muted hairline sized to their share of the busiest day. Rows are focusable and render 14 days at a time behind an outlined "Show earlier days" button.
-- **Dialog footer:** History and Stats end in the Mineral Paper Deep status strip carrying the local-history and privacy sentence; the Stats strip also holds the version, Privacy, and Prnt.sc links.
-- **Lightbox:** Zooming opens the image edge to edge below the titlebar on a near-black 94% scrim with 24px padding and a zoom-out cursor.
+- **History pager:** A flat 62px footer below one hairline: muted frame range on the left, outlined Previous/Next steps around a "Page n of m" label, and a native "Per page" select (10/25/50/100, default 25). Steps and select share a 38px outlined control that fills with graphite on hover. When thumbnails are missing, the footer offers Download thumbnails; for short histories, it keeps only that action when needed.
+- **Statistics headline:** Found, Today, and Activity streak sit as a three-up tabular serif tally, each a figure above its label and divided by a hairline. The local Prnt.sc explored count and viewable/unavailable breakdown follow as a muted detail line. Unreadable local data replaces every figure with an em dash and swaps the detail line for a plain explanation and a "Try again" action; the Draw ledger below is hidden until stats read successfully.
+- **Draw ledger:** A plain ordered list, one hairline-ruled row per active day, newest first: the date ("Today", "Yesterday", then weekday and date), a muted "N found · M unavailable" count (the unavailable part only when nonzero), and a strip of up to six 48×36 thumbnails from that day's frames, grouped by the local day of `viewedAt`, with a "+X" overflow. Clicking a thumbnail closes the dialog and shows that frame; the current frame gets the cobalt selection border. Rows without thumbnails rely on their labeled counts. Rows are focusable and render 14 days at a time behind an outlined "Show earlier days" button.
+- **Dialog footer:** The Stats dialog ends in the Mineral Paper Deep strip with a short reset and persistence line, a native "How stats work" disclosure for definitions, and version, Privacy, and Prnt.sc links.
+- **Lightbox:** A near-black inspection view sits below the titlebar. Its top rail holds the frame ID, session position, 1:1/Fit toggle, and close button. Side arrows and ←/→ move through saved history; at 1:1 the image can be dragged or scrolled.
 - **Motion:** Dialogs scale from 0.97 while fading over 220ms; reduced-motion mode removes the scale.
 
 ### Navigation
 
-- **Titlebar:** A fixed 42px Mineral Paper Deep drag region with brand mark and title on the left, compact statistics, keyboard shortcuts and theme controls, then 46px-wide square-stroke window controls on the right, divided from the work area by one stone hairline. Close hovers to Window Close Red.
+- **Titlebar:** A fixed 42px Mineral Paper Deep drag region with brand mark and title on the left, Stats and More icon controls, then 46px-wide square-stroke window controls on the right, divided from the work area by one stone hairline. The native More popover holds Sync, Keyboard shortcuts, and the theme switch in 34px rows; it is at least 200px wide. Close hovers to Window Close Red.
 - **Frame navigation:** 38×52px archival-white controls float 16px from the stage edges. Disabled buttons remain visible at reduced opacity.
-- **Info line:** Left to right: the position readout, a hairline divider, one hairline segmented pill joining the previous-ID chevron, the monospace frame ID, and the next-ID chevron, then copy-link (chain link) and open-source icons, a flexible gap, Favorite, History, Copy image and Save image as titled 34px icon buttons, then Draw next at the far right. Favorite is an outline star that fills with graphite ink (`aria-pressed`) while the shown frame is a favorite. History uses a stacked-frames glyph. Focus order follows it: stage, position, steppers, actions, Draw next. Completing a save files the arrow icon away and draws a check in its place; the check holds while that frame stays shown and clears once another frame is drawn or restored.
+- **Info line:** Left to right: the position readout, a hairline divider, one hairline segmented pill joining the previous-ID chevron, the monospace frame ID, and the next-ID chevron, then copy-link (chain link) and open-source icons, a flexible gap, Favorite, Copy image, and Save image as titled 34px icon buttons, a divider, History, then Draw next at the far right. Favorite is an outline star that fills with graphite ink (`aria-pressed`) while the shown frame is a favorite. History uses a clock with a counterclockwise arrow. Focus order follows it: stage, position, steppers, actions, Draw next. Completing a save files the arrow icon away and draws a check in its place; the check holds while that frame stays shown and clears once another frame is drawn or restored.
 - **Position readout:** `12 / 48` in tabular figures (current in ink, total muted). Clicking it swaps in a native number field in place; Enter jumps, Escape or blur restores the readout.
 - **Draw next:** The single cobalt control on the main screen, 40px tall with a muted N keycap. It always draws a new frame, even mid-history; the frame joins the end of history and the view jumps to it. While drawing, an inline spinner replaces the label at the same width with `aria-busy`. During a rate-limit cooldown it reads "Wait 12s", desaturates, and uses `aria-disabled` so it keeps focus. Pressing → on the newest frame pulses it once and announces its key.
-- **Keyboard:** ←/→ only move through history. N draws from anywhere outside the jump field; Space and Enter draw when no control has focus. S saves, C copies the image, F adds or removes the shown frame from favorites, H opens History. ? toggles the Keyboard shortcuts sheet, a 560px dialog with one hairline-ruled row per action and paper-deep keycaps on the right; the titlebar keyboard icon opens it too. Icon-action tooltips name their key, e.g. "Save image (S)".
+- **Keyboard:** ←/→ only move through history. N draws from anywhere outside the jump field; Space and Enter draw when no control has focus. S saves, C copies the image, F adds or removes the shown frame from favorites, H opens History. ? toggles the Keyboard shortcuts sheet, a 560px dialog with one hairline-ruled row per action and paper-deep keycaps on the right; the More menu opens it too. Icon-action tooltips name their key, e.g. "Save image (S)".
 - **Provider-specific browsing:** When a source exposes sequential identifiers, chevron steppers flank its ID, visually separated from the large history navigation. Omit this control group for providers without meaningful adjacency.
-- **Status bar:** Only the privacy page keeps the fixed 34px status strip. Its muted text holds 4.5:1 or better on Mineral Paper Deep in both themes.
+- **Status bar:** Only the privacy page keeps the fixed 50px status strip. Its muted text holds 4.5:1 or better on Mineral Paper Deep in both themes.
 
 ### Status States
 
-- **Empty:** Serif invitation, concise public-content warning, and a muted hint naming the N keycap or Draw next; no in-stage button. Draw next in the info line takes initial focus.
+- **Empty:** A small outlined frame mark gives the dark stage presence above the serif invitation, public-content warning, and muted N keycap or Draw next hint; no in-stage button. Draw next in the info line takes initial focus.
 - **Loading:** A fine circular spinner and plain status line.
-- **Error:** A small terracotta dot before the sans-serif headline, a recovery explanation, and an underlined retry action that repeats the exact request that failed, captioned over the dimmed prior frame rather than replacing it. The position readout and frame ID dim to match.
+- **Error:** A small terracotta dot before the sans-serif headline, a recovery explanation, and an underlined retry action that repeats the exact request that failed, captioned over the dimmed prior frame rather than replacing it. The position readout and frame ID caption dim to match; the icon tools beside them stay at full strength so disabled marks keep their 3:1.
 
 ### Notices
 
-- **Toast:** Near-black 97% pill-cornered (10px) note with a cobalt status dot and 13px semibold archival-white text; enters over 220ms. Stacks above the info line, clear of Draw next, rather than at the window's own corner.
+- **Toast:** Near-black 97% pill-cornered (10px) note with a white success dot, muted info dot, or terracotta error dot and 13px semibold archival-white text; enters over 220ms. New notices replace the current toast above the info line, clear of Draw next.
 - **Update banner:** The same dark surface centered at the top, with a cobalt install action and a dimmed dismiss.
 
 ### Reading Pages

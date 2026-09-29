@@ -14,31 +14,15 @@ import {
 import { goTo, loadById } from "./frame-loader.js";
 import { historyPage, PAGE_SIZES, pageOf, parsePageSize, savePageSize } from "./history-pagination.js";
 import { clearHistory } from "./persistence.js";
-import { setState, syncControls } from "./stage.js";
+import { getViewState, setState, syncControls } from "./stage.js";
 import { toast } from "./toast.js";
 import { applyFavorites, isFavorite, state } from "./viewer-state.js";
 
 type HistoryDialogTab = "history" | "favourites";
-const tabStorageKey = "random-frame-history-dialog-tab";
+export const pendingHistoryClearKey = "random-frame-history-clear-pending";
 let filter: HistoryDialogTab = "history";
 let batchRunning = false;
 let viewVersion = 0;
-
-function loadTab(): HistoryDialogTab {
-  try {
-    return localStorage.getItem(tabStorageKey) === "favourites" ? "favourites" : "history";
-  } catch {
-    return "history";
-  }
-}
-
-function saveTab(tab: HistoryDialogTab): void {
-  try {
-    localStorage.setItem(tabStorageKey, tab);
-  } catch {
-    // Storage may be unavailable; the current dialog still uses the selected tab.
-  }
-}
 
 // index is the frame's place in history, or -1 for a favorite whose history was cleared.
 interface GridEntry {
@@ -57,9 +41,11 @@ function gridEntries(): GridEntry[] {
 function updateThumbnailAction(entries: GridEntry[], start: number, end: number): void {
   const missing = entries.slice(start, end).some(({ source, id }) => !thumbnails.get(blobKey(source, id)));
   elements.historyThumbnailAction.hidden = !missing;
+  // The download action lives in the pager row, so a short history still shows the row for it.
+  elements.historyPager.hidden = entries.length <= PAGE_SIZES[0] && !missing;
   elements.historyThumbnails.disabled = batchRunning || !missing;
   if (!missing && document.activeElement === elements.historyThumbnails) elements.historyClose.focus();
-  elements.historyThumbnails.textContent = batchRunning ? "Downloading thumbnails…" : "Download missing thumbnails";
+  elements.historyThumbnails.textContent = batchRunning ? "Downloading thumbnails…" : "Download thumbnails";
 }
 
 // Only the current page is laid out, so the dialog never builds thousands of DOM nodes.
@@ -84,7 +70,8 @@ function renderHistoryPage(): void {
   elements.historyBody.scrollTop = 0;
 
   // Below the smallest page size neither paging nor the size choice changes anything.
-  elements.historyPager.hidden = entries.length <= PAGE_SIZES[0];
+  if (entries.length <= PAGE_SIZES[0]) elements.historyPager.setAttribute("data-compact", "");
+  else elements.historyPager.removeAttribute("data-compact");
   elements.historyPagerNav.hidden = view.pages === 1;
   elements.historyRange.textContent = entries.length
     ? `${favoritesView ? "Favorites" : "Frames"} ${(view.start + 1).toLocaleString("en-US")}–${view.end.toLocaleString("en-US")} of ${entries.length.toLocaleString("en-US")}`
@@ -138,7 +125,6 @@ function showCurrentPage(): void {
 function showFilter(next: HistoryDialogTab): void {
   viewVersion++;
   filter = next;
-  saveTab(next);
   showCurrentPage();
 }
 
@@ -146,9 +132,10 @@ export function openHistory(): void {
   if (state.loading) return;
   elements.historyClear.disabled = !state.history.length;
   viewVersion++;
-  filter = loadTab();
+  filter = "history";
   showCurrentPage();
   openDialog(elements.historyDialog);
+  (elements.historyGrid.children[state.index - state.pageIndex * state.pageSize] as HTMLElement | undefined)?.focus();
 }
 
 function showHistoryPage(page: number): void {
@@ -214,27 +201,74 @@ async function downloadMissingThumbnails(): Promise<void> {
 
 async function clearSavedHistory(): Promise<void> {
   if (state.loading) return;
+  const previousHistory = [...state.history];
+  const previousIndex = state.index;
+  const previousView = getViewState();
   state.loading = true;
-  syncControls();
+  let durable = false;
   try {
-    await clearHistory();
-    state.history.length = 0;
-    state.index = -1;
+    localStorage.setItem(pendingHistoryClearKey, "true");
+    durable = true;
+  } catch {
+    // Without a restart marker, finish the clear before showing success.
+  }
+  if (!durable) {
+    try {
+      await clearHistory();
+    } catch (error) {
+      state.loading = false;
+      syncControls();
+      toast.error(describeError(error, "History could not be cleared. Try again.").message);
+      return;
+    }
+  }
+  state.history.length = 0;
+  state.index = -1;
+  setState("empty");
+  syncControls();
+  state.historyReturnFocus = elements.draw;
+  closeDialog(elements.historyDialog);
+  const finishClear = (): void => {
     releaseAllBlobs();
     clearThumbnails(state.favorites);
     elements.image.src = "";
     elements.image.alt = "";
-    setState("empty");
-    // The History button no longer leads anywhere useful; the next step is a draw.
-    state.historyReturnFocus = elements.draw;
-    closeDialog(elements.historyDialog);
-    toast.success("History cleared");
-  } catch (error) {
-    toast.error(describeError(error, "History could not be cleared. Try again.").message);
-  } finally {
     state.loading = false;
     syncControls();
+  };
+  if (!durable) {
+    finishClear();
+    toast.success("History cleared");
+    return;
   }
+  const restore = (): void => {
+    try {
+      localStorage.removeItem(pendingHistoryClearKey);
+    } catch {
+      // Storage was unavailable when the clear began.
+    }
+    state.history.splice(0, state.history.length, ...previousHistory);
+    state.index = previousIndex;
+    setState(previousView);
+    state.loading = false;
+    syncControls();
+  };
+  toast.info("History cleared", { label: "Undo", run: restore }, () => {
+    void clearHistory().then(
+      () => {
+        try {
+          localStorage.removeItem(pendingHistoryClearKey);
+        } catch {
+          // The next launch may repeat the already completed clear.
+        }
+        finishClear();
+      },
+      (error: unknown) => {
+        restore();
+        toast.error(describeError(error, "History could not be cleared. Try again.").message);
+      },
+    );
+  });
 }
 
 async function clearSavedFavorites(): Promise<void> {
@@ -253,13 +287,15 @@ async function clearSavedFavorites(): Promise<void> {
 }
 
 // Confirmation stays explicit for pointer, keyboard, and assistive-technology activation.
-function bindClearConfirmation(button: HTMLButtonElement, clear: () => Promise<void>): () => void {
+// The group shows its hint only while armed; the button keeps aria-describedby either way.
+function bindClearConfirmation(button: HTMLButtonElement, group: HTMLElement, clear: () => Promise<void>): () => void {
   let armedUntil = 0;
   let confirmationTimeout: ReturnType<typeof setTimeout>;
   const initialLabel = button.textContent.trim();
   const reset = (): void => {
     clearTimeout(confirmationTimeout);
     armedUntil = 0;
+    group.removeAttribute("data-armed");
     button.textContent = initialLabel;
   };
   button.addEventListener("click", () => {
@@ -270,6 +306,7 @@ function bindClearConfirmation(button: HTMLButtonElement, clear: () => Promise<v
       return;
     }
     armedUntil = Date.now() + 5000;
+    group.setAttribute("data-armed", "");
     button.textContent = `Confirm ${initialLabel.toLowerCase()}`;
     elements.announcer.textContent = `Activate again to ${initialLabel.toLowerCase()}`;
     confirmationTimeout = setTimeout(() => {
@@ -283,8 +320,16 @@ function bindClearConfirmation(button: HTMLButtonElement, clear: () => Promise<v
 export function bindHistoryDialogEvents(): void {
   elements.historyButton.addEventListener("click", openHistory);
   elements.historyClose.addEventListener("click", () => closeDialog(elements.historyDialog));
-  const resetHistoryConfirmation = bindClearConfirmation(elements.historyClear, clearSavedHistory);
-  const resetFavoritesConfirmation = bindClearConfirmation(elements.historyClearFavorites, clearSavedFavorites);
+  const resetHistoryConfirmation = bindClearConfirmation(
+    elements.historyClear,
+    elements.historyClearGroup,
+    clearSavedHistory,
+  );
+  const resetFavoritesConfirmation = bindClearConfirmation(
+    elements.historyClearFavorites,
+    elements.historyClearFavoritesGroup,
+    clearSavedFavorites,
+  );
   elements.historyFilterAll.addEventListener("click", () => {
     resetHistoryConfirmation();
     resetFavoritesConfirmation();
@@ -299,6 +344,19 @@ export function bindHistoryDialogEvents(): void {
   elements.historyPageNext.addEventListener("click", () => showHistoryPage(state.pageIndex + 1));
   elements.historyPageSize.addEventListener("change", changePageSize);
   elements.historyThumbnails.addEventListener("click", () => void downloadMissingThumbnails());
+  elements.historyGrid.addEventListener("keydown", (event) => {
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    const tiles = elements.historyGrid.children;
+    const current = Array.prototype.indexOf.call(tiles, event.target) as number;
+    if (current < 0) return;
+    const columns = getComputedStyle(elements.historyGrid).gridTemplateColumns.split(" ").length;
+    const delta = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -columns, ArrowDown: columns }[
+      event.key as "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown"
+    ];
+    if (delta === undefined) return;
+    event.preventDefault();
+    (tiles[current + delta] as HTMLElement | undefined)?.focus();
+  });
   elements.historyDialog.addEventListener("close", () => {
     viewVersion++;
     // Main is inert until onDialogClosed, and focus() on an inert element is ignored.

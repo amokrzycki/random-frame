@@ -18,7 +18,11 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   const globalNames = ["document", "localStorage", "performance", "sessionStorage", "window"];
   const originalGlobals = new Map(globalNames.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
   // Toasts schedule their own dismissal; the test never waits for it.
-  window.setTimeout = () => 0;
+  let toastExpiry;
+  window.setTimeout = (callback) => {
+    toastExpiry = callback;
+    return 0;
+  };
   localStorage.setItem("random-frame-risk-accepted", "accepted");
   sessionStorage.setItem(
     "prntsc-gallery-history",
@@ -139,8 +143,9 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(get("history-dialog").open, true);
   assert.equal(get("history-grid").children.length, 2);
   assert.match(get("image").alt, /saved2/);
-  // Pre-pagination users have no page-size setting; a short history shows no pager and nothing is written.
-  assert.equal(get("history-pager").hidden, true);
+  // Pre-pagination users have no page-size setting; a short history keeps only the compact pager row and nothing is written.
+  assert.equal(get("history-pager-nav").hidden, true);
+  assert.equal(get("history-pager").getAttribute("data-compact"), "");
   assert.equal(get("history-page-size").value, "25");
   assert.equal(localStorage.getItem("random-frame-history-page-size"), null);
 
@@ -179,8 +184,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(get("stats-today").textContent, "2");
   assert.equal(get("stats-total").textContent, "2");
   assert.equal(get("stats-streak").textContent, "1");
-  assert.equal(get("stats-explored").textContent, "12,483 / 4,773,622,240");
-  assert.equal(get("stats-explored-percent").textContent, "< 0.001% of known legacy ID space");
+  assert.equal(get("stats-explored").textContent, "12,483");
   assert.equal(get("stats-explored-breakdown").textContent, "8,000 viewable · 4,483 unavailable");
   // One ledger row for today; frames shown this session (saved2, abc123, def456) have thumbnails, newest first.
   assert.equal(get("ledger-list").children.length, 1);
@@ -317,7 +321,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(get("retry-button").textContent, "Try again");
   assert.equal(get("image-zoom").hidden, false);
   assert.equal(get("back-button").hidden, false);
-  assert.equal(get("back-button").textContent, "Show frame 5");
+  assert.equal(get("back-button").textContent, "Return to frame 5");
   get("back-button").click();
   await flush();
   await flush();
@@ -349,8 +353,10 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   clearButton.click();
   await flush();
   assert.equal(clears(), 0);
-  assert.equal(clearButton.textContent, "Confirm clear history");
+  assert.equal(clearButton.textContent, "Confirm clear history & stats");
   clearButton.click();
+  assert.equal(clears(), 0);
+  toastExpiry();
   await flush();
   assert.deepEqual(persisted, { history: [], index: -1 });
   assert.equal(get("history-total").textContent, "0");
@@ -377,8 +383,9 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   clearButton.click();
   await flush();
   assert.equal(clears(), 1);
-  assert.equal(get("announcer").textContent, "Activate again to clear history");
+  assert.equal(get("announcer").textContent, "Activate again to clear history & stats");
   clearButton.click();
+  toastExpiry();
   await flush();
   assert.equal(clears(), 2);
 });

@@ -23,6 +23,10 @@ class FakeElement extends EventTarget {
     this.children.push(...children);
   }
 
+  remove() {
+    // Toasts leave the page when dismissed; nothing here inspects the removal.
+  }
+
   replaceChildren(...children) {
     this.children = children;
   }
@@ -92,8 +96,16 @@ export class FakeDocument extends EventTarget {
     super();
     this.activeElement = null;
     this.elements = new Map(ids.map((id) => [`#${id}`, new FakeElement(this)]));
+    const lightboxClasses = new Set();
+    this.elements.get("#lightbox-view").classList = {
+      contains: (name) => lightboxClasses.has(name),
+      toggle: (name, force) => {
+        if (force) lightboxClasses.add(name);
+        else lightboxClasses.delete(name);
+      },
+    };
     this.body = new FakeElement(this);
-    this.elements.get("#history-clear-button").textContent = "Clear history";
+    this.elements.get("#history-clear-button").textContent = "Clear history & stats";
     this.elements.get("#history-clear-favorites-button").textContent = "Clear favorites";
   }
 
@@ -106,7 +118,13 @@ export class FakeDocument extends EventTarget {
   }
 
   createElement() {
-    return new FakeElement(this);
+    const element = new FakeElement(this);
+    element.classList = {
+      add() {
+        // Toast exit animation is outside these tests.
+      },
+    };
+    return element;
   }
 }
 
@@ -132,9 +150,15 @@ export const ids = [
   "image-ghost",
   "lightbox-dialog",
   "lightbox-image",
+  "lightbox-view",
+  "lightbox-caption",
+  "lightbox-zoom-button",
+  "lightbox-previous",
+  "lightbox-next",
   "lightbox-close-button",
   "empty-state",
   "loading-state",
+  "loading-message",
   "error-state",
   "error-title",
   "error-message",
@@ -179,8 +203,11 @@ export const ids = [
   "sync-button",
   "sync-dialog",
   "sync-close",
+  "sync-done",
   "sync-status",
   "sync-error",
+  "sync-error-message",
+  "sync-retry",
   "sync-unpaired",
   "sync-enable",
   "sync-show-join",
@@ -193,7 +220,6 @@ export const ids = [
   "sync-copy-key",
   "sync-key-saved",
   "sync-paired",
-  "sync-revision",
   "sync-dirty",
   "sync-now",
   "sync-leave",
@@ -209,7 +235,6 @@ export const ids = [
   "stats-total",
   "stats-streak",
   "stats-explored",
-  "stats-explored-percent",
   "stats-explored-breakdown",
   "announcer",
   "entry-dialog",
@@ -220,10 +245,11 @@ export const ids = [
   "masthead-tools",
   "dialog-backdrop",
   "image-id-value",
-  "id-menu",
-  "id-menu-button",
-  "previous-id-menu-item",
-  "next-id-menu-item",
+  "tools-menu",
+  "tools-menu-button",
+  "info-actions",
+  "arrow-hint",
+  "arrow-hint-dismiss",
   "position-button",
   "position-current",
   "jump-total",
