@@ -40,12 +40,12 @@ typography:
     lineHeight: 1.15
     letterSpacing: "-0.035em"
   body:
-    fontFamily: "Avenir Next, Avenir, Helvetica Neue, Arial, sans-serif"
+    fontFamily: "Archive Sans, Avenir Next, Avenir, Helvetica Neue, Arial, sans-serif"
     fontSize: "14px"
     fontWeight: 400
     lineHeight: 1.65
   label:
-    fontFamily: "Avenir Next, Avenir, Helvetica Neue, Arial, sans-serif"
+    fontFamily: "Archive Sans, Avenir Next, Avenir, Helvetica Neue, Arial, sans-serif"
     fontSize: "13px"
     fontWeight: 650
     lineHeight: 1.2
@@ -157,7 +157,7 @@ Light mode uses the original warm mineral paper. Dark mode keeps the archival ch
 ## Typography
 
 **Display Font:** Archive Serif (local Noto Serif Display asset, with serif fallback)  
-**Body Font:** Avenir Next (with Avenir, Helvetica Neue, Arial, and sans-serif fallbacks)  
+**Body Font:** Archive Sans (local Noto Sans regular and bold assets, with Avenir Next, Avenir, Helvetica Neue, Arial, and sans-serif fallbacks)
 **Mono Font:** SF Mono via `ui-monospace` (with SFMono-Regular, Menlo, and monospace fallbacks) for source identifiers only; 13px in the info line, 12px tabular in history captions
 
 **Character:** The serif adds archival gravity to titles and state headlines. The sans-serif keeps navigation, warnings, and controls direct; monospace makes the source identifier feel precise and inspectable.
@@ -165,6 +165,7 @@ Light mode uses the original warm mineral paper. Dark mode keeps the archival ch
 ### Hierarchy
 
 - **Display:** Regular-weight serif with tight tracking for the viewer title and prominent state headings.
+- **Dialog titles:** Utility dialogs use a 26–32px serif off-ramp; the entry dialog uses 28–34px.
 - **Body:** Compact sans-serif for descriptions and warnings, with generous leading inside the dark stage.
 - **Label:** Semibold sans-serif for controls and terse interface labels.
 - **Metadata:** Small muted sans-serif or tabular/monospace figures for counters, shortcuts, and source IDs.

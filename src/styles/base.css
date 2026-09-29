@@ -6,6 +6,22 @@
   font-display: swap;
 }
 
+@font-face {
+  font-family: "Archive Sans";
+  src: url("/assets/noto-sans-regular.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Archive Sans";
+  src: url("/assets/noto-sans-bold.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 600 700;
+  font-display: swap;
+}
+
 :root {
   color-scheme: light;
   --paper: #ebe8e1;
@@ -36,6 +52,8 @@
   --nav-ink: #191a18;
   --close-hover: #c42b1c;
   --titlebar-height: 42px;
+  --type-dialog-title: clamp(26px, 3vw, 32px);
+  --type-entry-title: clamp(28px, 4vw, 34px);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -81,7 +99,7 @@ body {
   margin: 0;
   color: var(--ink);
   background: var(--paper);
-  font-family: "Avenir Next", Avenir, "Helvetica Neue", Arial, sans-serif;
+  font-family: "Archive Sans", "Avenir Next", Avenir, "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
