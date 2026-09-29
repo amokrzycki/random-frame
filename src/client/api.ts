@@ -44,7 +44,15 @@ export function getFrameById(id: string, source = "prntsc"): Promise<Frame> {
   return receiveFrame("get_frame_by_id", { source, id });
 }
 
+// The backend's token bucket refills 3/s; a batch outruns it, so wait out local rate limits instead of failing.
 export async function getThumbnailBlob(id: string, source: string): Promise<Blob> {
-  const bytes = await invoke<ArrayBuffer>("get_thumbnail_image", { source, id });
-  return new Blob([bytes]);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return new Blob([await invoke<ArrayBuffer>("get_thumbnail_image", { source, id })]);
+    } catch (error) {
+      const limited = typeof error === "object" && error !== null && "kind" in error && error.kind === "rate-limited";
+      if (!limited || attempt >= 20) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    }
+  }
 }

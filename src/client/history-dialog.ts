@@ -2,7 +2,15 @@ import { closeDialog, onDialogClosed, openDialog } from "./dialogs.js";
 import { elements } from "./elements.js";
 import { describeError } from "./errors.js";
 import { clearFavorites } from "./favorites.js";
-import { blobKey, blobs, clearThumbnails, ensureThumbnail, releaseAllBlobs, thumbnails } from "./frame-cache.js";
+import {
+  blobKey,
+  blobs,
+  clearThumbnails,
+  ensureThumbnail,
+  persistThumbnails,
+  releaseAllBlobs,
+  thumbnails,
+} from "./frame-cache.js";
 import { goTo, loadById } from "./frame-loader.js";
 import { historyPage, PAGE_SIZES, pageOf, parsePageSize, savePageSize } from "./history-pagination.js";
 import { clearHistory } from "./persistence.js";
@@ -183,7 +191,7 @@ async function downloadMissingThumbnails(): Promise<void> {
         const entry = pending[next++];
         if (!entry) break;
         try {
-          if (!(await ensureThumbnail(entry))) failed++;
+          if (!(await ensureThumbnail(entry, false))) failed++;
         } catch {
           failed++;
         }
@@ -193,6 +201,7 @@ async function downloadMissingThumbnails(): Promise<void> {
       }
     }),
   );
+  persistThumbnails();
   batchRunning = false;
   if (viewVersion === version && elements.historyDialog.open) renderHistoryPage();
   else if (elements.historyDialog.open) {

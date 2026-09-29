@@ -34,17 +34,23 @@ function loadThumbnails(): Map<string, string> {
 
 export const thumbnails = loadThumbnails();
 
-function persistThumbnails(): void {
+export function persistThumbnails(): void {
   // ponytail: cache keeps the latest 300 generated thumbnails; older tiles use the placeholder.
   while (thumbnails.size > THUMBNAIL_LIMIT) thumbnails.delete(thumbnails.keys().next().value as string);
-  try {
-    localStorage.setItem(thumbnailStorageKey, JSON.stringify(Object.fromEntries(thumbnails)));
-  } catch {
-    // Storage quota exceeded; thumbnails simply stay in-memory for this session
+  // On quota errors drop the oldest quarter and retry; the in-memory map keeps them for this session.
+  const stored = new Map(thumbnails);
+  while (stored.size) {
+    try {
+      localStorage.setItem(thumbnailStorageKey, JSON.stringify(Object.fromEntries(stored)));
+      return;
+    } catch {
+      const drop = Math.ceil(stored.size / 4);
+      for (const key of [...stored.keys()].slice(0, drop)) stored.delete(key);
+    }
   }
 }
 
-export async function cacheThumbnail(key: string, blob: Blob): Promise<boolean> {
+export async function cacheThumbnail(key: string, blob: Blob, persist = true): Promise<boolean> {
   if (thumbnails.get(key)) return true;
   try {
     const bitmap = await createImageBitmap(blob);
@@ -60,7 +66,7 @@ export async function cacheThumbnail(key: string, blob: Blob): Promise<boolean> 
     context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
     bitmap.close();
     thumbnails.set(key, canvas.toDataURL("image/jpeg", 0.6));
-    persistThumbnails();
+    if (persist) persistThumbnails();
     return Boolean(thumbnails.get(key));
   } catch {
     // Thumbnail generation is best-effort; the grid falls back to a placeholder
@@ -68,12 +74,12 @@ export async function cacheThumbnail(key: string, blob: Blob): Promise<boolean> 
   }
 }
 
-export async function ensureThumbnail(frame: { source: string; id: string }): Promise<boolean> {
+export async function ensureThumbnail(frame: { source: string; id: string }, persist = true): Promise<boolean> {
   const key = blobKey(frame.source, frame.id);
   if (thumbnails.get(key)) return true;
   const blob = blobs.get(key)?.blob ?? (await getThumbnailBlob(frame.id, frame.source));
   if (thumbnails.get(key)) return true;
-  return cacheThumbnail(key, blob);
+  return cacheThumbnail(key, blob, persist);
 }
 
 export function releaseAllBlobs(): void {
