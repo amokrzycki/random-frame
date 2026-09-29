@@ -67,7 +67,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
       }
       if (command === "get_exploration_stats") {
         if (failStats) throw new Error("unreadable");
-        return { explored: 12_483, total: 4_773_622_240, viewable: 8_000, unavailable: 4_483 };
+        return { explored: 12_483, total: 4_773_622_240, viewable: 8_000, unavailable: 4_483, unclassified: 0 };
       }
       if (command === "get_viewing_activity") {
         return {
@@ -187,7 +187,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(get("ledger-empty").hidden, true);
   assert.equal(get("ledger-more").hidden, true);
   const [row] = get("ledger-list").children;
-  assert.equal(row.getAttribute("aria-label"), "Today: 2 drawn");
+  assert.equal(row.getAttribute("aria-label"), "Today: 2 found");
   const strip = row.children[2];
   assert.deepEqual(
     strip.children.map((child) => child.getAttribute("aria-label") ?? child.textContent),
@@ -342,32 +342,15 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   await flush();
   assert.match(get("image").alt, /new3/);
 
-  // Clearing is hold-to-confirm: the completed fill transition clears, releasing early does not.
+  // Clearing requires an explicit second activation with a visible confirmation label.
   const clearButton = get("history-clear-button");
   const clears = () => invocations.filter(({ command }) => command === "clear_history").length;
-  const press = () => {
-    const event = new Event("pointerdown");
-    Object.defineProperty(event, "button", { value: 0 });
-    clearButton.dispatchEvent(event);
-  };
-  const release = () => {
-    clearButton.dispatchEvent(new Event("pointerup"));
-    clearButton.click();
-  };
-  const fill = () => {
-    const event = new Event("transitionend");
-    Object.defineProperty(event, "pseudoElement", { value: "::before" });
-    clearButton.dispatchEvent(event);
-  };
   get("history-button").click();
-  press();
-  release();
-  fill();
+  clearButton.click();
   await flush();
   assert.equal(clears(), 0);
-  press();
-  fill();
-  release();
+  assert.equal(clearButton.textContent, "Confirm clear history");
+  clearButton.click();
   await flush();
   assert.deepEqual(persisted, { history: [], index: -1 });
   assert.equal(get("history-total").textContent, "0");
@@ -390,7 +373,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   get("previous-button").click();
   await flush();
   assert.equal(historyWrites(), afterDraw + 2);
-  // Assistive tech clicks without a press: the first activation arms, the second clears.
+  // The same confirmation works with bare assistive-technology activations.
   clearButton.click();
   await flush();
   assert.equal(clears(), 1);

@@ -116,12 +116,19 @@ async function loadStats(): Promise<void> {
     elements.statsTotal.textContent = activity.viewedTotal.toLocaleString("en-US");
     elements.statsStreak.textContent = drawStreak(activity.days).toLocaleString("en-US");
     elements.statsExplored.textContent = `${exploration.explored.toLocaleString("en-US")} / ${exploration.total.toLocaleString("en-US")}`;
-    elements.statsExploredPercent.textContent = `${formatExploredPercent(exploration.explored, exploration.total)} of known legacy ID space`;
-    elements.statsExploredBreakdown.textContent = formatExploredBreakdown(
-      exploration.explored,
-      exploration.viewable,
-      exploration.unavailable,
-    );
+    try {
+      elements.statsExploredPercent.textContent = `${formatExploredPercent(exploration.explored, exploration.total)} of known legacy ID space`;
+      elements.statsExploredBreakdown.textContent = formatExploredBreakdown(
+        exploration.explored,
+        exploration.viewable,
+        exploration.unavailable,
+        exploration.unclassified,
+      );
+    } catch {
+      // Inconsistent exploration counts must not hide the activity stats.
+      elements.statsExploredPercent.textContent = "";
+      elements.statsExploredBreakdown.textContent = "Exploration breakdown unavailable";
+    }
     renderLedger(ledgerDays(activity.days, activity.localViewTimes));
     delete elements.statsExplored.dataset.state;
     elements.statsError.hidden = true;

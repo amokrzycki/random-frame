@@ -397,6 +397,330 @@ async fn devices_converge_history_and_favorites() -> Result<(), Box<dyn std::err
 }
 
 #[tokio::test]
+async fn exploration_stays_local_while_seen_history_and_favorites_sync(
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::{
+        clear_local_history,
+        persistence::{ExplorationOutcome, FavoriteItem, HistoryItem},
+        AppState,
+    };
+
+    let (url, _, task) = server().await?;
+    let a_path = directory("local-exploration-a");
+    let b_path = directory("local-exploration-b");
+    fs::create_dir_all(&a_path)?;
+    fs::write(a_path.join("prntsc-explored.txt"), "200\n")?;
+    let a_state = AppState::new(&a_path)?;
+    let b_state = AppState::new(&b_path)?;
+    for id in 0..100 {
+        a_state.explored.mark(id, ExplorationOutcome::Viewed)?;
+        a_state.seen.insert(id)?;
+    }
+    for id in 100..120 {
+        a_state.explored.mark(id, ExplorationOutcome::Rejected)?;
+    }
+    b_state.explored.mark(300, ExplorationOutcome::Viewed)?;
+    b_state.seen.insert(300)?;
+    a_state.history.record(HistoryItem {
+        source: "prntsc".into(),
+        id: "1".into(),
+        source_page_url: "https://prnt.sc/1".into(),
+        viewed_at: 1,
+    })?;
+    a_state.favorites.toggle(FavoriteItem {
+        source: "prntsc".into(),
+        id: "1".into(),
+        source_page_url: "https://prnt.sc/1".into(),
+        added_at: 1,
+    })?;
+    let a_counts = (121, 100, 20, 1);
+    let b_counts = (1, 1, 0, 0);
+    assert_eq!(a_state.explored.counts(), a_counts);
+    assert_eq!(b_state.explored.counts(), b_counts);
+
+    let a = SyncEngine::new(
+        &a_path,
+        Arc::clone(&a_state.seen),
+        Arc::clone(&a_state.history),
+        Arc::clone(&a_state.favorites),
+        MemorySecret::default(),
+        Some(&url),
+    );
+    let key = a.create().await?.recovery_key;
+    let b = SyncEngine::new(
+        &b_path,
+        Arc::clone(&b_state.seen),
+        Arc::clone(&b_state.history),
+        Arc::clone(&b_state.favorites),
+        MemorySecret::default(),
+        Some(&url),
+    );
+    b.join(&key).await?;
+    b.sync_now().await?;
+    a.sync_now().await?;
+    assert!(a_state.seen.contains(300));
+    assert!(b_state.seen.contains(0));
+    assert_eq!(b_state.history.snapshot().history.len(), 1);
+    assert_eq!(b_state.favorites.snapshot().len(), 1);
+    assert!(b_state.seen.snapshot_with_generation().0.len() > b_state.explored.count());
+    assert_eq!(a_state.explored.counts(), a_counts);
+    assert_eq!(b_state.explored.counts(), b_counts);
+
+    clear_local_history(&a_state)?;
+    a.sync_now().await?;
+    b.sync_now().await?;
+    assert!(b_state.history.snapshot().history.is_empty());
+    assert_eq!(b_state.favorites.snapshot().len(), 1);
+    assert_eq!(a_state.explored.counts(), a_counts);
+    assert_eq!(b_state.explored.counts(), b_counts);
+    drop(a);
+    drop(b);
+    drop(a_state);
+    drop(b_state);
+    assert_eq!(AppState::new(&a_path)?.explored.counts(), a_counts);
+    assert_eq!(AppState::new(&b_path)?.explored.counts(), b_counts);
+    task.abort();
+    fs::remove_dir_all(a_path)?;
+    fs::remove_dir_all(b_path)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::{
+        clear_local_history,
+        persistence::{DailyActivitySnapshot, ExplorationOutcome},
+        record_accepted_frame, AppState,
+    };
+
+    let (url, server, task) = server().await?;
+    let a_path = directory("clear-a");
+    let b_path = directory("clear-b");
+    fs::create_dir_all(&a_path)?;
+    fs::write(a_path.join("prntsc-explored.txt"), "200\n")?;
+    let a_secret = MemorySecret::default();
+    let b_secret = MemorySecret::default();
+    let a_state = AppState::new(&a_path)?;
+    let b_state = AppState::new(&b_path)?;
+    let engine = |path: &Path, state: &AppState, secret: MemorySecret| {
+        SyncEngine::new(
+            path,
+            Arc::clone(&state.seen),
+            Arc::clone(&state.history),
+            Arc::clone(&state.favorites),
+            secret,
+            Some(&url),
+        )
+    };
+    let a = engine(&a_path, &a_state, a_secret.clone());
+    let b = engine(&b_path, &b_state, b_secret.clone());
+    let today_date = chrono::Local::now().date_naive();
+    let today = crate::persistence::day_key(today_date);
+    let yesterday = crate::persistence::day_key(today_date - chrono::Duration::days(1));
+    let viewed_at = u64::try_from(chrono::Local::now().timestamp_millis())?;
+    let item = |id: &str| HistoryItem {
+        source: "prntsc".into(),
+        id: id.into(),
+        source_page_url: format!("https://prnt.sc/{id}"),
+        viewed_at,
+    };
+    for id in ["abc123", "abc124", "abc125"] {
+        record_accepted_frame(item(id), &a_state, false)?;
+    }
+    a_state.seen.merge(1..=5)?;
+    a_state.explored.mark(10, ExplorationOutcome::Rejected)?;
+    a_state
+        .activity
+        .record(ExplorationOutcome::Rejected, &yesterday)?;
+    a_state.favorites.toggle(FavoriteItem {
+        source: "prntsc".into(),
+        id: "abc123".into(),
+        source_page_url: "https://prnt.sc/abc123".into(),
+        added_at: 1,
+    })?;
+    assert_eq!(a_state.activity.viewed_total(), 3);
+    assert_eq!(a_state.explored.counts(), (5, 3, 1, 1));
+    let seen_before = a_state.seen.snapshot_with_generation().0;
+    let key = a.create().await?.recovery_key;
+    b.join(&key).await?;
+    assert_eq!(b_state.explored.count(), 0);
+    b_state.explored.mark(11, ExplorationOutcome::Rejected)?;
+    b_state
+        .activity
+        .record(ExplorationOutcome::Rejected, &yesterday)?;
+    b_state.explored.mark(12, ExplorationOutcome::Viewed)?;
+    b_state
+        .activity
+        .record(ExplorationOutcome::Viewed, &today)?;
+    b_state.seen.insert(12)?;
+    assert_eq!(b_state.history.snapshot().history.len(), 3);
+    assert_eq!(b_state.favorites.snapshot().len(), 1);
+
+    // B is offline: its three known operations are old, while this new operation is unknown to A.
+    record_accepted_frame(item("abc126"), &b_state, false)?;
+    clear_local_history(&a_state)?;
+    assert_eq!(a_state.seen.snapshot_with_generation().0, seen_before);
+    assert_eq!(a_state.favorites.snapshot().len(), 1);
+    assert!(a_state.history.snapshot().history.is_empty());
+    assert_eq!(a_state.history.sync_state().1.len(), 3);
+    assert_eq!(a_state.activity.viewed_total(), 0);
+    assert_eq!(a_state.explored.counts(), (5, 3, 1, 1));
+    assert_eq!(a_state.explored.viewable_count(), 3);
+    assert_eq!(a_state.explored.unavailable_count(), 1);
+    assert_eq!(
+        a_state.activity.recent_days(today_date, 183),
+        vec![(
+            today.clone(),
+            DailyActivitySnapshot {
+                viewed: 0,
+                rejected: 0
+            }
+        )]
+    );
+    assert!(a_state.history.local_view_times().is_empty());
+
+    // A encounters a 412 and must retain its tombstones through GET, merge, and retry.
+    server
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .force_conflict = true;
+    a.sync_now().await?;
+    let remote = || -> Result<snapshot::SyncSnapshot, Box<dyn std::error::Error>> {
+        let envelope = server
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .envelope
+            .clone();
+        let keys = a_secret
+            .value
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .ok_or("missing test secret")?;
+        let root = RootSecret::from_bytes(&keys)?;
+        let keys = root.derive();
+        Ok(snapshot::parse_snapshot(
+            &keys.decrypt_snapshot(keys.sync_id(), &envelope)?,
+        )?)
+    };
+    let after_clear = remote()?;
+    assert!(after_clear.history.is_empty());
+    assert_eq!(after_clear.history_removed.len(), 3);
+    assert_eq!(after_clear.seen, seen_before);
+    assert_eq!(after_clear.favorites.len(), 1);
+    assert_eq!(a_state.explored.counts(), (5, 3, 1, 1));
+
+    b.sync_now().await?;
+    let b_ids: Vec<_> = b_state
+        .history
+        .snapshot()
+        .history
+        .into_iter()
+        .map(|x| x.id)
+        .collect();
+    assert_eq!(b_ids, ["abc126"]);
+    assert_eq!(b_state.history.sync_state().1.len(), 3);
+    assert_eq!(b_state.favorites.snapshot().len(), 1);
+    assert_eq!(b_state.activity.viewed_total(), 2);
+    assert_eq!(b_state.explored.count(), 3);
+    assert_eq!(b_state.explored.viewable_count(), 2);
+    assert_eq!(b_state.explored.unavailable_count(), 1);
+    assert_eq!(a_state.explored.counts(), (5, 3, 1, 1));
+    assert_eq!(a_state.explored.viewable_count(), 3);
+    assert_eq!(a_state.explored.unavailable_count(), 1);
+    let days = b_state.activity.recent_days(today_date, 183);
+    assert_eq!(
+        days[0],
+        (
+            yesterday,
+            DailyActivitySnapshot {
+                viewed: 0,
+                rejected: 1
+            }
+        )
+    );
+    assert_eq!(
+        days[1],
+        (
+            today,
+            DailyActivitySnapshot {
+                viewed: 2,
+                rejected: 0
+            }
+        )
+    );
+    assert_eq!(remote()?.history.len(), 1);
+    assert_eq!(remote()?.history_removed.len(), 3);
+    a.sync_now().await?;
+    let stable = remote()?;
+    b.sync_now().await?;
+    a.sync_now().await?;
+    assert_eq!(remote()?, stable);
+
+    // Clear Favorites removes known entries, while B's new offline favorite survives.
+    b_state.favorites.toggle(FavoriteItem {
+        source: "prntsc".into(),
+        id: "abc126".into(),
+        source_page_url: "https://prnt.sc/abc126".into(),
+        added_at: 2,
+    })?;
+    a_state.favorites.clear()?;
+    assert!(a_state.favorites.snapshot().is_empty());
+    a.sync_now().await?;
+    assert!(remote()?.favorites.is_empty());
+    b.sync_now().await?;
+    assert_eq!(
+        b_state
+            .favorites
+            .snapshot()
+            .into_iter()
+            .map(|x| x.id)
+            .collect::<Vec<_>>(),
+        ["abc126"]
+    );
+    a.sync_now().await?;
+    let stable = remote()?;
+    assert_eq!(stable.favorites.len(), 1);
+    assert_eq!(stable.favorites_removed.len(), 1);
+    b.sync_now().await?;
+    assert_eq!(remote()?, stable);
+
+    drop(a);
+    drop(b);
+    drop(a_state);
+    drop(b_state);
+    let a_restarted = AppState::new(&a_path)?;
+    let b_restarted = AppState::new(&b_path)?;
+    assert_eq!(a_restarted.history.snapshot().history.len(), 1);
+    assert_eq!(b_restarted.history.snapshot().history.len(), 1);
+    assert_eq!(a_restarted.favorites.snapshot().len(), 1);
+    assert_eq!(b_restarted.favorites.snapshot().len(), 1);
+    assert_eq!(
+        a_restarted.seen.snapshot_with_generation().0,
+        b_restarted.seen.snapshot_with_generation().0
+    );
+    assert_eq!(a_restarted.activity.viewed_total(), 0);
+    assert_eq!(a_restarted.explored.counts(), (5, 3, 1, 1));
+    assert_eq!(a_restarted.explored.viewable_count(), 3);
+    assert_eq!(a_restarted.explored.unavailable_count(), 1);
+    assert_eq!(b_restarted.activity.viewed_total(), 2);
+    assert_eq!(b_restarted.explored.count(), 3);
+    engine(&a_path, &a_restarted, a_secret.clone())
+        .startup_sync()
+        .await?;
+    engine(&b_path, &b_restarted, b_secret.clone())
+        .startup_sync()
+        .await?;
+    assert_eq!(remote()?, stable);
+    assert_eq!(a_restarted.explored.counts(), (5, 3, 1, 1));
+    assert_eq!(b_restarted.explored.count(), 3);
+    task.abort();
+    fs::remove_dir_all(a_path)?;
+    fs::remove_dir_all(b_path)?;
+    Ok(())
+}
+
+#[tokio::test]
 #[ignore = "requires RF_SYNC_SERVER_BIN pointing to the real random-frame-sync-server binary"]
 async fn real_server_two_device_offline_and_startup_e2e() -> Result<(), Box<dyn std::error::Error>>
 {

@@ -5,9 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#ebe8e1">
     <meta name="description" content="A quiet gallery for discovering one random public image at a time.">
-    <link
-      rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'%3E%3Cpath d='M4.5 8.5V4.5h4M19.5 4.5h4v4M23.5 19.5v4h-4M8.5 23.5h-4v-4M9 10.5h10v7H9z'/%3E%3C/svg%3E">
+    <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
     <title>Random Frame</title>
     <script>
     try {
@@ -24,7 +22,8 @@
     <dialog class="entry-dialog" id="entry-dialog" aria-labelledby="entry-title" aria-describedby="entry-description">
       <div class="entry-dialog__content">
         <svg class="entry-dialog__mark" viewBox="0 0 28 28" aria-hidden="true">
-          <path d="M4.5 8.5V4.5h4M19.5 4.5h4v4M23.5 19.5v4h-4M8.5 23.5h-4v-4M9 10.5h10v7H9z" />
+          <path d="M4.5 8.5V4.5h4M19.5 4.5h4v4M23.5 19.5v4h-4M8.5 23.5h-4v-4" />
+          <path d="M10 19V9h4c2.2 0 3.5 1.1 3.5 3s-1.3 3-3.5 3h-4m4 0 4 4" />
         </svg>
         <h2 id="entry-title">Before you enter</h2>
         <div class="entry-dialog__copy" id="entry-description">
@@ -47,25 +46,6 @@
         <header class="history-dialog__header">
           <h2 id="history-title">History</h2>
           <div class="history-dialog__actions">
-            <button class="history-clear" id="history-clear-button" type="button" aria-describedby="history-clear-hint">
-              Hold to clear
-            </button>
-            <span class="sr-only" id="history-clear-hint">
-              Removes known shared history after Sync, clears statistics only on this device, and does not reset Seen
-              progress or favorites. Offline entries may arrive later. You can also activate it twice.
-            </span>
-            <button
-              class="history-clear"
-              id="history-clear-favorites-button"
-              type="button"
-              aria-describedby="history-clear-favorites-hint"
-              hidden>
-              Hold to clear favorites
-            </button>
-            <span class="sr-only" id="history-clear-favorites-hint">
-              Removes all known shared favorites after Sync. Offline additions may arrive later. You can also activate
-              it twice.
-            </span>
             <div class="history-filter">
               <button class="history-filter__option" id="history-filter-all" type="button" aria-pressed="true">
                 All
@@ -78,6 +58,29 @@
               <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
             </button>
           </div>
+          <div class="history-clear-group" id="history-clear-group">
+            <button class="history-clear" id="history-clear-button" type="button" aria-describedby="history-clear-hint">
+              Clear history
+            </button>
+            <span class="history-clear-hint" id="history-clear-hint">
+              Clears history and local activity stats on this device. Prnt.sc exploration, Seen IDs, and favorites
+              remain. After this device syncs, known history is removed from linked devices when they sync. New history
+              created offline may appear later.
+            </span>
+          </div>
+          <div class="history-clear-group" id="history-clear-favorites-group" hidden>
+            <button
+              class="history-clear"
+              id="history-clear-favorites-button"
+              type="button"
+              aria-describedby="history-clear-favorites-hint">
+              Clear favorites
+            </button>
+            <span class="history-clear-hint" id="history-clear-favorites-hint">
+              Clears favorites on this device. After this device syncs, known favorites are removed from linked devices
+              when they sync. New favorites created on an offline device may appear later.
+            </span>
+          </div>
         </header>
         <div class="history-dialog__body" id="history-body">
           <div class="history-grid" id="history-grid"></div>
@@ -85,6 +88,16 @@
             <p id="history-empty-title">No saved frames yet.</p>
             <span id="history-empty-detail">Draw a frame to begin your history.</span>
           </div>
+        </div>
+        <div class="history-thumbnail-action" id="history-thumbnail-action" hidden>
+          <button
+            class="history-pager__step"
+            id="history-thumbnails"
+            type="button"
+            title="Download missing thumbnails on this page"
+            aria-label="Download missing thumbnails on this page">
+            Download missing thumbnails
+          </button>
         </div>
         <footer class="history-pager" id="history-pager" hidden>
           <p class="history-pager__range" id="history-range" aria-live="polite"></p>
@@ -114,8 +127,9 @@
         </footer>
         <footer class="dialog-foot">
           <p>
-            Clearing history does not reset exploration progress. Seen progress may sync if you enable Sync. Respect the
-            privacy of people whose information may appear in public uploads.
+            Clearing history resets local activity but keeps Prnt.sc exploration and Seen IDs used to avoid repeats.
+            Seen IDs can Sync; Prnt.sc exploration stays on this device. Respect the privacy of people whose information
+            may appear in public uploads.
           </p>
         </footer>
       </div>
@@ -141,12 +155,12 @@
                 <dd id="stats-today">0</dd>
               </div>
               <div class="stats-tally__item">
-                <dt>Day streak</dt>
+                <dt>Activity streak</dt>
                 <dd id="stats-streak">0</dd>
               </div>
             </dl>
             <p class="stats-headline__detail stats-explored">
-              <span>Prnt.sc explored <span id="stats-explored">0 / 4,773,622,240</span></span>
+              <span>Prnt.sc explored locally <span id="stats-explored">0 / 4,773,622,240</span></span>
               <span id="stats-explored-percent">0% of known legacy ID space</span>
               <span id="stats-explored-breakdown">0 viewable · 0 unavailable</span>
             </p>
@@ -156,16 +170,17 @@
             </p>
           </div>
           <section class="ledger" id="ledger" aria-labelledby="ledger-title">
-            <h3 class="stats-subhead" id="ledger-title">Draw ledger</h3>
+            <h3 class="stats-subhead" id="ledger-title">Local results by day</h3>
             <ol class="ledger__list" id="ledger-list"></ol>
-            <p class="ledger__empty" id="ledger-empty" hidden>Nothing drawn yet.</p>
+            <p class="ledger__empty" id="ledger-empty" hidden>No local results yet.</p>
             <button class="ledger__more" id="ledger-more" type="button" hidden>Show earlier days</button>
           </section>
         </div>
         <footer class="dialog-foot">
           <p>
-            History stays on this device until you clear it. Respect the privacy of people whose information may appear
-            in public uploads.
+            Found counts first viewable results here; Activity streak counts consecutive days with a result. Found,
+            Today, streak, and daily results reset when history is cleared. Prnt.sc exploration stays here and does not
+            Sync. Seen IDs remain to avoid repeats and can Sync.
           </p>
           <div class="dialog-foot__meta">
             <span>v{{VERSION}}</span>
@@ -256,8 +271,8 @@
           <p class="sync-dialog__error" id="sync-error" role="alert" hidden></p>
           <div id="sync-unpaired" hidden>
             <p class="sync-dialog__copy">
-              Carry your seen Prnt.sc progress, history, and favorites between devices. Only an encrypted snapshot is
-              sent; settings and statistics stay on this device.
+              Sync shares your seen Prnt.sc progress, history, and favorites with your linked devices. An encrypted
+              snapshot is sent to the Sync server; settings and statistics stay on this device.
             </p>
             <div class="sync-dialog__actions">
               <button class="primary-action" id="sync-enable" type="button">Enable Sync</button>
@@ -285,6 +300,10 @@
             </p>
             <output id="sync-recovery-key" aria-label="Recovery key"></output>
             <button class="sync-dialog__button" id="sync-copy-key" type="button">Copy recovery key</button>
+            <label class="sync-dialog__saved">
+              <input id="sync-key-saved" type="checkbox">
+              I’ve saved this recovery key somewhere safe
+            </label>
           </div>
           <div id="sync-paired" hidden>
             <div class="sync-dialog__meta">
@@ -318,12 +337,13 @@
       <div class="titlebar__drag-region" data-tauri-drag-region>
         <div class="brand">
           <svg viewBox="0 0 28 28" aria-hidden="true">
-            <path d="M4.5 8.5V4.5h4M19.5 4.5h4v4M23.5 19.5v4h-4M8.5 23.5h-4v-4M9 10.5h10v7H9z" />
+            <path d="M4.5 8.5V4.5h4M19.5 4.5h4v4M23.5 19.5v4h-4M8.5 23.5h-4v-4" />
+            <path d="M10 19V9h4c2.2 0 3.5 1.1 3.5 3s-1.3 3-3.5 3h-4m4 0 4 4" />
           </svg>
           <span>Random Frame</span>
         </div>
       </div>
-      <div class="masthead-tools">
+      <div class="masthead-tools" id="masthead-tools">
         <button class="stats-button" id="sync-button" type="button" aria-label="Sync" title="Sync">
           <svg viewBox="0 0 20 20" aria-hidden="true">
             <path
@@ -435,6 +455,13 @@
             aria-disabled="true">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
           </button>
+          <aside class="arrow-hint" id="arrow-hint" hidden aria-label="Arrow navigation help">
+            <span
+              ><strong>Stage arrows</strong>
+              browse history; <strong>ID arrows</strong> scan neighboring Prnt.sc IDs.</span
+            >
+            <button id="arrow-hint-dismiss" type="button">Got it</button>
+          </aside>
         </div>
 
         <div class="info-line">

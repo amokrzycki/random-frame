@@ -24,11 +24,11 @@ Instead of an endless feed, Random Frame offers one deliberate draw at a time ac
 
 ## Operating Context
 
-The gallery is used as a focused desktop utility in a resizable window, primarily with keyboard and mouse. Browsing history and exploration statistics stay locally on the device until the user clears the history.
+The gallery is used as a focused desktop utility in a resizable window, primarily with keyboard and mouse. History can Sync across linked devices and can be cleared; known removals propagate through Sync, while new history created offline may appear later. Favorites and Seen IDs can Sync and survive History clearing. Local activity Stats (Found, Today, streak, and daily results) reset with History. Prnt.sc exploration progress is durable on this device across History clearing and restarts; it does not currently Sync.
 
 ## Capabilities and Constraints
 
-- The current implementation uses Prnt.sc and its six-character lowercase alphanumeric identifiers.
+- The current implementation uses Prnt.sc and its variable-length lowercase alphanumeric identifiers within the known legacy range.
 - Imgur is not a planned provider because new developer accounts cannot currently be registered.
 - Wikimedia Commons, Internet Archive, and other sources with accessible APIs remain candidates; provider choice, selection rules, attribution, moderation, and mixed-source behavior are open decisions for the next planning phase.
 - Prnt.sc blocks cross-origin framing, so the current app resolves and proxies its public image through the server.
@@ -48,7 +48,7 @@ The supplied Chris Hannah implementation establishes the current Prnt.sc identif
 
 - The displayed media is always the focal point.
 - One clear action advances exploration; history stays effortless.
-- Browsing records and exploration statistics stay local to the device.
+- History, favorites, and Seen IDs can Sync. Activity Stats are local and reset with History; Prnt.sc exploration progress is durable, local, and does not Sync.
 - Every item keeps a clear link to its source.
 - Upstream failures are explained plainly and recover gracefully.
 

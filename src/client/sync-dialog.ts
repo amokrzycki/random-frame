@@ -82,7 +82,7 @@ function render(): void {
   elements.syncJoin.disabled = busy || !status;
   elements.syncLeave.disabled = busy || status?.state === "syncing";
   elements.syncLeaveConfirmButton.disabled = busy;
-  elements.syncClose.disabled = busy;
+  elements.syncClose.disabled = busy || (showingKey && !elements.syncKeySaved.checked);
 }
 
 async function refresh(): Promise<void> {
@@ -135,8 +135,10 @@ export function bindSyncDialogEvents(): void {
     void refresh();
   });
   elements.syncClose.addEventListener("click", () => closeDialog(elements.syncDialog));
+  elements.syncKeySaved.addEventListener("change", render);
   elements.syncDialog.addEventListener("close", () => {
     elements.syncRecoveryKey.textContent = "";
+    elements.syncKeySaved.checked = false;
     elements.syncRecoveryInput.value = "";
     elements.syncJoinForm.hidden = true;
     elements.syncLeaveConfirm.hidden = true;
@@ -158,7 +160,7 @@ export function bindSyncDialogEvents(): void {
       const result = await createSync();
       elements.syncRecoveryKey.textContent = result.recoveryKey;
       if (result.localPairingError) showError(safeError(result.localPairingError));
-      elements.syncCopyKey.focus();
+      elements.syncKeySaved.focus();
       return result.status;
     });
   });

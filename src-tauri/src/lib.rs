@@ -154,9 +154,9 @@ const LEGACY_ID_SPACE_SIZE: u64 = 4_773_622_240;
 struct ExplorationStats {
     explored: usize,
     total: u64,
-    // Classified since tracking began; may not sum to `explored` on upgraded installs.
     viewable: usize,
     unavailable: usize,
+    unclassified: usize,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -263,6 +263,27 @@ async fn get_frame_image(
 }
 
 #[tauri::command]
+async fn get_thumbnail_image(
+    source: Option<String>,
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<Response, AppError> {
+    let source = select_source(source.as_deref().unwrap_or("prntsc"))?;
+    prntsc::validate_item_id(&id)?;
+    state.take_api_token()?;
+    let frame = match source {
+        Source::Prntsc => state.prntsc.get_thumbnail(&id).await?,
+        Source::InternetArchive => {
+            return Err(AppError::new(
+                ErrorKind::UnavailableSource,
+                "Internet Archive source is not available yet",
+            ));
+        }
+    };
+    Ok(Response::new(frame.bytes))
+}
+
+#[tauri::command]
 #[allow(
     clippy::needless_pass_by_value,
     reason = "Tauri command state extractors must be passed by value"
@@ -322,14 +343,13 @@ fn select_history_item(
     clippy::needless_pass_by_value,
     reason = "Tauri command state extractors must be passed by value"
 )]
-// Favorites and seen frames outlive a local history clear.
+// Favorites, seen frames, and classified exploration outlive a local history clear.
 fn clear_history(state: State<'_, AppState>) -> Result<(), AppError> {
     clear_local_history(&state)
 }
 
 fn clear_local_history(state: &AppState) -> Result<(), AppError> {
     reconcile_seen(&state.seen, &state.history, &state.explored)?;
-    state.explored.clear()?;
     state.activity.clear()?;
     state.history.clear()
 }
@@ -374,11 +394,13 @@ fn clear_favorites(state: State<'_, AppState>) -> Result<(), AppError> {
     reason = "Tauri command state extractors must be passed by value"
 )]
 fn get_exploration_stats(state: State<'_, AppState>) -> ExplorationStats {
+    let (explored, viewable, unavailable, unclassified) = state.explored.counts();
     ExplorationStats {
-        explored: state.explored.count(),
+        explored,
         total: LEGACY_ID_SPACE_SIZE,
-        viewable: state.explored.viewable_count(),
-        unavailable: state.explored.unavailable_count(),
+        viewable,
+        unavailable,
+        unclassified,
     }
 }
 
@@ -507,6 +529,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             get_random_frame,
             get_frame_by_id,
             get_frame_image,
+            get_thumbnail_image,
             get_history,
             record_history_item,
             select_history_item,
@@ -584,7 +607,7 @@ mod tests {
         history.record(history_item("abc123"))?;
         std::fs::write(
             directory.join("prntsc-explored.txt"),
-            "1,v\n2,r\n3\n1,v\n4,v\n5,x\n",
+            "1,v\n2,r\n3\n1,v\n4,v\n5\n",
         )
         .map_err(AppError::persistence)?;
         // A prior launch may have saved only part of the migration.
@@ -618,11 +641,16 @@ mod tests {
         assert_eq!(state.activity.viewed_total(), 1);
         clear_local_history(&state)?;
         assert!(state.history.snapshot().history.is_empty());
-        assert_eq!(state.explored.count(), 0);
+        assert_eq!(state.explored.count(), 1);
+        assert_eq!(state.explored.viewable_count(), 1);
         assert_eq!(state.activity.viewed_total(), 0);
         assert!(state.seen.contains(id));
         drop(state);
-        assert!(AppState::new(&directory)?.seen.contains(id));
+        let restarted = AppState::new(&directory)?;
+        assert!(restarted.seen.contains(id));
+        assert_eq!(restarted.explored.count(), 1);
+        assert_eq!(restarted.explored.viewable_count(), 1);
+        assert_eq!(restarted.activity.viewed_total(), 0);
         std::fs::remove_dir_all(directory).map_err(AppError::persistence)
     }
 
@@ -670,7 +698,9 @@ mod tests {
             history_before.history.len()
         );
         drop(state);
-        assert!(AppState::new(&directory)?.seen.contains(42));
+        let restarted = AppState::new(&directory)?;
+        assert!(restarted.seen.contains(42));
+        assert_eq!(restarted.explored.count(), 0);
         std::fs::remove_dir_all(directory).map_err(AppError::persistence)
     }
 

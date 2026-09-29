@@ -15,9 +15,9 @@ export interface HistorySnapshot {
 export interface ExplorationStats {
   explored: number;
   total: number;
-  // Unique-id counts classified since tracking began; see formatExploredBreakdown.
   viewable: number;
   unavailable: number;
+  unclassified: number;
 }
 
 export interface DailyActivity {

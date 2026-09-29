@@ -39,6 +39,14 @@ class FakeElement extends EventTarget {
     this.attributes.delete(name);
   }
 
+  contains(node) {
+    return this === node || this.children.some((child) => child.contains?.(node));
+  }
+
+  querySelectorAll() {
+    return [];
+  }
+
   // Blobs whose first byte is 255 stand in for images that will not decode.
   async decode() {
     const [first] = new Uint8Array(await resolveObjectURL(this.src).arrayBuffer());
@@ -85,6 +93,8 @@ export class FakeDocument extends EventTarget {
     this.activeElement = null;
     this.elements = new Map(ids.map((id) => [`#${id}`, new FakeElement(this)]));
     this.body = new FakeElement(this);
+    this.elements.get("#history-clear-button").textContent = "Clear history";
+    this.elements.get("#history-clear-favorites-button").textContent = "Clear favorites";
   }
 
   querySelector(selector) {
@@ -145,6 +155,8 @@ export const ids = [
   "history-button",
   "history-dialog",
   "history-close-button",
+  "history-clear-group",
+  "history-clear-favorites-group",
   "history-clear-button",
   "history-clear-favorites-button",
   "history-filter-all",
@@ -154,6 +166,8 @@ export const ids = [
   "history-empty-title",
   "history-empty-detail",
   "history-body",
+  "history-thumbnail-action",
+  "history-thumbnails",
   "history-pager",
   "history-pager-nav",
   "history-range",
@@ -177,6 +191,7 @@ export const ids = [
   "sync-recovery",
   "sync-recovery-key",
   "sync-copy-key",
+  "sync-key-saved",
   "sync-paired",
   "sync-revision",
   "sync-dirty",
@@ -202,6 +217,7 @@ export const ids = [
   "entry-button",
   "leave-button",
   "main-content",
+  "masthead-tools",
   "dialog-backdrop",
   "image-id-value",
   "id-menu",

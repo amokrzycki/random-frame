@@ -1,7 +1,5 @@
-/* Dialogs open via show(), not showModal(): showModal() makes the rest of
-   the document (including the titlebar) inert, which blocks window drag and
-   the window controls. app.ts inerts main/footer instead and drives a plain
-   backdrop element so the titlebar stays interactive. */
+/* Dialogs open via show() so the titlebar's drag region and window controls
+   remain available; dialogs.ts inerts the main content and titlebar tools. */
 .entry-dialog,
 .history-dialog,
 .lightbox-dialog {
@@ -91,12 +89,12 @@
 }
 
 .history-dialog__header {
-  min-height: 78px;
-  padding: 18px 22px 18px 28px;
-  display: flex;
+  flex: 0 0 auto;
+  padding: 18px 22px 20px 28px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 24px;
+  gap: 14px 24px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -143,12 +141,29 @@
   transform: scale(0.97);
 }
 
+.history-clear-group {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.history-clear-group[hidden] {
+  display: none;
+}
+
+.history-clear-hint {
+  max-width: 75ch;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+  text-wrap: pretty;
+}
+
 .history-clear {
-  position: relative;
   min-height: 38px;
   padding: 0 12px;
-  overflow: hidden;
-  isolation: isolate;
+  flex: 0 0 auto;
   border: 1px solid var(--line);
   border-radius: 8px;
   color: var(--ink);
@@ -159,20 +174,20 @@
   font-weight: 650;
 }
 
-/* Hold-to-confirm: app.ts clears history on this fill's transitionend; release snaps it back. */
-.history-clear::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background: color-mix(in srgb, var(--danger) 40%, transparent);
-  clip-path: inset(0 100% 0 0);
-  transition: clip-path 200ms var(--ease-out);
-}
+@media (max-width: 600px) {
+  .history-dialog__header {
+    grid-template-columns: 1fr;
+  }
 
-.history-clear[data-holding]::before {
-  clip-path: inset(0);
-  transition: clip-path 1500ms linear;
+  .history-dialog__actions {
+    justify-content: space-between;
+  }
+
+  .history-clear-group {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
 }
 
 .history-clear:hover:not(:disabled) {
@@ -344,6 +359,17 @@
   font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
   font-size: 13px;
   overflow-wrap: anywhere;
+}
+.sync-dialog__saved {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.sync-dialog__saved input {
+  margin: 4px 0 0;
+  accent-color: var(--blue);
 }
 #sync-recovery-input {
   min-width: 0;
@@ -679,6 +705,30 @@
   stroke-width: 1.4;
 }
 
+@media (max-width: 600px) {
+  .stats-headline__detail {
+    display: block;
+    margin-left: 0 !important;
+    clip-path: none;
+  }
+
+  .stats-headline__detail > span {
+    display: block;
+  }
+
+  .stats-headline__detail > span::before {
+    display: none;
+  }
+
+  .stats-dialog .dialog-foot {
+    display: block;
+  }
+
+  .stats-dialog .dialog-foot__meta {
+    margin-top: 8px;
+  }
+}
+
 .lightbox-dialog {
   top: var(--titlebar-height);
   width: 100vw;
@@ -830,6 +880,17 @@
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.history-thumbnail-action {
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px 22px;
+  border-top: 1px solid var(--line);
+}
+
+.history-thumbnail-action[hidden] {
+  display: none;
 }
 
 .history-pager {

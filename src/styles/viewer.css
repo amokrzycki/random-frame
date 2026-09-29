@@ -307,6 +307,41 @@
   cursor: not-allowed;
 }
 
+.arrow-hint {
+  position: absolute;
+  z-index: 5;
+  inset: auto 12px 12px;
+  width: fit-content;
+  max-width: calc(100% - 24px);
+  margin-inline: auto;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  color: var(--white);
+  background: var(--stage);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.arrow-hint[hidden] {
+  display: none;
+}
+.arrow-hint button {
+  flex: 0 0 auto;
+  padding: 2px 0;
+  border: 0;
+  color: #aabcf4;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.arrow-hint button:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 3px;
+}
+
 /* One info line under the stage: where you are, what you are looking at, what you can do with it,
    and the single way forward. Container queries shed detail in a fixed order as it narrows. */
 .info-line {
@@ -725,7 +760,7 @@
 
 /* The privacy page's status bar, and the same strip closing the History and Stats dialogs. */
 footer {
-  min-height: 34px;
+  min-height: 50px;
   padding: 0 16px;
   display: flex;
   align-items: center;
