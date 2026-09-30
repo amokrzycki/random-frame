@@ -43,6 +43,16 @@ class FakeElement extends EventTarget {
     this.attributes.delete(name);
   }
 
+  toggleAttribute(name, force = !this.attributes.has(name)) {
+    if (force) this.attributes.set(name, "");
+    else this.attributes.delete(name);
+    return force;
+  }
+
+  getBoundingClientRect() {
+    return { left: 0, top: 0, width: 0, height: 0 };
+  }
+
   contains(node) {
     return this === node || this.children.some((child) => child.contains?.(node));
   }
