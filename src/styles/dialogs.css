@@ -1324,6 +1324,15 @@
   align-content: center;
   justify-items: center;
   text-align: center;
+  transition:
+    opacity 220ms var(--ease-out),
+    transform 220ms var(--ease-out);
+}
+@starting-style {
+  .history-empty {
+    opacity: 0;
+    transform: translateY(4px);
+  }
 }
 
 .history-empty p {

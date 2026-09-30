@@ -50,6 +50,12 @@
   }
 
   @starting-style {
+    .error-state {
+      transform: none;
+    }
+  }
+
+  @starting-style {
     .tools-menu:popover-open {
       transform: none;
     }
@@ -57,6 +63,12 @@
 
   @starting-style {
     :is(#sync-unpaired, #sync-join-form, #sync-recovery, #sync-paired, #sync-leave-confirm) {
+      transform: none;
+    }
+  }
+
+  @starting-style {
+    .history-empty {
       transform: none;
     }
   }
@@ -73,6 +85,9 @@
   .loading-state {
     animation-name: fade-out;
     animation-direction: reverse;
+  }
+  .empty-state {
+    animation: fade-out 240ms var(--ease-out) reverse both !important;
   }
   .loader {
     animation: breathe 1.6s ease-in-out infinite !important;

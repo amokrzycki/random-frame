@@ -154,6 +154,10 @@
     transform: translateY(8px) scale(0.97);
   }
 }
+/* The first-run and cleared stage settles in with the loader's entrance; Draw's invite ring follows at 600ms. */
+.empty-state {
+  animation: loader-in 320ms var(--ease-out) backwards;
+}
 .loader {
   width: 36px;
   height: 36px;
@@ -198,6 +202,15 @@
 /* A caption over the dimmed frame, not a headline: the frame behind it is still the subject. */
 .error-state {
   width: min(420px, calc(100% - 80px));
+  transition:
+    opacity 240ms var(--ease-out),
+    transform 240ms var(--ease-out);
+}
+@starting-style {
+  .error-state {
+    opacity: 0;
+    transform: translateY(4px);
+  }
 }
 .error-state p {
   margin: 0 auto;
