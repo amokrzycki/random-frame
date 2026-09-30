@@ -49,11 +49,46 @@
     }
   }
 
+  @starting-style {
+    .error-state {
+      transform: none;
+    }
+  }
+
+  @starting-style {
+    .tools-menu:popover-open {
+      transform: none;
+    }
+  }
+
+  @starting-style {
+    :is(#sync-unpaired, #sync-join-form, #sync-recovery, #sync-paired, #sync-leave-confirm) {
+      transform: none;
+    }
+  }
+
+  @starting-style {
+    .history-empty {
+      transform: none;
+    }
+  }
+
   .nav-button:active:not([aria-disabled="true"]) {
     transform: translateY(-50%);
   }
 
+  .lightbox-step:active:not([aria-disabled="true"]) {
+    transform: translateY(-50%);
+  }
+
   /* Loader breathes rather than freezing; frames crossfade without the focus pull. */
+  .loading-state {
+    animation-name: fade-out;
+    animation-direction: reverse;
+  }
+  .empty-state {
+    animation: fade-out 240ms var(--ease-out) reverse both !important;
+  }
   .loader {
     animation: breathe 1.6s ease-in-out infinite !important;
   }
@@ -62,9 +97,7 @@
     stroke-dasharray: none;
   }
   .draw-button[aria-busy="true"] .draw-button__spinner {
-    animation:
-      loader-in 120ms var(--ease-out) 200ms backwards,
-      breathe 1.6s ease-in-out infinite !important;
+    animation: breathe 1.6s ease-in-out infinite !important;
   }
   #image {
     animation: fade-out 240ms var(--ease-out) reverse both !important;
@@ -96,15 +129,35 @@
   .primary-action:active:not(:disabled),
   .info-icon:active:not(:disabled),
   .draw-button:active:not([aria-disabled="true"], [aria-busy="true"]),
-  .text-action:active:not([aria-disabled="true"]) {
+  .text-action:active:not([aria-disabled="true"]),
+  .lightbox-control:active,
+  .sync-dialog__button:active:not(:disabled),
+  .ledger__more:active,
+  .stats-retry:active,
+  .history-tile__remove:active,
+  .leave-action:active,
+  .toast__action:active,
+  .update-banner button:active:not(:disabled) {
     transform: none;
   }
 
   /* Presses still register, as a dip instead of a squeeze. */
-  :is(.nav-button, .history-item, .primary-action, .info-icon, .draw-button, .text-action):active:not(
-    :disabled,
-    [aria-disabled="true"]
-  ) {
+  :is(
+    .nav-button,
+    .history-item,
+    .primary-action,
+    .info-icon,
+    .draw-button,
+    .text-action,
+    .lightbox-control,
+    .lightbox-step,
+    .sync-dialog__button,
+    .ledger__more,
+    .stats-retry,
+    .leave-action,
+    .toast__action,
+    .update-banner button
+  ):active:not(:disabled, [aria-disabled="true"]) {
     opacity: 0.7;
   }
 }

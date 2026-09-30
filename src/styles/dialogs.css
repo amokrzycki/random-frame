@@ -424,10 +424,14 @@
   background: var(--paper);
   font: inherit;
   cursor: pointer;
+  transition: transform 140ms var(--ease-out);
 }
 .sync-dialog__button:hover {
   color: var(--control-fill-text);
   background: var(--control-fill);
+}
+.sync-dialog__button:active:not(:disabled) {
+  transform: scale(0.97);
 }
 .sync-dialog__button--danger {
   border-color: var(--danger);
@@ -477,6 +481,18 @@
 }
 #sync-unpaired:has(#sync-join-form:not([hidden])) > .sync-dialog__actions {
   display: none;
+}
+/* Panels swap via [hidden]; the incoming one settles in rather than popping. */
+:is(#sync-unpaired, #sync-join-form, #sync-recovery, #sync-paired, #sync-leave-confirm) {
+  transition:
+    opacity 220ms var(--ease-out),
+    transform 220ms var(--ease-out);
+}
+@starting-style {
+  :is(#sync-unpaired, #sync-join-form, #sync-recovery, #sync-paired, #sync-leave-confirm) {
+    opacity: 0;
+    transform: translateY(4px);
+  }
 }
 #sync-recovery-input,
 #sync-recovery-key {
@@ -785,6 +801,7 @@
   cursor: pointer;
   font-size: 13px;
   font-weight: 650;
+  transition: transform 140ms var(--ease-out);
 }
 
 .ledger__list:not(:empty) + .ledger__empty + .ledger__more {
@@ -799,6 +816,11 @@
 .stats-retry:hover {
   color: var(--control-fill-text);
   background: var(--control-fill);
+}
+
+.ledger__more:active,
+.stats-retry:active {
+  transform: scale(0.97);
 }
 
 .dialog-foot {
@@ -863,11 +885,16 @@
   color: var(--white);
   background: var(--stage-soft);
   cursor: pointer;
+  transition: transform 140ms var(--ease-out);
 }
 
 .lightbox-control:hover,
 .lightbox-step:hover:not([aria-disabled="true"]) {
   background: color-mix(in srgb, var(--white) 20%, var(--stage));
+}
+
+.lightbox-control:active {
+  transform: scale(0.97);
 }
 
 .lightbox-control {
@@ -943,6 +970,10 @@
   cursor: default;
 }
 
+.lightbox-step:active:not([aria-disabled="true"]) {
+  transform: translateY(-50%) scale(0.97);
+}
+
 .lightbox-control svg,
 .lightbox-step svg {
   width: 20px;
@@ -982,7 +1013,9 @@
   cursor: pointer;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 140ms var(--ease-out);
+  transition:
+    opacity 140ms var(--ease-out),
+    transform 140ms var(--ease-out);
 }
 
 .history-tile:hover .history-tile__remove,
@@ -994,6 +1027,10 @@
 .history-tile__remove:hover {
   background: var(--stage);
   box-shadow: inset 0 0 0 1px var(--danger);
+}
+
+.history-tile__remove:active {
+  transform: scale(0.92);
 }
 
 .history-tile__remove:focus-visible {
@@ -1287,6 +1324,15 @@
   align-content: center;
   justify-items: center;
   text-align: center;
+  transition:
+    opacity 220ms var(--ease-out),
+    transform 220ms var(--ease-out);
+}
+@starting-style {
+  .history-empty {
+    opacity: 0;
+    transform: translateY(4px);
+  }
 }
 
 .history-empty p {
@@ -1409,9 +1455,13 @@
   font-size: 13px;
   font-weight: 650;
   text-underline-offset: 5px;
+  transition: transform 140ms var(--ease-out);
 }
 .leave-action:hover {
   color: var(--blue-dark);
+}
+.leave-action:active {
+  transform: scale(0.97);
 }
 
 .lightbox-favorite[aria-pressed="true"] svg path {
