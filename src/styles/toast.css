@@ -75,9 +75,13 @@
   background: transparent;
   font: inherit;
   cursor: pointer;
+  transition: transform 140ms var(--ease-out);
 }
 .toast__action:hover {
   color: var(--stage-link-hover);
+}
+.toast__action:active {
+  transform: scale(0.97);
 }
 
 /* Shared tooltip: instant, top layer, and on the dark surface in both themes like the toast. */
