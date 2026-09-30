@@ -123,6 +123,7 @@ export const elements = {
   main: element<HTMLElement>("#main-content"),
   dialogBackdrop: element<HTMLElement>("#dialog-backdrop"),
   announcer: element<HTMLElement>("#announcer"),
+  changelogButton: element<HTMLButtonElement>("#changelog-button"),
   changelogDialog: element<HTMLDialogElement>("#changelog-dialog"),
   changelogVersion: element<HTMLElement>("#changelog-version"),
   changelogBody: element<HTMLElement>("#changelog-body"),

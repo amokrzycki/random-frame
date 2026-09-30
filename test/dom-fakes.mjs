@@ -254,6 +254,7 @@ export const ids = [
   "stats-explored",
   "stats-explored-breakdown",
   "announcer",
+  "changelog-button",
   "changelog-dialog",
   "changelog-version",
   "changelog-body",

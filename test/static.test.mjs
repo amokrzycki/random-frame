@@ -20,6 +20,7 @@ test("builds static Tauri assets with the package version", async () => {
     "../dist/random-frame.desktop",
   );
   assert.match(index, /src="app\.js"/);
+  assert.match(index, /<section\s[^>]*id="changelog-body"[^>]*tabindex="0"[^>]*aria-label="Release notes"/);
   assert.match(index, /src="window-controls\.js"/);
   assert.match(index, /href="privacy\.html">Privacy<\/a>/);
   assert.match(privacy, /<h1>Privacy policy<\/h1>/);

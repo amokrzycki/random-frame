@@ -6,10 +6,10 @@
 
 - Keep images you want to revisit in **Favorites**, and browse them alongside your history.
 - Choose how many thumbnails appear on each history page, then jump between pages without losing your place.
-- Open a frame in the larger view to inspect it, save it, or move to the next image.
+- Click the image to open a larger view, where you can inspect it, save it, or move to the next image.
 
 ### A quieter interface
 
-- Find frame actions and app tools in compact menus, with keyboard shortcuts close at hand.
-- Use light, dark, or system appearance to match your desktop.
-- Check your drawing activity in Stats, or link devices with Sync to carry your collection with you.
+- Open the frame ID menu for **Copy image** and **Save image**.
+- Open **More** for **Sync**, **Keyboard shortcuts**, and **Theme** (light, dark, or system).
+- Check your drawing activity in **Stats**, or use **More → Sync** to link devices and carry your collection with you.

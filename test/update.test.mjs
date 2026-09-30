@@ -45,6 +45,7 @@ test("release notes follow a successful update, wait for dialogs, and are dismis
 
   const update = await import("../dist/test-client/update.js");
   assert.equal(typeof update.renderReleaseNotes, "function");
+  update.bindChangelogEvents();
   const markdown = [
     "# Changelog",
     "## 0.6.0",
@@ -103,6 +104,20 @@ test("release notes follow a successful update, wait for dialogs, and are dismis
   assert.equal(get("main-content").inert, false);
   await update.showPendingChangelog();
   assert.equal(get("changelog-dialog").open, false);
+
+  // Dismissed notes remain available from More, without scheduling another automatic display.
+  for (const dismiss of [() => get("changelog-done").click(), () => document.dispatchEvent(escapeEvent)]) {
+    get("changelog-button").click();
+    await flush();
+    assert.equal(get("changelog-dialog").open, true);
+    assert.equal(get("changelog-version").textContent, version);
+    assert.equal(storage.getItem(pendingKey), null);
+    dismiss();
+    assert.equal(get("changelog-dialog").open, false);
+    assert.equal(document.activeElement, get("tools-menu-button"));
+    await update.showPendingChangelog();
+    assert.equal(get("changelog-dialog").open, false);
+  }
 
   // Done and the shared backdrop consume the marker just like Escape.
   for (const button of [get("changelog-done"), get("dialog-backdrop")]) {

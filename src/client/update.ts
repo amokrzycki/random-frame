@@ -29,6 +29,48 @@ function clearPendingChangelog(): void {
   }
 }
 
+function openChangelog(version: string, html: string, opener: HTMLElement | null): void {
+  elements.changelogVersion.textContent = version;
+  // The bundled Markdown is rendered with raw HTML disabled and markdown-it's link validation intact.
+  elements.changelogBody.innerHTML = html;
+  for (const link of elements.changelogBody.querySelectorAll<HTMLAnchorElement>("a[href]")) {
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      // Only web and email links can launch an external handler.
+      const href = link.getAttribute("href") ?? "";
+      if (/^(https?:\/\/|mailto:)/i.test(href)) {
+        void openUrl(href).catch(() => {
+          elements.announcer.textContent = "The link could not be opened.";
+        });
+      }
+    });
+  }
+  elements.changelogDialog.addEventListener(
+    "close",
+    () => {
+      clearPendingChangelog();
+      onDialogClosed();
+      (opener ?? elements.draw).focus();
+    },
+    { once: true },
+  );
+  openDialog(elements.changelogDialog);
+}
+
+export function bindChangelogEvents(): void {
+  elements.changelogDone.addEventListener("click", () => closeDialog(elements.changelogDialog));
+  elements.changelogButton.addEventListener("click", async () => {
+    try {
+      const version = await getVersion();
+      const html = renderReleaseNotes(changelog, version);
+      if (!html) throw new Error("Missing release notes");
+      if (!dialogs.some((dialog) => dialog.open)) openChangelog(version, html, elements.toolsMenuButton);
+    } catch {
+      elements.announcer.textContent = "Release notes could not be opened.";
+    }
+  });
+}
+
 export async function showPendingChangelog(): Promise<void> {
   let pending: string | null;
   let version: string;
@@ -50,33 +92,7 @@ export async function showPendingChangelog(): Promise<void> {
     if (shown || dialogs.some((dialog) => dialog.open)) return;
     shown = true;
     for (const dialog of dialogs) dialog.removeEventListener("close", afterClose);
-    const opener = document.activeElement as HTMLElement | null;
-    elements.changelogVersion.textContent = version;
-    // The bundled Markdown is rendered with raw HTML disabled and markdown-it's link validation intact.
-    elements.changelogBody.innerHTML = html;
-    for (const link of elements.changelogBody.querySelectorAll<HTMLAnchorElement>("a[href]")) {
-      link.addEventListener("click", (event) => {
-        event.preventDefault();
-        // Only web and email links can launch an external handler.
-        const href = link.getAttribute("href") ?? "";
-        if (/^(https?:\/\/|mailto:)/i.test(href)) {
-          void openUrl(href).catch(() => {
-            elements.announcer.textContent = "The link could not be opened.";
-          });
-        }
-      });
-    }
-    elements.changelogDone.addEventListener("click", () => closeDialog(elements.changelogDialog), { once: true });
-    elements.changelogDialog.addEventListener(
-      "close",
-      () => {
-        clearPendingChangelog();
-        onDialogClosed();
-        (opener ?? elements.draw).focus();
-      },
-      { once: true },
-    );
-    openDialog(elements.changelogDialog);
+    openChangelog(version, html, document.activeElement as HTMLElement | null);
   };
   // Existing close handlers finish restoring focus before the next startup dialog opens.
   const afterClose = (): void => queueMicrotask(show);
