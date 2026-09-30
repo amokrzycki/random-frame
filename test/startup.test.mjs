@@ -62,5 +62,6 @@ test("a failed startup load says so and Try again re-runs the load", async (t) =
   await flush();
   assert.equal(get("error-state").hidden, true);
   assert.equal(get("empty-state").hidden, false);
+  assert.equal(get("draw-button").getAttribute("data-invite"), "");
   assert.equal(invocations.filter((command) => command === "startup_sync").length, 1);
 });

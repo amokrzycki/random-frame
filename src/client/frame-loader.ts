@@ -18,7 +18,17 @@ import {
   swapImage,
   syncControls,
 } from "./stage.js";
+import { toast } from "./toast.js";
 import { applyHistory, state } from "./viewer-state.js";
+
+const favoriteTipKey = "random-frame-favorite-tip";
+
+// Said once, after the first drawn frame, to anyone who has not already found favorites.
+function showFavoriteTip(): void {
+  if (localStorage.getItem(favoriteTipKey) || state.favorites.length) return;
+  localStorage.setItem(favoriteTipKey, "shown");
+  toast.info("Tip: press F to favorite a frame.");
+}
 
 async function recordFrame(frame: Frame, canRecord = () => true): Promise<void> {
   const url = await decodedUrl(frame.blob);
@@ -69,6 +79,7 @@ export async function loadRandom(): Promise<void> {
       drawCommitting = true;
       return true;
     });
+    if (version === drawVersion) showFavoriteTip();
   } catch (error) {
     if (version === drawVersion) showError(error, loadRandom);
   } finally {

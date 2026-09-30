@@ -36,6 +36,7 @@ export function setState(next: ViewState): void {
   for (const [name, target] of Object.entries(statePanels))
     target.hidden = name !== next && !(keepFrame && name === "image");
   elements.imageZoom.inert = keepFrame;
+  elements.draw.toggleAttribute("data-invite", next === "empty");
   if (keepFrame) elements.imageZoom.dataset.dimmed = "";
   else delete elements.imageZoom.dataset.dimmed;
   if (next === "loading") {

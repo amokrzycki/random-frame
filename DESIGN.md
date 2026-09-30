@@ -269,13 +269,13 @@ The stage uses an 8px outer radius and an 8px inset hairline, matching the compa
 
 ### Status States
 
-- **Empty:** A small outlined frame mark gives the dark stage presence above the serif invitation, public-content warning, and muted N keycap or Draw hint; no in-stage button. Draw in the info line takes initial focus.
+- **Empty:** A small outlined frame mark gives the dark stage presence above the serif invitation, public-content warning, and a muted "Press N or use Draw below" hint; no in-stage button, and no text styled as one. Draw in the info line takes initial focus and gives a slow cobalt ring pulse three times, starting after 600ms, so the eye finds the one way forward.
 - **Loading:** A fine circular spinner and plain status line.
 - **Error:** A small terracotta dot before the sans-serif headline, a recovery explanation, and an underlined retry action that repeats the exact request that failed, captioned over the dimmed prior frame rather than replacing it. The position readout and frame ID caption dim to match; the icon tools beside them stay at full strength so disabled marks keep their 3:1.
 
 ### Notices
 
-- **Toast:** Near-black 97% pill-cornered (10px) note with a white success dot, muted info dot, or terracotta error dot and 13px semibold archival-white text; enters over 220ms. New notices replace the current toast above the info line, clear of Draw.
+- **Toast:** Near-black 97% pill-cornered (10px) note with a white success dot, muted info dot, or terracotta error dot and 13px semibold archival-white text; enters over 220ms. New notices replace the current toast above the info line, clear of Draw. The first drawn frame raises one info toast, "Tip: press F to favorite a frame.", remembered in local storage and skipped for anyone who already has favorites.
 - **Update banner:** The same dark surface centered at the top, with a cobalt install action and a dimmed dismiss.
 
 ### Reading Pages

@@ -173,6 +173,9 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   keydown(document, "n");
   await flush();
   await flush();
+  // The first drawn frame says how to favorite, once.
+  assert.equal(localStorage.getItem("random-frame-favorite-tip"), "shown");
+  assert.match(document.body.children.flatMap((region) => region.children).at(-1).textContent, /press F to favorite/);
   assert.equal(get("position-current").textContent, "4");
   assert.equal(get("image-id-value").textContent, "def456");
   assert.equal(get("draw-button").getAttribute("aria-busy"), "false");
