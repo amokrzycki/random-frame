@@ -49,6 +49,12 @@
     }
   }
 
+  @starting-style {
+    .tools-menu:popover-open {
+      transform: none;
+    }
+  }
+
   .nav-button:active:not([aria-disabled="true"]) {
     transform: translateY(-50%);
   }
