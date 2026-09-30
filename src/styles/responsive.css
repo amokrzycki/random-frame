@@ -7,6 +7,10 @@
     animation-iteration-count: 1 !important;
   }
 
+  .theme-picker__options.is-ready .theme-picker__indicator {
+    transition: none;
+  }
+
   .entry-dialog,
   .history-dialog,
   .lightbox-dialog,
@@ -53,8 +57,14 @@
   .loader {
     animation: breathe 1.6s ease-in-out infinite !important;
   }
-  .loader__indicator {
+  .loader__indicator,
+  .draw-button__spinner-arc {
     stroke-dasharray: none;
+  }
+  .draw-button[aria-busy="true"] .draw-button__spinner {
+    animation:
+      loader-in 120ms var(--ease-out) 200ms backwards,
+      breathe 1.6s ease-in-out infinite !important;
   }
   #image {
     animation: fade-out 240ms var(--ease-out) reverse both !important;
@@ -64,6 +74,12 @@
   }
   .image-zoom[data-dimmed] {
     filter: none;
+  }
+
+  /* The hint row opens without easing. */
+  .history-dialog__header--tools,
+  .history-clear-hint {
+    transition: none;
   }
 
   /* The pulse still points at Draw, as a glow without the swell. */

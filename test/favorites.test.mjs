@@ -80,7 +80,7 @@ test("favorites toggle from the info line and filter the history grid", async (t
   await import(`../dist/test-client/app.js?test=${Date.now()}`);
   const get = (id) => document.querySelector(`#${id}`);
   const lastToast = () => document.body.children.flatMap((region) => region.children).at(-1);
-  const labels = () => get("history-grid").children.map((tile) => tile.getAttribute("aria-label"));
+  const labels = () => get("history-grid").children.map((tile) => tile.children[0].getAttribute("aria-label"));
   for (let i = 0; i < 4; i += 1) await flush();
 
   const star = get("favorite-button");
@@ -111,29 +111,30 @@ test("favorites toggle from the info line and filter the history grid", async (t
   // All shows every frame; starred tiles carry the badge, separate from the current-frame border.
   get("history-button").click();
   assert.equal(get("history-filter-all").getAttribute("aria-pressed"), "true");
+  // Newest first.
   assert.deepEqual(labels(), [
-    "Show frame 1, aaa111",
-    "Show frame 2, bbb222, favorite",
     "Show frame 3, ccc333, favorite",
+    "Show frame 2, bbb222, favorite",
+    "Show frame 1, aaa111",
   ]);
   const tiles = get("history-grid").children;
   assert.deepEqual(
-    tiles.map((tile) => "favorite" in tile.dataset),
-    [false, true, true],
+    tiles.map((tile) => "favorite" in tile.children[0].dataset),
+    [true, true, false],
   );
-  assert.equal(tiles[2].getAttribute("aria-current"), "true");
+  assert.equal(tiles[0].children[0].getAttribute("aria-current"), "true");
   assert.equal(get("history-clear-favorites-button").hidden, true);
 
-  // Favorites narrows the same grid to starred frames, in the order they were starred.
+  // Favorites narrows the same grid to starred frames, most recently starred first.
   get("history-filter-favorites").click();
   assert.equal(get("history-filter-favorites").getAttribute("aria-pressed"), "true");
   assert.equal(get("history-filter-all").getAttribute("aria-pressed"), "false");
   assert.deepEqual(labels(), [
-    "Show frame 2, bbb222, favorite",
-    "Show frame gone99, favorite",
     "Show frame 3, ccc333, favorite",
+    "Show frame gone99, favorite",
+    "Show frame 2, bbb222, favorite",
   ]);
-  assert.equal(get("history-grid").children[1].children[1].textContent, "gone99");
+  assert.equal(get("history-grid").children[1].children[0].children[1].textContent, "gone99");
   assert.equal(get("history-clear-button").hidden, true);
   assert.equal(get("history-clear-favorites-button").hidden, false);
 
@@ -144,7 +145,7 @@ test("favorites toggle from the info line and filter the history grid", async (t
 
   // A favorite missing from history is fetched by id and joins the end of history.
   get("history-filter-favorites").click();
-  get("history-grid").children[1].click();
+  get("history-grid").children[1].children[0].click();
   for (let i = 0; i < 3; i += 1) await flush();
   assert.equal(
     invocations.filter(({ command, args }) => command === "get_frame_by_id" && args.id === "gone99").length,

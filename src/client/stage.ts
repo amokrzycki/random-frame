@@ -29,16 +29,31 @@ const statePanels: Record<ViewState, HTMLElement> = {
   image: elements.imageZoom,
 };
 
+// The ring's CSS animation is sometimes never instantiated by the webview, so the ring stays still; an animation made from script always runs.
+const reducedMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)");
+let spinner: Animation | undefined;
+let loadingSince = 0;
+
 export function setState(next: ViewState): void {
+  spinner?.cancel();
+  spinner = undefined;
+  if (next === "loading" && !reducedMotion?.matches)
+    spinner = elements.loadingRing.animate(
+      { transform: ["rotate(0)", "rotate(1turn)"] },
+      { duration: 850, iterations: Infinity },
+    );
   // A shown frame stays on stage, dimmed under the loader or an error, so the next one can crossfade in.
   const keepFrame = (next === "loading" || next === "error") && !elements.imageZoom.hidden;
   viewState = next;
   for (const [name, target] of Object.entries(statePanels))
     target.hidden = name !== next && !(keepFrame && name === "image");
   elements.imageZoom.inert = keepFrame;
-  if (keepFrame) elements.imageZoom.dataset.dimmed = "";
+  elements.draw.toggleAttribute("data-invite", next === "empty");
+  // The value lets CSS hold the loading dim back 200ms while an error dims at once.
+  if (keepFrame) elements.imageZoom.dataset.dimmed = next;
   else delete elements.imageZoom.dataset.dimmed;
   if (next === "loading") {
+    loadingSince = Date.now();
     elements.loadingMessage.textContent = "Finding an available frame…";
     elements.announcer.textContent = "Finding an available frame";
   }
@@ -50,6 +65,12 @@ const stateControls: Record<ViewState, HTMLElement | null> = {
   error: elements.retry,
   image: elements.draw,
 };
+
+// The loader appears after 200ms. Once it has, keep it up for 500ms, so it never flashes half-formed.
+export async function settleLoader(): Promise<void> {
+  const visible = Date.now() - loadingSince - 200;
+  if (visible > 0 && visible < 500) await new Promise((resolve) => setTimeout(resolve, 500 - visible));
+}
 
 export function startLoading(): void {
   state.loading = true;
@@ -76,12 +97,11 @@ export function finishLoading(): void {
 export function syncControls(): void {
   const current = state.history[state.index];
   // At 0/0 the arrows have nowhere to go; the empty stage points at Draw instead.
-  elements.previous.hidden = elements.next.hidden = !state.history.length;
+  // The frame count beside the ID carries the position, so the newest frame drops Next instead of disabling it.
+  elements.previous.hidden = !state.history.length;
+  elements.next.hidden = nextHistoryIndex(state.index, state.history.length) === null;
   elements.previous.setAttribute("aria-disabled", String(state.loading || state.index <= 0));
-  elements.next.setAttribute(
-    "aria-disabled",
-    String(state.loading || nextHistoryIndex(state.index, state.history.length) === null),
-  );
+  elements.next.setAttribute("aria-disabled", String(state.loading));
   // Copy and save act on the visible frame only, never on one hidden behind an error.
   const currentBlob = viewState === "image" && current && blobs.has(blobKey(current.source, current.id));
   elements.save.disabled = state.loading || !currentBlob;
@@ -92,6 +112,7 @@ export function syncControls(): void {
   elements.lightboxSave.disabled = elements.save.disabled;
   elements.copyImage.disabled = state.loading || !currentBlob;
   elements.copyLink.disabled = state.loading || !current;
+  elements.removeFrame.disabled = state.loading || !current;
   const favorite = Boolean(current && isFavorite(current));
   const favoriteLabel = favorite ? "Remove from favorites" : "Add to favorites";
   elements.favoriteButton.disabled = state.loading || !current;
@@ -113,10 +134,17 @@ export function syncControls(): void {
   elements.positionButton.setAttribute("aria-label", `Frame ${position} of ${state.history.length}. Jump to a frame`);
   elements.positionCurrent.textContent = String(position);
   elements.historyTotal.textContent = String(state.history.length);
+  elements.frameCountCurrent.textContent = String(position);
+  elements.frameCountTotal.textContent = String(state.history.length);
   elements.jumpTotal.textContent = String(state.history.length);
   elements.jumpInput.max = String(state.history.length);
   elements.historyClear.disabled = state.loading || !state.history.length;
   elements.imageIdValue.textContent = current?.id ?? "———";
+  // The accessible name has to contain the visible text, so the ID leads and the purpose follows.
+  elements.frameMenuButton.setAttribute(
+    "aria-label",
+    current ? `prnt.sc/${current.id}, frame options` : "Frame options",
+  );
   // Without an href the link leaves the tab order and Enter has nothing to follow.
   if (current) elements.source.href = current.sourcePageUrl;
   else elements.source.removeAttribute("href");
@@ -128,7 +156,7 @@ export function syncControls(): void {
   elements.draw.setAttribute("aria-busy", String(state.drawing));
   elements.draw.setAttribute("aria-disabled", String(state.loading || waitSeconds > 0));
   elements.draw.toggleAttribute("data-paused", waitSeconds > 0);
-  elements.drawLabel.textContent = waitSeconds ? `Wait ${waitSeconds}s` : state.drawing ? "Drawing" : "Draw";
+  elements.drawLabel.textContent = waitSeconds ? `Wait ${waitSeconds}s` : "Draw";
   // The retry action returns after the cooldown; Draw carries the countdown.
   elements.back.hidden = !current || failedIndex === state.index;
   elements.back.textContent = `Return to frame ${state.index + 1}`;

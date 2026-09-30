@@ -12,16 +12,28 @@ import {
   restartAnimation,
   retryFailed,
   setState,
+  settleLoader,
   showError,
   showFrame,
   startLoading,
   swapImage,
   syncControls,
 } from "./stage.js";
+import { toast } from "./toast.js";
 import { applyHistory, state } from "./viewer-state.js";
+
+const favoriteTipKey = "random-frame-favorite-tip";
+
+// Said once, after the first drawn frame, to anyone who has not already found favorites.
+function showFavoriteTip(): void {
+  if (localStorage.getItem(favoriteTipKey) || state.favorites.length) return;
+  localStorage.setItem(favoriteTipKey, "shown");
+  toast.info("Tip: press F to favorite a frame.");
+}
 
 async function recordFrame(frame: Frame, canRecord = () => true): Promise<void> {
   const url = await decodedUrl(frame.blob);
+  await settleLoader();
   if (!canRecord()) {
     URL.revokeObjectURL(url);
     return;
@@ -69,6 +81,7 @@ export async function loadRandom(): Promise<void> {
       drawCommitting = true;
       return true;
     });
+    if (version === drawVersion) showFavoriteTip();
   } catch (error) {
     if (version === drawVersion) showError(error, loadRandom);
   } finally {
@@ -101,7 +114,9 @@ export async function goTo(targetIndex: number): Promise<void> {
       elements.announcer.textContent = `Restoring frame ${targetIndex + 1}`;
       syncControls();
       const frame = await getFrameById(current.id, current.source);
-      showFrame(frame.source, frame.id, frame.blob, await decodedUrl(frame.blob));
+      const url = await decodedUrl(frame.blob);
+      await settleLoader();
+      showFrame(frame.source, frame.id, frame.blob, url);
     } else {
       swapImage(cached.url, current.id);
       elements.announcer.textContent = `Showing frame ${current.id}`;

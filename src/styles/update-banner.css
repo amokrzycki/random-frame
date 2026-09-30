@@ -13,7 +13,7 @@
   border-radius: 10px;
   box-shadow:
     0 0 0 1px var(--surface-ring),
-    0 10px 28px rgba(35, 32, 25, 0.2);
+    0 10px 28px var(--lift-shadow);
   font-size: 13px;
   font-weight: 650;
   transition:

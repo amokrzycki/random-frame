@@ -24,7 +24,7 @@ Instead of an endless feed, Random Frame offers one deliberate draw at a time ac
 
 ## Operating Context
 
-The gallery is used as a focused desktop utility in a resizable window, primarily with keyboard and mouse. History can Sync across linked devices and can be cleared; known removals propagate through Sync, while new history created offline may appear later. Favorites and Seen IDs can Sync and survive History clearing. Local activity Stats (Found, Today, streak, and daily results) reset with History. Prnt.sc exploration progress is durable on this device across History clearing and restarts; it does not currently Sync.
+The gallery is used as a focused desktop utility in a resizable window, primarily with keyboard and mouse. History can Sync across linked devices and can be cleared; known removals propagate through Sync, while new history created offline may appear later. Favorites and Seen IDs can Sync and survive History clearing. Local activity Stats (Frames drawn, Today, streak, and daily results) reset with History. Prnt.sc exploration progress is durable on this device across History clearing and restarts; it does not currently Sync.
 
 ## Capabilities and Constraints
 
@@ -33,6 +33,14 @@ The gallery is used as a focused desktop utility in a resizable window, primaril
 - Wikimedia Commons, Internet Archive, and other sources with accessible APIs remain candidates; provider choice, selection rules, attribution, moderation, and mixed-source behavior are open decisions for the next planning phase.
 - Prnt.sc blocks cross-origin framing, so the current app resolves and proxies its public image through the server.
 - Previous/next navigation and direct image download are required.
+
+## Vocabulary
+
+- **Draw / drawn:** the action and the stat. A frame is drawn; Stats count Frames drawn.
+- **Seen IDs:** the synced list of IDs of frames you have viewed, kept to skip repeats. Not a stat.
+- **IDs checked:** local Prnt.sc exploration, including IDs with no image. Does not Sync.
+- **Adjacent ID:** the Prnt.sc ID just before or after the shown one; distinct from the previous/next frame in history.
+- Do not call drawn frames "found"; one word per idea.
 - The current Prnt.sc mode can inspect the immediately adjacent base-36 identifiers; successful results join local history.
 - The upstream service may rate-limit or block repeated requests; errors must be recoverable without losing earlier history.
 

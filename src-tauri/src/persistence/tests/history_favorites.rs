@@ -35,6 +35,49 @@ fn history_survives_reload_and_clear_is_persistent() -> Result<(), AppError> {
 }
 
 #[test]
+fn remove_drops_one_frame_and_restore_returns_it_in_place() -> Result<(), AppError> {
+    let directory = test_directory("history-remove");
+    let item = |id: &str, viewed_at| HistoryItem {
+        source: "prntsc".to_owned(),
+        id: id.to_owned(),
+        source_page_url: format!("https://prnt.sc/{id}"),
+        viewed_at,
+    };
+    let store = HistoryStore::new(&directory)?;
+    for (id, at) in [("aaa111", 10), ("bbb222", 20), ("ccc333", 30)] {
+        store.record(item(id, at))?;
+    }
+    store.select(1)?;
+
+    let removed = store.remove("prntsc", "bbb222")?;
+    let ids = |snapshot: &HistorySnapshot| {
+        snapshot
+            .history
+            .iter()
+            .map(|item| item.id.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ids(&removed.snapshot), ["aaa111", "ccc333"]);
+    // The shown frame is gone, so nothing is selected until the client picks a neighbour.
+    assert_eq!(removed.snapshot.index, -1);
+    assert!(store.remove("prntsc", "bbb222").is_err());
+    // The removal is a tombstone, so it survives a reload and reaches synced devices.
+    assert_eq!(
+        ids(&HistoryStore::new(&directory)?.snapshot()),
+        ["aaa111", "ccc333"]
+    );
+    assert_eq!(store.sync_state().1.len(), 1);
+
+    let restored = store.restore(item("bbb222", 20), removed.order_at)?;
+    assert_eq!(ids(&restored), ["aaa111", "bbb222", "ccc333"]);
+    assert_eq!(
+        ids(&store.restore(item("bbb222", 20), removed.order_at)?),
+        ["aaa111", "bbb222", "ccc333"]
+    );
+    fs::remove_dir_all(directory).map_err(AppError::persistence)
+}
+
+#[test]
 fn favorite_toggle_adds_then_removes_and_survives_reload() -> Result<(), AppError> {
     let directory = test_directory("favorites");
     let item = |added_at| FavoriteItem {

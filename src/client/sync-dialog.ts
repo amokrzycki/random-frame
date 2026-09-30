@@ -2,6 +2,7 @@ import { closeDialog, onDialogClosed, openDialog } from "./dialogs.js";
 import { elements } from "./elements.js";
 import { syncControls } from "./stage.js";
 import { createSync, getSyncStatus, joinSync, leaveSync, type SyncStatus, startupSync, syncNow } from "./sync-api.js";
+import { toast } from "./toast.js";
 import { refreshPersistedView, state } from "./viewer-state.js";
 
 const OFFLINE = "You’re offline. Try again when you’re back online.";
@@ -127,8 +128,9 @@ function render(): void {
   const showingKey = Boolean(elements.syncRecoveryKey.textContent);
   // An error already says what is wrong; the status line steps aside so the message appears once.
   // Not being paired is the default, not a status: the copy below already offers to turn Sync on.
+  // While the key shows, nothing on the line is news: the key and its checkbox are the whole task.
   const idleUnpaired = !busy && status !== null && !status.paired && !status.lastErrorCategory;
-  elements.syncStatus.hidden = !elements.syncError.hidden || idleUnpaired;
+  elements.syncStatus.hidden = showingKey || !elements.syncError.hidden || idleUnpaired;
   elements.syncStatus.textContent = busy ? busyMessage : status ? statusMessage(status) : "Checking Sync status…";
   elements.syncStatus.dataset.state = busy
     ? "syncing"
@@ -147,7 +149,8 @@ function render(): void {
   elements.syncLeave.disabled = busy || status?.state === "syncing";
   elements.syncLeaveConfirmButton.disabled = busy;
   elements.syncClose.disabled = busy || (showingKey && !elements.syncKeySaved.checked);
-  elements.syncDone.disabled = busy || !elements.syncKeySaved.checked;
+  // aria-disabled, not disabled: the note above already explains the gate, so Done keeps full strength and focus.
+  elements.syncDone.setAttribute("aria-disabled", String(busy || !elements.syncKeySaved.checked));
 }
 
 async function refresh(): Promise<void> {
@@ -217,7 +220,13 @@ export function bindSyncDialogEvents(): void {
     void refresh();
   });
   elements.syncClose.addEventListener("click", () => closeDialog(elements.syncDialog));
-  elements.syncDone.addEventListener("click", () => closeDialog(elements.syncDialog));
+  elements.syncDone.addEventListener("click", () => {
+    if (elements.syncDone.getAttribute("aria-disabled") === "true") {
+      if (!busy) elements.syncKeySaved.focus();
+      return;
+    }
+    closeDialog(elements.syncDialog);
+  });
   elements.syncRetry.addEventListener("click", async () => {
     const again = retryAction;
     clearError();
@@ -258,9 +267,7 @@ export function bindSyncDialogEvents(): void {
   elements.syncCopyKey.addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText(elements.syncRecoveryKey.textContent);
-      elements.syncStatus.textContent = "Recovery key copied. Save it somewhere safe.";
-      // A visible error hides the status line; the confirmation still has to show.
-      elements.syncStatus.hidden = false;
+      toast.success("Recovery key copied");
     } catch {
       showError("Could not copy the key. Select and copy it manually.");
     }

@@ -53,7 +53,7 @@
   background: var(--white);
 }
 .toast--info::before {
-  background: var(--muted);
+  background: var(--stage-muted);
 }
 .toast--error::before {
   background: var(--danger);
@@ -77,7 +77,7 @@
   cursor: pointer;
 }
 .toast__action:hover {
-  color: #aabcf4;
+  color: var(--stage-link-hover);
 }
 
 /* Shared tooltip: instant, top layer, and on the dark surface in both themes like the toast. */

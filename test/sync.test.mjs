@@ -93,7 +93,8 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
   get("sync-retry").click();
   await flush();
   assert.equal(get("sync-error").hidden, true);
-  assert.equal(get("sync-status").hidden, false);
+  // The status line stays out of the recovery-key screen.
+  assert.equal(get("sync-status").hidden, true);
   assert.equal(get("sync-recovery-key").textContent, "test-recovery-key");
   assert.equal(get("sync-recovery").hidden, false);
   assert.equal(get("sync-close").disabled, true);
@@ -206,12 +207,15 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
   assert.equal(get("history-total").textContent, "0");
   assert.equal(get("favorite-button").disabled, true);
 
+  // The earlier key copy raised its own toast; startup sync must not add another.
+  const toastCount = () => document.body.children[0]?.children.length ?? 0;
+  const toastsBefore = toastCount();
   await runStartupSync();
   assert.equal(calls.at(-1).command, "get_sync_status");
-  assert.equal(document.body.children[0]?.children.length ?? 0, 0);
+  assert.equal(toastCount(), toastsBefore);
   fail = { command: "startup_sync", error: { category: "offline" } };
   await runStartupSync();
-  assert.equal(document.body.children[0]?.children.length ?? 0, 0);
+  assert.equal(toastCount(), toastsBefore);
 
   // A failed status check is an error with a retry, never a status line stuck on "Checking".
   statusFails = true;

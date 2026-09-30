@@ -61,6 +61,10 @@ class FakeElement extends EventTarget {
     return [];
   }
 
+  animate() {
+    // The loader ring's spin is outside these tests.
+  }
+
   // Blobs whose first byte is 255 stand in for images that will not decode.
   async decode() {
     const [first] = new Uint8Array(await resolveObjectURL(this.src).arrayBuffer());
@@ -171,6 +175,7 @@ export const ids = [
   "empty-state",
   "loading-state",
   "loading-message",
+  "loading-ring",
   "error-state",
   "error-title",
   "error-message",
@@ -189,6 +194,8 @@ export const ids = [
   "history-total",
   "favorite-button",
   "history-button",
+  "history-tool-button",
+  "remove-frame-button",
   "history-dialog",
   "history-close-button",
   "history-clear-group",
@@ -260,6 +267,8 @@ export const ids = [
   "frame-menu",
   "frame-menu-button",
   "info-actions",
+  "frame-count-current",
+  "frame-count-total",
   "position-button",
   "position-current",
   "jump-total",

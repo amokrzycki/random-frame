@@ -157,7 +157,10 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   // Arrows only walk history: on the newest frame → points at Draw instead of drawing.
   assert.equal(get("position-current").textContent, "2");
   assert.equal(get("history-total").textContent, "2");
-  assert.equal(get("next-button").getAttribute("aria-disabled"), "true");
+  assert.equal(get("frame-count-current").textContent, "2");
+  assert.equal(get("frame-count-total").textContent, "2");
+  // The newest frame drops Next rather than showing it disabled; the count carries the position.
+  assert.equal(get("next-button").hidden, true);
   keydown(document, "ArrowRight");
   await flush();
   assert.equal("pulse" in get("draw-button").dataset, true);
@@ -170,6 +173,9 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   keydown(document, "n");
   await flush();
   await flush();
+  // The first drawn frame says how to favorite, once.
+  assert.equal(localStorage.getItem("random-frame-favorite-tip"), "shown");
+  assert.match(document.body.children.flatMap((region) => region.children).at(-1).textContent, /press F to favorite/);
   assert.equal(get("position-current").textContent, "4");
   assert.equal(get("image-id-value").textContent, "def456");
   assert.equal(get("draw-button").getAttribute("aria-busy"), "false");
@@ -228,7 +234,8 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
 
   get("history-button").click();
   assert.equal(get("history-grid").children.length, 4);
-  assert.equal(get("history-grid").children[2].getAttribute("aria-current"), "true");
+  // Newest first: def456, abc123 (shown), saved2, saved1.
+  assert.equal(get("history-grid").children[1].children[0].getAttribute("aria-current"), "true");
   assert.equal(sessionStorage.getItem("prntsc-gallery-history"), null);
   assert.deepEqual(
     persisted.history.map(({ source, id }) => ({ source, id })),
@@ -244,7 +251,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(get("history-dialog").open, false);
 
   get("history-button").click();
-  get("history-grid").children[0].click();
+  get("history-grid").children[3].children[0].click();
   assert.equal(get("history-dialog").open, false);
   await flush();
   await flush();
@@ -354,7 +361,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   clearButton.click();
   await flush();
   assert.equal(clears(), 0);
-  assert.equal(clearButton.textContent, "Confirm · 5 frames");
+  assert.equal(clearButton.textContent, "Confirm · 5 frames and streak");
   // A click inside the arm delay cannot confirm what it just armed.
   clearButton.click();
   await flush();
@@ -390,7 +397,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   clearButton.click();
   await flush();
   assert.equal(clears(), 1);
-  assert.match(get("announcer").textContent, /^Activate again to clear history & stats: \d+ frames?$/);
+  assert.match(get("announcer").textContent, /^Activate again to clear history & stats: \d+ frames? and streak$/);
   await new Promise((resolve) => setTimeout(resolve, 520));
   clearButton.click();
   toastExpiry();

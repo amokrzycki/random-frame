@@ -12,7 +12,7 @@ pub use exploration::{ExplorationOutcome, ExplorationStore};
 #[allow(unused_imports, reason = "preserve the persistence module API")]
 pub use favorites::{FavoriteItem, FavoriteStore, FavoriteSyncState};
 #[allow(unused_imports, reason = "preserve the persistence module API")]
-pub use history::{HistoryItem, HistorySnapshot, HistoryStore, HistorySyncState};
+pub use history::{HistoryItem, HistorySnapshot, HistoryStore, HistorySyncState, RemovedFrame};
 pub(crate) use io::save_json;
 pub use seen::SeenStore;
 

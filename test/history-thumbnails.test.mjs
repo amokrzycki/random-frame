@@ -32,7 +32,7 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
   const localStorage = new FakeStorage();
   localStorage.setItem("random-frame-risk-accepted", "accepted");
   localStorage.setItem("random-frame-history-page-size", "10");
-  localStorage.setItem("prntsc-gallery-thumbnails", JSON.stringify({ "prntsc:id0": "data:image/jpeg;base64,AA==" }));
+  localStorage.setItem("prntsc-gallery-thumbnails", JSON.stringify({ "prntsc:id10": "data:image/jpeg;base64,AA==" }));
   const window = new EventTarget();
   let toastExpiry;
   window.setTimeout = (callback) => {
@@ -98,15 +98,15 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
   const fetchedIds = () => calls.filter(({ command }) => command === "get_thumbnail_image").map(({ args }) => args.id);
   get("history-button").click();
   assert.equal(get("history-filter-all").getAttribute("aria-pressed"), "true");
-  assert.equal(get("history-page").textContent, "Page 2 of 2");
-  get("history-page-previous").click();
+  // Newest first: the first page holds frames 12 down to 3.
+  assert.equal(get("history-page").textContent, "Page 1 of 2");
   assert.equal(get("history-grid").children.length, 10);
   await flush();
 
   // Missing tiles show a skeleton and load a few at a time, without viewing frames.
-  const tiles = get("history-grid").children;
+  const tiles = get("history-grid").children.map((tile) => tile.children[0]);
   assert.equal(tiles[2].getAttribute("data-loading"), "true");
-  assert.equal(tiles[0].getAttribute("data-loading"), null);
+  assert.equal(tiles[1].getAttribute("data-loading"), null); // id10 is already cached
   assert.equal(peak, 3);
   assert.equal(fetchedIds().length, 3);
   const { blobKey, persistThumbnails, thumbnails } = await import("../dist/test-client/frame-cache.js");
@@ -116,9 +116,9 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
   for (let i = 0; i < 12; i++) await flush();
   assert.ok(peak <= 3);
   const fetched = fetchedIds();
-  assert.deepEqual(new Set(fetched), new Set(["id1", "id2", "id3", "id4", "id5", "id6", "id7", "id9", "id10", "id11"]));
-  assert.equal(fetched.length, 10);
-  assert.equal(tiles[3].getAttribute("data-empty"), "true"); // id3 failed
+  assert.deepEqual(new Set(fetched), new Set(["id2", "id3", "id4", "id5", "id6", "id7", "id9", "id11"]));
+  assert.equal(fetched.length, 8);
+  assert.equal(tiles[8].getAttribute("data-empty"), "true"); // id3 failed
   assert.equal(tiles[2].getAttribute("data-loading"), null);
   assert.equal(tiles[2].children[0].src, "data:image/jpeg;base64,AA==");
   assert.equal(
@@ -138,8 +138,8 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
   get("history-button").click();
   get("history-filter-favorites").click();
   assert.equal(get("history-filter-favorites").getAttribute("aria-pressed"), "true");
-  assert.equal(get("history-grid").children[1].children[1].textContent, "11 · id10");
-  assert.equal(get("history-grid").children[1].children[0].src, "data:image/jpeg;base64,AA==");
+  assert.equal(get("history-grid").children[0].children[0].children[1].textContent, "11 · id10");
+  assert.equal(get("history-grid").children[0].children[0].children[0].src, "data:image/jpeg;base64,AA==");
 
   // Sync imports domain data only; the missing local thumbnail uses the same fetch path.
   const { applyFavorites, state } = await import("../dist/test-client/viewer-state.js");
@@ -173,7 +173,7 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
   get("history-button").click();
   get("history-filter-favorites").click();
   assert.deepEqual(
-    get("history-grid").children.map((tile) => tile.children[0].src),
-    [stored["prntsc:id1"], stored["prntsc:id10"], stored["prntsc:id11"]],
+    get("history-grid").children.map((tile) => tile.children[0].children[0].src),
+    [stored["prntsc:id11"], stored["prntsc:id10"], stored["prntsc:id1"]],
   );
 });

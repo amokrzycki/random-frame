@@ -6,6 +6,7 @@ const root = document.documentElement;
 // The privacy page keeps a two-state toggle; the main window has a System / Light / Dark picker.
 const toggle = document.querySelector<HTMLButtonElement>(".theme-toggle");
 const choices = [...(document.querySelectorAll?.<HTMLButtonElement>("[data-theme-choice]") ?? [])];
+const options = document.querySelector?.<HTMLElement>(".theme-picker__options");
 const themeColor = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
 const systemDark = globalThis.matchMedia?.("(prefers-color-scheme: dark)");
 
@@ -27,13 +28,22 @@ function setTheme(theme: Theme): void {
   themeColor?.setAttribute("content", dark ? "#1c1d19" : "#ebe8e1");
   toggle?.setAttribute("aria-pressed", String(dark));
   toggle?.setAttribute("aria-label", `Switch to ${dark ? "light" : "dark"} mode`);
-  if (toggle) toggle.title = `Switch to ${dark ? "light" : "dark"} mode`;
+  if (toggle) toggle.dataset.tip = `Switch to ${dark ? "light" : "dark"} mode`;
 }
 
 function apply(): void {
   // Without a stored choice the inline head script already resolved the theme; keep it if matchMedia is missing.
   setTheme(choice === "system" ? (systemDark ? (systemDark.matches ? "dark" : "light") : currentTheme()) : choice);
-  for (const button of choices) button.setAttribute("aria-pressed", String(button.dataset.themeChoice === choice));
+  for (const button of choices) button.setAttribute("aria-checked", String(button.dataset.themeChoice === choice));
+  options?.style?.setProperty(
+    "--i",
+    String(
+      Math.max(
+        0,
+        choices.findIndex((button) => button.dataset.themeChoice === choice),
+      ),
+    ),
+  );
 }
 
 function currentTheme(): Theme {
@@ -52,6 +62,8 @@ function choose(next: Choice): void {
 }
 
 apply();
+// Enable the slide only after the first position is set, so first render doesn't animate.
+globalThis.requestAnimationFrame?.(() => options?.classList?.add("is-ready"));
 
 toggle?.addEventListener("click", () => choose(currentTheme() === "dark" ? "light" : "dark"));
 for (const button of choices) button.addEventListener("click", () => choose(button.dataset.themeChoice as Choice));

@@ -4,6 +4,7 @@ import test from "node:test";
 test("theme toggle updates and persists the selected theme", async (t) => {
   const attributes = new Map();
   const toggle = new EventTarget();
+  toggle.dataset = {};
   toggle.setAttribute = (name, value) => attributes.set(name, value);
   const classes = new Set();
   const root = {
