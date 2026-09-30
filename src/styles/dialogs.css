@@ -482,6 +482,18 @@
 #sync-unpaired:has(#sync-join-form:not([hidden])) > .sync-dialog__actions {
   display: none;
 }
+/* Panels swap via [hidden]; the incoming one settles in rather than popping. */
+:is(#sync-unpaired, #sync-join-form, #sync-recovery, #sync-paired, #sync-leave-confirm) {
+  transition:
+    opacity 220ms var(--ease-out),
+    transform 220ms var(--ease-out);
+}
+@starting-style {
+  :is(#sync-unpaired, #sync-join-form, #sync-recovery, #sync-paired, #sync-leave-confirm) {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
 #sync-recovery-input,
 #sync-recovery-key {
   width: 100%;

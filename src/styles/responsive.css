@@ -55,6 +55,12 @@
     }
   }
 
+  @starting-style {
+    :is(#sync-unpaired, #sync-join-form, #sync-recovery, #sync-paired, #sync-leave-confirm) {
+      transform: none;
+    }
+  }
+
   .nav-button:active:not([aria-disabled="true"]) {
     transform: translateY(-50%);
   }
