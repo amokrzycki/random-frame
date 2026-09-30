@@ -21,7 +21,7 @@ class FakeElement extends EventTarget {
   }
 }
 
-test("privacy mailto click copies email to clipboard, shows toast, and invokes openUrl", async (t) => {
+test("privacy mailto click opens the email app without copying", async (t) => {
   const commands = [];
   const copied = [];
   let preventDefaultCalled = false;
@@ -87,7 +87,7 @@ test("privacy mailto click copies email to clipboard, shows toast, and invokes o
   await handleMailtoClick(fakeEvent, "mailto:contact@amokrzycki.ovh");
 
   assert.equal(preventDefaultCalled, true);
-  assert.deepEqual(copied, ["contact@amokrzycki.ovh"]);
+  assert.deepEqual(copied, []);
   assert.equal(commands.length, 1);
   assert.equal(commands[0].command, "plugin:opener|open_url");
   assert.equal(commands[0].args.url, "mailto:contact@amokrzycki.ovh");

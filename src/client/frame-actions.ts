@@ -87,7 +87,7 @@ function showLightboxFrame(): void {
   if (!current) return;
   elements.lightboxImage.src = elements.image.src;
   elements.lightboxImage.alt = elements.image.alt;
-  elements.lightboxCaption.textContent = `${current.id}  ·  ${state.index + 1} / ${state.history.length}`;
+  elements.lightboxCaption.textContent = `${current.id} · ${state.index + 1} / ${state.history.length}`;
   elements.lightboxPrevious.setAttribute("aria-disabled", String(state.index <= 0));
   elements.lightboxNext.setAttribute("aria-disabled", String(state.index >= state.history.length - 1));
   setLightboxZoom(1);

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-test("theme toggle updates and persists the selected theme", async (t) => {
+test("privacy theme toggle cycles System, Light, Dark and back to System", async (t) => {
   const attributes = new Map();
   const toggle = new EventTarget();
   toggle.dataset = {};
@@ -17,10 +17,15 @@ test("theme toggle updates and persists the selected theme", async (t) => {
   const document = new EventTarget();
   document.documentElement = root;
   document.querySelectorAll = () => [];
-  document.querySelector = (selector) => (selector === ".theme-toggle" ? toggle : themeColor);
+  document.querySelector = (selector) =>
+    selector === ".theme-toggle" ? toggle : selector === 'meta[name="theme-color"]' ? themeColor : null;
   const globals = {
     document,
-    localStorage: { setItem: (key, value) => values.set(key, value) },
+    localStorage: {
+      getItem: (key) => values.get(key),
+      setItem: (key, value) => values.set(key, value),
+      removeItem: (key) => values.delete(key),
+    },
     requestAnimationFrame: (callback) => callback(),
   };
   const original = new Map(
@@ -35,10 +40,17 @@ test("theme toggle updates and persists the selected theme", async (t) => {
   });
 
   await import(`../dist/test-client/theme.js?test=${Date.now()}`);
+  assert.equal(toggle.dataset.themeChoice, "system");
+  toggle.dispatchEvent(new Event("click"));
+  assert.equal(toggle.dataset.themeChoice, "light");
+  assert.equal(root.dataset.theme, "light");
   toggle.dispatchEvent(new Event("click"));
 
   assert.equal(root.dataset.theme, "dark");
   assert.equal(root.style.colorScheme, "dark");
-  assert.equal(attributes.get("aria-pressed"), "true");
+  assert.equal(toggle.dataset.themeChoice, "dark");
   assert.equal(values.get("random-frame-theme"), "dark");
+  toggle.dispatchEvent(new Event("click"));
+  assert.equal(toggle.dataset.themeChoice, "system");
+  assert.equal(values.has("random-frame-theme"), false);
 });

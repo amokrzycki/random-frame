@@ -531,11 +531,26 @@
   line-height: 1.6;
 }
 
-/* One ruled line per action, keys set right like the Draw keycap. */
+/* Group related actions; keep the keys aligned within each group. */
 .shortcuts {
+  scrollbar-color: var(--muted) var(--paper-deep);
   margin: 0;
   padding: 8px 28px 20px;
   overflow: auto;
+}
+
+.shortcuts section + section {
+  margin-top: 24px;
+}
+
+.shortcuts h3 {
+  margin: 8px 0;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.shortcuts dl {
+  margin: 0;
 }
 
 .shortcuts__row {
@@ -858,6 +873,10 @@
 }
 
 .lightbox-caption {
+  min-width: 0;
+  margin: 0;
+  word-spacing: 0.15em;
+  overflow-wrap: anywhere;
   font:
     13px / 1.2 ui-monospace,
     SFMono-Regular,
@@ -1513,4 +1532,11 @@
   .ledger__strip {
     grid-column: 1 / -1;
   }
+}
+
+#entry-button:disabled {
+  color: var(--disabled-ink);
+  background: var(--paper-deep);
+  box-shadow: inset 0 0 0 1px var(--line);
+  opacity: 1;
 }

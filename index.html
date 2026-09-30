@@ -270,56 +270,88 @@
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
           </button>
         </header>
-        <dl class="shortcuts">
-          <div class="shortcuts__row">
-            <dt>Draw a frame</dt>
-            <dd><kbd>N</kbd></dd>
-          </div>
-          <div class="shortcuts__row">
-            <dt>Draw, when nothing has focus</dt>
-            <dd><kbd>Space</kbd><kbd>Enter</kbd></dd>
-          </div>
-          <div class="shortcuts__row">
-            <dt>Previous or next frame in history</dt>
-            <dd><kbd aria-label="Left arrow">←</kbd><kbd aria-label="Right arrow">→</kbd></dd>
-          </div>
-          <div class="shortcuts__row">
-            <dt>Save image</dt>
-            <dd><kbd>S</kbd></dd>
-          </div>
-          <div class="shortcuts__row">
-            <dt>Copy image</dt>
-            <dd><kbd>C</kbd></dd>
-          </div>
-          <div class="shortcuts__row">
-            <dt>Add or remove favorite</dt>
-            <dd><kbd>F</kbd></dd>
-          </div>
-          <div class="shortcuts__row">
-            <dt>Undo last removal or clear</dt>
-            <dd><kbd>Z</kbd><kbd>Ctrl+Z</kbd></dd>
-          </div>
-          <div class="shortcuts__row">
-            <dt>Pan a zoomed image in the enlarged view</dt>
-            <dd><kbd>Shift</kbd><kbd aria-label="Arrow keys">←↑↓→</kbd></dd>
-          </div>
-          <div class="shortcuts__row">
-            <dt>Open Stats</dt>
-            <dd><kbd>T</kbd></dd>
-          </div>
-          <div class="shortcuts__row">
-            <dt>Open history</dt>
-            <dd><kbd>H</kbd></dd>
-          </div>
-          <div class="shortcuts__row">
-            <dt>Show this list</dt>
-            <dd><kbd>?</kbd></dd>
-          </div>
-          <div class="shortcuts__row">
-            <dt>Close a dialog or cancel a draw</dt>
-            <dd><kbd>Esc</kbd></dd>
-          </div>
-        </dl>
+        <div class="shortcuts">
+          <section>
+            <h3>Viewing</h3>
+            <dl>
+              <div class="shortcuts__row">
+                <dt>Previous or next frame in history</dt>
+                <dd><kbd>←</kbd><kbd>→</kbd></dd>
+              </div>
+              <div class="shortcuts__row">
+                <dt>Pan a zoomed image in the enlarged view</dt>
+                <dd><kbd>Shift</kbd><kbd>←↑↓→</kbd></dd>
+              </div>
+            </dl>
+          </section>
+          <section>
+            <h3>Frame</h3>
+            <dl>
+              <div class="shortcuts__row">
+                <dt>Draw a frame</dt>
+                <dd><kbd>N</kbd></dd>
+              </div>
+              <div class="shortcuts__row">
+                <dt>Draw, when no control has focus</dt>
+                <dd><kbd>Space</kbd><kbd>Enter</kbd></dd>
+              </div>
+              <div class="shortcuts__row">
+                <dt>Save image</dt>
+                <dd><kbd>S</kbd></dd>
+              </div>
+              <div class="shortcuts__row">
+                <dt>Copy image</dt>
+                <dd><kbd>C</kbd></dd>
+              </div>
+              <div class="shortcuts__row">
+                <dt>Add or remove favorite</dt>
+                <dd><kbd>F</kbd></dd>
+              </div>
+            </dl>
+          </section>
+          <section>
+            <h3>History</h3>
+            <dl>
+              <div class="shortcuts__row">
+                <dt>Open history</dt>
+                <dd><kbd>H</kbd></dd>
+              </div>
+              <div class="shortcuts__row">
+                <dt>Move between history thumbnails</dt>
+                <dd><kbd>←↑↓→</kbd></dd>
+              </div>
+              <div class="shortcuts__row">
+                <dt>Open focused thumbnail</dt>
+                <dd><kbd>Space</kbd><kbd>Enter</kbd></dd>
+              </div>
+              <div class="shortcuts__row">
+                <dt>Remove focused thumbnail</dt>
+                <dd><kbd>Delete</kbd></dd>
+              </div>
+              <div class="shortcuts__row">
+                <dt>Undo last removal or clear</dt>
+                <dd><kbd>Z</kbd><kbd>Ctrl+Z</kbd></dd>
+              </div>
+            </dl>
+          </section>
+          <section>
+            <h3>App</h3>
+            <dl>
+              <div class="shortcuts__row">
+                <dt>Open Stats</dt>
+                <dd><kbd>T</kbd></dd>
+              </div>
+              <div class="shortcuts__row">
+                <dt>Toggle this list</dt>
+                <dd><kbd>?</kbd></dd>
+              </div>
+              <div class="shortcuts__row">
+                <dt>Close a dialog or cancel a draw</dt>
+                <dd><kbd>Esc</kbd></dd>
+              </div>
+            </dl>
+          </section>
+        </div>
       </div>
     </dialog>
 
