@@ -487,7 +487,7 @@
 .sync-dialog__saved {
   display: flex;
   align-items: flex-start;
-  gap: 9px;
+  gap: 12px;
   color: var(--ink);
   cursor: pointer;
 }
@@ -497,9 +497,9 @@
   font-size: 13px;
   line-height: 1.45;
 }
-.sync-dialog__saved input {
-  margin: 4px 0 0;
-  accent-color: var(--blue);
+.sync-dialog__saved:has(input:focus-visible) {
+  outline: 3px solid var(--blue);
+  outline-offset: 3px;
 }
 #sync-recovery-input {
   min-width: 0;
@@ -1383,7 +1383,7 @@
   outline: 3px solid var(--blue);
   outline-offset: 3px;
 }
-.entry-consent input {
+:is(.entry-consent, .sync-dialog__saved) input {
   width: 19px;
   height: 19px;
   margin: 2px 0 0;
@@ -1399,7 +1399,7 @@
     background-color 120ms var(--ease-out),
     border-color 120ms var(--ease-out);
 }
-.entry-consent input::before {
+:is(.entry-consent, .sync-dialog__saved) input::before {
   content: "";
   width: 10px;
   height: 10px;
@@ -1411,15 +1411,15 @@
     opacity 120ms var(--ease-out),
     transform 120ms var(--ease-out);
 }
-.entry-consent input:checked {
+:is(.entry-consent, .sync-dialog__saved) input:checked {
   border-color: var(--blue);
   background: var(--blue);
 }
-.entry-consent input:checked::before {
+:is(.entry-consent, .sync-dialog__saved) input:checked::before {
   opacity: 1;
   transform: scale(1);
 }
-.entry-consent input:focus-visible {
+:is(.entry-consent, .sync-dialog__saved) input:focus-visible {
   outline: 0;
 }
 .entry-dialog__actions {

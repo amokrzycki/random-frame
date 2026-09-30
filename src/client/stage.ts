@@ -76,12 +76,11 @@ export function finishLoading(): void {
 export function syncControls(): void {
   const current = state.history[state.index];
   // At 0/0 the arrows have nowhere to go; the empty stage points at Draw instead.
-  elements.previous.hidden = elements.next.hidden = !state.history.length;
+  // The frame count beside the ID carries the position, so the newest frame drops Next instead of disabling it.
+  elements.previous.hidden = !state.history.length;
+  elements.next.hidden = nextHistoryIndex(state.index, state.history.length) === null;
   elements.previous.setAttribute("aria-disabled", String(state.loading || state.index <= 0));
-  elements.next.setAttribute(
-    "aria-disabled",
-    String(state.loading || nextHistoryIndex(state.index, state.history.length) === null),
-  );
+  elements.next.setAttribute("aria-disabled", String(state.loading));
   // Copy and save act on the visible frame only, never on one hidden behind an error.
   const currentBlob = viewState === "image" && current && blobs.has(blobKey(current.source, current.id));
   elements.save.disabled = state.loading || !currentBlob;
@@ -114,10 +113,17 @@ export function syncControls(): void {
   elements.positionButton.setAttribute("aria-label", `Frame ${position} of ${state.history.length}. Jump to a frame`);
   elements.positionCurrent.textContent = String(position);
   elements.historyTotal.textContent = String(state.history.length);
+  elements.frameCountCurrent.textContent = String(position);
+  elements.frameCountTotal.textContent = String(state.history.length);
   elements.jumpTotal.textContent = String(state.history.length);
   elements.jumpInput.max = String(state.history.length);
   elements.historyClear.disabled = state.loading || !state.history.length;
   elements.imageIdValue.textContent = current?.id ?? "———";
+  // The accessible name has to contain the visible text, so the ID leads and the purpose follows.
+  elements.frameMenuButton.setAttribute(
+    "aria-label",
+    current ? `prnt.sc/${current.id}, frame options` : "Frame options",
+  );
   // Without an href the link leaves the tab order and Enter has nothing to follow.
   if (current) elements.source.href = current.sourcePageUrl;
   else elements.source.removeAttribute("href");

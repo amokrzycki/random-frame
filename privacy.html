@@ -83,7 +83,7 @@
       <article class="privacy-page">
         <header>
           <h1>Privacy policy</h1>
-          <p>Last updated: September 29, 2026</p>
+          <p>Last updated: September 30, 2026</p>
         </header>
 
         <p>This policy explains how the Random Frame desktop application handles data.</p>
@@ -114,31 +114,42 @@
         <ul>
           <li>the selected theme (System, Light, or Dark),</li>
           <li>acknowledgement of the entry notice,</li>
-          <li>browsing history and favorites,</li>
-          <li>viewing statistics and drawn IDs (identifiers of frames you have drawn, kept to skip repeats),</li>
-          <li>Prnt.sc IDs checked (including ones with no image).</li>
+          <li>browsing history and favorites, with small preview images of those frames,</li>
+          <li>viewing statistics and Seen IDs (identifiers of frames you have viewed, kept to skip repeats),</li>
+          <li>Prnt.sc IDs checked (including ones with no image),</li>
+          <li>
+            if you enable Sync: a pairing ID and the time of the last sync on this device, and your Sync key in your
+            system’s secure storage.
+          </li>
         </ul>
 
         <p>
-          Settings, statistics, and Prnt.sc IDs checked remain on your device. If you enable Sync, drawn IDs, history,
+          Settings, statistics, and Prnt.sc IDs checked remain on your device. If you enable Sync, Seen IDs, history,
           and favorites are sent in encrypted form to the Sync server. Drawing frames and browsing history still work
           without Sync.
+        </p>
+
+        <p>
+          You can clear history and statistics in the app. Favorites and Seen IDs are kept. With Sync on, linked devices
+          remove the history they know about when they next sync.
         </p>
 
         <h2>3. Optional Sync</h2>
 
         <p>
-          Sync transfers an encrypted copy of drawn IDs, history, and favorites. Encryption and decryption happen on
-          your device. The server operator does not receive the plaintext list of identifiers or your recovery key. The
+          Sync transfers an encrypted copy of Seen IDs, history, and favorites. Encryption and decryption happen on your
+          device. The server operator does not receive the plaintext list of identifiers or your recovery key. The
           server can see connection metadata, the sync ID, and the size and timing of transfers. Keep your recovery key
           safe: it allows another device to join your Sync and cannot be shown again automatically.
         </p>
+
+        <p>With Sync on, the app contacts the Sync server when it starts and whenever you choose Sync now.</p>
 
         <h2>4. External services</h2>
 
         <p>
           The app checks GitHub for updates when it starts. GitHub may receive connection information such as your IP
-          address and request details. Checking does not send your history, favorites, or drawn IDs.
+          address and request details. Checking does not send your history, favorites, or Seen IDs.
         </p>
 
         <p>
@@ -175,7 +186,7 @@
     </main>
 
     <footer>
-      <p>Local by default. Optional Sync transfers encrypted drawn IDs, history, and favorites.</p>
+      <p>Local by default. Optional Sync transfers encrypted Seen IDs, history, and favorites.</p>
 
       <div class="footer-meta">
         <span>Privacy</span>

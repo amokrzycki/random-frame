@@ -84,7 +84,7 @@ function show(message: string, tone: ToastTone, action?: ToastAction, onExpire?:
 }
 
 export const toast = {
-  success: (message: string): void => show(message, "success"),
+  success: (message: string, action?: ToastAction): void => show(message, "success", action),
   info: (message: string, action?: ToastAction, onExpire?: () => void): void => show(message, "info", action, onExpire),
   error: (message: string): void => show(message, "error"),
 };

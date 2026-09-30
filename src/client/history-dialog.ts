@@ -498,7 +498,7 @@ export function bindHistoryDialogEvents(): void {
     elements.historyClear,
     elements.historyClearGroup,
     clearSavedHistory,
-    () => plural(state.history.length, "frame"),
+    () => `${plural(state.history.length, "frame")} and streak`,
   );
   const resetFavoritesConfirmation = bindClearConfirmation(
     elements.historyClearFavorites,

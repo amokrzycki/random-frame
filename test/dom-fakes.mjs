@@ -262,6 +262,8 @@ export const ids = [
   "frame-menu",
   "frame-menu-button",
   "info-actions",
+  "frame-count-current",
+  "frame-count-total",
   "position-button",
   "position-current",
   "jump-total",

@@ -67,8 +67,8 @@
               Clear history &amp; stats
             </button>
             <span class="history-clear-hint" id="history-clear-hint">
-              Removes saved frames and local stats. Favorites and drawn IDs (kept to skip repeats) stay. Linked devices
-              remove known history when they sync.
+              Removes saved frames and resets Frames drawn, Today, and your activity streak. Favorites and Seen IDs
+              (kept to skip repeats) stay. Linked devices remove known history when they sync.
             </span>
           </div>
           <div class="history-clear-group" id="history-clear-favorites-group" hidden>
@@ -309,7 +309,7 @@
           </div>
           <div id="sync-unpaired" hidden>
             <p class="sync-dialog__copy">
-              Keep your history, favorites, and drawn IDs (used to skip repeats) in step across your devices. Everything
+              Keep your history, favorites, and Seen IDs (used to skip repeats) in step across your devices. Everything
               is encrypted before it leaves this device. Stats stay here.
             </p>
             <p class="sync-dialog__copy">
@@ -342,10 +342,10 @@
             <p class="sync-dialog__blocked-note">Closing is blocked until you confirm you’ve saved the key.</p>
             <label class="sync-dialog__saved">
               <input id="sync-key-saved" type="checkbox">
-              I’ve saved this recovery key somewhere safe
+              <span>I’ve saved this recovery key somewhere safe</span>
             </label>
             <div class="sync-dialog__actions">
-              <button class="primary-action" id="sync-done" type="button" disabled>Done</button>
+              <button class="primary-action" id="sync-done" type="button" aria-disabled="true">Done</button>
             </div>
           </div>
           <div id="sync-paired" hidden>
@@ -359,7 +359,7 @@
           </div>
           <div id="sync-leave-confirm" hidden>
             <p>
-              This device will stop syncing. History, favorites, and drawn IDs stay on this device. The remote Sync data
+              This device will stop syncing. History, favorites, and Seen IDs stay on this device. The remote Sync data
               stays on the server. To join again, you will need your recovery key.
             </p>
             <div class="sync-dialog__actions">
@@ -565,6 +565,11 @@
               >
               <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg>
             </button>
+            <span class="frame-count" id="frame-count"
+              ><span class="sr-only">Frame </span><span id="frame-count-current">0</span
+              ><span aria-hidden="true"> / </span><span class="sr-only"> of </span
+              ><span id="frame-count-total">0</span></span
+            >
             <div class="tools-menu frame-menu" id="frame-menu" role="menu" aria-label="Frame options" popover>
               <button
                 class="tools-menu__item position__readout"
@@ -596,25 +601,13 @@
                 <span id="jump-total" aria-hidden="true">0</span>
               </form>
               <hr class="tools-menu__rule">
-              <button
-                class="tools-menu__item"
-                id="previous-id-button"
-                type="button"
-                role="menuitem"
-                aria-label="Load the previous Prnt.sc identifier"
-                disabled>
+              <button class="tools-menu__item" id="previous-id-button" type="button" role="menuitem" disabled>
                 <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m10.5 5-4 4 4 4" /></svg>
-                Previous ID
+                Adjacent ID before
               </button>
-              <button
-                class="tools-menu__item"
-                id="next-id-button"
-                type="button"
-                role="menuitem"
-                aria-label="Load the next Prnt.sc identifier"
-                disabled>
+              <button class="tools-menu__item" id="next-id-button" type="button" role="menuitem" disabled>
                 <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m7.5 5 4 4-4 4" /></svg>
-                Next ID
+                Adjacent ID after
               </button>
               <hr class="tools-menu__rule">
               <div class="tools-menu__split" role="none">

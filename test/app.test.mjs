@@ -157,7 +157,10 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   // Arrows only walk history: on the newest frame → points at Draw instead of drawing.
   assert.equal(get("position-current").textContent, "2");
   assert.equal(get("history-total").textContent, "2");
-  assert.equal(get("next-button").getAttribute("aria-disabled"), "true");
+  assert.equal(get("frame-count-current").textContent, "2");
+  assert.equal(get("frame-count-total").textContent, "2");
+  // The newest frame drops Next rather than showing it disabled; the count carries the position.
+  assert.equal(get("next-button").hidden, true);
   keydown(document, "ArrowRight");
   await flush();
   assert.equal("pulse" in get("draw-button").dataset, true);
@@ -355,7 +358,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   clearButton.click();
   await flush();
   assert.equal(clears(), 0);
-  assert.equal(clearButton.textContent, "Confirm · 5 frames");
+  assert.equal(clearButton.textContent, "Confirm · 5 frames and streak");
   // A click inside the arm delay cannot confirm what it just armed.
   clearButton.click();
   await flush();
@@ -391,7 +394,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   clearButton.click();
   await flush();
   assert.equal(clears(), 1);
-  assert.match(get("announcer").textContent, /^Activate again to clear history & stats: \d+ frames?$/);
+  assert.match(get("announcer").textContent, /^Activate again to clear history & stats: \d+ frames? and streak$/);
   await new Promise((resolve) => setTimeout(resolve, 520));
   clearButton.click();
   toastExpiry();

@@ -112,12 +112,16 @@
   font-weight: 650;
 }
 
-.primary-action:hover:not(:disabled) {
+.primary-action:hover:not(:disabled, [aria-disabled="true"]) {
   background: var(--blue-dark);
 }
 .primary-action:disabled {
   opacity: 0.42;
   box-shadow: none;
+  cursor: not-allowed;
+}
+/* A gate the dialog already explains stays at full strength and keeps focus; pressing it points at the gate. */
+.primary-action[aria-disabled="true"] {
   cursor: not-allowed;
 }
 .primary-action svg {
@@ -224,10 +228,11 @@
 
 /* The position and ID still describe the frame behind the error, so they step back with it. The icon
    tools keep full strength: fading them would take disabled marks below their 3:1 floor. */
-.viewer:has(.error-state:not([hidden])) :is(.frame-id__caption) {
+.viewer:has(.error-state:not([hidden])) :is(.frame-id__caption, .frame-count) {
   opacity: 0.45;
 }
-.frame-id__caption {
+.frame-id__caption,
+.frame-count {
   transition: opacity 200ms var(--ease-out);
 }
 .text-action {
@@ -359,6 +364,15 @@
   align-items: center;
   gap: 6px;
   font-variant-numeric: tabular-nums;
+}
+
+/* Position beside the ID; the menu's readout below is where it becomes a jump field. */
+.frame-count {
+  margin-left: 6px;
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
 }
 
 /* The count and the jump field live in the frame menu, as rows of it. */

@@ -117,6 +117,8 @@ export const elements = {
   frameMenuButton: element<HTMLButtonElement>("#frame-menu-button"),
   toolsMenuButton: element<HTMLButtonElement>("#tools-menu-button"),
   infoActions: element<HTMLElement>("#info-actions"),
+  frameCountCurrent: element<HTMLElement>("#frame-count-current"),
+  frameCountTotal: element<HTMLElement>("#frame-count-total"),
   main: element<HTMLElement>("#main-content"),
   dialogBackdrop: element<HTMLElement>("#dialog-backdrop"),
   announcer: element<HTMLElement>("#announcer"),
