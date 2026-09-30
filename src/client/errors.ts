@@ -42,7 +42,7 @@ export function describeError(error: unknown, fallback = DEFAULT_MESSAGE): Error
     case "not-found":
       return copy(DEFAULT_TITLE, "Nothing is published at this address, or it has been removed.");
     case "no-new-frame":
-      return copy("No new frame this time.", "Try drawing again.");
+      return copy("No new frame this time.", "");
     case "image-too-large":
       return copy(DEFAULT_TITLE, "This image is larger than Random Frame can safely open.");
     case "invalid-response":

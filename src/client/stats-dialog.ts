@@ -161,6 +161,6 @@ export function bindStatsDialogEvents(): void {
   elements.statsClose.addEventListener("click", () => closeDialog(elements.statsDialog));
   elements.statsDialog.addEventListener("close", () => {
     onDialogClosed();
-    elements.statsButton.focus();
+    elements.toolsMenuButton.focus();
   });
 }

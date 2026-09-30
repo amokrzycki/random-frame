@@ -54,9 +54,7 @@ test("removes one frame from the grid or the frame menu, and Undo puts it back i
     },
   };
 
-  const tools = ["history-tool-button", "stats-button", "tools-menu-button"].map((id) =>
-    document.querySelector(`#${id}`),
-  );
+  const tools = ["history-tool-button", "tools-menu-button"].map((id) => document.querySelector(`#${id}`));
   const actions = ["frame-menu-button", "favorite-button"].map((id) => document.querySelector(`#${id}`));
   document.querySelector("#masthead-tools").querySelectorAll = () => tools;
   document.querySelector("#info-actions").querySelectorAll = () => actions;
@@ -98,14 +96,14 @@ test("removes one frame from the grid or the frame menu, and Undo puts it back i
   assert.equal(get("frame-menu").style.right, "12px");
 
   // Newest first; the tile's pointer control removes it without moving the shown frame.
-  get("history-button").click();
+  get("history-tool-button").click();
   assert.deepEqual(order(), ["4 · ddd444", "3 · ccc333", "2 · bbb222", "1 · aaa111"]);
   assert.equal(grid()[2].children[0].getAttribute("aria-keyshortcuts"), "Delete");
   assert.equal(grid()[0].children[1].tabIndex, 0);
   grid()[0].children[1].click();
   await flush();
   assert.deepEqual(order(), ["3 · ccc333", "2 · bbb222", "1 · aaa111"]);
-  assert.equal(get("position-current").textContent, "2");
+  assert.equal(get("frame-count-current").textContent, "2");
   assert.match(get("image").alt, /bbb222/);
 
   // Undo restores it at its old place by sending the position the backend returned.
@@ -126,12 +124,12 @@ test("removes one frame from the grid or the frame menu, and Undo puts it back i
     ["aaa111", "ccc333", "ddd444"],
   );
   assert.match(get("image").alt, /ccc333/);
-  assert.equal(get("position-current").textContent, "2");
+  assert.equal(get("frame-count-current").textContent, "2");
 
   // Undo returns the visitor to the frame they removed, since they have not moved on.
   undo();
   for (let i = 0; i < 3; i += 1) await flush();
   assert.match(get("image").alt, /bbb222/);
-  assert.equal(get("position-current").textContent, "2");
+  assert.equal(get("frame-count-current").textContent, "2");
   assert.equal(history.history.length, 4);
 });

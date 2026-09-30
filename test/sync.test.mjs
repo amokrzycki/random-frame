@@ -204,7 +204,7 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
   state.index = 0;
   get("sync-now").click();
   await flush();
-  assert.equal(get("history-total").textContent, "0");
+  assert.equal(get("frame-count-total").textContent, "0");
   assert.equal(get("favorite-button").disabled, true);
 
   // The earlier key copy raised its own toast; startup sync must not add another.

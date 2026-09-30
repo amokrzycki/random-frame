@@ -379,7 +379,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Position beside the ID; the menu's readout below is where it becomes a jump field. */
+/* One position count beside the ID; Jump to frame lives in the menu. */
 .frame-count {
   margin-left: 6px;
   flex: 0 0 auto;
@@ -388,31 +388,10 @@
   white-space: nowrap;
 }
 
-/* The count and the jump field live in the frame menu, as rows of it. */
-.position__count {
-  margin-left: auto;
-  font-variant-numeric: tabular-nums;
-}
-
-.position__count output {
-  color: var(--muted);
-  font-weight: 400;
-}
-
-.position__readout:hover:not(:disabled) .position__count {
-  text-decoration: underline dotted;
-  text-underline-offset: 3px;
-}
-
 .position__slash {
   padding-inline: 0.32em;
   color: var(--muted);
   font-weight: 400;
-}
-
-.position__readout:focus-visible :is(output, .position__slash),
-.position__readout:hover:not(:disabled) :is(output, .position__slash) {
-  color: inherit;
 }
 
 .position__form {

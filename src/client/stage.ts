@@ -131,9 +131,10 @@ export function syncControls(): void {
   // History, the position readout, and the arrows stay enabled while loading (goTo ignores them), so they keep focus.
   const position = state.history.length ? state.index + 1 : 0;
   elements.positionButton.disabled = !state.history.length;
-  elements.positionButton.setAttribute("aria-label", `Frame ${position} of ${state.history.length}. Jump to a frame`);
-  elements.positionCurrent.textContent = String(position);
-  elements.historyTotal.textContent = String(state.history.length);
+  elements.positionButton.setAttribute(
+    "aria-label",
+    `Jump to frame. Current frame ${position} of ${state.history.length}`,
+  );
   elements.frameCountCurrent.textContent = String(position);
   elements.frameCountTotal.textContent = String(state.history.length);
   elements.jumpTotal.textContent = String(state.history.length);
@@ -209,6 +210,7 @@ export function showError(
   const { title, message, cooldownSeconds: seconds } = copy ? { ...copy, cooldownSeconds: 0 } : describeError(error);
   elements.errorTitle.textContent = title;
   elements.errorMessage.textContent = message;
+  elements.errorMessage.hidden = !message;
   setState("error");
   elements.announcer.textContent = `${title} ${message}`;
   if (seconds) startCooldown(seconds);

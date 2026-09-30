@@ -139,7 +139,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
     lastErrorCategory: null,
   });
 
-  get("history-button").click();
+  get("history-tool-button").click();
   assert.equal(get("history-dialog").open, true);
   assert.equal(get("history-grid").children.length, 2);
   assert.match(get("image").alt, /saved2/);
@@ -151,12 +151,10 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
 
   get("history-close-button").click();
   assert.equal(get("history-dialog").open, false);
-  // History lives in the More menu, so focus returns to the button that opens it.
-  assert.equal(document.activeElement, get("tools-menu-button"));
+  // History returns focus to its titlebar button.
+  assert.equal(document.activeElement, get("history-tool-button"));
 
   // Arrows only walk history: on the newest frame → points at Draw instead of drawing.
-  assert.equal(get("position-current").textContent, "2");
-  assert.equal(get("history-total").textContent, "2");
   assert.equal(get("frame-count-current").textContent, "2");
   assert.equal(get("frame-count-total").textContent, "2");
   // The newest frame drops Next rather than showing it disabled; the count carries the position.
@@ -176,7 +174,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   // The first drawn frame says how to favorite, once.
   assert.equal(localStorage.getItem("random-frame-favorite-tip"), "shown");
   assert.match(document.body.children.flatMap((region) => region.children).at(-1).textContent, /press F to favorite/);
-  assert.equal(get("position-current").textContent, "4");
+  assert.equal(get("frame-count-current").textContent, "4");
   assert.equal(get("image-id-value").textContent, "def456");
   assert.equal(get("draw-button").getAttribute("aria-busy"), "false");
   assert.equal(historyWrites(), 4);
@@ -210,11 +208,11 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   await flush();
   await flush();
   assert.match(get("image").alt, /abc123/);
-  assert.equal(get("position-current").textContent, "3");
+  assert.equal(get("frame-count-current").textContent, "3");
   get("stats-button").click();
   await flush();
   get("stats-close-button").click();
-  assert.equal(document.activeElement, get("stats-button"));
+  assert.equal(document.activeElement, get("tools-menu-button"));
 
   // Unreadable stats show dashes, not zeros, and recover through Try again.
   failStats = true;
@@ -232,7 +230,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(get("ledger").hidden, false);
   get("stats-close-button").click();
 
-  get("history-button").click();
+  get("history-tool-button").click();
   assert.equal(get("history-grid").children.length, 4);
   // Newest first: def456, abc123 (shown), saved2, saved1.
   assert.equal(get("history-grid").children[1].children[0].getAttribute("aria-current"), "true");
@@ -250,7 +248,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   get("dialog-backdrop").click();
   assert.equal(get("history-dialog").open, false);
 
-  get("history-button").click();
+  get("history-tool-button").click();
   get("history-grid").children[3].children[0].click();
   assert.equal(get("history-dialog").open, false);
   await flush();
@@ -315,8 +313,8 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   await flush();
   await flush();
   assert.match(get("image").alt, /new3/);
-  assert.equal(get("position-current").textContent, "5");
-  assert.equal(get("history-total").textContent, "5");
+  assert.equal(get("frame-count-current").textContent, "5");
+  assert.equal(get("frame-count-total").textContent, "5");
 
   // A failed draw explains itself, hides actions for the unseen frame, and can return to the last frame.
   failNextDraw = true;
@@ -377,8 +375,8 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   await flush();
   assert.equal(get("error-state").hidden, false);
   assert.equal(get("error-title").textContent, "This frame would not open.");
-  assert.equal(get("position-current").textContent, "5");
-  assert.equal(get("history-total").textContent, "5");
+  assert.equal(get("frame-count-current").textContent, "5");
+  assert.equal(get("frame-count-total").textContent, "5");
   assert.equal(persisted.history.length, 5);
   assert.equal(historyWrites(), 5);
   get("back-button").click();
@@ -389,7 +387,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   // Clearing requires an explicit second activation with a visible confirmation label.
   const clearButton = get("history-clear-button");
   const clears = () => invocations.filter(({ command }) => command === "clear_history").length;
-  get("history-button").click();
+  get("history-tool-button").click();
   clearButton.click();
   await flush();
   assert.equal(clears(), 0);
@@ -399,7 +397,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   await flush();
   toastExpiry();
   assert.equal(clears(), 0);
-  assert.equal(get("history-total").textContent, "5");
+  assert.equal(get("frame-count-total").textContent, "5");
   await new Promise((resolve) => setTimeout(resolve, 520));
   clearButton.click();
   assert.equal(get("draw-button").getAttribute("aria-disabled"), "true");
@@ -407,7 +405,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   toastExpiry();
   await flush();
   assert.deepEqual(persisted, { history: [], index: -1 });
-  assert.equal(get("history-total").textContent, "0");
+  assert.equal(get("frame-count-total").textContent, "0");
   // With history gone, focus lands on the next step rather than the History button.
   assert.equal(document.activeElement, get("draw-button"));
   assert.equal(get("source-link").getAttribute("href"), null);

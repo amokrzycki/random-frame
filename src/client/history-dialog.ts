@@ -494,7 +494,6 @@ function bindClearConfirmation(
 }
 
 export function bindHistoryDialogEvents(): void {
-  elements.historyButton.addEventListener("click", () => openHistory());
   elements.historyTool.addEventListener("click", () => openHistory(elements.historyTool));
   elements.removeFrame.addEventListener("click", () => void removeFromHistory(state.index));
   elements.historyClose.addEventListener("click", () => closeDialog(elements.historyDialog));

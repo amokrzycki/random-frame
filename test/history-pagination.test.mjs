@@ -133,7 +133,7 @@ test("pages a long existing history without touching the stored records", async 
   await import("../dist/test-client/app.js");
   for (let i = 0; i < 4; i += 1) await flush();
   const get = (id) => document.querySelector(`#${id}`);
-  get("history-button").click();
+  get("history-tool-button").click();
   // Invalid stored size falls back to 25; the dialog opens on the page holding frame 31. Pages run newest first.
   assert.equal(get("history-page-size").value, "25");
   assert.equal(get("history-pager").hidden, false);

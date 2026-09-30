@@ -110,7 +110,7 @@
   }
 
   /* The hint row opens without easing. */
-  .history-dialog__header--tools,
+  .history-clear-group,
   .history-clear-hint {
     transition: none;
   }

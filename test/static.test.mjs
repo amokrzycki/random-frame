@@ -65,3 +65,17 @@ test("window controls skip Tab and the enlarged view starts on Close", async () 
   }
   assert.match(index, /id="lightbox-close-button"\s+autofocus/);
 });
+
+test("distilled menus keep Save beside Favorite and Clear in the History footer", async () => {
+  const html = await readFile(new URL("../dist/index.html", import.meta.url), "utf8");
+  const more = html.split('id="tools-menu"')[1].split('<div class="window-controls">')[0];
+  const frame = html.split('id="frame-menu"')[1].split('id="favorite-button"')[0];
+  const history = html.split('id="history-dialog"')[1].split('id="stats-dialog"')[0];
+  assert.match(more, /id="stats-button"/);
+  assert.doesNotMatch(more, /History/);
+  assert.equal((frame.match(/role="menuitem"/g) ?? []).length, 7);
+  assert.doesNotMatch(frame, /id="save-button"|id="position-current"|id="history-total"/);
+  assert.match(html, /id="favorite-button"[\s\S]*class="info-icon"\s+id="save-button"/);
+  assert.match(history, /<footer class="history-footer">[\s\S]*id="history-clear-button"/);
+  assert.doesNotMatch(history.split("</header>")[0], /history-clear/);
+});
