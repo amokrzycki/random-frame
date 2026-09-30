@@ -66,7 +66,7 @@
 
     <dialog class="history-dialog" id="history-dialog" aria-labelledby="history-title">
       <div class="history-dialog__content">
-        <header class="history-dialog__header history-dialog__header--tools">
+        <header class="history-dialog__header">
           <h2 id="history-title">History</h2>
           <div class="history-dialog__actions">
             <div class="history-filter">
@@ -81,13 +81,22 @@
               <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
             </button>
           </div>
+        </header>
+        <div class="history-dialog__body" id="history-body">
+          <div class="history-grid" id="history-grid"></div>
+          <div class="history-empty" id="history-empty" hidden>
+            <p id="history-empty-title">No frames drawn yet.</p>
+            <span id="history-empty-detail">Draw a frame to begin your history.</span>
+          </div>
+        </div>
+        <footer class="history-footer">
           <div class="history-clear-group" id="history-clear-group">
             <button class="history-clear" id="history-clear-button" type="button" aria-describedby="history-clear-hint">
               Clear history &amp; stats
             </button>
             <span class="history-clear-hint" id="history-clear-hint">
-              Removes saved frames and resets Frames drawn, Today, and your activity streak. Favorites and Seen IDs
-              (kept to skip repeats) stay. Linked devices remove known history when they sync.
+              Clears history and Stats. Favorites and Seen IDs stay. Known history is removed from linked devices when
+              they Sync; new offline draws may appear later.
             </span>
           </div>
           <div class="history-clear-group" id="history-clear-favorites-group" hidden>
@@ -103,41 +112,38 @@
               when they sync. New favorites created on an offline device may appear later.
             </span>
           </div>
-        </header>
-        <div class="history-dialog__body" id="history-body">
-          <div class="history-grid" id="history-grid"></div>
-          <div class="history-empty" id="history-empty" hidden>
-            <p id="history-empty-title">No saved frames yet.</p>
-            <span id="history-empty-detail">Draw a frame to begin your history.</span>
-          </div>
-        </div>
-        <footer class="history-pager" id="history-pager" hidden>
-          <div class="history-pager__summary">
-            <p class="history-pager__range" id="history-range" aria-live="polite"></p>
-            <div class="history-pager__size">
-              <label for="history-page-size">Per page</label>
-              <span class="history-pager__select">
-                <select id="history-page-size">
-                  <option value="10">10</option>
-                  <option value="25">25</option>
-                  <option value="50">50</option>
-                  <option value="100">100</option>
-                </select>
-                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg>
-              </span>
+          <div class="history-pager" id="history-pager" hidden>
+            <div class="history-pager__summary">
+              <p class="history-pager__range" id="history-range" aria-live="polite"></p>
+              <div class="history-pager__size">
+                <label for="history-page-size">Per page</label>
+                <span class="history-pager__select">
+                  <select id="history-page-size">
+                    <option value="10">10</option>
+                    <option value="25">25</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                  </select>
+                  <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg>
+                </span>
+              </div>
             </div>
+            <nav class="history-pager__nav" id="history-pager-nav" aria-label="History pages">
+              <button class="history-pager__step" id="history-page-previous" type="button" aria-label="Previous page">
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m12 5-5 5 5 5" /></svg>
+                <span>Previous</span>
+              </button>
+              <form class="history-pager__jump" id="history-page-jump">
+                <label for="history-page-input">Page</label>
+                <input id="history-page-input" type="number" min="1" step="1" required aria-label="Jump to page">
+                <span id="history-page"></span>
+              </form>
+              <button class="history-pager__step" id="history-page-next" type="button" aria-label="Next page">
+                <span>Next</span>
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m8 5 5 5-5 5" /></svg>
+              </button>
+            </nav>
           </div>
-          <nav class="history-pager__nav" id="history-pager-nav" aria-label="History pages">
-            <button class="history-pager__step" id="history-page-previous" type="button" aria-label="Previous page">
-              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m12 5-5 5 5 5" /></svg>
-              <span>Previous</span>
-            </button>
-            <span class="history-pager__page" id="history-page"></span>
-            <button class="history-pager__step" id="history-page-next" type="button" aria-label="Next page">
-              <span>Next</span>
-              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m8 5 5 5-5 5" /></svg>
-            </button>
-          </nav>
         </footer>
       </div>
     </dialog>
@@ -163,12 +169,12 @@
               </div>
               <div class="stats-tally__item">
                 <dt>Activity streak</dt>
-                <dd id="stats-streak">0</dd>
+                <dd id="stats-streak">0 days</dd>
               </div>
             </dl>
             <p class="stats-headline__detail stats-explored">
               <span>Prnt.sc IDs checked <span id="stats-explored">0</span></span>
-              <span id="stats-explored-breakdown">0 opened · 0 unavailable</span>
+              <span id="stats-explored-breakdown">0 drawn · 0 unavailable</span>
             </p>
             <p class="stats-headline__error" id="stats-error" hidden>
               <span>Stats couldn’t be read from this device.</span>
@@ -176,14 +182,14 @@
             </p>
           </div>
           <section class="ledger" id="ledger" aria-labelledby="ledger-title">
-            <h3 class="stats-subhead" id="ledger-title">Local results by day</h3>
+            <h3 class="stats-subhead" id="ledger-title">Days you drew</h3>
             <ol class="ledger__list" id="ledger-list"></ol>
             <p class="ledger__empty" id="ledger-empty" hidden>No local results yet.</p>
             <button class="ledger__more" id="ledger-more" type="button" hidden>Show earlier days</button>
           </section>
         </div>
         <footer class="dialog-foot">
-          <p>Stats reset with History. IDs checked stay on this device, and don’t sync.</p>
+          <p>Stats reset with History. IDs checked stay on this device, and don’t Sync.</p>
         </footer>
       </div>
     </dialog>
@@ -225,6 +231,7 @@
           <button
             class="lightbox-control lightbox-close"
             id="lightbox-close-button"
+            autofocus
             type="button"
             aria-label="Close enlarged image">
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
@@ -263,52 +270,88 @@
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
           </button>
         </header>
-        <dl class="shortcuts">
-          <div class="shortcuts__row">
-            <dt>Draw a frame</dt>
-            <dd><kbd>N</kbd></dd>
-          </div>
-          <div class="shortcuts__row">
-            <dt>Draw, when nothing has focus</dt>
-            <dd><kbd>Space</kbd><kbd>Enter</kbd></dd>
-          </div>
-          <div class="shortcuts__row">
-            <dt>Previous or next frame in history</dt>
-            <dd><kbd aria-label="Left arrow">←</kbd><kbd aria-label="Right arrow">→</kbd></dd>
-          </div>
-          <div class="shortcuts__row">
-            <dt>Save image</dt>
-            <dd><kbd>S</kbd></dd>
-          </div>
-          <div class="shortcuts__row">
-            <dt>Copy image</dt>
-            <dd><kbd>C</kbd></dd>
-          </div>
-          <div class="shortcuts__row">
-            <dt>Add or remove favorite</dt>
-            <dd><kbd>F</kbd></dd>
-          </div>
-          <div class="shortcuts__row">
-            <dt>Undo last favorite removal</dt>
-            <dd><kbd>Z</kbd><kbd>Ctrl+Z</kbd></dd>
-          </div>
-          <div class="shortcuts__row">
-            <dt>Pan a zoomed image in the enlarged view</dt>
-            <dd><kbd>Shift</kbd><kbd aria-label="Arrow keys">←↑↓→</kbd></dd>
-          </div>
-          <div class="shortcuts__row">
-            <dt>Open history</dt>
-            <dd><kbd>H</kbd></dd>
-          </div>
-          <div class="shortcuts__row">
-            <dt>Show this list</dt>
-            <dd><kbd>?</kbd></dd>
-          </div>
-          <div class="shortcuts__row">
-            <dt>Close a dialog or cancel a draw</dt>
-            <dd><kbd>Esc</kbd></dd>
-          </div>
-        </dl>
+        <div class="shortcuts">
+          <section>
+            <h3>Viewing</h3>
+            <dl>
+              <div class="shortcuts__row">
+                <dt>Previous or next frame in history</dt>
+                <dd><kbd>←</kbd><kbd>→</kbd></dd>
+              </div>
+              <div class="shortcuts__row">
+                <dt>Pan a zoomed image in the enlarged view</dt>
+                <dd><kbd>Shift</kbd><kbd>←↑↓→</kbd></dd>
+              </div>
+            </dl>
+          </section>
+          <section>
+            <h3>Frame</h3>
+            <dl>
+              <div class="shortcuts__row">
+                <dt>Draw a frame</dt>
+                <dd><kbd>N</kbd></dd>
+              </div>
+              <div class="shortcuts__row">
+                <dt>Draw, when no control has focus</dt>
+                <dd><kbd>Space</kbd><kbd>Enter</kbd></dd>
+              </div>
+              <div class="shortcuts__row">
+                <dt>Save image</dt>
+                <dd><kbd>S</kbd></dd>
+              </div>
+              <div class="shortcuts__row">
+                <dt>Copy image</dt>
+                <dd><kbd>C</kbd></dd>
+              </div>
+              <div class="shortcuts__row">
+                <dt>Add or remove favorite</dt>
+                <dd><kbd>F</kbd></dd>
+              </div>
+            </dl>
+          </section>
+          <section>
+            <h3>History</h3>
+            <dl>
+              <div class="shortcuts__row">
+                <dt>Open history</dt>
+                <dd><kbd>H</kbd></dd>
+              </div>
+              <div class="shortcuts__row">
+                <dt>Move between history thumbnails</dt>
+                <dd><kbd>←↑↓→</kbd></dd>
+              </div>
+              <div class="shortcuts__row">
+                <dt>Open focused thumbnail</dt>
+                <dd><kbd>Space</kbd><kbd>Enter</kbd></dd>
+              </div>
+              <div class="shortcuts__row">
+                <dt>Remove focused thumbnail</dt>
+                <dd><kbd>Delete</kbd></dd>
+              </div>
+              <div class="shortcuts__row">
+                <dt>Undo last removal or clear</dt>
+                <dd><kbd>Z</kbd><kbd>Ctrl+Z</kbd></dd>
+              </div>
+            </dl>
+          </section>
+          <section>
+            <h3>App</h3>
+            <dl>
+              <div class="shortcuts__row">
+                <dt>Open Stats</dt>
+                <dd><kbd>T</kbd></dd>
+              </div>
+              <div class="shortcuts__row">
+                <dt>Toggle this list</dt>
+                <dd><kbd>?</kbd></dd>
+              </div>
+              <div class="shortcuts__row">
+                <dt>Close a dialog or cancel a draw</dt>
+                <dd><kbd>Esc</kbd></dd>
+              </div>
+            </dl>
+          </section>
+        </div>
       </div>
     </dialog>
 
@@ -328,12 +371,11 @@
           </div>
           <div id="sync-unpaired" hidden>
             <p class="sync-dialog__copy">
-              Keep your history, favorites, and Seen IDs (used to skip repeats) in step across your devices. Everything
-              is encrypted before it leaves this device. Stats stay here.
+              Sync history, favorites, and Seen IDs across devices. Data is encrypted before it leaves this device.
+              Stats stay here.
             </p>
-            <p class="sync-dialog__copy">
-              Turning on Sync gives you a recovery key. You’ll need it to add another device or to rejoin later, and the
-              app can’t show it again, so you’ll save it next.
+            <p class="sync-dialog__copy sync-dialog__enable-note">
+              Save your recovery key to add devices or rejoin later. The app shows it only once.
             </p>
             <div class="sync-dialog__actions">
               <button class="primary-action" id="sync-enable" type="button">Turn on Sync</button>
@@ -343,6 +385,7 @@
               <label for="sync-recovery-input">Recovery key</label>
               <input
                 id="sync-recovery-input"
+                placeholder="Paste your recovery key"
                 type="text"
                 autocomplete="off"
                 autocapitalize="off"
@@ -358,7 +401,7 @@
             <p>This key lets another device join your Sync. The app cannot show it again.</p>
             <output id="sync-recovery-key" aria-label="Recovery key"></output>
             <button class="sync-dialog__button" id="sync-copy-key" type="button">Copy recovery key</button>
-            <p class="sync-dialog__blocked-note">Closing is blocked until you confirm you’ve saved the key.</p>
+            <p class="sync-dialog__blocked-note">Check the box below to finish.</p>
             <label class="sync-dialog__saved">
               <input id="sync-key-saved" type="checkbox">
               <span>I’ve saved this recovery key somewhere safe</span>
@@ -419,11 +462,6 @@
             <path d="M3.3 6.5V3.8M3.3 6.5h2.7M3.6 7A6.5 6.5 0 1 1 3.5 10M10 6.5V10l2.6 1.5" />
           </svg>
         </button>
-        <button class="titlebar-tool" id="stats-button" type="button" aria-label="Stats" data-tip="Stats">
-          <svg viewBox="0 0 20 20" aria-hidden="true">
-            <path d="M4 16V10m6 6V4m6 12V7" />
-          </svg>
-        </button>
         <button
           class="titlebar-tool"
           id="tools-menu-button"
@@ -446,12 +484,10 @@
             </svg>
             Sync
           </button>
-          <button class="tools-menu__item" id="history-button" type="button" role="menuitem" aria-keyshortcuts="H">
-            <svg viewBox="0 0 20 20" aria-hidden="true">
-              <path d="M3.3 6.5V3.8M3.3 6.5h2.7M3.6 7A6.5 6.5 0 1 1 3.5 10M10 6.5V10l2.6 1.5" />
-            </svg>
-            History
-            <kbd aria-hidden="true">H</kbd>
+          <button class="tools-menu__item" id="stats-button" type="button" role="menuitem" aria-keyshortcuts="T">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 16V10m6 6V4m6 12V7" /></svg>
+            Stats
+            <kbd aria-hidden="true">T</kbd>
           </button>
           <button class="tools-menu__item" id="shortcuts-button" type="button" role="menuitem" aria-keyshortcuts="?">
             <svg viewBox="0 0 20 20" aria-hidden="true">
@@ -536,7 +572,7 @@
               <circle class="loader__track" cx="18" cy="18" r="15.5" />
               <circle class="loader__indicator" cx="18" cy="18" r="15.5" />
             </svg>
-            <p id="loading-message">Finding an available frame…</p>
+            <p id="loading-message">Drawing a frame…</p>
             <p class="loading-hint" aria-hidden="true"><kbd>Esc</kbd> to cancel</p>
           </div>
 
@@ -545,7 +581,7 @@
             <p id="error-message">The source may have limited access, or this address may be empty.</p>
             <div class="error-actions">
               <button class="text-action" id="retry-button" type="button">Try again</button>
-              <button class="text-action" id="back-button" type="button" hidden>Return to frame 1</button>
+              <button class="text-action" id="back-button" type="button" hidden>Keep viewing frame 1</button>
             </div>
           </div>
 
@@ -603,13 +639,9 @@
                 role="menuitem"
                 data-keep
                 data-tip="Jump to a frame"
-                aria-label="Frame 0 of 0. Jump to a frame"
+                aria-label="Jump to frame. Current frame 0 of 0"
                 disabled>
-                Frame
-                <span class="position__count"
-                  ><span id="position-current">0</span><span class="position__slash" aria-hidden="true">/</span
-                  ><output id="history-total" aria-live="off">0</output></span
-                >
+                Jump to frame
               </button>
               <form class="position__form" id="jump-form" hidden>
                 <label for="jump-input">Jump to frame</label>
@@ -626,11 +658,25 @@
                 <span id="jump-total" aria-hidden="true">0</span>
               </form>
               <hr class="tools-menu__rule">
-              <button class="tools-menu__item" id="previous-id-button" type="button" role="menuitem" disabled>
+              <button
+                class="tools-menu__item"
+                id="previous-id-button"
+                type="button"
+                role="menuitem"
+                data-tip="Open the Prnt.sc ID immediately before this one, in source order rather than history order"
+                aria-description="Prnt.sc IDs follow source order, independently of the frames in your history."
+                disabled>
                 <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m10.5 5-4 4 4 4" /></svg>
                 Adjacent ID before
               </button>
-              <button class="tools-menu__item" id="next-id-button" type="button" role="menuitem" disabled>
+              <button
+                class="tools-menu__item"
+                id="next-id-button"
+                type="button"
+                role="menuitem"
+                data-tip="Open the Prnt.sc ID immediately after this one, in source order rather than history order"
+                aria-description="Prnt.sc IDs follow source order, independently of the frames in your history."
+                disabled>
                 <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m7.5 5 4 4-4 4" /></svg>
                 Adjacent ID after
               </button>
@@ -676,21 +722,6 @@
                 Copy image
                 <kbd aria-hidden="true">C</kbd>
               </button>
-              <button
-                class="tools-menu__item"
-                id="save-button"
-                type="button"
-                role="menuitem"
-                aria-keyshortcuts="S"
-                disabled>
-                <svg viewBox="0 0 18 18" aria-hidden="true">
-                  <path class="save-arrow" d="M9 3v8m-3.5-3.5L9 11l3.5-3.5" />
-                  <path class="save-check" d="m5.5 8 2.4 2.4 4.6-4.9" pathLength="1" />
-                  <path d="M3.5 14.5h11" />
-                </svg>
-                Save image
-                <kbd aria-hidden="true">S</kbd>
-              </button>
               <hr class="tools-menu__rule">
               <button
                 class="tools-menu__item tools-menu__item--danger"
@@ -719,6 +750,20 @@
                   d="M9 2.5l1.9 4 4.35.55-3.2 3 .82 4.3L9 12.25 5.13 14.35l.82-4.3-3.2-3 4.35-.55z" />
               </svg>
             </button>
+            <button
+              class="info-icon"
+              id="save-button"
+              type="button"
+              aria-label="Save image"
+              aria-keyshortcuts="S"
+              data-tip="Save image (S)"
+              disabled>
+              <svg viewBox="0 0 18 18" aria-hidden="true">
+                <path class="save-arrow" d="M9 3v8m-3.5-3.5L9 11l3.5-3.5" />
+                <path class="save-check" d="m5.5 8 2.4 2.4 4.6-4.9" pathLength="1" />
+                <path d="M3.5 14.5h11" />
+              </svg>
+            </button>
           </div>
 
           <button class="draw-button" id="draw-button" type="button" aria-keyshortcuts="N">
@@ -734,7 +779,10 @@
     </main>
 
     <div class="sr-only" id="announcer" aria-live="polite"></div>
-    <div class="toast-region" aria-live="polite"></div>
+    <div class="notice-rail" id="notice-rail">
+      <div class="toast-region" aria-live="polite"></div>
+      <div class="toast-region toast-region--error" aria-live="assertive"></div>
+    </div>
     <script type="module" src="{{THEME_JS}}"></script>
     <script type="module" src="{{WINDOW_CONTROLS_JS}}"></script>
     <script type="module" src="{{APP_JS}}"></script>

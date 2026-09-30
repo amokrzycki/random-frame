@@ -43,9 +43,13 @@
         <button
           class="titlebar-tool theme-toggle"
           type="button"
-          aria-label="Switch to dark mode"
-          aria-pressed="false"
-          data-tip="Switch to dark mode">
+          aria-label="Theme: system. Switch to light mode"
+          data-theme-choice="system"
+          data-tip="Theme: system. Switch to light mode">
+          <svg class="theme-toggle__system" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="13" rx="2" />
+            <path d="M8 21h8M12 17v4" />
+          </svg>
           <svg class="theme-toggle__sun" viewBox="0 0 24 24" aria-hidden="true">
             <circle cx="12" cy="12" r="4" />
             <path
@@ -128,7 +132,7 @@
           <li>viewing statistics and Seen IDs (identifiers of frames you have viewed, kept to skip repeats),</li>
           <li>Prnt.sc IDs checked (including ones with no image),</li>
           <li>
-            if you enable Sync: a pairing ID and the time of the last sync on this device, and your Sync key in your
+            if you enable Sync: a pairing ID and the time of the last sync on this device, and your recovery key in your
             system’s secure storage.
           </li>
         </ul>
@@ -195,12 +199,10 @@
       </article>
     </main>
 
-    <footer class="status-bar">
-      <p>Local by default. Optional Sync transfers encrypted Seen IDs, history, and favorites.</p>
-    </footer>
-
     <div class="sr-only" id="announcer" aria-live="polite"></div>
-    <div class="toast-region" aria-live="polite"></div>
+    <div class="notice-rail" id="notice-rail">
+      <div class="toast-region" aria-live="polite"></div>
+    </div>
     <script type="module" src="{{THEME_JS}}"></script>
     <script type="module" src="{{TOOLTIP_JS}}"></script>
     <script type="module" src="{{WINDOW_CONTROLS_JS}}"></script>

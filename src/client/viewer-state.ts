@@ -15,6 +15,7 @@ export const state = {
   loading: true,
   // A network draw in flight, as opposed to any loading; only this spins the Draw button.
   drawing: false,
+  historyLoadFailed: false,
   pageSize: loadPageSize(localStorage),
   pageIndex: 0,
   focusBeforeLoading: null as Element | null,

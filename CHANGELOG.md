@@ -1,5 +1,25 @@
 # Random Frame release notes
 
+## 0.6.2
+
+### A simpler way to get around
+
+- History and Save are easier to reach. The More menu now includes Stats, and the keyboard shortcuts are grouped by what you’re doing.
+- Move through history with the arrow keys, jump to a history page, and use the keyboard to browse or remove frames. Clear history and favorites from below the list.
+- Choose System, Light, or Dark theme on the privacy page too.
+
+### Clearer feedback
+
+- Drawing says what it’s doing, and the Draw button stays unavailable if your history can’t load. Try again from the error message when you’re ready.
+- Save, update, and other messages have a clearer place on screen. Update errors explain whether the download failed or the app needs to be restarted.
+- Stats now show streaks in days and label frames as drawn. The daily list is called “Days you drew.”
+
+### Small fixes
+
+- Favorites and history have clearer labels, and removing a frame can be undone with Z or Ctrl+Z.
+- The enlarged view opens with its Close button ready, and the window controls work with the keyboard.
+- Selecting an email address on the privacy page opens your email app. If that doesn’t work, the page shows the address to use.
+
 ## 0.6.1
 
 ### Smoother interactions

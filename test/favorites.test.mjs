@@ -109,7 +109,7 @@ test("favorites toggle from the info line and filter the history grid", async (t
   assert.equal(lastToast().textContent, "Added to favorites");
 
   // All shows every frame; starred tiles carry the badge, separate from the current-frame border.
-  get("history-button").click();
+  get("history-tool-button").click();
   assert.equal(get("history-filter-all").getAttribute("aria-pressed"), "true");
   // Newest first.
   assert.deepEqual(labels(), [
@@ -130,17 +130,17 @@ test("favorites toggle from the info line and filter the history grid", async (t
   assert.equal(get("history-filter-favorites").getAttribute("aria-pressed"), "true");
   assert.equal(get("history-filter-all").getAttribute("aria-pressed"), "false");
   assert.deepEqual(labels(), [
-    "Show frame 3, ccc333, favorite",
-    "Show frame gone99, favorite",
-    "Show frame 2, bbb222, favorite",
+    "Show favorite 1, ccc333, favorite",
+    "Show favorite 2, gone99, favorite",
+    "Show favorite 3, bbb222, favorite",
   ]);
-  assert.equal(get("history-grid").children[1].children[0].children[1].textContent, "gone99");
+  assert.equal(get("history-grid").children[1].children[0].children[1].textContent, "2 · gone99");
   assert.equal(get("history-clear-button").hidden, true);
   assert.equal(get("history-clear-favorites-button").hidden, false);
 
   // The filter resets to All on every open.
   get("history-close-button").click();
-  get("history-button").click();
+  get("history-tool-button").click();
   assert.equal(get("history-filter-all").getAttribute("aria-pressed"), "true");
 
   // A favorite missing from history is fetched by id and joins the end of history.
@@ -152,7 +152,7 @@ test("favorites toggle from the info line and filter the history grid", async (t
     1,
   );
   assert.match(get("image").alt, /gone99/);
-  assert.equal(get("position-current").textContent, "4");
+  assert.equal(get("frame-count-current").textContent, "4");
   assert.equal(star.getAttribute("aria-pressed"), "true");
 
   // The star button toggles back off with its own toast.
@@ -175,13 +175,13 @@ test("favorites toggle from the info line and filter the history grid", async (t
   assert.equal(star.getAttribute("aria-pressed"), "false");
 
   // Clearing favorites uses the history clear's double activation and leaves the Favorites empty state.
-  get("history-button").click();
+  get("history-tool-button").click();
   get("history-filter-favorites").click();
   const clearFavorites = get("history-clear-favorites-button");
   clearFavorites.click();
   assert.match(get("announcer").textContent, /^Activate again to clear favorites: \d+ favorites?$/);
   get("history-close-button").click();
-  get("history-button").click();
+  get("history-tool-button").click();
   get("history-filter-favorites").click();
   clearFavorites.click();
   await flush();

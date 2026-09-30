@@ -1,8 +1,9 @@
 import { closeDialog, dialogs, onDialogClosed, openDialog } from "./dialogs.js";
 import { elements } from "./elements.js";
-import { copyCurrentImage, saveCurrent, toggleCurrentFavorite, undoFavoriteRemoval } from "./frame-actions.js";
+import { copyCurrentImage, saveCurrent, toggleCurrentFavorite } from "./frame-actions.js";
 import { cancelDraw, goBack, goNext, loadRandom } from "./frame-loader.js";
 import { openHistory } from "./history-dialog.js";
+import { toast } from "./toast.js";
 
 // Focus returns to whatever had it: the sheet opens from the titlebar or from ? anywhere.
 let shortcutsOpener: HTMLElement | null = null;
@@ -42,6 +43,10 @@ export function bindShortcutsEvents(): void {
       else if (!dialogs.some((dialog) => dialog.open)) openShortcuts();
       return;
     }
+    if (event.key.toLowerCase() === "z" && !event.shiftKey && !event.repeat) {
+      if (toast.undo()) event.preventDefault();
+      return;
+    }
     // The menu popovers are not dialogs but still own the keyboard while open.
     if (
       dialogs.some((dialog) => dialog.open) ||
@@ -49,16 +54,13 @@ export function bindShortcutsEvents(): void {
       elements.frameMenu.matches?.(":popover-open")
     )
       return;
-    if (event.key.toLowerCase() === "z" && !event.shiftKey && !event.repeat) {
-      if (undoFavoriteRemoval()) event.preventDefault();
-      return;
-    }
     if (event.key === "ArrowLeft") goBack();
     if (event.key === "ArrowRight") goNext();
     if (!event.repeat) {
       const key = event.key.toLowerCase();
       if (key === "s") void saveCurrent();
       if (key === "c") void copyCurrentImage();
+      if (key === "t") elements.statsButton.click();
       if (key === "h") openHistory();
       if (key === "f") void toggleCurrentFavorite();
     }

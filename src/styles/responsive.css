@@ -27,12 +27,12 @@
 
   .update-banner,
   .update-banner--leaving {
-    transform: translateX(-50%);
+    transform: none;
   }
 
   @starting-style {
     .update-banner {
-      transform: translateX(-50%);
+      transform: none;
     }
   }
 
@@ -110,7 +110,7 @@
   }
 
   /* The hint row opens without easing. */
-  .history-dialog__header--tools,
+  .history-clear-group,
   .history-clear-hint {
     transition: none;
   }

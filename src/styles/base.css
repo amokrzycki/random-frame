@@ -89,7 +89,8 @@
   --stage-shadow: rgba(0, 0, 0, 0.38);
   --stage-shadow-small: rgba(0, 0, 0, 0.24);
   /* Dark surfaces sit on dark paper; a hairline keeps their edge where the shadow can't. */
-  --surface-ring: rgba(240, 238, 232, 0.1);
+  --surface-ring: rgba(240, 238, 232, 0.18);
+  --cobalt-shadow: transparent;
   --key-surface: rgba(255, 255, 255, 0.06);
   --control-fill: #343530;
   --control-fill-text: #f0eee8;

@@ -12,12 +12,12 @@ import {
 } from "../dist/test-client/statistics.js";
 
 test("formats the explored breakdown plainly once every explored id is classified", () => {
-  assert.equal(formatExploredBreakdown(101, 49, 52, 0), "49 opened · 52 unavailable");
+  assert.equal(formatExploredBreakdown(101, 49, 52, 0), "49 drawn · 52 unavailable");
 });
 
 test("shows every explored category and rejects inconsistent counts", () => {
-  assert.equal(formatExploredBreakdown(101, 49, 50, 2), "49 opened · 50 unavailable · 2 unclassified");
-  assert.equal(formatExploredBreakdown(10, 0, 0, 10), "0 opened · 0 unavailable · 10 unclassified");
+  assert.equal(formatExploredBreakdown(101, 49, 50, 2), "49 drawn · 50 unavailable · 2 unclassified");
+  assert.equal(formatExploredBreakdown(10, 0, 0, 10), "0 drawn · 0 unavailable · 10 unclassified");
   assert.throws(() => formatExploredBreakdown(101, 49, 50, 0), /Inconsistent exploration counts/);
 });
 

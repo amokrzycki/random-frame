@@ -133,20 +133,28 @@ test("pages a long existing history without touching the stored records", async 
   await import("../dist/test-client/app.js");
   for (let i = 0; i < 4; i += 1) await flush();
   const get = (id) => document.querySelector(`#${id}`);
-  get("history-button").click();
+  get("history-tool-button").click();
   // Invalid stored size falls back to 25; the dialog opens on the page holding frame 31. Pages run newest first.
   assert.equal(get("history-page-size").value, "25");
   assert.equal(get("history-pager").hidden, false);
   assert.equal(get("history-pager-nav").hidden, false);
-  assert.equal(get("history-page").textContent, "Page 2 of 3");
+  assert.equal(get("history-page").textContent, "of 3");
   assert.equal(get("history-range").textContent, "Frames 35–11 of 60");
   assert.equal(get("history-grid").children.length, 25);
   assert.equal(get("history-grid").children[0].children[0].children[1].textContent, "35 · old34");
   assert.equal(get("history-grid").children[4].children[0].getAttribute("aria-current"), "true");
 
+  get("history-page-input").reportValidity = () => true;
+  get("history-page-input").value = "3";
+  get("history-page-jump").dispatchEvent(new Event("submit", { cancelable: true }));
+  assert.equal(get("history-grid").children.length, 10);
+  assert.equal(get("history-page-input").value, "3");
+  get("history-page-input").value = "2";
+  get("history-page-jump").dispatchEvent(new Event("submit", { cancelable: true }));
+
   get("history-page-next").focus();
   get("history-page-next").click();
-  assert.equal(get("history-page").textContent, "Page 3 of 3");
+  assert.equal(get("history-page").textContent, "of 3");
   assert.equal(get("history-grid").children.length, 10);
   assert.equal(get("history-page-next").disabled, true);
   assert.equal(get("history-page-previous").disabled, false);
@@ -155,16 +163,16 @@ test("pages a long existing history without touching the stored records", async 
 
   get("history-page-previous").click();
   get("history-page-previous").click();
-  assert.equal(get("history-page").textContent, "Page 1 of 3");
+  assert.equal(get("history-page").textContent, "of 3");
   assert.equal(get("history-page-previous").disabled, true);
   get("history-page-previous").click();
-  assert.equal(get("history-page").textContent, "Page 1 of 3");
+  assert.equal(get("history-page").textContent, "of 3");
 
   get("history-page-next").click();
   get("history-page-size").value = "10";
   get("history-page-size").dispatchEvent(new Event("change"));
   // Frame 35 was first on screen, so the page holding it stays on screen.
-  assert.equal(get("history-page").textContent, "Page 3 of 6");
+  assert.equal(get("history-page").textContent, "of 6");
   assert.equal(get("history-range").textContent, "Frames 40–31 of 60");
   assert.equal(localStorage.getItem("random-frame-history-page-size"), "10");
 
@@ -183,4 +191,8 @@ test("pages a long existing history without touching the stored records", async 
   assert.equal(invocations.includes("record_history_item"), false);
   assert.equal(invocations.includes("clear_history"), false);
   assert.deepEqual(stored, original);
+});
+
+test("jumps directly to the oldest page of 1,000 frames", () => {
+  assert.deepEqual(historyPage(1000, 39, 25), { page: 39, pages: 40, start: 975, end: 1000 });
 });

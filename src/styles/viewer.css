@@ -62,9 +62,6 @@
   margin: 0 auto 34px;
   border: 1px solid var(--stage-mark);
   border-radius: var(--radius-compact);
-  background:
-    linear-gradient(var(--stage-mark), var(--stage-mark)) center / 12px 1px no-repeat,
-    linear-gradient(var(--stage-mark), var(--stage-mark)) center / 1px 12px no-repeat;
 }
 .empty-state .empty-title {
   margin-bottom: 10px;
@@ -284,7 +281,7 @@
 /* The previous frame waits under the loader instead of cutting to black. */
 .image-zoom[data-dimmed] {
   opacity: 0.3;
-  filter: blur(3px) saturate(0.5);
+  filter: blur(1px) saturate(0.5);
   transition-duration: 320ms;
 }
 .image-zoom[data-dimmed="loading"] {
@@ -379,7 +376,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Position beside the ID; the menu's readout below is where it becomes a jump field. */
+/* One position count beside the ID; Jump to frame lives in the menu. */
 .frame-count {
   margin-left: 6px;
   flex: 0 0 auto;
@@ -388,31 +385,10 @@
   white-space: nowrap;
 }
 
-/* The count and the jump field live in the frame menu, as rows of it. */
-.position__count {
-  margin-left: auto;
-  font-variant-numeric: tabular-nums;
-}
-
-.position__count output {
-  color: var(--muted);
-  font-weight: 400;
-}
-
-.position__readout:hover:not(:disabled) .position__count {
-  text-decoration: underline dotted;
-  text-underline-offset: 3px;
-}
-
 .position__slash {
   padding-inline: 0.32em;
   color: var(--muted);
   font-weight: 400;
-}
-
-.position__readout:focus-visible :is(output, .position__slash),
-.position__readout:hover:not(:disabled) :is(output, .position__slash) {
-  color: inherit;
 }
 
 .position__form {
@@ -505,6 +481,7 @@
 }
 
 .frame-id__caption {
+  max-width: 24ch;
   min-width: 0;
   overflow: hidden;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -518,6 +495,7 @@
    the count already wears. Fading would take it below 4.5:1; the icon tools keep full strength for the same
    reason. Hover and the open menu keep the inverted label. */
 .viewer:has(.error-state:not([hidden])) .frame-id:not(:hover, [aria-expanded="true"]) .frame-id__caption {
+  max-width: 24ch;
   color: var(--muted);
 }
 
@@ -892,7 +870,7 @@ a.tools-menu__item {
 .draw-button__key {
   transition: opacity 160ms var(--ease-out);
 }
-.draw-button[aria-disabled="true"] .draw-button__key {
+.draw-button[aria-disabled="true"]:not([aria-busy="true"]) .draw-button__key {
   opacity: 0;
 }
 
@@ -908,7 +886,7 @@ a.tools-menu__item {
   cursor: progress;
 }
 
-/* Busy: press, key, label and spinner move as one beat. The label and spinner crossfade at the same
+/* Busy: label and spinner move as one beat; the key stays visible. The label and spinner crossfade at the same
    position, so the button keeps its width; the label stays in the tree as the button's name. */
 .draw-button__label {
   transition:
@@ -944,7 +922,7 @@ a.tools-menu__item {
 }
 
 /* The empty stage invites the first draw: a slow cobalt ring, three times, until Draw is used. */
-.draw-button[data-invite]:not([aria-busy="true"]) {
+.draw-button[data-invite]:not([aria-busy="true"], [aria-disabled="true"]) {
   animation: draw-invite 2400ms var(--ease-out) 600ms 3;
 }
 

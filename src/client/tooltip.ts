@@ -6,6 +6,7 @@ tip.popover = "manual";
 tip.setAttribute("aria-hidden", "true");
 document.body.append(tip);
 
+let keyboardFocus = false;
 let current: HTMLElement | null = null;
 
 function hide(): void {
@@ -42,13 +43,29 @@ export function bindTooltipEvents(): void {
   });
   document.addEventListener("focusin", (event) => {
     const target = tipTarget(event.target);
-    if (target?.matches(":focus-visible")) show(target);
+    if (keyboardFocus && target?.matches(":focus-visible")) show(target);
     else hide();
+    keyboardFocus = false;
   });
   document.addEventListener("focusout", hide);
-  document.addEventListener("pointerdown", hide, true);
+  document.addEventListener(
+    "pointerdown",
+    () => {
+      keyboardFocus = false;
+      hide();
+    },
+    true,
+  );
   document.addEventListener("scroll", hide, true);
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") hide();
-  });
+  document.addEventListener(
+    "keydown",
+    (event) => {
+      keyboardFocus =
+        event.key === "Tab" ||
+        (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key) &&
+          Boolean((event.target as HTMLElement | null)?.closest?.('[role="toolbar"], [role="menu"]')));
+      if (event.key === "Escape") hide();
+    },
+    true,
+  );
 }

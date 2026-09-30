@@ -31,3 +31,11 @@ test("keeps unknown error detail out of the UI and logs it instead", (t) => {
   assert.equal(describeError(new Error("x"), "Copy failed.").message, "Copy failed.");
   assert.equal(log.mock.callCount(), 6);
 });
+
+test("no-new-frame leaves recovery to the action buttons", () => {
+  assert.deepEqual(describeError({ kind: "no-new-frame" }), {
+    title: "No new frame this time.",
+    message: "",
+    cooldownSeconds: 0,
+  });
+});

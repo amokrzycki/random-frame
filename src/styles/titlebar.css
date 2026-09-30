@@ -19,6 +19,7 @@
 .brand {
   display: inline-flex;
   min-width: 0;
+  overflow: hidden;
   align-items: center;
   gap: 9px;
   color: inherit;
@@ -26,6 +27,11 @@
   font-weight: 650;
   letter-spacing: -0.01em;
   white-space: nowrap;
+}
+
+.brand span {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .brand svg {
@@ -83,6 +89,7 @@
 }
 
 .window-control:focus-visible {
+  border-radius: var(--radius-control);
   outline-width: 2px;
   outline-offset: -3px;
 }

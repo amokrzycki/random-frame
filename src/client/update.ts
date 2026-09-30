@@ -6,6 +6,7 @@ import MarkdownIt from "markdown-it";
 import changelog from "../../CHANGELOG.md";
 import { closeDialog, dialogs, onDialogClosed, openDialog } from "./dialogs.js";
 import { elements } from "./elements.js";
+import { toast } from "./toast.js";
 
 const pendingChangelogKey = "random-frame-pending-changelog";
 const markdown = new MarkdownIt({ html: false });
@@ -90,7 +91,7 @@ export function bindChangelogEvents(): void {
       if (!html) throw new Error("Missing release notes");
       if (!dialogs.some((dialog) => dialog.open)) openChangelog(version, html, elements.toolsMenuButton);
     } catch {
-      elements.announcer.textContent = "Release notes could not be opened.";
+      toast.error("Release notes could not be opened. Try What’s new again.");
     }
   });
 }
@@ -149,6 +150,7 @@ export async function checkForUpdate(): Promise<void> {
   installButton.addEventListener("click", async () => {
     installButton.disabled = true;
     installButton.textContent = "Installing…";
+    let installed = false;
     try {
       let downloaded = 0;
       let total = 0;
@@ -160,6 +162,7 @@ export async function checkForUpdate(): Promise<void> {
           installButton.textContent = total ? `Installing… ${Math.round((downloaded / total) * 100)}%` : "Installing…";
         }
       });
+      installed = true;
       try {
         localStorage.setItem(pendingChangelogKey, JSON.stringify({ from: await getVersion(), to: update.version }));
       } catch {
@@ -169,7 +172,9 @@ export async function checkForUpdate(): Promise<void> {
     } catch {
       installButton.disabled = false;
       installButton.textContent = "Install & restart";
-      message.textContent = "Update failed. Try again later.";
+      message.textContent = installed
+        ? "Update installed, but the app could not restart. Close and reopen Random Frame."
+        : "Update failed. The new version could not be downloaded or installed. Try again later.";
       elements.announcer.textContent = message.textContent;
     }
   });
@@ -186,5 +191,5 @@ export async function checkForUpdate(): Promise<void> {
   banner.append(message, installButton, dismissButton);
   // A dialog may already be open by the time the check resolves.
   banner.inert = elements.main.inert;
-  document.body.append(banner);
+  (document.querySelector("#notice-rail") ?? document.body).append(banner);
 }

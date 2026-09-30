@@ -8,6 +8,10 @@
   text-underline-offset: 5px;
 }
 
+.masthead-action:focus-visible {
+  border-radius: var(--radius-compact);
+}
+
 .masthead-tools--privacy {
   align-items: center;
   gap: 4px;
@@ -22,6 +26,7 @@
   overflow-y: auto;
 }
 .privacy-page {
+  color: var(--ink);
   max-width: 62ch;
   margin-inline: auto;
   font-size: 16px;
@@ -83,10 +88,11 @@
   font-style: normal;
 }
 
-.theme-toggle__moon,
-.theme-toggle[aria-pressed="true"] .theme-toggle__sun {
+.theme-toggle svg {
   display: none;
 }
-.theme-toggle[aria-pressed="true"] .theme-toggle__moon {
+.theme-toggle[data-theme-choice="system"] .theme-toggle__system,
+.theme-toggle[data-theme-choice="light"] .theme-toggle__sun,
+.theme-toggle[data-theme-choice="dark"] .theme-toggle__moon {
   display: block;
 }

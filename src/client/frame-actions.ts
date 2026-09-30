@@ -28,18 +28,6 @@ export async function copyCurrentImage(): Promise<void> {
 }
 
 let favoritePending = false;
-let lastRemovedFavorite: FavoriteItem | null = null;
-
-export function undoFavoriteRemoval(): boolean {
-  if (!lastRemovedFavorite || favoritePending) return false;
-  if (isFavorite(lastRemovedFavorite)) {
-    lastRemovedFavorite = null;
-    return false;
-  }
-  void restoreFavorite(lastRemovedFavorite);
-  return true;
-}
-
 export async function toggleCurrentFavorite(): Promise<void> {
   const current = state.history[state.index];
   if (state.loading || favoritePending || !current) return;
@@ -61,7 +49,6 @@ export async function toggleCurrentFavorite(): Promise<void> {
       toast.success("Added to favorites");
       void ensureThumbnail(current).catch(() => false);
     } else {
-      lastRemovedFavorite = previous;
       toast.info("Removed from favorites", { label: "Undo", run: () => void restoreFavorite(previous) });
     }
   } catch (error) {
@@ -79,7 +66,6 @@ async function restoreFavorite(item: FavoriteItem): Promise<void> {
     applyFavorites(await toggleFavorite(item));
     syncControls();
     void ensureThumbnail(item).catch(() => false);
-    if (lastRemovedFavorite === item) lastRemovedFavorite = null;
   } catch (error) {
     toast.error(describeError(error, "Favorites could not be updated. Try again.").message);
   } finally {
@@ -101,7 +87,7 @@ function showLightboxFrame(): void {
   if (!current) return;
   elements.lightboxImage.src = elements.image.src;
   elements.lightboxImage.alt = elements.image.alt;
-  elements.lightboxCaption.textContent = `${current.id}  ·  ${state.index + 1} / ${state.history.length}`;
+  elements.lightboxCaption.textContent = `${current.id} · ${state.index + 1} / ${state.history.length}`;
   elements.lightboxPrevious.setAttribute("aria-disabled", String(state.index <= 0));
   elements.lightboxNext.setAttribute("aria-disabled", String(state.index >= state.history.length - 1));
   setLightboxZoom(1);

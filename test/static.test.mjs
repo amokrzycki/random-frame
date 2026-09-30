@@ -43,7 +43,7 @@ test("builds static Tauri assets with the package version", async () => {
 test("history and Stats copy distinguishes reset activity from persistent exploration", async () => {
   const index = await readFile(new URL("../dist/index.html", import.meta.url), "utf8");
   const copy = index.replace(/\s+/g, " ");
-  assert.match(copy, /resets Frames drawn, Today, and your activity streak\. Favorites and Seen IDs/);
+  assert.match(copy, /Clears history and Stats\. Favorites and Seen IDs/);
   assert.match(copy, /Clears favorites on this device/);
   assert.match(copy, /known favorites are removed from linked devices when they sync/);
   assert.match(copy, /New favorites created on an offline device may appear later/);
@@ -51,6 +51,34 @@ test("history and Stats copy distinguishes reset activity from persistent explor
   assert.match(copy, /Prnt\.sc IDs checked/);
   assert.match(copy, /Stats reset with History\. IDs checked stay on this device/);
   assert.doesNotMatch(copy, /How stats work/);
-  assert.match(copy, /Local results by day/);
+  assert.match(copy, /Days you drew/);
   assert.doesNotMatch(copy, /Stats stay local and reset when history is cleared|since history clear/);
+});
+
+test("window controls are Tab stops and the enlarged view starts on Close", async () => {
+  const [index, privacy] = await Promise.all(
+    ["index.html", "privacy.html"].map((name) => readFile(new URL(`../dist/${name}`, import.meta.url), "utf8")),
+  );
+  for (const html of [index, privacy]) {
+    for (const control of ["minimize", "maximize", "close"]) {
+      const button = html.match(new RegExp(`<button\\b[^>]*id="window-${control}"[^>]*>`))?.[0];
+      assert.ok(button);
+      assert.doesNotMatch(button, /tabindex=|\bdisabled\b|\bhidden\b/);
+    }
+  }
+  assert.match(index, /id="lightbox-close-button"\s+autofocus/);
+});
+
+test("distilled menus keep Save beside Favorite and Clear in the History footer", async () => {
+  const html = await readFile(new URL("../dist/index.html", import.meta.url), "utf8");
+  const more = html.split('id="tools-menu"')[1].split('<div class="window-controls">')[0];
+  const frame = html.split('id="frame-menu"')[1].split('id="favorite-button"')[0];
+  const history = html.split('id="history-dialog"')[1].split('id="stats-dialog"')[0];
+  assert.match(more, /id="stats-button"/);
+  assert.doesNotMatch(more, /History/);
+  assert.equal((frame.match(/role="menuitem"/g) ?? []).length, 7);
+  assert.doesNotMatch(frame, /id="save-button"|id="position-current"|id="history-total"/);
+  assert.match(html, /id="favorite-button"[\s\S]*class="info-icon"\s+id="save-button"/);
+  assert.match(history, /<footer class="history-footer">[\s\S]*id="history-clear-button"/);
+  assert.doesNotMatch(history.split("</header>")[0], /history-clear/);
 });

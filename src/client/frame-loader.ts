@@ -24,11 +24,24 @@ import { applyHistory, state } from "./viewer-state.js";
 
 const favoriteTipKey = "random-frame-favorite-tip";
 
-// Said once, after the first drawn frame, to anyone who has not already found favorites.
+let favoriteTipTimer: ReturnType<typeof setTimeout>;
+
+// Give the first image time to settle; other notices and dialogs take priority.
 function showFavoriteTip(): void {
   if (localStorage.getItem(favoriteTipKey) || state.favorites.length) return;
-  localStorage.setItem(favoriteTipKey, "shown");
-  toast.info("Tip: press F to favorite a frame.");
+  clearTimeout(favoriteTipTimer);
+  favoriteTipTimer = window.setTimeout(() => {
+    if (
+      state.favorites.length ||
+      state.loading ||
+      elements.main.inert ||
+      getViewState() !== "image" ||
+      document.querySelector(".toast")
+    )
+      return;
+    localStorage.setItem(favoriteTipKey, "shown");
+    toast.info("Tip: press F to favorite a frame.");
+  }, 4000);
 }
 
 async function recordFrame(frame: Frame, canRecord = () => true): Promise<void> {
@@ -65,7 +78,7 @@ export function cancelDraw(): boolean {
 }
 
 export async function loadRandom(): Promise<void> {
-  if (state.loading || drawPaused()) return;
+  if (state.loading || state.historyLoadFailed || drawPaused()) return;
   const version = ++drawVersion;
   viewBeforeDraw = getViewState();
   startLoading();
@@ -138,7 +151,7 @@ export function goBack(): void {
 export function goNext(): void {
   const targetIndex = nextHistoryIndex(state.index, state.history.length);
   if (targetIndex !== null) return void goTo(targetIndex);
-  if (state.loading) return;
+  if (state.loading || state.historyLoadFailed || drawPaused()) return;
   restartAnimation(elements.draw);
   elements.draw.dataset.pulse = "";
   // A trailing no-break space alternates, so screen readers announce a repeated press too.
@@ -148,7 +161,7 @@ export function goNext(): void {
 
 // A frame already in history reopens there; any other id is fetched and joins the end of history.
 export async function loadById(id: string, source = "prntsc"): Promise<void> {
-  if (state.loading) return;
+  if (state.loading || state.historyLoadFailed) return;
   const savedIndex = historyIndexForId(state.history, id);
   if (savedIndex !== -1) return void goTo(savedIndex);
   if (drawPaused()) return;

@@ -54,25 +54,60 @@ test("removes one frame from the grid or the frame menu, and Undo puts it back i
     },
   };
 
+  const tools = ["history-tool-button", "tools-menu-button"].map((id) => document.querySelector(`#${id}`));
+  const actions = ["frame-menu-button", "favorite-button"].map((id) => document.querySelector(`#${id}`));
+  document.querySelector("#masthead-tools").querySelectorAll = () => tools;
+  document.querySelector("#info-actions").querySelectorAll = () => actions;
   await import(`../dist/test-client/app.js?test=${Date.now()}`);
   for (let i = 0; i < 4; i += 1) await flush();
   const get = (id) => document.querySelector(`#${id}`);
   const grid = () => get("history-grid").children;
   const order = () => grid().map((tile) => tile.children[0].children[1].textContent);
-  const undo = () => document.body.children.flatMap((region) => region.children).at(-1).children[0];
+  const undo = () => {
+    const event = new Event("keydown", { cancelable: true });
+    Object.defineProperty(event, "key", { value: "z" });
+    document.dispatchEvent(event);
+    assert.equal(event.defaultPrevented, true);
+  };
+
+  // Each toolbar has one Tab stop; arrow navigation transfers it.
+  for (const [toolbarId, buttons] of [
+    ["masthead-tools", tools],
+    ["info-actions", actions],
+  ]) {
+    assert.deepEqual(
+      buttons.map((button) => button.tabIndex),
+      [0, ...buttons.slice(1).map(() => -1)],
+    );
+    const arrow = new Event("keydown", { cancelable: true });
+    Object.defineProperties(arrow, { key: { value: "ArrowRight" }, target: { value: buttons[0] } });
+    get(toolbarId).dispatchEvent(arrow);
+    assert.equal(document.activeElement, buttons[1]);
+    assert.equal(buttons[0].tabIndex, -1);
+    assert.equal(buttons[1].tabIndex, 0);
+  }
+  // At the minimum width the menu occupies the right side, clear of Previous.
+  window.innerWidth = 480;
+  window.innerHeight = 600;
+  const opening = new Event("beforetoggle");
+  Object.defineProperty(opening, "newState", { value: "open" });
+  get("frame-menu").dispatchEvent(opening);
+  assert.equal(get("frame-menu").style.left, "auto");
+  assert.equal(get("frame-menu").style.right, "12px");
 
   // Newest first; the tile's pointer control removes it without moving the shown frame.
-  get("history-button").click();
+  get("history-tool-button").click();
   assert.deepEqual(order(), ["4 · ddd444", "3 · ccc333", "2 · bbb222", "1 · aaa111"]);
   assert.equal(grid()[2].children[0].getAttribute("aria-keyshortcuts"), "Delete");
+  assert.equal(grid()[0].children[1].tabIndex, 0);
   grid()[0].children[1].click();
   await flush();
   assert.deepEqual(order(), ["3 · ccc333", "2 · bbb222", "1 · aaa111"]);
-  assert.equal(get("position-current").textContent, "2");
+  assert.equal(get("frame-count-current").textContent, "2");
   assert.match(get("image").alt, /bbb222/);
 
   // Undo restores it at its old place by sending the position the backend returned.
-  undo().click();
+  undo();
   await flush();
   assert.deepEqual(calls.find(({ command }) => command === "restore_history_item").args, {
     item: item("ddd444"),
@@ -89,12 +124,12 @@ test("removes one frame from the grid or the frame menu, and Undo puts it back i
     ["aaa111", "ccc333", "ddd444"],
   );
   assert.match(get("image").alt, /ccc333/);
-  assert.equal(get("position-current").textContent, "2");
+  assert.equal(get("frame-count-current").textContent, "2");
 
   // Undo returns the visitor to the frame they removed, since they have not moved on.
-  undo().click();
+  undo();
   for (let i = 0; i < 3; i += 1) await flush();
   assert.match(get("image").alt, /bbb222/);
-  assert.equal(get("position-current").textContent, "2");
+  assert.equal(get("frame-count-current").textContent, "2");
   assert.equal(history.history.length, 4);
 });
