@@ -279,8 +279,8 @@ The stage uses an 8px outer radius and an 8px inset hairline, matching the compa
 
 ### Notices
 
-- **Toast:** Near-black 97% pill-cornered (10px) note with a white success dot, muted info dot, or terracotta error dot and 13px semibold archival-white text; enters over 220ms. New notices replace the current toast in a separate row below the viewer, clear of the image and Draw. Four seconds after a drawn frame settles, one info toast appears, "Tip: press F to favorite a frame.", remembered in local storage and skipped for anyone who already has favorites.
-- **Update banner:** The same dark surface in the notice row below the viewer, with a cobalt install action and a dimmed dismiss.
+- **Toast:** Near-black 97% pill-cornered (10px) note with a white success dot, muted info dot, or terracotta error dot and 13px semibold archival-white text; enters over 220ms. New notices replace the current toast in a fixed overlay inside the stage’s lower-right corner, above the info line and Draw, without resizing the viewer. Four seconds after a drawn frame settles, one info toast appears, "Tip: press F to favorite a frame.", remembered in local storage and skipped for anyone who already has favorites.
+- **Update banner:** The same dark surface in the fixed notice overlay, with a cobalt install action and a dimmed dismiss.
 
 ### Reading Pages
 
