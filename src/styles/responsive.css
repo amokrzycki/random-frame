@@ -7,6 +7,10 @@
     animation-iteration-count: 1 !important;
   }
 
+  .theme-picker__options.is-ready .theme-picker__indicator {
+    transition: none;
+  }
+
   .entry-dialog,
   .history-dialog,
   .lightbox-dialog,

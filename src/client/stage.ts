@@ -32,6 +32,7 @@ const statePanels: Record<ViewState, HTMLElement> = {
 // The ring's CSS animation is sometimes never instantiated by the webview, so the ring stays still; an animation made from script always runs.
 const reducedMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)");
 let spinner: Animation | undefined;
+let loadingSince = 0;
 
 export function setState(next: ViewState): void {
   spinner?.cancel();
@@ -52,6 +53,7 @@ export function setState(next: ViewState): void {
   if (keepFrame) elements.imageZoom.dataset.dimmed = next;
   else delete elements.imageZoom.dataset.dimmed;
   if (next === "loading") {
+    loadingSince = Date.now();
     elements.loadingMessage.textContent = "Finding an available frame…";
     elements.announcer.textContent = "Finding an available frame";
   }
@@ -63,6 +65,12 @@ const stateControls: Record<ViewState, HTMLElement | null> = {
   error: elements.retry,
   image: elements.draw,
 };
+
+// The loader appears after 200ms. Once it has, keep it up for 500ms, so it never flashes half-formed.
+export async function settleLoader(): Promise<void> {
+  const visible = Date.now() - loadingSince - 200;
+  if (visible > 0 && visible < 500) await new Promise((resolve) => setTimeout(resolve, 500 - visible));
+}
 
 export function startLoading(): void {
   state.loading = true;

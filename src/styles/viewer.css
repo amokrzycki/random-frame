@@ -743,9 +743,10 @@ a.tools-menu__item {
   font-weight: 650;
 }
 .theme-picker legend {
-  padding: 0 0 6px;
+  padding: 6px 0 6px;
 }
 .theme-picker__options {
+  position: relative;
   padding: 2px;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -753,7 +754,22 @@ a.tools-menu__item {
   border-radius: calc(var(--radius-compact) + 2px);
   background: color-mix(in srgb, var(--ink) 8%, transparent);
 }
+/* One shared highlight; --i (set from theme.ts) is the selected index. Equal 1fr cells, so only transform moves. */
+.theme-picker__indicator {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: calc((100% - 8px) / 3);
+  height: 28px;
+  border-radius: var(--radius-compact);
+  background: var(--control-fill);
+  transform: translateX(calc(var(--i, 0) * (100% + 2px)));
+}
+.theme-picker__options.is-ready .theme-picker__indicator {
+  transition: transform 200ms ease-out;
+}
 .theme-picker button {
+  position: relative;
   height: 28px;
   padding: 0 10px;
   border: 0;
@@ -768,7 +784,6 @@ a.tools-menu__item {
 }
 .theme-picker button[aria-checked="true"] {
   color: var(--control-fill-text);
-  background: var(--control-fill);
 }
 .theme-picker button:focus-visible {
   outline: 2px solid var(--blue);

@@ -200,4 +200,11 @@ main,
     color: HighlightText;
     background: Highlight;
   }
+  .theme-picker button[aria-checked="true"] {
+    background: transparent;
+  }
+  .theme-picker__indicator {
+    forced-color-adjust: none;
+    background: Highlight;
+  }
 }

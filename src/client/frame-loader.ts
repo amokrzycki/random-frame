@@ -12,6 +12,7 @@ import {
   restartAnimation,
   retryFailed,
   setState,
+  settleLoader,
   showError,
   showFrame,
   startLoading,
@@ -32,6 +33,7 @@ function showFavoriteTip(): void {
 
 async function recordFrame(frame: Frame, canRecord = () => true): Promise<void> {
   const url = await decodedUrl(frame.blob);
+  await settleLoader();
   if (!canRecord()) {
     URL.revokeObjectURL(url);
     return;
@@ -112,7 +114,9 @@ export async function goTo(targetIndex: number): Promise<void> {
       elements.announcer.textContent = `Restoring frame ${targetIndex + 1}`;
       syncControls();
       const frame = await getFrameById(current.id, current.source);
-      showFrame(frame.source, frame.id, frame.blob, await decodedUrl(frame.blob));
+      const url = await decodedUrl(frame.blob);
+      await settleLoader();
+      showFrame(frame.source, frame.id, frame.blob, url);
     } else {
       swapImage(cached.url, current.id);
       elements.announcer.textContent = `Showing frame ${current.id}`;
