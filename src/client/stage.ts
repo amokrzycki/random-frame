@@ -54,8 +54,8 @@ export function setState(next: ViewState): void {
   else delete elements.imageZoom.dataset.dimmed;
   if (next === "loading") {
     loadingSince = Date.now();
-    elements.loadingMessage.textContent = "Finding an available frame…";
-    elements.announcer.textContent = "Finding an available frame";
+    elements.loadingMessage.textContent = "Drawing a frame…";
+    elements.announcer.textContent = "Drawing a frame…";
   }
 }
 
@@ -151,15 +151,16 @@ export function syncControls(): void {
   elements.source.setAttribute("aria-disabled", String(!current));
   // aria-disabled rather than disabled, so a focused retry or Draw keeps focus through the countdown.
   const waitSeconds = cooldownSeconds();
-  elements.retry.hidden = waitSeconds > 0;
-  elements.retry.textContent = "Try again";
+  elements.retry.hidden = false;
+  elements.retry.setAttribute("aria-disabled", String(state.loading || waitSeconds > 0));
+  elements.retry.textContent = waitSeconds ? `Try again in ${waitSeconds}s` : "Try again";
   elements.draw.setAttribute("aria-busy", String(state.drawing));
   elements.draw.setAttribute("aria-disabled", String(state.loading || waitSeconds > 0));
   elements.draw.toggleAttribute("data-paused", waitSeconds > 0);
   elements.drawLabel.textContent = waitSeconds ? `Wait ${waitSeconds}s` : "Draw";
-  // The retry action returns after the cooldown; Draw carries the countdown.
+  // Both draw controls show the cooldown without dropping focus.
   elements.back.hidden = !current || failedIndex === state.index;
-  elements.back.textContent = `Return to frame ${state.index + 1}`;
+  elements.back.textContent = `Keep viewing frame ${state.index + 1}`;
 }
 
 function cooldownSeconds(): number {
@@ -184,7 +185,7 @@ export function drawPaused(): boolean {
   const notice = `Drawing resumes in ${seconds}s`;
   // The countdown is already on stage in the error state; elsewhere one toast per pause, not one per key repeat.
   if (viewState !== "error" && !cooldownNoticeShown) {
-    toast.error(notice);
+    toast.info(notice);
     cooldownNoticeShown = true;
   } else elements.announcer.textContent = notice;
   return true;

@@ -86,8 +86,8 @@
               Clear history &amp; stats
             </button>
             <span class="history-clear-hint" id="history-clear-hint">
-              Removes saved frames and resets Frames drawn, Today, and your activity streak. Favorites and Seen IDs
-              (kept to skip repeats) stay. Linked devices remove known history when they sync.
+              Clears history and Stats. Favorites and Seen IDs stay. Known history is removed from linked devices when
+              they Sync; new offline draws may appear later.
             </span>
           </div>
           <div class="history-clear-group" id="history-clear-favorites-group" hidden>
@@ -107,7 +107,7 @@
         <div class="history-dialog__body" id="history-body">
           <div class="history-grid" id="history-grid"></div>
           <div class="history-empty" id="history-empty" hidden>
-            <p id="history-empty-title">No saved frames yet.</p>
+            <p id="history-empty-title">No frames drawn yet.</p>
             <span id="history-empty-detail">Draw a frame to begin your history.</span>
           </div>
         </div>
@@ -163,12 +163,12 @@
               </div>
               <div class="stats-tally__item">
                 <dt>Activity streak</dt>
-                <dd id="stats-streak">0</dd>
+                <dd id="stats-streak">0 days</dd>
               </div>
             </dl>
             <p class="stats-headline__detail stats-explored">
               <span>Prnt.sc IDs checked <span id="stats-explored">0</span></span>
-              <span id="stats-explored-breakdown">0 opened · 0 unavailable</span>
+              <span id="stats-explored-breakdown">0 drawn · 0 unavailable</span>
             </p>
             <p class="stats-headline__error" id="stats-error" hidden>
               <span>Stats couldn’t be read from this device.</span>
@@ -176,14 +176,14 @@
             </p>
           </div>
           <section class="ledger" id="ledger" aria-labelledby="ledger-title">
-            <h3 class="stats-subhead" id="ledger-title">Local results by day</h3>
+            <h3 class="stats-subhead" id="ledger-title">Days you drew</h3>
             <ol class="ledger__list" id="ledger-list"></ol>
             <p class="ledger__empty" id="ledger-empty" hidden>No local results yet.</p>
             <button class="ledger__more" id="ledger-more" type="button" hidden>Show earlier days</button>
           </section>
         </div>
         <footer class="dialog-foot">
-          <p>Stats reset with History. IDs checked stay on this device, and don’t sync.</p>
+          <p>Stats reset with History. IDs checked stay on this device, and don’t Sync.</p>
         </footer>
       </div>
     </dialog>
@@ -328,12 +328,11 @@
           </div>
           <div id="sync-unpaired" hidden>
             <p class="sync-dialog__copy">
-              Keep your history, favorites, and Seen IDs (used to skip repeats) in step across your devices. Everything
-              is encrypted before it leaves this device. Stats stay here.
+              Sync history, favorites, and Seen IDs across devices. Data is encrypted before it leaves this device.
+              Stats stay here.
             </p>
-            <p class="sync-dialog__copy">
-              Turning on Sync gives you a recovery key. You’ll need it to add another device or to rejoin later, and the
-              app can’t show it again, so you’ll save it next.
+            <p class="sync-dialog__copy sync-dialog__enable-note">
+              Save your recovery key to add devices or rejoin later. The app shows it only once.
             </p>
             <div class="sync-dialog__actions">
               <button class="primary-action" id="sync-enable" type="button">Turn on Sync</button>
@@ -343,6 +342,7 @@
               <label for="sync-recovery-input">Recovery key</label>
               <input
                 id="sync-recovery-input"
+                placeholder="Paste your recovery key"
                 type="text"
                 autocomplete="off"
                 autocapitalize="off"
@@ -358,7 +358,7 @@
             <p>This key lets another device join your Sync. The app cannot show it again.</p>
             <output id="sync-recovery-key" aria-label="Recovery key"></output>
             <button class="sync-dialog__button" id="sync-copy-key" type="button">Copy recovery key</button>
-            <p class="sync-dialog__blocked-note">Closing is blocked until you confirm you’ve saved the key.</p>
+            <p class="sync-dialog__blocked-note">Check the box below to finish.</p>
             <label class="sync-dialog__saved">
               <input id="sync-key-saved" type="checkbox">
               <span>I’ve saved this recovery key somewhere safe</span>
@@ -536,7 +536,7 @@
               <circle class="loader__track" cx="18" cy="18" r="15.5" />
               <circle class="loader__indicator" cx="18" cy="18" r="15.5" />
             </svg>
-            <p id="loading-message">Finding an available frame…</p>
+            <p id="loading-message">Drawing a frame…</p>
             <p class="loading-hint" aria-hidden="true"><kbd>Esc</kbd> to cancel</p>
           </div>
 
@@ -545,7 +545,7 @@
             <p id="error-message">The source may have limited access, or this address may be empty.</p>
             <div class="error-actions">
               <button class="text-action" id="retry-button" type="button">Try again</button>
-              <button class="text-action" id="back-button" type="button" hidden>Return to frame 1</button>
+              <button class="text-action" id="back-button" type="button" hidden>Keep viewing frame 1</button>
             </div>
           </div>
 
@@ -626,11 +626,25 @@
                 <span id="jump-total" aria-hidden="true">0</span>
               </form>
               <hr class="tools-menu__rule">
-              <button class="tools-menu__item" id="previous-id-button" type="button" role="menuitem" disabled>
+              <button
+                class="tools-menu__item"
+                id="previous-id-button"
+                type="button"
+                role="menuitem"
+                data-tip="Open the Prnt.sc ID immediately before this one, in source order rather than history order"
+                aria-description="Prnt.sc IDs follow source order, independently of the frames in your history."
+                disabled>
                 <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m10.5 5-4 4 4 4" /></svg>
                 Adjacent ID before
               </button>
-              <button class="tools-menu__item" id="next-id-button" type="button" role="menuitem" disabled>
+              <button
+                class="tools-menu__item"
+                id="next-id-button"
+                type="button"
+                role="menuitem"
+                data-tip="Open the Prnt.sc ID immediately after this one, in source order rather than history order"
+                aria-description="Prnt.sc IDs follow source order, independently of the frames in your history."
+                disabled>
                 <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m7.5 5 4 4-4 4" /></svg>
                 Adjacent ID after
               </button>

@@ -86,7 +86,7 @@ async function initialize(): Promise<void> {
     console.error(error);
     state.loading = false;
     showError(error, initialize, -1, {
-      title: "Your history couldn't be loaded",
+      title: "Your history couldn’t be loaded.",
       message: "Random Frame could not read its saved data. Try again, and restart the app if it keeps failing.",
     });
     syncControls();
@@ -99,7 +99,7 @@ elements.leave.addEventListener("click", async () => {
   try {
     await getCurrentWindow().close();
   } catch {
-    elements.announcer.textContent = "Random Frame could not close the window";
+    elements.announcer.textContent = "Random Frame could not close the window.";
   }
 });
 

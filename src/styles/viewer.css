@@ -284,7 +284,7 @@
 /* The previous frame waits under the loader instead of cutting to black. */
 .image-zoom[data-dimmed] {
   opacity: 0.3;
-  filter: blur(3px) saturate(0.5);
+  filter: blur(1px) saturate(0.5);
   transition-duration: 320ms;
 }
 .image-zoom[data-dimmed="loading"] {

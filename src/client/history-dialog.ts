@@ -150,7 +150,7 @@ function renderHistoryPage(): void {
   elements.historyGrid.replaceChildren();
   elements.historyGrid.hidden = !entries.length;
   elements.historyEmpty.hidden = Boolean(entries.length);
-  elements.historyEmptyTitle.textContent = favoritesView ? "No favorites yet." : "No saved frames yet.";
+  elements.historyEmptyTitle.textContent = favoritesView ? "No favorites yet." : "No frames drawn yet.";
   elements.historyEmptyDetail.textContent = favoritesView
     ? "Press F on a frame to keep it here."
     : "Draw a frame to begin your history.";
@@ -484,7 +484,7 @@ function bindClearConfirmation(
       group.removeAttribute("data-arming");
       button.removeAttribute("aria-disabled");
     }, ARM_DELAY_MS);
-    button.textContent = `Confirm · ${count()}`;
+    button.textContent = `Clear · ${count()}`;
     elements.announcer.textContent = `Activate again to ${initialLabel.toLowerCase()}: ${count()}`;
     confirmationTimeout = setTimeout(() => {
       if (Date.now() >= armedUntil) reset();

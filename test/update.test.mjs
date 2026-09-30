@@ -86,6 +86,10 @@ test("release notes follow a successful update, wait for dialogs, and are dismis
   await flush();
   assert.equal(storage.getItem(pendingKey), null);
   assert.equal(restarts, 0);
+  assert.equal(
+    document.body.children.at(-1).children[0].textContent,
+    "Update failed. The new version could not be downloaded or installed. Try again later.",
+  );
   failInstall = false;
   install.click();
   await flush();

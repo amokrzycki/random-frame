@@ -149,6 +149,7 @@ export async function checkForUpdate(): Promise<void> {
   installButton.addEventListener("click", async () => {
     installButton.disabled = true;
     installButton.textContent = "Installing…";
+    let installed = false;
     try {
       let downloaded = 0;
       let total = 0;
@@ -160,6 +161,7 @@ export async function checkForUpdate(): Promise<void> {
           installButton.textContent = total ? `Installing… ${Math.round((downloaded / total) * 100)}%` : "Installing…";
         }
       });
+      installed = true;
       try {
         localStorage.setItem(pendingChangelogKey, JSON.stringify({ from: await getVersion(), to: update.version }));
       } catch {
@@ -169,7 +171,9 @@ export async function checkForUpdate(): Promise<void> {
     } catch {
       installButton.disabled = false;
       installButton.textContent = "Install & restart";
-      message.textContent = "Update failed. Try again later.";
+      message.textContent = installed
+        ? "Update installed, but the app could not restart. Close and reopen Random Frame."
+        : "Update failed. The new version could not be downloaded or installed. Try again later.";
       elements.announcer.textContent = message.textContent;
     }
   });

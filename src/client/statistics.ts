@@ -11,7 +11,7 @@ export function formatExploredBreakdown(
     viewable + unavailable + unclassified !== explored
   )
     throw new Error("Inconsistent exploration counts");
-  const breakdown = `${viewable.toLocaleString("en-US")} opened · ${unavailable.toLocaleString("en-US")} unavailable`;
+  const breakdown = `${viewable.toLocaleString("en-US")} drawn · ${unavailable.toLocaleString("en-US")} unavailable`;
   return unclassified ? `${breakdown} · ${unclassified.toLocaleString("en-US")} unclassified` : breakdown;
 }
 

@@ -52,7 +52,7 @@ test("a failed startup load says so and Try again re-runs the load", async (t) =
   await flush();
   const get = (id) => document.querySelector(`#${id}`);
   assert.equal(get("error-state").hidden, false);
-  assert.equal(get("error-title").textContent, "Your history couldn't be loaded");
+  assert.equal(get("error-title").textContent, "Your history couldn’t be loaded.");
   assert.doesNotMatch(get("error-message").textContent, /source|Prnt\.sc/);
   assert.equal(get("retry-button").textContent, "Try again");
 

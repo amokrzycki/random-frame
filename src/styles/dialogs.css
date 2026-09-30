@@ -479,7 +479,7 @@
 #sync-join-form .sync-dialog__actions {
   margin-top: 4px;
 }
-#sync-unpaired:has(#sync-join-form:not([hidden])) > .sync-dialog__actions {
+#sync-unpaired:has(#sync-join-form:not([hidden])) > :is(.sync-dialog__actions, .sync-dialog__enable-note) {
   display: none;
 }
 /* Panels swap via [hidden]; the incoming one settles in rather than popping. */

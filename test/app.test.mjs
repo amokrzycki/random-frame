@@ -190,9 +190,9 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(get("stats-dialog").open, true);
   assert.equal(get("stats-today").textContent, "2");
   assert.equal(get("stats-total").textContent, "2");
-  assert.equal(get("stats-streak").textContent, "1");
+  assert.equal(get("stats-streak").textContent, "1 day");
   assert.equal(get("stats-explored").textContent, "12,483");
-  assert.equal(get("stats-explored-breakdown").textContent, "8,000 opened · 4,483 unavailable");
+  assert.equal(get("stats-explored-breakdown").textContent, "8,000 drawn · 4,483 unavailable");
   // One ledger row for today; frames shown this session (saved2, abc123, def456) have thumbnails, newest first.
   assert.equal(get("ledger-list").children.length, 1);
   assert.equal(get("ledger-empty").hidden, true);
@@ -329,13 +329,45 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(get("retry-button").textContent, "Try again");
   assert.equal(get("image-zoom").hidden, false);
   assert.equal(get("back-button").hidden, false);
-  assert.equal(get("back-button").textContent, "Return to frame 5");
+  assert.equal(get("back-button").textContent, "Keep viewing frame 5");
   get("back-button").click();
   await flush();
   await flush();
   assert.equal(get("error-state").hidden, true);
   assert.match(get("image").alt, /new3/);
   assert.equal(get("save-button").disabled, false);
+
+  // Cooldown keeps retry visible, blocks it, and uses an info notice while browsing history.
+  const stage = await import("../dist/test-client/stage.js");
+  const now = Date.now;
+  let clock = now() - 10001;
+  Date.now = () => clock;
+  try {
+    let retried = false;
+    stage.showError({ kind: "upstream-rate-limited" }, async () => {
+      retried = true;
+    });
+    stage.syncControls();
+    assert.equal(get("retry-button").hidden, false);
+    assert.equal(get("retry-button").textContent, "Try again in 10s");
+    assert.equal(get("retry-button").getAttribute("aria-disabled"), "true");
+    get("retry-button").click();
+    assert.equal(retried, false);
+    get("back-button").click();
+    await flush();
+    stage.drawPaused();
+    const notice = document.body.children.filter((element) => element.className === "toast-region").at(-1).children[0];
+    assert.equal(notice.className, "toast toast--info");
+    assert.equal(notice.textContent, "Drawing resumes in 10s");
+    clock += 10001;
+    stage.syncControls();
+    assert.equal(get("retry-button").textContent, "Try again");
+    assert.equal(get("retry-button").getAttribute("aria-disabled"), "false");
+    // Let the cooldown interval retire before restoring the real clock.
+    await new Promise((resolve) => setTimeout(resolve, 1050));
+  } finally {
+    Date.now = now;
+  }
 
   // An image that will not decode stays out of history, so the counter keeps pointing at a frame that shows.
   brokenNextImage = true;
@@ -361,7 +393,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   clearButton.click();
   await flush();
   assert.equal(clears(), 0);
-  assert.equal(clearButton.textContent, "Confirm · 5 frames and streak");
+  assert.equal(clearButton.textContent, "Clear · 5 frames and streak");
   // A click inside the arm delay cannot confirm what it just armed.
   clearButton.click();
   await flush();

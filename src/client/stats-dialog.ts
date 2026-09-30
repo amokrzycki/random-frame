@@ -104,7 +104,8 @@ async function loadStats(): Promise<void> {
     const [exploration, activity] = await Promise.all([getExplorationStats(), getViewingActivity()]);
     elements.statsToday.textContent = String(activity.days.at(-1)?.viewed ?? 0);
     elements.statsTotal.textContent = activity.viewedTotal.toLocaleString("en-US");
-    elements.statsStreak.textContent = drawStreak(activity.days).toLocaleString("en-US");
+    const streak = drawStreak(activity.days);
+    elements.statsStreak.textContent = `${streak.toLocaleString("en-US")} ${streak === 1 ? "day" : "days"}`;
     elements.statsExplored.textContent = exploration.explored.toLocaleString("en-US");
     try {
       elements.statsExploredBreakdown.textContent = formatExploredBreakdown(
