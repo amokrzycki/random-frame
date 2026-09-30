@@ -20,6 +20,7 @@ export const elements = {
   lightboxClose: element<HTMLButtonElement>("#lightbox-close-button"),
   empty: element<HTMLElement>("#empty-state"),
   loading: element<HTMLElement>("#loading-state"),
+  loadingRing: element<SVGElement>("#loading-ring"),
   loadingMessage: element<HTMLElement>("#loading-message"),
   error: element<HTMLElement>("#error-state"),
   errorTitle: element<HTMLElement>("#error-title"),

@@ -29,7 +29,18 @@ const statePanels: Record<ViewState, HTMLElement> = {
   image: elements.imageZoom,
 };
 
+// The ring's CSS animation is sometimes never instantiated by the webview, so the ring stays still; an animation made from script always runs.
+const reducedMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)");
+let spinner: Animation | undefined;
+
 export function setState(next: ViewState): void {
+  spinner?.cancel();
+  spinner = undefined;
+  if (next === "loading" && !reducedMotion?.matches)
+    spinner = elements.loadingRing.animate(
+      { transform: ["rotate(0)", "rotate(1turn)"] },
+      { duration: 850, iterations: Infinity },
+    );
   // A shown frame stays on stage, dimmed under the loader or an error, so the next one can crossfade in.
   const keepFrame = (next === "loading" || next === "error") && !elements.imageZoom.hidden;
   viewState = next;
