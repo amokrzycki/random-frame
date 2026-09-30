@@ -32,6 +32,7 @@ await copyHtml();
 
 const options = {
   bundle: true,
+  loader: { ".md": "text" },
   entryNames: "[name]",
   entryPoints: {
     app: "src/client/app.ts",

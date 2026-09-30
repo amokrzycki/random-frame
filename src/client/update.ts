@@ -1,6 +1,88 @@
+import { getVersion } from "@tauri-apps/api/app";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check } from "@tauri-apps/plugin-updater";
+import MarkdownIt from "markdown-it";
+import changelog from "../../CHANGELOG.md";
+import { closeDialog, dialogs, onDialogClosed, openDialog } from "./dialogs.js";
 import { elements } from "./elements.js";
+
+const pendingChangelogKey = "random-frame-pending-changelog";
+const markdown = new MarkdownIt({ html: false });
+
+export function renderReleaseNotes(source: string, version: string): string {
+  const tokens = markdown.parse(source, {});
+  const isVersionHeading = (index: number): boolean =>
+    tokens[index]?.type === "heading_open" && tokens[index]?.tag === "h2" && tokens[index]?.level === 0;
+  const heading = tokens.findIndex((_, index) => isVersionHeading(index) && tokens[index + 1]?.content === version);
+  if (heading < 0) return "";
+  const start = heading + 3;
+  const next = tokens.findIndex((_, index) => index >= start && isVersionHeading(index));
+  return markdown.renderer.render(tokens.slice(start, next < 0 ? undefined : next), markdown.options, {}).trim();
+}
+
+function clearPendingChangelog(): void {
+  try {
+    localStorage.removeItem(pendingChangelogKey);
+  } catch {
+    // Release notes must not prevent the app from working when storage is unavailable.
+  }
+}
+
+export async function showPendingChangelog(): Promise<void> {
+  let pending: string | null;
+  let version: string;
+  try {
+    pending = localStorage.getItem(pendingChangelogKey);
+    if (pending === null) return;
+    version = await getVersion();
+  } catch {
+    return;
+  }
+  const html = pending === version ? renderReleaseNotes(changelog, version) : "";
+  if (!html) {
+    clearPendingChangelog();
+    return;
+  }
+
+  let shown = false;
+  const show = (): void => {
+    if (shown || dialogs.some((dialog) => dialog.open)) return;
+    shown = true;
+    for (const dialog of dialogs) dialog.removeEventListener("close", afterClose);
+    const opener = document.activeElement as HTMLElement | null;
+    elements.changelogVersion.textContent = version;
+    // The bundled Markdown is rendered with raw HTML disabled and markdown-it's link validation intact.
+    elements.changelogBody.innerHTML = html;
+    for (const link of elements.changelogBody.querySelectorAll<HTMLAnchorElement>("a[href]")) {
+      link.addEventListener("click", (event) => {
+        event.preventDefault();
+        // Only web and email links can launch an external handler.
+        const href = link.getAttribute("href") ?? "";
+        if (/^(https?:\/\/|mailto:)/i.test(href)) {
+          void openUrl(href).catch(() => {
+            elements.announcer.textContent = "The link could not be opened.";
+          });
+        }
+      });
+    }
+    elements.changelogDone.addEventListener("click", () => closeDialog(elements.changelogDialog), { once: true });
+    elements.changelogDialog.addEventListener(
+      "close",
+      () => {
+        clearPendingChangelog();
+        onDialogClosed();
+        (opener ?? elements.draw).focus();
+      },
+      { once: true },
+    );
+    openDialog(elements.changelogDialog);
+  };
+  // Existing close handlers finish restoring focus before the next startup dialog opens.
+  const afterClose = (): void => queueMicrotask(show);
+  for (const dialog of dialogs) dialog.addEventListener("close", afterClose);
+  show();
+}
 
 export async function checkForUpdate(): Promise<void> {
   let update: Awaited<ReturnType<typeof check>>;
@@ -36,6 +118,11 @@ export async function checkForUpdate(): Promise<void> {
           installButton.textContent = total ? `Installing… ${Math.round((downloaded / total) * 100)}%` : "Installing…";
         }
       });
+      try {
+        localStorage.setItem(pendingChangelogKey, update.version);
+      } catch {
+        // A successful update still restarts when release notes cannot be remembered.
+      }
       await relaunch();
     } catch {
       installButton.disabled = false;

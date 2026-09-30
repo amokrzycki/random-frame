@@ -10,6 +10,7 @@ export const dialogs = [
   elements.lightboxDialog,
   elements.shortcutsDialog,
   elements.syncDialog,
+  elements.changelogDialog,
 ];
 
 export function setBackgroundInert(inert: boolean): void {

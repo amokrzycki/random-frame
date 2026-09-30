@@ -14,7 +14,7 @@ import { bindStageEvents, setState, showError, syncControls } from "./stage.js";
 import { bindStatsDialogEvents, migrateLegacyStats } from "./stats-dialog.js";
 import { bindSyncDialogEvents, refreshAfterStartup, runStartupSync } from "./sync-dialog.js";
 import { bindTooltipEvents } from "./tooltip.js";
-import { checkForUpdate } from "./update.js";
+import { checkForUpdate, showPendingChangelog } from "./update.js";
 import { applyFavorites, applyHistory, state } from "./viewer-state.js";
 
 const storageKey = "prntsc-gallery-history";
@@ -221,5 +221,6 @@ elements.jumpForm.addEventListener("submit", () => {
 
 syncControls();
 void initialize();
+void showPendingChangelog();
 void checkForUpdate();
 void migrateLegacyStats();
