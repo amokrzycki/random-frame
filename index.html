@@ -45,6 +45,25 @@
       </div>
     </dialog>
 
+    <dialog class="history-dialog changelog-dialog" id="changelog-dialog" aria-labelledby="changelog-title">
+      <div class="history-dialog__content">
+        <header class="history-dialog__header">
+          <h2 id="changelog-title">What’s new in Random Frame</h2>
+          <span class="changelog-version" id="changelog-version"></span>
+        </header>
+        <!-- biome-ignore-start lint/a11y/noNoninteractiveTabindex: the scrollable reading region needs keyboard focus for scrolling -->
+        <section
+          class="history-dialog__body changelog-body"
+          id="changelog-body"
+          tabindex="0"
+          aria-label="Release notes"></section>
+        <!-- biome-ignore-end lint/a11y/noNoninteractiveTabindex: end scrollable reading region exception -->
+        <footer class="changelog-footer">
+          <button class="primary-action" id="changelog-done" type="button" autofocus>Done</button>
+        </footer>
+      </div>
+    </dialog>
+
     <dialog class="history-dialog" id="history-dialog" aria-labelledby="history-title">
       <div class="history-dialog__content">
         <header class="history-dialog__header history-dialog__header--tools">
@@ -440,6 +459,12 @@
             </svg>
             Keyboard shortcuts
             <kbd aria-hidden="true">?</kbd>
+          </button>
+          <button class="tools-menu__item" id="changelog-button" type="button" role="menuitem">
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <path d="M5 3.5h10v13H5zM8 7h4M8 10h4M8 13h2" />
+            </svg>
+            What’s new
           </button>
           <fieldset class="theme-picker">
             <legend>Theme</legend>
