@@ -739,7 +739,7 @@ a.tools-menu__item {
 .theme-picker button:hover {
   color: var(--ink);
 }
-.theme-picker button[aria-pressed="true"] {
+.theme-picker button[aria-checked="true"] {
   color: var(--control-fill-text);
   background: var(--control-fill);
 }

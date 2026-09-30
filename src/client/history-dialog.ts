@@ -295,7 +295,7 @@ async function clearSavedHistory(): Promise<void> {
     state.loading = false;
     syncControls();
   };
-  toast.info("History cleared", { label: "Undo", run: restore }, () => {
+  toast.info("History cleared. Drawing paused while Undo is available.", { label: "Undo", run: restore }, () => {
     void clearHistory().then(
       () => {
         try {

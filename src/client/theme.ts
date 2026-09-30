@@ -33,7 +33,7 @@ function setTheme(theme: Theme): void {
 function apply(): void {
   // Without a stored choice the inline head script already resolved the theme; keep it if matchMedia is missing.
   setTheme(choice === "system" ? (systemDark ? (systemDark.matches ? "dark" : "light") : currentTheme()) : choice);
-  for (const button of choices) button.setAttribute("aria-pressed", String(button.dataset.themeChoice === choice));
+  for (const button of choices) button.setAttribute("aria-checked", String(button.dataset.themeChoice === choice));
 }
 
 function currentTheme(): Theme {

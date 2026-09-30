@@ -13,10 +13,11 @@ export async function checkForUpdate(): Promise<void> {
 
   const banner = document.createElement("div");
   banner.className = "update-banner";
-  banner.role = "status";
 
   const message = document.createElement("span");
   message.textContent = `Update ${update.version} available`;
+  // A live region inserted already filled is not announced; the page's announcer was there before the update was.
+  elements.announcer.textContent = message.textContent;
 
   const installButton = document.createElement("button");
   installButton.type = "button";
@@ -40,6 +41,7 @@ export async function checkForUpdate(): Promise<void> {
       installButton.disabled = false;
       installButton.textContent = "Install & restart";
       message.textContent = "Update failed. Try again later.";
+      elements.announcer.textContent = message.textContent;
     }
   });
 
