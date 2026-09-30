@@ -54,6 +54,10 @@
   }
 
   /* Loader breathes rather than freezing; frames crossfade without the focus pull. */
+  .loading-state {
+    animation-name: fade-out;
+    animation-direction: reverse;
+  }
   .loader {
     animation: breathe 1.6s ease-in-out infinite !important;
   }
@@ -62,9 +66,7 @@
     stroke-dasharray: none;
   }
   .draw-button[aria-busy="true"] .draw-button__spinner {
-    animation:
-      loader-in 120ms var(--ease-out) 200ms backwards,
-      breathe 1.6s ease-in-out infinite !important;
+    animation: breathe 1.6s ease-in-out infinite !important;
   }
   #image {
     animation: fade-out 240ms var(--ease-out) reverse both !important;
