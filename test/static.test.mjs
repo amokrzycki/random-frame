@@ -55,13 +55,16 @@ test("history and Stats copy distinguishes reset activity from persistent explor
   assert.doesNotMatch(copy, /Stats stay local and reset when history is cleared|since history clear/);
 });
 
-test("window controls skip Tab and the enlarged view starts on Close", async () => {
+test("window controls are Tab stops and the enlarged view starts on Close", async () => {
   const [index, privacy] = await Promise.all(
     ["index.html", "privacy.html"].map((name) => readFile(new URL(`../dist/${name}`, import.meta.url), "utf8")),
   );
   for (const html of [index, privacy]) {
-    for (const control of ["minimize", "maximize", "close"])
-      assert.match(html, new RegExp(`id="window-${control}"\\s+tabindex="-1"`));
+    for (const control of ["minimize", "maximize", "close"]) {
+      const button = html.match(new RegExp(`<button\\b[^>]*id="window-${control}"[^>]*>`))?.[0];
+      assert.ok(button);
+      assert.doesNotMatch(button, /tabindex=|\bdisabled\b|\bhidden\b/);
+    }
   }
   assert.match(index, /id="lightbox-close-button"\s+autofocus/);
 });
