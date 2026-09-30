@@ -13,10 +13,10 @@ import {
 } from "./frame-cache.js";
 import { goTo, loadById } from "./frame-loader.js";
 import { historyPage, PAGE_SIZES, pageOf, parsePageSize, savePageSize } from "./history-pagination.js";
-import { clearHistory } from "./persistence.js";
+import { clearHistory, type HistoryItem, removeHistoryItem, restoreHistoryItem } from "./persistence.js";
 import { getViewState, setState, syncControls } from "./stage.js";
 import { toast } from "./toast.js";
-import { applyFavorites, isFavorite, state } from "./viewer-state.js";
+import { applyFavorites, applyHistory, isFavorite, state } from "./viewer-state.js";
 
 type HistoryDialogTab = "history" | "favourites";
 export const pendingHistoryClearKey = "random-frame-history-clear-pending";
@@ -31,11 +31,14 @@ interface GridEntry {
   index: number;
 }
 
-// Favorites view the same grid through a filter; order follows when each was starred.
+// Newest first, so page 1 is always full and the short page falls at the oldest end. Favorites view the same
+// grid through a filter, ordered by when each was starred.
 function gridEntries(): GridEntry[] {
-  if (filter === "history") return state.history.map(({ source, id }, index) => ({ source, id, index }));
+  if (filter === "history") return state.history.map(({ source, id }, index) => ({ source, id, index })).reverse();
   const indexes = new Map(state.history.map((item, index) => [blobKey(item.source, item.id), index]));
-  return state.favorites.map(({ source, id }) => ({ source, id, index: indexes.get(blobKey(source, id)) ?? -1 }));
+  return state.favorites
+    .map(({ source, id }) => ({ source, id, index: indexes.get(blobKey(source, id)) ?? -1 }))
+    .reverse();
 }
 
 interface PendingTile {
@@ -157,8 +160,11 @@ function renderHistoryPage(): void {
   if (entries.length <= PAGE_SIZES[0]) elements.historyPager.setAttribute("data-compact", "");
   else elements.historyPager.removeAttribute("data-compact");
   elements.historyPagerNav.hidden = view.pages === 1;
+  // Frame numbers count down the page, matching the tile captions; favorites carry no numbers, so they count ranks.
+  const first = favoritesView ? view.start + 1 : entries.length - view.start;
+  const last = favoritesView ? view.end : entries.length - view.end + 1;
   elements.historyRange.textContent = entries.length
-    ? `${favoritesView ? "Favorites" : "Frames"} ${(view.start + 1).toLocaleString("en-US")}–${view.end.toLocaleString("en-US")} of ${entries.length.toLocaleString("en-US")}`
+    ? `${favoritesView ? "Favorites" : "Frames"} ${first.toLocaleString("en-US")}–${last.toLocaleString("en-US")} of ${entries.length.toLocaleString("en-US")}`
     : "";
   elements.historyPage.textContent = `Page ${view.page + 1} of ${view.pages}`;
   elements.historyPageSize.value = String(state.pageSize);
@@ -173,6 +179,7 @@ function renderHistoryPage(): void {
   if (focused === elements.historyPageNext && view.page === view.pages - 1) elements.historyPagePrevious.focus();
 
   for (const { source, id, index: itemIndex } of visible) {
+    const tile = document.createElement("div");
     const button = document.createElement("button");
     const image = document.createElement("img");
     const label = document.createElement("span");
@@ -199,16 +206,33 @@ function renderHistoryPage(): void {
       closeDialog(elements.historyDialog);
       void (itemIndex >= 0 ? goTo(itemIndex) : loadById(id, source));
     });
-    elements.historyGrid.append(button);
+    tile.className = "history-tile";
+    tile.append(button);
+    // Favorites lists stars, not history, so its tiles have nothing to remove.
+    if (!favoritesView && itemIndex >= 0) {
+      const remove = document.createElement("button");
+      tile.dataset.index = String(itemIndex);
+      button.setAttribute("aria-keyshortcuts", "Delete");
+      remove.className = "history-tile__remove";
+      remove.type = "button";
+      // The pointer's way in; keyboard users press Delete on the tile, so Tab does not double its stops.
+      remove.tabIndex = -1;
+      remove.setAttribute("aria-label", `Remove frame ${itemIndex + 1}, ${id}, from history`);
+      remove.dataset.tip = "Remove from history (Delete)";
+      remove.innerHTML = '<svg viewBox="0 0 18 18" aria-hidden="true"><path d="m5 5 8 8M13 5l-8 8" /></svg>';
+      remove.addEventListener("click", () => void removeFromHistory(itemIndex));
+      tile.append(remove);
+    }
+    elements.historyGrid.append(tile);
   }
   watchTiles(loading);
 }
 
-// Open where the visitor is: the page holding the shown frame, else the newest page.
+// Open where the visitor is: the page holding the shown frame, else the newest page (the first).
 function showCurrentPage(): void {
   const entries = gridEntries();
   const position = state.index >= 0 ? entries.findIndex((entry) => entry.index === state.index) : -1;
-  state.pageIndex = pageOf(position >= 0 ? position : entries.length - 1, state.pageSize);
+  state.pageIndex = pageOf(Math.max(position, 0), state.pageSize);
   renderHistoryPage();
 }
 
@@ -217,15 +241,17 @@ function showFilter(next: HistoryDialogTab): void {
   showCurrentPage();
 }
 
-export function openHistory(): void {
+export function openHistory(returnFocus?: HTMLElement): void {
   if (state.loading) return;
+  if (returnFocus) state.historyReturnFocus = returnFocus;
   elements.historyClear.disabled = !state.history.length;
   failedThumbnails.clear();
   saveFailureShown = false;
   filter = "history";
   showCurrentPage();
   openDialog(elements.historyDialog);
-  (elements.historyGrid.children[state.index - state.pageIndex * state.pageSize] as HTMLElement | undefined)?.focus();
+  const position = gridEntries().findIndex((entry) => entry.index === state.index) - state.pageIndex * state.pageSize;
+  (elements.historyGrid.children[position]?.children[0] as HTMLElement | undefined)?.focus();
 }
 
 function showHistoryPage(page: number): void {
@@ -239,6 +265,73 @@ function changePageSize(): void {
   state.pageSize = parsePageSize(elements.historyPageSize.value);
   savePageSize(localStorage, state.pageSize);
   showHistoryPage(pageOf(firstShown, state.pageSize));
+}
+
+const sameFrame = (a: HistoryItem, b: HistoryItem | undefined): boolean => a.source === b?.source && a.id === b.id;
+
+// Keeps the shown frame selected by identity, since removing or restoring another shifts every index.
+function applyHistoryKeepingShown(snapshot: { history: HistoryItem[]; index: number }, shown?: HistoryItem): void {
+  applyHistory({ ...snapshot, index: shown ? snapshot.history.findIndex((item) => sameFrame(item, shown)) : -1 });
+}
+
+function focusTile(position: number): void {
+  const tiles = elements.historyGrid.children;
+  const tile = tiles[Math.min(position, tiles.length - 1)]?.children[0] as HTMLElement | undefined;
+  (tile ?? elements.historyClose).focus();
+}
+
+let removing = false;
+
+// Removing the shown frame lands on the one that takes its place, else the newest. Favorites, Seen IDs and
+// Stats are untouched, as with Clear. The removal is written at once; Undo restores the frame where it was.
+export async function removeFromHistory(index: number): Promise<void> {
+  const frame = state.history[index];
+  if (!frame || state.loading || removing) return;
+  removing = true;
+  const wasShown = index === state.index;
+  const position = gridEntries().findIndex((entry) => entry.index === index) - state.pageIndex * state.pageSize;
+  try {
+    const { snapshot, orderAt } = await removeHistoryItem(frame.source, frame.id);
+    applyHistoryKeepingShown(snapshot, wasShown ? undefined : state.history[state.index]);
+    if (wasShown && !state.history.length) {
+      elements.image.src = "";
+      elements.image.alt = "";
+      setState("empty");
+    } else if (wasShown) await goTo(Math.min(index, state.history.length - 1));
+    const landed = state.history[state.index];
+    syncControls();
+    if (elements.historyDialog.open) {
+      renderHistoryPage();
+      focusTile(position);
+    } else if (!state.history.length) elements.draw.focus();
+    toast.info("Removed from history", {
+      label: "Undo",
+      run: () => void undoRemoval(frame, orderAt, wasShown ? { landed } : undefined),
+    });
+  } catch (error) {
+    toast.error(describeError(error, "That frame could not be removed. Try again.").message);
+  } finally {
+    removing = false;
+  }
+}
+
+// The shown frame returns to the stage only while the visitor is still on the frame that replaced it.
+async function undoRemoval(
+  frame: HistoryItem,
+  orderAt: number,
+  shownBefore?: { landed: HistoryItem | undefined },
+): Promise<void> {
+  try {
+    const shown = state.history[state.index];
+    const snapshot = await restoreHistoryItem(frame, orderAt);
+    applyHistoryKeepingShown(snapshot, shown);
+    syncControls();
+    if (elements.historyDialog.open) renderHistoryPage();
+    if (shownBefore && (shown ? sameFrame(shown, shownBefore.landed) : !shownBefore.landed))
+      await goTo(snapshot.history.findIndex((item) => sameFrame(item, frame)));
+  } catch (error) {
+    toast.error(describeError(error, "That frame could not be restored. Try again.").message);
+  }
 }
 
 async function clearSavedHistory(): Promise<void> {
@@ -397,7 +490,9 @@ function bindClearConfirmation(
 }
 
 export function bindHistoryDialogEvents(): void {
-  elements.historyButton.addEventListener("click", openHistory);
+  elements.historyButton.addEventListener("click", () => openHistory());
+  elements.historyTool.addEventListener("click", () => openHistory(elements.historyTool));
+  elements.removeFrame.addEventListener("click", () => void removeFromHistory(state.index));
   elements.historyClose.addEventListener("click", () => closeDialog(elements.historyDialog));
   const resetHistoryConfirmation = bindClearConfirmation(
     elements.historyClear,
@@ -427,15 +522,21 @@ export function bindHistoryDialogEvents(): void {
   elements.historyGrid.addEventListener("keydown", (event) => {
     if (event.altKey || event.ctrlKey || event.metaKey) return;
     const tiles = elements.historyGrid.children;
-    const current = Array.prototype.indexOf.call(tiles, event.target) as number;
+    const tile = (event.target as Element).closest<HTMLElement>(".history-tile");
+    const current = Array.prototype.indexOf.call(tiles, tile) as number;
     if (current < 0) return;
+    if (event.key === "Delete") {
+      event.preventDefault();
+      if (tile?.dataset.index && !event.repeat) void removeFromHistory(Number(tile.dataset.index));
+      return;
+    }
     const columns = getComputedStyle(elements.historyGrid).gridTemplateColumns.split(" ").length;
     const delta = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -columns, ArrowDown: columns }[
       event.key as "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown"
     ];
     if (delta === undefined) return;
     event.preventDefault();
-    (tiles[current + delta] as HTMLElement | undefined)?.focus();
+    (tiles[current + delta]?.children[0] as HTMLElement | undefined)?.focus();
   });
   elements.historyDialog.addEventListener("close", () => {
     stopThumbnailWork();

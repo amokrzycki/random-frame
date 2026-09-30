@@ -228,7 +228,8 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
 
   get("history-button").click();
   assert.equal(get("history-grid").children.length, 4);
-  assert.equal(get("history-grid").children[2].getAttribute("aria-current"), "true");
+  // Newest first: def456, abc123 (shown), saved2, saved1.
+  assert.equal(get("history-grid").children[1].children[0].getAttribute("aria-current"), "true");
   assert.equal(sessionStorage.getItem("prntsc-gallery-history"), null);
   assert.deepEqual(
     persisted.history.map(({ source, id }) => ({ source, id })),
@@ -244,7 +245,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(get("history-dialog").open, false);
 
   get("history-button").click();
-  get("history-grid").children[0].click();
+  get("history-grid").children[3].children[0].click();
   assert.equal(get("history-dialog").open, false);
   await flush();
   await flush();

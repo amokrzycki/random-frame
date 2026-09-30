@@ -83,13 +83,16 @@
     0 3px 10px rgba(35, 32, 25, 0.12);
 }
 
-/* The floor lives on the dialog, not the grid: All, Favorites and empty share one height because the
-   header hint, pager row and empty state can no longer change it. Short or narrow windows drop the floor. */
 .history-dialog__content {
-  min-height: calc(min(82dvh, 760px) * 0.8);
   max-height: min(82dvh, 760px);
   display: flex;
   flex-direction: column;
+}
+
+/* The floor is History's alone: All, Favorites and empty share one height so the pager row and empty state
+   cannot change it. Stats, Shortcuts and Sync size to their content. Short or narrow windows drop the floor. */
+#history-dialog .history-dialog__content {
+  min-height: calc(min(82dvh, 760px) * 0.8);
 }
 
 .history-dialog__header {
@@ -146,11 +149,21 @@
 }
 
 /* History header: title, clear, then the filter and close on one row. The group dissolves into the grid so
-   the hint can take its own row, and only while armed. */
+   the hint can take its own row. That row is 0fr until Clear is armed, then eases open, so the header spends
+   no height on a hint nobody is reading. */
 .history-dialog__header--tools {
   grid-template-columns: minmax(0, 1fr) auto auto;
-  column-gap: 12px;
+  grid-template-rows: auto 0fr;
+  gap: 0 12px;
   padding-bottom: 18px;
+  transition:
+    grid-template-rows 220ms var(--ease-out),
+    row-gap 220ms var(--ease-out);
+}
+
+.history-dialog__header--tools:has([data-armed]) {
+  grid-template-rows: auto 1fr;
+  row-gap: 12px;
 }
 
 .history-dialog__header--tools > h2 {
@@ -172,8 +185,11 @@
 }
 
 .history-clear-hint {
-  /* Always laid out so arming Clear never grows the header; only its visibility flips. */
+  /* No padding or margin: either would hold the collapsed row open. Hidden text still describes the button. */
+  min-height: 0;
+  overflow: hidden;
   visibility: hidden;
+  opacity: 0;
   pointer-events: none;
   grid-column: 1 / -1;
   grid-row: 2;
@@ -182,11 +198,16 @@
   font-size: 13px;
   line-height: 1.45;
   text-wrap: pretty;
+  transition:
+    opacity 160ms var(--ease-out),
+    visibility 0s linear 220ms;
 }
 
 .history-clear-group[data-armed] .history-clear-hint {
   visibility: visible;
+  opacity: 1;
   pointer-events: auto;
+  transition-delay: 60ms, 0s;
 }
 
 .history-clear {
@@ -220,11 +241,18 @@
   /* Title and clear share the first row; filter and close drop to the second, the hint to the third. */
   .history-dialog__header--tools {
     grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto 0fr;
   }
 
+  .history-dialog__header--tools:has([data-armed]) {
+    grid-template-rows: auto auto 1fr;
+  }
+
+  /* The row gap belongs to the hint, so the space above the second row is its own margin. */
   .history-dialog__header--tools > .history-dialog__actions {
     grid-column: 1 / -1;
     grid-row: 2;
+    margin-top: 14px;
   }
 
   .history-clear-hint {
@@ -308,7 +336,7 @@
 }
 
 @media (max-height: 520px), (max-width: 600px) {
-  .history-dialog__content {
+  #history-dialog .history-dialog__content {
     min-height: 0;
   }
 }
@@ -957,6 +985,57 @@
   flex: none;
   grid-template-columns: repeat(auto-fill, minmax(138px, 1fr));
   gap: 12px;
+}
+
+.history-tile {
+  position: relative;
+  min-width: 0;
+  display: grid;
+}
+
+/* The pointer's remove control: a graphite chip in the corner the favorite star leaves free. Keyboard users
+   press Delete on the tile, so it stays out of the tab order; it shows on hover and while the tile has focus. */
+.history-tile__remove {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  color: var(--white);
+  background: color-mix(in srgb, var(--stage) 86%, transparent);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms var(--ease-out);
+}
+
+.history-tile:hover .history-tile__remove,
+.history-tile:focus-within .history-tile__remove {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.history-tile__remove:hover {
+  background: var(--stage);
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+
+.history-tile__remove:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
+}
+
+.history-tile__remove svg {
+  width: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 1.7;
 }
 
 .history-item {

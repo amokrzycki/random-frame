@@ -189,6 +189,8 @@ export const ids = [
   "history-total",
   "favorite-button",
   "history-button",
+  "history-tool-button",
+  "remove-frame-button",
   "history-dialog",
   "history-close-button",
   "history-clear-group",

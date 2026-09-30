@@ -15,7 +15,7 @@ use chrono::Local;
 use error::{AppError, ErrorKind};
 use persistence::{
     activity_day, day_key, ActivityStore, ExplorationStore, FavoriteItem, FavoriteStore,
-    HistoryItem, HistorySnapshot, HistoryStore, SeenStore,
+    HistoryItem, HistorySnapshot, HistoryStore, RemovedFrame, SeenStore,
 };
 use rate_limit::RateLimiter;
 use reqwest::StatusCode;
@@ -343,6 +343,33 @@ fn select_history_item(
     clippy::needless_pass_by_value,
     reason = "Tauri command state extractors must be passed by value"
 )]
+// Like a clear, a single removal leaves favorites, seen frames, and stats alone.
+fn remove_history_item(
+    source: String,
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<RemovedFrame, AppError> {
+    state.history.remove(&source, &id)
+}
+
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command state extractors must be passed by value"
+)]
+fn restore_history_item(
+    item: HistoryItem,
+    order_at: u64,
+    state: State<'_, AppState>,
+) -> Result<HistorySnapshot, AppError> {
+    state.history.restore(item, order_at)
+}
+
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command state extractors must be passed by value"
+)]
 // Favorites, seen frames, and classified exploration outlive a local history clear.
 fn clear_history(state: State<'_, AppState>) -> Result<(), AppError> {
     clear_local_history(&state)
@@ -533,6 +560,8 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             get_history,
             record_history_item,
             select_history_item,
+            remove_history_item,
+            restore_history_item,
             clear_history,
             get_favorites,
             toggle_favorite,

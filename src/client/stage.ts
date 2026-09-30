@@ -92,6 +92,7 @@ export function syncControls(): void {
   elements.lightboxSave.disabled = elements.save.disabled;
   elements.copyImage.disabled = state.loading || !currentBlob;
   elements.copyLink.disabled = state.loading || !current;
+  elements.removeFrame.disabled = state.loading || !current;
   const favorite = Boolean(current && isFavorite(current));
   const favoriteLabel = favorite ? "Remove from favorites" : "Add to favorites";
   elements.favoriteButton.disabled = state.loading || !current;

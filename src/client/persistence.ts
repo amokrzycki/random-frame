@@ -44,6 +44,20 @@ export function selectHistoryItem(index: number): Promise<HistorySnapshot> {
   return invoke("select_history_item", { index });
 }
 
+// orderAt is the frame's place in history, handed back so an undo can restore it there.
+export interface RemovedFrame {
+  snapshot: HistorySnapshot;
+  orderAt: number;
+}
+
+export function removeHistoryItem(source: string, id: string): Promise<RemovedFrame> {
+  return invoke("remove_history_item", { source, id });
+}
+
+export function restoreHistoryItem(item: HistoryItem, orderAt: number): Promise<HistorySnapshot> {
+  return invoke("restore_history_item", { item, orderAt });
+}
+
 export function clearHistory(): Promise<void> {
   return invoke("clear_history");
 }

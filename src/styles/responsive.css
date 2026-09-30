@@ -66,6 +66,12 @@
     filter: none;
   }
 
+  /* The hint row opens without easing. */
+  .history-dialog__header--tools,
+  .history-clear-hint {
+    transition: none;
+  }
+
   /* The pulse still points at Draw, as a glow without the swell. */
   .draw-button[data-pulse] {
     animation-duration: 620ms !important;

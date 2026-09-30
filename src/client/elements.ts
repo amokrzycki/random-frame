@@ -45,6 +45,8 @@ export const elements = {
   drawLabel: element<HTMLElement>("#draw-label"),
   favoriteButton: element<HTMLButtonElement>("#favorite-button"),
   historyButton: element<HTMLButtonElement>("#history-button"),
+  historyTool: element<HTMLButtonElement>("#history-tool-button"),
+  removeFrame: element<HTMLButtonElement>("#remove-frame-button"),
   historyDialog: element<HTMLDialogElement>("#history-dialog"),
   historyClose: element<HTMLButtonElement>("#history-close-button"),
   historyClearGroup: element<HTMLDivElement>("#history-clear-group"),

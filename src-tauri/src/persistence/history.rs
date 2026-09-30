@@ -61,6 +61,13 @@ pub struct HistorySnapshot {
     pub index: i64,
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemovedFrame {
+    pub snapshot: HistorySnapshot,
+    pub order_at: u64,
+}
+
 pub type HistorySyncState = (Vec<crate::snapshot::SyncRecord>, Vec<[u8; 16]>);
 
 impl HistoryData {
@@ -258,6 +265,72 @@ impl HistoryStore {
         next.index = Some(index);
         self.save(&next)?;
         *data = next;
+        let result = snapshot(&data);
+        drop(data);
+        Ok(result)
+    }
+
+    /// Removes one frame. Every op for it is tombstoned, since a synced device may hold its own,
+    /// and the earliest `order_at` is returned so `restore` can put it back in place.
+    pub fn remove(&self, source: &str, id: &str) -> Result<RemovedFrame, AppError> {
+        let mut data = self
+            .data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut next = data.clone();
+        let matching: Vec<_> = next
+            .history_ops
+            .iter()
+            .filter(|op| op.source == source && op.id == id)
+            .map(|op| (op.operation_id, op.order_at))
+            .collect();
+        let order_at = matching
+            .iter()
+            .map(|&(_, order_at)| order_at)
+            .min()
+            .ok_or_else(|| AppError::invalid_input("Frame is not in history"))?;
+        next.removed_history_ops
+            .extend(matching.iter().map(|&(operation_id, _)| operation_id));
+        let selected = next.selected_key();
+        next.normalize(selected);
+        self.save(&next)?;
+        *data = next;
+        self.generation.fetch_add(1, Ordering::Relaxed);
+        let snapshot = snapshot(&data);
+        drop(data);
+        Ok(RemovedFrame { snapshot, order_at })
+    }
+
+    /// Undo for `remove`: a fresh op at the old `order_at`, so the frame returns to its place
+    /// while the tombstones already synced elsewhere stay valid.
+    pub fn restore(&self, item: HistoryItem, order_at: u64) -> Result<HistorySnapshot, AppError> {
+        validate_item(&item.source, &item.id, &item.source_page_url)?;
+        let key = history_key(&item);
+        let mut data = self
+            .data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut next = data.clone();
+        if !next
+            .history_ops
+            .iter()
+            .any(|op| op.source == item.source && op.id == item.id)
+        {
+            next.local_views.insert(key, item.viewed_at);
+            next.history_ops.push(HistoryOp {
+                operation_id: operation_id(),
+                order_at,
+                viewed_at: item.viewed_at,
+                source: item.source,
+                id: item.id,
+                source_page_url: item.source_page_url,
+            });
+        }
+        let selected = next.selected_key();
+        next.normalize(selected);
+        self.save(&next)?;
+        *data = next;
+        self.generation.fetch_add(1, Ordering::Relaxed);
         let result = snapshot(&data);
         drop(data);
         Ok(result)
