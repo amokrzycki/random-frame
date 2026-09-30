@@ -6,7 +6,6 @@ import { adjacentPrntscId, frameNumberToIndex, historyIndexForId, nextHistoryInd
 import { recordHistoryItem, selectHistoryItem } from "./persistence.js";
 import {
   decodedUrl,
-  dismissArrowHint,
   drawPaused,
   finishLoading,
   getViewState,
@@ -60,6 +59,7 @@ export async function loadRandom(): Promise<void> {
   startLoading();
   state.drawing = true;
   setState("loading");
+  elements.loading.dataset.cancelable = "";
   syncControls();
   try {
     const frame = await getRandomFrame();
@@ -116,11 +116,10 @@ export async function goTo(targetIndex: number): Promise<void> {
 }
 
 export function goBack(): void {
-  dismissArrowHint();
   void goTo(state.index - 1);
 }
 
-// Arrows only move through history. Past the last frame they point at Draw next instead of drawing.
+// Arrows only move through history. Past the last frame they point at Draw instead of drawing.
 export function goNext(): void {
   const targetIndex = nextHistoryIndex(state.index, state.history.length);
   if (targetIndex !== null) return void goTo(targetIndex);
@@ -128,7 +127,7 @@ export function goNext(): void {
   restartAnimation(elements.draw);
   elements.draw.dataset.pulse = "";
   // A trailing no-break space alternates, so screen readers announce a repeated press too.
-  const notice = "This is the newest frame. Press N to draw next.";
+  const notice = "This is the newest frame. Press N to draw another.";
   elements.announcer.textContent = elements.announcer.textContent === notice ? `${notice} ` : notice;
 }
 

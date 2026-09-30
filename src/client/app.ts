@@ -13,6 +13,7 @@ import { bindShortcutsEvents } from "./shortcuts.js";
 import { bindStageEvents, setState, showError, syncControls } from "./stage.js";
 import { bindStatsDialogEvents, migrateLegacyStats } from "./stats-dialog.js";
 import { bindSyncDialogEvents, refreshAfterStartup, runStartupSync } from "./sync-dialog.js";
+import { bindTooltipEvents } from "./tooltip.js";
 import { checkForUpdate } from "./update.js";
 import { applyFavorites, applyHistory, state } from "./viewer-state.js";
 
@@ -121,35 +122,59 @@ elements.entryButton.addEventListener("click", () => {
 
 window.addEventListener("pagehide", releaseAllBlobs);
 
-// Pinned under its button when it opens. Closing on pick, before the item's own handler runs, returns focus
-// to the button so a dialog opened from the menu hands it back there.
-elements.toolsMenu.addEventListener("beforetoggle", (event) => {
-  if ((event as ToggleEvent).newState !== "open") return;
-  const rect = elements.toolsMenuButton.getBoundingClientRect();
-  elements.toolsMenu.style.top = `${rect.bottom + 6}px`;
-  elements.toolsMenu.style.right = `${window.innerWidth - rect.right}px`;
-});
-elements.toolsMenu.addEventListener("click", () => elements.toolsMenu.hidePopover?.(), true);
-elements.toolsMenuButton.addEventListener("keydown", (event) => {
-  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-  event.preventDefault();
-  elements.toolsMenu.showPopover();
-  const items = elements.toolsMenu.querySelectorAll<HTMLButtonElement>("button:not(:disabled)");
-  (event.key === "ArrowDown" ? items[0] : items[items.length - 1])?.focus();
-});
-elements.toolsMenu.addEventListener("keydown", (event) => {
-  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
-  const items = [...elements.toolsMenu.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
-  const current = items.indexOf(document.activeElement as HTMLButtonElement);
-  const next =
-    event.key === "Home"
-      ? 0
-      : event.key === "End"
-        ? items.length - 1
-        : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
-  event.preventDefault();
-  items[next]?.focus();
-});
+// Pinned to its button when it opens: the tools menu drops from the titlebar, the frame menu rises from the
+// info line. Closing on pick, before the item's own handler runs, returns focus to the button so a dialog
+// opened from the menu hands it back there. Items marked data-keep hold the menu open.
+const menuItems = (menu: HTMLElement): HTMLElement[] =>
+  [...menu.querySelectorAll<HTMLElement>("button:not(:disabled):not([hidden]), a[href]")].filter(
+    (item) => !item.closest("[hidden]"),
+  );
+
+function bindMenu(menu: HTMLElement, button: HTMLElement, placement: "below" | "above"): void {
+  menu.addEventListener("beforetoggle", (event) => {
+    if ((event as ToggleEvent).newState !== "open") return;
+    const rect = button.getBoundingClientRect();
+    if (placement === "below") {
+      menu.style.top = `${rect.bottom + 6}px`;
+      menu.style.right = `${window.innerWidth - rect.right}px`;
+    } else {
+      menu.style.bottom = `${window.innerHeight - rect.top + 6}px`;
+      menu.style.left = `${rect.left}px`;
+    }
+  });
+  menu.addEventListener(
+    "click",
+    (event) => {
+      const item = (event.target as Element).closest?.("button, a");
+      if (item && !item.hasAttribute("data-keep")) menu.hidePopover?.();
+    },
+    true,
+  );
+  button.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    menu.showPopover();
+    const items = menuItems(menu);
+    (event.key === "ArrowDown" ? items[0] : items[items.length - 1])?.focus();
+  });
+  menu.addEventListener("keydown", (event) => {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) || (event.target as Element).tagName === "INPUT")
+      return;
+    const items = menuItems(menu);
+    const current = items.indexOf(document.activeElement as HTMLElement);
+    const next =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? items.length - 1
+          : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+    event.preventDefault();
+    items[next]?.focus();
+  });
+}
+
+bindMenu(elements.toolsMenu, elements.toolsMenuButton, "below");
+bindMenu(elements.frameMenu, elements.frameMenuButton, "above");
 
 document.querySelectorAll<HTMLAnchorElement>(".external-link").forEach((link) => {
   link.addEventListener("click", (event) => {
@@ -158,6 +183,29 @@ document.querySelectorAll<HTMLAnchorElement>(".external-link").forEach((link) =>
   });
 });
 
+// Arrow keys move along a toolbar's own buttons (not the menu items its popovers hold). They stop here,
+// so ← and → do not also step through frames while a toolbar button has focus.
+function bindToolbar(toolbar: HTMLElement): void {
+  toolbar.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key) || event.shiftKey) return;
+    const buttons = [...toolbar.querySelectorAll<HTMLButtonElement>(":scope > button:not(:disabled)")];
+    const current = buttons.indexOf(event.target as HTMLButtonElement);
+    if (current < 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const next =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? buttons.length - 1
+          : (current + (event.key === "ArrowRight" ? 1 : -1) + buttons.length) % buttons.length;
+    buttons[next]?.focus();
+  });
+}
+
+bindToolbar(elements.mastheadTools);
+bindToolbar(elements.infoActions);
+bindTooltipEvents();
 bindDialogChromeEvents();
 bindStageEvents();
 bindNavigationEvents();
@@ -166,6 +214,10 @@ bindHistoryDialogEvents();
 bindStatsDialogEvents();
 bindSyncDialogEvents();
 bindShortcutsEvents();
+// A successful jump has done its job; a rejected number keeps the menu and its message open.
+elements.jumpForm.addEventListener("submit", () => {
+  if (elements.jumpForm.hidden) elements.frameMenu.hidePopover?.();
+});
 
 syncControls();
 void initialize();

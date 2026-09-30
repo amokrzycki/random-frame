@@ -88,7 +88,7 @@ test("favorites toggle from the info line and filter the history grid", async (t
   assert.equal(star.disabled, false);
   assert.equal(star.getAttribute("aria-pressed"), "false");
   assert.equal(star.getAttribute("aria-label"), "Add to favorites");
-  assert.equal(star.title, "Add to favorites (F)");
+  assert.equal(star.dataset.tip, "Add to favorites (F)");
 
   // Rapid activations must leave only one request in flight.
   pauseNextToggle = true;
@@ -104,7 +104,7 @@ test("favorites toggle from the info line and filter the history grid", async (t
   );
   assert.equal(star.getAttribute("aria-pressed"), "true");
   assert.equal(star.getAttribute("aria-label"), "Remove from favorites");
-  assert.equal(star.title, "Remove from favorites (F)");
+  assert.equal(star.dataset.tip, "Remove from favorites (F)");
   assert.equal(lastToast().className, "toast toast--success");
   assert.equal(lastToast().textContent, "Added to favorites");
 
@@ -178,7 +178,7 @@ test("favorites toggle from the info line and filter the history grid", async (t
   get("history-filter-favorites").click();
   const clearFavorites = get("history-clear-favorites-button");
   clearFavorites.click();
-  assert.equal(get("announcer").textContent, "Activate again to clear favorites");
+  assert.match(get("announcer").textContent, /^Activate again to clear favorites: \d+ favorites?$/);
   get("history-close-button").click();
   get("history-button").click();
   get("history-filter-favorites").click();
@@ -190,6 +190,8 @@ test("favorites toggle from the info line and filter the history grid", async (t
   clearFavorites.click();
   await flush();
   assert.notEqual(favorites.length, 0);
+  clearFavorites.click();
+  await new Promise((resolve) => setTimeout(resolve, 520));
   clearFavorites.click();
   await flush();
   assert.deepEqual(favorites, []);

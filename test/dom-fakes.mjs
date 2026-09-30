@@ -43,6 +43,16 @@ class FakeElement extends EventTarget {
     this.attributes.delete(name);
   }
 
+  toggleAttribute(name, force = !this.attributes.has(name)) {
+    if (force) this.attributes.set(name, "");
+    else this.attributes.delete(name);
+    return force;
+  }
+
+  getBoundingClientRect() {
+    return { left: 0, top: 0, width: 0, height: 0 };
+  }
+
   contains(node) {
     return this === node || this.children.some((child) => child.contains?.(node));
   }
@@ -153,6 +163,8 @@ export const ids = [
   "lightbox-view",
   "lightbox-caption",
   "lightbox-zoom-button",
+  "lightbox-favorite",
+  "lightbox-save",
   "lightbox-previous",
   "lightbox-next",
   "lightbox-close-button",
@@ -190,8 +202,6 @@ export const ids = [
   "history-empty-title",
   "history-empty-detail",
   "history-body",
-  "history-thumbnail-action",
-  "history-thumbnails",
   "history-pager",
   "history-pager-nav",
   "history-range",
@@ -247,9 +257,9 @@ export const ids = [
   "image-id-value",
   "tools-menu",
   "tools-menu-button",
+  "frame-menu",
+  "frame-menu-button",
   "info-actions",
-  "arrow-hint",
-  "arrow-hint-dismiss",
   "position-button",
   "position-current",
   "jump-total",

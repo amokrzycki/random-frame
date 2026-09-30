@@ -11,7 +11,7 @@ export function formatExploredBreakdown(
     viewable + unavailable + unclassified !== explored
   )
     throw new Error("Inconsistent exploration counts");
-  const breakdown = `${viewable.toLocaleString("en-US")} viewable · ${unavailable.toLocaleString("en-US")} unavailable`;
+  const breakdown = `${viewable.toLocaleString("en-US")} opened · ${unavailable.toLocaleString("en-US")} unavailable`;
   return unclassified ? `${breakdown} · ${unclassified.toLocaleString("en-US")} unclassified` : breakdown;
 }
 
@@ -81,7 +81,7 @@ export function ledgerDateLabel(iso: string, todayIso: string): string {
 }
 
 export function formatLedgerCounts(drawn: number, unavailable: number): string {
-  const counts = `${drawn.toLocaleString("en-US")} found`;
+  const counts = `${drawn.toLocaleString("en-US")} drawn`;
   return unavailable ? `${counts} · ${unavailable.toLocaleString("en-US")} unavailable` : counts;
 }
 

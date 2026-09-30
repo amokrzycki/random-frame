@@ -12,12 +12,12 @@ import {
 } from "../dist/test-client/statistics.js";
 
 test("formats the explored breakdown plainly once every explored id is classified", () => {
-  assert.equal(formatExploredBreakdown(101, 49, 52, 0), "49 viewable · 52 unavailable");
+  assert.equal(formatExploredBreakdown(101, 49, 52, 0), "49 opened · 52 unavailable");
 });
 
 test("shows every explored category and rejects inconsistent counts", () => {
-  assert.equal(formatExploredBreakdown(101, 49, 50, 2), "49 viewable · 50 unavailable · 2 unclassified");
-  assert.equal(formatExploredBreakdown(10, 0, 0, 10), "0 viewable · 0 unavailable · 10 unclassified");
+  assert.equal(formatExploredBreakdown(101, 49, 50, 2), "49 opened · 50 unavailable · 2 unclassified");
+  assert.equal(formatExploredBreakdown(10, 0, 0, 10), "0 opened · 0 unavailable · 10 unclassified");
   assert.throws(() => formatExploredBreakdown(101, 49, 50, 0), /Inconsistent exploration counts/);
 });
 
@@ -46,9 +46,9 @@ test("names ledger days relative to today, adding the year only when it differs"
 });
 
 test("counts a ledger day, leaving out unavailable when there were none", () => {
-  assert.equal(formatLedgerCounts(12, 3), "12 found · 3 unavailable");
-  assert.equal(formatLedgerCounts(1_204, 0), "1,204 found");
-  assert.equal(formatLedgerCounts(0, 7), "0 found · 7 unavailable");
+  assert.equal(formatLedgerCounts(12, 3), "12 drawn · 3 unavailable");
+  assert.equal(formatLedgerCounts(1_204, 0), "1,204 drawn");
+  assert.equal(formatLedgerCounts(0, 7), "0 drawn · 7 unavailable");
 });
 
 test("builds ledger days newest first, skipping idle days and grouping frames by local viewedAt", () => {

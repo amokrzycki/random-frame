@@ -79,7 +79,7 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
   fail = { command: "create_sync", error: { category: "invalid_endpoint" } };
   get("sync-enable").click();
   await flush();
-  assert.match(get("sync-error-message").textContent, /not configured/);
+  assert.match(get("sync-error-message").textContent, /no server is set up/);
   assert.equal(get("sync-unpaired").hidden, false);
   // Nothing to retry until the server is configured, and the message is not repeated in the status line.
   assert.equal(get("sync-retry").hidden, true);
@@ -87,7 +87,7 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
   fail = { command: "create_sync", error: { category: "offline" } };
   get("sync-enable").click();
   await flush();
-  assert.match(get("sync-error-message").textContent, /Offline/);
+  assert.match(get("sync-error-message").textContent, /offline/);
   assert.equal(get("sync-retry").hidden, false);
   fail = null;
   get("sync-retry").click();
@@ -113,7 +113,7 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
   await flush();
   assert.equal(get("sync-recovery").hidden, true);
   assert.equal(get("sync-paired").hidden, false);
-  assert.equal(get("sync-status").textContent, "Synced");
+  assert.match(get("sync-status").textContent, /^Up to date/);
 
   current.dirty = true;
   get("sync-button").click();
@@ -128,10 +128,10 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
   current.lastErrorCategory = "offline";
   get("sync-button").click();
   await flush();
-  assert.match(get("sync-status").textContent, /Offline/);
+  assert.match(get("sync-status").textContent, /offline/);
   for (const [category, expected] of [
     ["rollback_detected", /older/],
-    ["secure_storage", /Secure credential/],
+    ["secure_storage", /secure storage/],
   ]) {
     current.state = "error";
     current.lastErrorCategory = category;
@@ -173,7 +173,7 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
   await flush();
   assert.equal(get("sync-paired").hidden, true);
   assert.equal(get("sync-leave-confirm").hidden, false);
-  assert.match(get("sync-error-message").textContent, /Secure credential/);
+  assert.match(get("sync-error-message").textContent, /secure storage/);
   fail = null;
   get("sync-leave-confirm-button").click();
   await flush();
@@ -208,14 +208,10 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
 
   await runStartupSync();
   assert.equal(calls.at(-1).command, "get_sync_status");
-  assert.equal(document.body.children[0].children.at(-1).textContent, "Synced");
-  assert.equal(document.body.children[0].children.at(-1).className, "toast toast--success");
-  current.dirty = true;
-  await runStartupSync();
-  assert.equal(document.body.children[0].children.length, 1);
+  assert.equal(document.body.children[0]?.children.length ?? 0, 0);
   fail = { command: "startup_sync", error: { category: "offline" } };
   await runStartupSync();
-  assert.equal(document.body.children[0].children.length, 1);
+  assert.equal(document.body.children[0]?.children.length ?? 0, 0);
 
   // A failed status check is an error with a retry, never a status line stuck on "Checking".
   statusFails = true;
@@ -223,7 +219,7 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
   await flush();
   assert.equal(get("sync-error").hidden, false);
   assert.equal(get("sync-status").hidden, true);
-  assert.match(get("sync-error-message").textContent, /did not respond/);
+  assert.match(get("sync-error-message").textContent, /took too long/);
   assert.equal(get("sync-retry").hidden, false);
   statusFails = false;
   get("sync-retry").click();

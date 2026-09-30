@@ -2,7 +2,7 @@
   position: fixed;
   z-index: 20;
   left: 50%;
-  top: max(16px, env(safe-area-inset-top));
+  top: calc(var(--titlebar-height) + 12px);
   transform: translateX(-50%);
   display: flex;
   align-items: center;
@@ -50,7 +50,7 @@
   opacity: 0.7;
 }
 
-.update-banner__dismiss {
+.update-banner .update-banner__dismiss {
   background: transparent;
   color: var(--white);
   opacity: 0.7;

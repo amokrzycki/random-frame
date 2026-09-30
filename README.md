@@ -7,7 +7,7 @@ Images come from [prnt.sc](https://prnt.sc/). The Rust backend resolves each ran
 ## Features
 
 - Draw a random image, or step to the previous or next adjacent Prnt.sc identifier
-- Local browsing history with pagination, jump-to-frame, and hold-to-clear
+- Local browsing history with pagination, jump-to-frame, and two-step clear
 - Exploration and daily viewing statistics
 - Save the image, copy it to the clipboard, copy the source link, or open the source page
 - Enlarged image view

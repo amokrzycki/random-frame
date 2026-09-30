@@ -1,7 +1,7 @@
 .toast-region {
   position: fixed;
   z-index: 20;
-  /* Inside the stage's lower-right, above the 56px info line (main pads 16px sides, 4px bottom), so Draw next stays clear. */
+  /* Inside the stage's lower-right, above the 56px info line (main pads 16px sides, 4px bottom), so Draw stays clear. */
   right: 36px;
   bottom: 80px;
   max-height: calc(100dvh - 160px);
@@ -78,4 +78,25 @@
 }
 .toast__action:hover {
   color: #aabcf4;
+}
+
+/* Shared tooltip: instant, top layer, and on the dark surface in both themes like the toast. */
+.tooltip {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  max-width: 260px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  overflow: visible;
+  color: var(--white);
+  background: rgba(25, 26, 24, 0.97);
+  box-shadow:
+    0 0 0 1px rgba(240, 238, 232, 0.12),
+    0 6px 18px rgba(0, 0, 0, 0.3);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+  pointer-events: none;
 }

@@ -1,15 +1,13 @@
 .stats-button {
-  width: 34px;
-  height: 34px;
+  width: 42px;
+  height: var(--titlebar-height);
   padding: 0;
   display: grid;
   place-items: center;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  border: 0;
   color: var(--ink);
-  background: var(--paper-deep);
+  background: transparent;
   cursor: pointer;
-  transition: transform 140ms var(--ease-out);
 }
 
 /* Sync needs attention: the Sync entry lives in this menu, so the flag rides on its button. */
@@ -19,25 +17,21 @@
 .stats-button[data-sync]::after {
   content: "";
   position: absolute;
-  top: 4px;
-  right: 4px;
+  top: 9px;
+  right: 9px;
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: var(--danger);
-  box-shadow: 0 0 0 2px var(--paper-deep);
-}
-.stats-button[data-sync]:hover::after {
-  box-shadow: 0 0 0 2px var(--control-fill);
 }
 
 .stats-button:hover {
-  color: var(--control-fill-text);
-  background: var(--control-fill);
+  background: var(--key-surface);
 }
 
-.stats-button:active {
-  transform: scale(0.97);
+.stats-button:focus-visible {
+  outline-width: 2px;
+  outline-offset: -3px;
 }
 
 .stats-button svg {

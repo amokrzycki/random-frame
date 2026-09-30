@@ -42,8 +42,13 @@ export function bindShortcutsEvents(): void {
       else if (!dialogs.some((dialog) => dialog.open)) openShortcuts();
       return;
     }
-    // The tools menu popover is not a dialog but still owns the keyboard while open.
-    if (dialogs.some((dialog) => dialog.open) || elements.toolsMenu.matches?.(":popover-open")) return;
+    // The menu popovers are not dialogs but still own the keyboard while open.
+    if (
+      dialogs.some((dialog) => dialog.open) ||
+      elements.toolsMenu.matches?.(":popover-open") ||
+      elements.frameMenu.matches?.(":popover-open")
+    )
+      return;
     if (event.key.toLowerCase() === "z" && !event.shiftKey && !event.repeat) {
       if (undoFavoriteRemoval()) event.preventDefault();
       return;

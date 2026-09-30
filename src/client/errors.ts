@@ -6,6 +6,8 @@ export interface ErrorCopy {
 }
 
 const DEFAULT_TITLE = "This frame would not open.";
+// One title for every "wait a moment" state, so a rate limit reads the same wherever it comes from.
+const PAUSE_TITLE = "Give it a moment.";
 const DEFAULT_MESSAGE = "The source may have limited access, or this address may be empty.";
 
 // Errors arrive as Error instances from api.ts or as raw `{ kind, message }` objects from other Tauri commands.
@@ -24,16 +26,12 @@ export function describeError(error: unknown, fallback = DEFAULT_MESSAGE): Error
   });
   switch (field(error, "kind")) {
     case "rate-limited":
-      return copy("A short pause between frames.", "Please give the source a moment before drawing again.", 2);
+      return copy(PAUSE_TITLE, "Please wait a moment before drawing again.", 2);
     case "upstream-rate-limited":
-      return copy(
-        "The source needs a moment.",
-        "Prnt.sc is taking a short pause. Your earlier frames are still here.",
-        10,
-      );
+      return copy(PAUSE_TITLE, "Prnt.sc is slowing requests down. Your earlier frames are still here.", 10);
     case "upstream-forbidden":
       return copy(
-        "The source is taking a pause.",
+        PAUSE_TITLE,
         "Prnt.sc is not opening new frames right now. You can browse your earlier frames while you wait.",
         10,
       );

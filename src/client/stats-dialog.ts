@@ -28,7 +28,7 @@ function ledgerThumbnail(itemIndex: number): HTMLButtonElement | null {
   const image = document.createElement("img");
   button.type = "button";
   button.className = "ledger__thumb";
-  button.title = item.id;
+  button.dataset.tip = item.id;
   const name = `Show frame ${itemIndex + 1}, ${item.id}`;
   const favorite = isFavorite(item);
   button.setAttribute("aria-label", favorite ? `${name}, favorite` : name);

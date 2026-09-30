@@ -83,7 +83,10 @@
     0 3px 10px rgba(35, 32, 25, 0.12);
 }
 
+/* The floor lives on the dialog, not the grid: All, Favorites and empty share one height because the
+   header hint, pager row and empty state can no longer change it. Short or narrow windows drop the floor. */
 .history-dialog__content {
+  min-height: calc(min(82dvh, 760px) * 0.8);
   max-height: min(82dvh, 760px);
   display: flex;
   flex-direction: column;
@@ -169,7 +172,9 @@
 }
 
 .history-clear-hint {
-  display: none;
+  /* Always laid out so arming Clear never grows the header; only its visibility flips. */
+  visibility: hidden;
+  pointer-events: none;
   grid-column: 1 / -1;
   grid-row: 2;
   max-width: 75ch;
@@ -180,7 +185,8 @@
 }
 
 .history-clear-group[data-armed] .history-clear-hint {
-  display: block;
+  visibility: visible;
+  pointer-events: auto;
 }
 
 .history-clear {
@@ -229,6 +235,12 @@
 .history-clear-group[data-armed] > .history-clear {
   border-color: var(--danger);
   box-shadow: inset 0 0 0 1px var(--danger);
+}
+
+/* Armed but not yet confirmable: dim until the arm delay passes. */
+.history-clear-group[data-arming] > .history-clear {
+  opacity: 0.55;
+  cursor: progress;
 }
 
 .history-clear:hover:not(:disabled) {
@@ -280,27 +292,23 @@
   stroke-width: 1.6;
 }
 
-:is(.history-dialog, .lightbox-dialog)[open] :is(.history-close, .lightbox-close):focus {
+:is(.history-dialog, .lightbox-dialog)[open] :is(.history-close, .lightbox-close):focus-visible {
   outline: 3px solid var(--blue);
   outline-offset: -3px;
 }
 
 .history-dialog__body {
   min-height: 0;
+  display: flex;
   flex: 1;
+  flex-direction: column;
   padding: 24px 28px 28px;
   overflow: auto;
   scrollbar-color: var(--muted) var(--paper-deep);
 }
 
-/* The grid is the point of the dialog: it keeps at least 55% of the dialog's height, and the
-   header and pager share the rest. Short or narrow windows drop the floor so the pager is never clipped. */
-#history-dialog .history-dialog__body {
-  min-height: calc(min(82dvh, 760px) * 0.55);
-}
-
 @media (max-height: 520px), (max-width: 600px) {
-  #history-dialog .history-dialog__body {
+  .history-dialog__content {
     min-height: 0;
   }
 }
@@ -478,7 +486,7 @@
   line-height: 1.6;
 }
 
-/* One ruled line per action, keys set right like the Draw next keycap. */
+/* One ruled line per action, keys set right like the Draw keycap. */
 .shortcuts {
   margin: 0;
   padding: 8px 28px 20px;
@@ -769,50 +777,6 @@
   text-wrap: pretty;
 }
 
-.dialog-foot__copy {
-  min-width: 0;
-}
-
-.stats-how {
-  margin-top: 4px;
-}
-
-.stats-how summary {
-  width: fit-content;
-  cursor: pointer;
-  line-height: 1.8;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.stats-how p {
-  max-width: 65ch;
-  padding: 4px 0 8px;
-}
-
-.dialog-foot__meta {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 14px;
-}
-
-/* Give the Stats footer links a comfortable target without crowding the metadata. */
-.dialog-foot__meta a {
-  min-height: 32px;
-  padding: 4px 6px;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.dialog-foot__meta svg {
-  width: 15px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.4;
-}
-
 @media (max-width: 600px) {
   .stats-headline__detail {
     display: block;
@@ -826,14 +790,6 @@
 
   .stats-headline__detail > span::before {
     display: none;
-  }
-
-  .stats-dialog .dialog-foot {
-    display: block;
-  }
-
-  .stats-dialog .dialog-foot__meta {
-    margin-top: 8px;
   }
 }
 
@@ -908,7 +864,7 @@
   min-width: 0;
   min-height: 0;
   display: grid;
-  place-items: center;
+  place-items: safe center;
   overflow: auto;
   padding: 24px 70px;
   overscroll-behavior: contain;
@@ -924,7 +880,6 @@
 }
 
 .lightbox-view.is-zoomed {
-  display: block;
   cursor: grab;
   touch-action: none;
 }
@@ -946,7 +901,6 @@
   max-height: none;
   width: auto;
   height: auto;
-  margin: auto;
   cursor: inherit;
 }
 
@@ -1000,6 +954,7 @@
 
 .history-grid {
   display: grid;
+  flex: none;
   grid-template-columns: repeat(auto-fill, minmax(138px, 1fr));
   gap: 12px;
 }
@@ -1082,6 +1037,24 @@
   background: repeating-linear-gradient(135deg, var(--stage) 0 10px, var(--stage-soft) 10px 20px);
 }
 
+/* Skeleton while the thumbnail is fetched; a failed fetch falls back to the stripe above. */
+.history-item[data-loading] img {
+  visibility: visible;
+  background:
+    linear-gradient(100deg, transparent 30%, color-mix(in srgb, var(--white) 7%, transparent) 50%, transparent 70%) 0 0
+    / 250% 100% var(--stage-soft);
+  animation: history-skeleton 1.4s linear infinite;
+}
+
+@keyframes history-skeleton {
+  from {
+    background-position-x: 100%;
+  }
+  to {
+    background-position-x: -100%;
+  }
+}
+
 .history-item span {
   padding: 9px 11px 10px;
   display: block;
@@ -1092,14 +1065,6 @@
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.history-thumbnail-action {
-  display: flex;
-}
-
-.history-thumbnail-action[hidden] {
-  display: none;
 }
 
 .history-pager[data-compact] {
@@ -1188,27 +1153,6 @@
   padding-right: 8px;
 }
 
-.history-thumbnail-action__button {
-  padding: 8px 0;
-  border: 0;
-  color: var(--ink);
-  background: transparent;
-  font: inherit;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.history-thumbnail-action__button:hover:not(:disabled) {
-  color: var(--blue);
-}
-
-.history-thumbnail-action__button:disabled {
-  color: var(--disabled-ink);
-  cursor: default;
-}
-
 .history-pager__step svg,
 .history-pager__select svg {
   width: 16px;
@@ -1288,6 +1232,7 @@
 
 .history-empty {
   min-height: 260px;
+  flex: 1;
   display: grid;
   align-content: center;
   justify-items: center;
@@ -1417,4 +1362,8 @@
 }
 .leave-action:hover {
   color: var(--blue-dark);
+}
+
+.lightbox-favorite[aria-pressed="true"] svg path {
+  fill: currentColor;
 }

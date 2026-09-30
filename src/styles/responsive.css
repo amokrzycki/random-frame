@@ -66,18 +66,13 @@
     filter: none;
   }
 
-  /* The pulse still points at Draw next, as a glow without the swell. */
+  /* The pulse still points at Draw, as a glow without the swell. */
   .draw-button[data-pulse] {
     animation-duration: 620ms !important;
     transform: none !important;
   }
-  .draw-button[aria-busy="true"] .draw-button__spinner {
-    animation: breathe 1.6s ease-in-out infinite !important;
-    stroke-dasharray: none;
-  }
 
   .history-item:active,
-  .stats-button:active,
   .history-pager__step:active:not(:disabled),
   .history-pager__select select:active,
   .history-close:active,
