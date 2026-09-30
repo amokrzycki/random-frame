@@ -37,7 +37,8 @@ export function setState(next: ViewState): void {
     target.hidden = name !== next && !(keepFrame && name === "image");
   elements.imageZoom.inert = keepFrame;
   elements.draw.toggleAttribute("data-invite", next === "empty");
-  if (keepFrame) elements.imageZoom.dataset.dimmed = "";
+  // The value lets CSS hold the loading dim back 200ms while an error dims at once.
+  if (keepFrame) elements.imageZoom.dataset.dimmed = next;
   else delete elements.imageZoom.dataset.dimmed;
   if (next === "loading") {
     elements.loadingMessage.textContent = "Finding an available frame…";
@@ -136,7 +137,7 @@ export function syncControls(): void {
   elements.draw.setAttribute("aria-busy", String(state.drawing));
   elements.draw.setAttribute("aria-disabled", String(state.loading || waitSeconds > 0));
   elements.draw.toggleAttribute("data-paused", waitSeconds > 0);
-  elements.drawLabel.textContent = waitSeconds ? `Wait ${waitSeconds}s` : state.drawing ? "Drawing" : "Draw";
+  elements.drawLabel.textContent = waitSeconds ? `Wait ${waitSeconds}s` : "Draw";
   // The retry action returns after the cooldown; Draw carries the countdown.
   elements.back.hidden = !current || failedIndex === state.index;
   elements.back.textContent = `Return to frame ${state.index + 1}`;

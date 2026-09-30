@@ -144,6 +144,15 @@
   border-radius: 10px;
   background: color-mix(in srgb, var(--stage) 78%, transparent);
 }
+/* A draw that lands inside 200ms never shows the loader or the dim, so quick draws do not flicker. */
+.loading-state {
+  animation: loader-in 160ms var(--ease-out) 200ms backwards;
+}
+@keyframes loader-in {
+  from {
+    opacity: 0;
+  }
+}
 .loader {
   width: 36px;
   height: 36px;
@@ -273,6 +282,9 @@
   opacity: 0.3;
   filter: blur(3px) saturate(0.5);
   transition-duration: 200ms;
+}
+.image-zoom[data-dimmed="loading"] {
+  transition-delay: 200ms;
 }
 
 /* The stage clips overflow, so the ring sits inside the frame instead of around it. */
@@ -838,6 +850,40 @@ a.tools-menu__item {
 
 .draw-button[aria-busy="true"] {
   cursor: progress;
+}
+
+/* Busy: the label gives way to a spinner at its own position, so the button keeps its width. Both wait
+   200ms with the stage loader; the label stays in the tree as the button's name. */
+.draw-button__label {
+  transition: opacity 120ms var(--ease-out);
+}
+.draw-button[aria-busy="true"] .draw-button__label {
+  opacity: 0;
+  transition-delay: 200ms;
+}
+.draw-button__spinner {
+  display: none;
+  position: absolute;
+  left: 16px;
+  top: calc(50% - 8px);
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke-width: 2;
+}
+.draw-button[aria-busy="true"] .draw-button__spinner {
+  display: block;
+  animation:
+    loader-in 120ms var(--ease-out) 200ms backwards,
+    spin 0.85s linear infinite;
+}
+.draw-button__spinner-track {
+  stroke: rgba(255, 255, 255, 0.32);
+}
+.draw-button__spinner-arc {
+  stroke: var(--white);
+  stroke-dasharray: 10 31;
+  stroke-linecap: round;
 }
 
 /* The empty stage invites the first draw: a slow cobalt ring, three times, until Draw is used. */
