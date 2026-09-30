@@ -36,7 +36,7 @@
   --line: #c9c5bc;
   --field-line: #85827a;
   /* Outlines of buttons and checkboxes: 3:1 on the paper, where --line is only a divider. */
-  --control-line: #85827a;
+  --control-line: var(--field-line);
   /* Disabled icon marks: visibly off, still 3:1 on the paper. */
   --disabled-ink: #7c7c74;
   --danger: #b85a43;
@@ -51,6 +51,18 @@
   --nav-surface: rgba(249, 248, 244, 0.94);
   --nav-ink: #191a18;
   --close-hover: #c42b1c;
+  /* Text and marks on the viewing stage and the dark toasts: dark in both themes, so they never follow the paper tokens. */
+  --stage-muted: #b8b8b1;
+  --stage-hint: #85827a;
+  --stage-line: #595a55;
+  --stage-link-hover: #aabcf4;
+  --stage-mark: rgba(249, 248, 244, 0.42);
+  --stage-hairline: rgba(255, 255, 255, 0.08);
+  --lift-shadow: rgba(35, 32, 25, 0.2);
+  --control-shadow: rgba(0, 0, 0, 0.18);
+  --radius-compact: 5px;
+  --radius-control: 8px;
+  --radius-primary: 10px;
   --titlebar-height: 42px;
   --type-dialog-title: clamp(26px, 3vw, 32px);
   --type-entry-title: clamp(28px, 4vw, 34px);
@@ -134,7 +146,7 @@ button {
 
 .titlebar,
 main,
-footer {
+.status-bar {
   width: 100%;
   margin-inline: auto;
 }

@@ -1,4 +1,4 @@
-.stats-button {
+.titlebar-tool {
   width: 42px;
   height: var(--titlebar-height);
   padding: 0;
@@ -11,10 +11,10 @@
 }
 
 /* Sync needs attention: the Sync entry lives in this menu, so the flag rides on its button. */
-.stats-button[data-sync] {
+.titlebar-tool[data-sync] {
   position: relative;
 }
-.stats-button[data-sync]::after {
+.titlebar-tool[data-sync]::after {
   content: "";
   position: absolute;
   top: 9px;
@@ -25,16 +25,16 @@
   background: var(--danger);
 }
 
-.stats-button:hover {
+.titlebar-tool:hover {
   background: var(--key-surface);
 }
 
-.stats-button:focus-visible {
+.titlebar-tool:focus-visible {
   outline-width: 2px;
   outline-offset: -3px;
 }
 
-.stats-button svg {
+.titlebar-tool svg {
   width: 20px;
   fill: none;
   stroke: currentColor;
@@ -48,36 +48,17 @@
   overflow: hidden;
 }
 
-.footer-copy {
-  min-width: 0;
-  max-width: none;
-  margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-footer a {
-  color: inherit;
-  text-underline-offset: 4px;
-}
-.footer-meta {
+/* The privacy page's status bar, and the strips closing the History and Stats dialogs. */
+:is(.status-bar, .dialog-foot, .history-pager) {
+  min-height: 50px;
+  padding: 0 16px;
   display: flex;
   align-items: center;
-  gap: 16px;
-  white-space: nowrap;
-}
-/* WCAG 2.5.8: the 34px status bar still gives each link a 24px target. */
-.footer-meta a {
-  min-height: 24px;
-  display: inline-flex;
-  align-items: center;
-}
-.footer-link {
-  gap: 5px;
-}
-.footer-link svg {
-  width: 15px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.4;
+  justify-content: space-between;
+  gap: 24px;
+  color: var(--muted);
+  background: var(--paper-deep);
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1;
 }

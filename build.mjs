@@ -13,6 +13,7 @@ async function copyHtml() {
         .replace("{{VERSION}}", version)
         .replace("{{STYLES_CSS}}", "styles.css")
         .replace("{{THEME_JS}}", "theme.js")
+        .replace("{{TOOLTIP_JS}}", "tooltip-page.js")
         .replace("{{WINDOW_CONTROLS_JS}}", "window-controls.js")
         .replace("{{APP_JS}}", "app.js")
         .replace("{{PRIVACY_JS}}", "privacy.js");
@@ -37,6 +38,7 @@ const options = {
     privacy: "src/client/privacy.ts",
     styles: "styles.css",
     theme: "src/client/theme.ts",
+    "tooltip-page": "src/client/tooltip-page.ts",
     "window-controls": "src/client/window-controls.ts",
   },
   external: ["/assets/*"],

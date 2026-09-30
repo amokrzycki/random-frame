@@ -13,6 +13,8 @@ colors:
   action-cobalt-dark: "#1944b8"
   stage-link-hover: "#aabcf4"
   stage-muted: "#b8b8b1"
+  stage-hint: "#85827a"
+  stage-line: "#595a55"
   hairline-stone: "#c9c5bc"
   field-stone: "#85827a"
   control-line: "#85827a"
@@ -162,7 +164,9 @@ The palette pairs warm archival neutrals with a near-black viewing environment a
 - **Muted Olive Gray:** Explanatory copy, session labels, disabled source metadata, and footer text.
 - **Viewing Stage:** The media field and empty, loading, and error-state backdrop.
 - **Viewing Stage Soft:** Supporting dark neutral for stage-adjacent layering.
-- **Stage Muted:** Secondary copy inside the viewing stage, where paper-surface metadata colors do not apply.
+- **Stage Muted:** Secondary copy inside the viewing stage, and the info toast's dot, where paper-surface metadata colors do not apply.
+- **Stage Hint:** The quietest copy on the stage, the empty state's keyboard hint.
+- **Stage Line:** Strokes on the stage: the loader track and the loading hint's keycap.
 - **Archival White:** High-contrast copy and light control surfaces.
 - **Hairline Stone:** Dividers and keycap borders.
 - **Field Stone:** Text-input borders only, at 3:1 or better against the paper in both themes.
@@ -235,7 +239,7 @@ The stage uses an 8px outer radius and an 8px inset hairline, matching the compa
 - **Destructive:** Outlined like a secondary button with a 1px Warning Terracotta border and ink text (never terracotta text). Used for Leave Sync and for the armed "Confirm · N frames and streak" state, whose inset 1px shadow reinforces the outline. Confirmation dialogs focus Cancel first.
 - **Text action:** Unboxed archival-white text with a thin underline, used only inside the dark error state.
 - **Hover / Focus:** Hover changes color or inverts the surface. Keyboard focus uses a high-contrast cobalt outline offset from the component.
-- **Icon controls:** Flat 42px-wide, full-height titlebar controls in the window controls' language: transparent, no outline, a faint key-surface wash on hover, and an inset focus ring. Stats and More share it with minimize, maximize, and close.
+- **Icon controls:** Flat 42px-wide, full-height titlebar controls in the window controls' language: transparent, no outline, a faint key-surface wash on hover, and an inset focus ring. Stats, More, and the privacy page's theme toggle share it with minimize, maximize, and close; tooltips come from the same `data-tip` layer on both pages.
 
 ### Cards / Containers
 
@@ -258,20 +262,20 @@ The stage uses an 8px outer radius and an 8px inset hairline, matching the compa
 
 ### Navigation
 
-- **Titlebar:** A fixed 42px Mineral Paper Deep drag region with brand mark and title on the left, History (clock-arrow, tooltip "History (H)"), Stats, and a More (three-dot) icon control, then 46px-wide square-stroke window controls, all in one flat control style on the right, divided from the work area by one stone hairline. The native More popover holds Sync, History, Keyboard shortcuts, and the theme switch in 34px rows; it is at least 200px wide. Close hovers to Window Close Red.
+- **Titlebar:** A fixed 42px Mineral Paper Deep drag region with brand mark and title on the left, History (clock-arrow, tooltip "History (H)"), Stats, and a More (three-dot) icon control, then 46px-wide square-stroke window controls (the privacy page swaps the tools for a Back to gallery link and a sun/moon theme toggle in the same control), all in one flat control style on the right, divided from the work area by one stone hairline. The native More popover holds Sync, History, Keyboard shortcuts, and the theme switch in 34px rows; it is at least 200px wide. Close hovers to Window Close Red.
 - **Frame navigation:** 38×52px archival-white controls float 16px from the stage edges. Previous stays visible at reduced opacity on the first frame; Next is removed on the newest frame, where the info line's frame count already says the position and ← or → points at Draw.
 - **Info line:** Left to right: the frame ID button (monospace ID with a chevron, opening the frame menu; its accessible name leads with the visible ID, then "frame options"), a muted tabular frame count beside it (`26 / 26`, no edit affordance), a flexible gap, Favorite as a titled 34px icon button, then Draw at the far right. The frame menu lists the position readout (Frame 12 / 48, which opens a jump field), Adjacent ID before and Adjacent ID after steppers, the source link with a copy-link aside, Copy image, Save image, and, below a rule, Remove this frame (ink text, a Warning Terracotta outline on hover and focus), which removes the shown frame from history, lands on the frame that takes its place, and offers Undo. The position count gains a dotted underline on hover to show it can be edited. History opens from the titlebar and from the More menu. Favorite is an outline star that fills with graphite ink (`aria-pressed`) while the shown frame is a favorite. Focus order follows it: stage, frame ID, Favorite, Draw. Completing a save files the arrow icon away and draws a check in its place; the check holds while that frame stays shown and clears once another frame is drawn or restored. The "Saved image" toast carries a "Show in folder" action.
 - **Position readout:** `12 / 48` in tabular figures (current in ink, total muted). Clicking it swaps in a native number field in place; Enter jumps, Escape or blur restores the readout.
 - **Draw:** The single cobalt control on the main screen, 40px tall with a muted N keycap. It always draws a new frame, even mid-history; the frame joins the end of history and the view jumps to it. While drawing, an inline spinner replaces the label at the same width with `aria-busy`; both it and the stage loader wait 200ms, so a fast draw shows neither. During a rate-limit cooldown it reads "Wait 12s", desaturates, and uses `aria-disabled` so it keeps focus. Pressing → on the newest frame pulses it once and announces its key.
 - **Keyboard:** ←/→ only move through history. N draws from anywhere outside the jump field; Space and Enter draw when no control has focus. S saves, C copies the image, F adds or removes the shown frame from favorites, H opens History. ? toggles the Keyboard shortcuts sheet, a 560px dialog with one hairline-ruled row per action and paper-deep keycaps on the right; the More menu opens it too. Icon-action tooltips name their key, e.g. "Save image (S)".
 - **Provider-specific browsing:** When a source exposes sequential identifiers, chevron steppers flank its ID, visually separated from the large history navigation. Omit this control group for providers without meaningful adjacency.
-- **Status bar:** Only the privacy page keeps the fixed 50px status strip. Its muted text holds 4.5:1 or better on Mineral Paper Deep in both themes.
+- **Status bar:** Only the privacy page keeps the fixed 50px status strip (`.status-bar`), one line of copy with no links; the History pager and the Stats footer share its surface. Its muted text holds 4.5:1 or better on Mineral Paper Deep in both themes.
 
 ### Status States
 
 - **Empty:** A small outlined frame mark gives the dark stage presence above the serif invitation, public-content warning, and a muted "Press N or use Draw below" hint; no in-stage button, and no text styled as one. Draw in the info line takes initial focus and gives a slow cobalt ring pulse three times, starting after 600ms, so the eye finds the one way forward.
 - **Loading:** A fine circular spinner and plain status line. The spinner panel and the dim on the prior frame wait 200ms before easing in, so a draw that lands sooner never flickers.
-- **Error:** A small terracotta dot before the sans-serif headline, a recovery explanation, and an underlined retry action that repeats the exact request that failed, captioned over the dimmed prior frame rather than replacing it. The position readout and frame ID caption dim to match; the icon tools beside them stay at full strength so disabled marks keep their 3:1.
+- **Error:** A small terracotta dot before the sans-serif headline, a recovery explanation, and an underlined retry action that repeats the exact request that failed, captioned over the dimmed prior frame rather than replacing it. The frame ID caption steps from ink to muted to match (never faded, which would drop it under 4.5:1); the icon tools beside it stay at full strength so disabled marks keep their 3:1.
 
 ### Notices
 
@@ -280,7 +284,7 @@ The stage uses an 8px outer radius and an 8px inset hairline, matching the compa
 
 ### Reading Pages
 
-- **Privacy page:** A scrolling 760px column inside the work area, with serif headings, 14px body at 1.75 leading, and a hairline under the header. It is the only surface allowed to scroll.
+- **Privacy page:** A scrolling column inside the work area, 62ch wide (about 75 characters a line), with serif headings, 16px body at 1.7 leading, and a hairline under the header. It is the only surface allowed to scroll.
 
 ## Do's and Don'ts
 
