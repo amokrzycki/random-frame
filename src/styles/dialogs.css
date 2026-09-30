@@ -273,13 +273,18 @@
   transition: transform 140ms var(--ease-out);
 }
 
-.history-close:active {
+.history-close:active:not(:disabled) {
   transform: scale(0.97);
 }
 
-.history-close:hover {
+.history-close:hover:not(:disabled) {
   color: var(--control-fill-text);
   background: var(--control-fill);
+}
+
+.history-close:disabled {
+  color: var(--disabled-ink);
+  cursor: default;
 }
 
 .history-close svg {
@@ -995,8 +1000,7 @@
   display: grid;
 }
 
-/* The pointer's remove control: a graphite chip in the corner the favorite star leaves free. Keyboard users
-   press Delete on the tile, so it stays out of the tab order; it shows on hover and while the tile has focus. */
+/* A remove chip in the corner the favorite star leaves free; visible on hover or keyboard focus. */
 .history-tile__remove {
   position: absolute;
   top: 6px;

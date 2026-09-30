@@ -155,8 +155,13 @@ export function syncControls(): void {
   elements.retry.setAttribute("aria-disabled", String(state.loading || waitSeconds > 0));
   elements.retry.textContent = waitSeconds ? `Try again in ${waitSeconds}s` : "Try again";
   elements.draw.setAttribute("aria-busy", String(state.drawing));
-  elements.draw.setAttribute("aria-disabled", String(state.loading || waitSeconds > 0));
+  elements.draw.setAttribute("aria-disabled", String(state.loading || state.historyLoadFailed || waitSeconds > 0));
   elements.draw.toggleAttribute("data-paused", waitSeconds > 0);
+  elements.draw.toggleAttribute(
+    "data-invite",
+    viewState === "empty" && !state.loading && !state.historyLoadFailed && !waitSeconds,
+  );
+  if (state.loading || state.historyLoadFailed || waitSeconds) delete elements.draw.dataset.pulse;
   elements.drawLabel.textContent = waitSeconds ? `Wait ${waitSeconds}s` : "Draw";
   // Both draw controls show the cooldown without dropping focus.
   elements.back.hidden = !current || failedIndex === state.index;

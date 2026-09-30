@@ -505,6 +505,7 @@
 }
 
 .frame-id__caption {
+  max-width: 24ch;
   min-width: 0;
   overflow: hidden;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -518,6 +519,7 @@
    the count already wears. Fading would take it below 4.5:1; the icon tools keep full strength for the same
    reason. Hover and the open menu keep the inverted label. */
 .viewer:has(.error-state:not([hidden])) .frame-id:not(:hover, [aria-expanded="true"]) .frame-id__caption {
+  max-width: 24ch;
   color: var(--muted);
 }
 
@@ -944,7 +946,7 @@ a.tools-menu__item {
 }
 
 /* The empty stage invites the first draw: a slow cobalt ring, three times, until Draw is used. */
-.draw-button[data-invite]:not([aria-busy="true"]) {
+.draw-button[data-invite]:not([aria-busy="true"], [aria-disabled="true"]) {
   animation: draw-invite 2400ms var(--ease-out) 600ms 3;
 }
 

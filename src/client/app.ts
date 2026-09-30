@@ -54,6 +54,7 @@ async function initialize(): Promise<void> {
       void runStartupSync();
     }
     let [snapshot, favorites] = await Promise.all([getHistory(), getFavorites()]);
+    state.historyLoadFailed = false;
     applyFavorites(favorites);
     const legacy = historyFromStorage(sessionStorage.getItem(storageKey));
     if (!snapshot.history.length && legacy.history.length) {
@@ -84,6 +85,7 @@ async function initialize(): Promise<void> {
     syncControls();
   } catch (error) {
     console.error(error);
+    state.historyLoadFailed = true;
     state.loading = false;
     showError(error, initialize, -1, {
       title: "Your history couldn’t be loaded.",
@@ -139,7 +141,8 @@ function bindMenu(menu: HTMLElement, button: HTMLElement, placement: "below" | "
       menu.style.right = `${window.innerWidth - rect.right}px`;
     } else {
       menu.style.bottom = `${window.innerHeight - rect.top + 6}px`;
-      menu.style.left = `${rect.left}px`;
+      menu.style.left = window.innerWidth <= 480 ? "auto" : `${rect.left}px`;
+      menu.style.right = window.innerWidth <= 480 ? "12px" : "auto";
     }
   });
   menu.addEventListener(
@@ -186,10 +189,30 @@ document.querySelectorAll<HTMLAnchorElement>(".external-link").forEach((link) =>
 // Arrow keys move along a toolbar's own buttons (not the menu items its popovers hold). They stop here,
 // so ← and → do not also step through frames while a toolbar button has focus.
 function bindToolbar(toolbar: HTMLElement): void {
+  const buttons = [...toolbar.querySelectorAll<HTMLButtonElement>(":scope > button")];
+  let active = buttons[0];
+  const sync = (): void => {
+    const available = buttons.filter((button) => !button.disabled && !button.hidden);
+    if (!active || !available.includes(active)) active = available[0];
+    for (const button of buttons) button.tabIndex = button === active ? 0 : -1;
+  };
+  toolbar.addEventListener("focusin", (event) => {
+    if (buttons.includes(event.target as HTMLButtonElement)) {
+      active = event.target as HTMLButtonElement;
+      sync();
+    }
+  });
+  if (typeof MutationObserver !== "undefined")
+    new MutationObserver(sync).observe(toolbar, {
+      attributes: true,
+      subtree: true,
+      attributeFilter: ["disabled", "hidden"],
+    });
+  sync();
   toolbar.addEventListener("keydown", (event) => {
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key) || event.shiftKey) return;
-    const buttons = [...toolbar.querySelectorAll<HTMLButtonElement>(":scope > button:not(:disabled)")];
-    const current = buttons.indexOf(event.target as HTMLButtonElement);
+    const available = buttons.filter((button) => !button.disabled && !button.hidden);
+    const current = available.indexOf(event.target as HTMLButtonElement);
     if (current < 0) return;
     event.preventDefault();
     event.stopPropagation();
@@ -197,9 +220,11 @@ function bindToolbar(toolbar: HTMLElement): void {
       event.key === "Home"
         ? 0
         : event.key === "End"
-          ? buttons.length - 1
-          : (current + (event.key === "ArrowRight" ? 1 : -1) + buttons.length) % buttons.length;
-    buttons[next]?.focus();
+          ? available.length - 1
+          : (current + (event.key === "ArrowRight" ? 1 : -1) + available.length) % available.length;
+    active = available[next];
+    sync();
+    active?.focus();
   });
 }
 

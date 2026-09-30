@@ -185,7 +185,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
     [true, true, false, false],
   );
 
-  get("stats-button").click();
+  keydown(document, "t");
   await flush();
   assert.equal(get("stats-dialog").open, true);
   assert.equal(get("stats-today").textContent, "2");
@@ -402,6 +402,8 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(get("history-total").textContent, "5");
   await new Promise((resolve) => setTimeout(resolve, 520));
   clearButton.click();
+  assert.equal(get("draw-button").getAttribute("aria-disabled"), "true");
+  assert.equal(get("draw-button").getAttribute("data-invite"), null);
   toastExpiry();
   await flush();
   assert.deepEqual(persisted, { history: [], index: -1 });

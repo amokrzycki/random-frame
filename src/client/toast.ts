@@ -8,16 +8,17 @@ interface ToastAction {
 // Errors and toasts with an action need time to be read and used; a passing confirmation does not.
 const DWELL_MS = 3200;
 const LONG_DWELL_MS = 6000;
+let undoCurrent: (() => void) | undefined;
 let replaceCurrent: (() => void) | undefined;
 
 // The region ships in the page markup: screen readers only watch live regions that exist before content lands.
-function region(): HTMLDivElement {
-  const existing = document.querySelector<HTMLDivElement>(".toast-region");
+function region(tone: ToastTone): HTMLDivElement {
+  const existing = document.querySelector<HTMLDivElement>(tone === "error" ? ".toast-region--error" : ".toast-region");
   if (existing) return existing;
 
   const element = document.createElement("div");
-  element.className = "toast-region";
-  element.setAttribute("aria-live", "polite");
+  element.className = tone === "error" ? "toast-region toast-region--error" : "toast-region";
+  element.setAttribute("aria-live", tone === "error" ? "assertive" : "polite");
   document.body.append(element);
   return element;
 }
@@ -27,13 +28,14 @@ function show(message: string, tone: ToastTone, action?: ToastAction, onExpire?:
   const notification = document.createElement("div");
   notification.className = `toast toast--${tone}`;
   notification.textContent = message;
-  region().replaceChildren(notification);
+  region(tone).replaceChildren(notification);
 
   let timer = 0;
   let expired = false;
   replaceCurrent = (): void => {
     if (expired) return;
     expired = true;
+    undoCurrent = undefined;
     clearTimeout(timer);
     replaceCurrent = undefined;
     onExpire?.();
@@ -42,6 +44,7 @@ function show(message: string, tone: ToastTone, action?: ToastAction, onExpire?:
   const dismiss = (): void => {
     if (expired) return;
     expired = true;
+    undoCurrent = undefined;
     replaceCurrent = undefined;
     onExpire?.();
     notification.classList.add("toast--leaving");
@@ -71,19 +74,27 @@ function show(message: string, tone: ToastTone, action?: ToastAction, onExpire?:
     button.type = "button";
     button.className = "toast__action";
     button.textContent = action.label;
-    button.addEventListener("click", () => {
+    const run = (): void => {
       if (expired) return;
       expired = true;
+      undoCurrent = undefined;
       clearTimeout(timer);
       replaceCurrent = undefined;
       notification.remove();
       action.run();
-    });
+    };
+    button.addEventListener("click", run);
+    if (action.label === "Undo") undoCurrent = run;
     notification.append(button);
   }
 }
 
 export const toast = {
+  undo: (): boolean => {
+    if (!undoCurrent) return false;
+    undoCurrent();
+    return true;
+  },
   success: (message: string, action?: ToastAction): void => show(message, "success", action),
   info: (message: string, action?: ToastAction, onExpire?: () => void): void => show(message, "info", action, onExpire),
   error: (message: string): void => show(message, "error"),

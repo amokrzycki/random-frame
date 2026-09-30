@@ -6,6 +6,7 @@ import MarkdownIt from "markdown-it";
 import changelog from "../../CHANGELOG.md";
 import { closeDialog, dialogs, onDialogClosed, openDialog } from "./dialogs.js";
 import { elements } from "./elements.js";
+import { toast } from "./toast.js";
 
 const pendingChangelogKey = "random-frame-pending-changelog";
 const markdown = new MarkdownIt({ html: false });
@@ -90,7 +91,7 @@ export function bindChangelogEvents(): void {
       if (!html) throw new Error("Missing release notes");
       if (!dialogs.some((dialog) => dialog.open)) openChangelog(version, html, elements.toolsMenuButton);
     } catch {
-      elements.announcer.textContent = "Release notes could not be opened.";
+      toast.error("Release notes could not be opened. Try What’s new again.");
     }
   });
 }

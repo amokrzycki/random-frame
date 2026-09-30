@@ -215,8 +215,7 @@ function renderHistoryPage(): void {
       button.setAttribute("aria-keyshortcuts", "Delete");
       remove.className = "history-tile__remove";
       remove.type = "button";
-      // The pointer's way in; keyboard users press Delete on the tile, so Tab does not double its stops.
-      remove.tabIndex = -1;
+      remove.tabIndex = 0;
       remove.setAttribute("aria-label", `Remove frame ${itemIndex + 1}, ${id}, from history`);
       remove.dataset.tip = "Remove from history (Delete)";
       remove.innerHTML = '<svg viewBox="0 0 18 18" aria-hidden="true"><path d="m5 5 8 8M13 5l-8 8" /></svg>';

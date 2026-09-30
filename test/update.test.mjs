@@ -9,6 +9,7 @@ test("release notes follow a successful update, wait for dialogs, and are dismis
   const document = new FakeDocument(ids);
   const storage = new FakeStorage();
   const window = new EventTarget();
+  window.setTimeout = () => 0;
   const originals = new Map(
     ["document", "localStorage", "window"].map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]),
   );
@@ -151,6 +152,11 @@ test("release notes follow a successful update, wait for dialogs, and are dismis
     assert.equal(get("changelog-dialog").open, false);
   }
   version = "9.9.9";
+  get("changelog-button").click();
+  await flush();
+  const errorRegion = document.body.children.at(-1);
+  assert.equal(errorRegion.getAttribute("aria-live"), "assertive");
+  assert.match(errorRegion.children[0].textContent, /Release notes could not be opened/);
   storage.setItem(pendingKey, version);
   await update.showPendingChangelog();
   assert.equal(storage.getItem(pendingKey), null);

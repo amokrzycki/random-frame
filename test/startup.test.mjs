@@ -56,12 +56,18 @@ test("a failed startup load says so and Try again re-runs the load", async (t) =
   assert.doesNotMatch(get("error-message").textContent, /source|Prnt\.sc/);
   assert.equal(get("retry-button").textContent, "Try again");
 
+  assert.equal(get("draw-button").getAttribute("aria-disabled"), "true");
+  get("draw-button").click();
+  await flush();
+  assert.equal(invocations.includes("get_random_frame"), false);
+
   failing = false;
   get("retry-button").click();
   await flush();
   await flush();
   assert.equal(get("error-state").hidden, true);
   assert.equal(get("empty-state").hidden, false);
+  assert.equal(get("draw-button").getAttribute("aria-disabled"), "false");
   assert.equal(get("draw-button").getAttribute("data-invite"), "");
   assert.equal(invocations.filter((command) => command === "startup_sync").length, 1);
 });

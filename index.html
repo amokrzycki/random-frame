@@ -225,6 +225,7 @@
           <button
             class="lightbox-control lightbox-close"
             id="lightbox-close-button"
+            autofocus
             type="button"
             aria-label="Close enlarged image">
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
@@ -289,12 +290,16 @@
             <dd><kbd>F</kbd></dd>
           </div>
           <div class="shortcuts__row">
-            <dt>Undo last favorite removal</dt>
+            <dt>Undo last removal or clear</dt>
             <dd><kbd>Z</kbd><kbd>Ctrl+Z</kbd></dd>
           </div>
           <div class="shortcuts__row">
             <dt>Pan a zoomed image in the enlarged view</dt>
             <dd><kbd>Shift</kbd><kbd aria-label="Arrow keys">←↑↓→</kbd></dd>
+          </div>
+          <div class="shortcuts__row">
+            <dt>Open Stats</dt>
+            <dd><kbd>T</kbd></dd>
           </div>
           <div class="shortcuts__row">
             <dt>Open history</dt>
@@ -419,7 +424,13 @@
             <path d="M3.3 6.5V3.8M3.3 6.5h2.7M3.6 7A6.5 6.5 0 1 1 3.5 10M10 6.5V10l2.6 1.5" />
           </svg>
         </button>
-        <button class="titlebar-tool" id="stats-button" type="button" aria-label="Stats" data-tip="Stats">
+        <button
+          class="titlebar-tool"
+          id="stats-button"
+          type="button"
+          aria-label="Stats"
+          aria-keyshortcuts="T"
+          data-tip="Stats (T)">
           <svg viewBox="0 0 20 20" aria-hidden="true">
             <path d="M4 16V10m6 6V4m6 12V7" />
           </svg>
@@ -492,6 +503,7 @@
         <button
           class="window-control"
           id="window-minimize"
+          tabindex="-1"
           type="button"
           aria-label="Minimize window"
           data-tip="Minimize">
@@ -500,6 +512,7 @@
         <button
           class="window-control"
           id="window-maximize"
+          tabindex="-1"
           type="button"
           aria-label="Maximize window"
           data-tip="Maximize">
@@ -513,6 +526,7 @@
         <button
           class="window-control window-control--close"
           id="window-close"
+          tabindex="-1"
           type="button"
           aria-label="Close window"
           data-tip="Close">
@@ -749,6 +763,7 @@
 
     <div class="sr-only" id="announcer" aria-live="polite"></div>
     <div class="toast-region" aria-live="polite"></div>
+    <div class="toast-region toast-region--error" aria-live="assertive"></div>
     <script type="module" src="{{THEME_JS}}"></script>
     <script type="module" src="{{WINDOW_CONTROLS_JS}}"></script>
     <script type="module" src="{{APP_JS}}"></script>
