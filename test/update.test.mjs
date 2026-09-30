@@ -20,7 +20,7 @@ test("release notes follow a successful update, wait for dialogs, and are dismis
     }
   });
 
-  let version = "0.6.0";
+  let version = "0.5.0";
   let failInstall = true;
   let restarts = 0;
   window.__TAURI_INTERNALS__ = {
@@ -35,7 +35,9 @@ test("release notes follow a successful update, wait for dialogs, and are dismis
         return;
       }
       if (command === "plugin:process|restart") {
-        if (globalThis.localStorage === storage) assert.equal(storage.getItem(pendingKey), "0.6.0");
+        if (globalThis.localStorage === storage)
+          assert.equal(storage.getItem(pendingKey), JSON.stringify({ from: "0.5.0", to: "0.6.0" }));
+        version = "0.6.0";
         restarts++;
         return;
       }
@@ -70,6 +72,14 @@ test("release notes follow a successful update, wait for dialogs, and are dismis
   assert.equal(update.renderReleaseNotes(markdown, "0.4.0"), "");
   assert.equal(update.renderReleaseNotes(markdown, "0.6"), "");
 
+  // Skipping releases shows every note after the old version up to the new one, newest first.
+  const multi = ["## 0.6.1", "Fixed it", "## 0.6.0", "Added it", "## 0.5.0", "Older notes", ""].join("\n");
+  const range = update.renderReleaseNotes(multi, "0.6.1", "0.5.0");
+  assert.match(range, /<h3>0\.6\.1<\/h3>[\s\S]*Fixed it[\s\S]*<h3>0\.6\.0<\/h3>[\s\S]*Added it/);
+  assert.doesNotMatch(range, /Older notes/);
+  assert.doesNotMatch(update.renderReleaseNotes(multi, "0.6.1", "0.6.0"), /Added it|<h3>/);
+  assert.equal(update.renderReleaseNotes(multi, "0.6.1", "0.6.1"), "");
+
   await update.checkForUpdate();
   const install = document.body.children.at(-1).children[1];
   install.click();
@@ -94,7 +104,7 @@ test("release notes follow a successful update, wait for dialogs, and are dismis
   assert.equal(get("changelog-version").textContent, "0.6.0");
   assert.match(get("changelog-body").innerHTML, /<li>/);
   assert.doesNotMatch(get("changelog-body").innerHTML, /remote notes/);
-  assert.equal(storage.getItem(pendingKey), "0.6.0");
+  assert.equal(storage.getItem(pendingKey), JSON.stringify({ from: "0.5.0", to: "0.6.0" }));
   assert.equal(get("main-content").inert, true);
   const escapeEvent = new Event("keydown");
   Object.defineProperty(escapeEvent, "key", { value: "Escape" });

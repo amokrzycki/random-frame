@@ -10,15 +10,39 @@ import { elements } from "./elements.js";
 const pendingChangelogKey = "random-frame-pending-changelog";
 const markdown = new MarkdownIt({ html: false });
 
-export function renderReleaseNotes(source: string, version: string): string {
+const versionParts = (version: string): number[] => version.split(".").map(Number);
+
+function isNewer(version: string, than: string): boolean {
+  const [a, b] = [versionParts(version), versionParts(than)];
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const diff = (a[i] ?? 0) - (b[i] ?? 0);
+    if (diff) return diff > 0;
+  }
+  return false;
+}
+
+/** Notes for `version`, or for every release after `from` up to `version` when `from` is given. */
+export function renderReleaseNotes(source: string, version: string, from?: string): string {
   const tokens = markdown.parse(source, {});
-  const isVersionHeading = (index: number): boolean =>
-    tokens[index]?.type === "heading_open" && tokens[index]?.tag === "h2" && tokens[index]?.level === 0;
-  const heading = tokens.findIndex((_, index) => isVersionHeading(index) && tokens[index + 1]?.content === version);
-  if (heading < 0) return "";
-  const start = heading + 3;
-  const next = tokens.findIndex((_, index) => index >= start && isVersionHeading(index));
-  return markdown.renderer.render(tokens.slice(start, next < 0 ? undefined : next), markdown.options, {}).trim();
+  const headings = tokens.flatMap((token, index) =>
+    token.type === "heading_open" && token.tag === "h2" && token.level === 0 ? [index] : [],
+  );
+  const sections = headings
+    .map((heading, i) => ({
+      version: tokens[heading + 1]?.content ?? "",
+      body: tokens.slice(heading + 3, headings[i + 1]),
+    }))
+    .filter((section) =>
+      from === undefined
+        ? section.version === version
+        : isNewer(section.version, from) && !isNewer(section.version, version),
+    );
+  const render = (body: typeof tokens): string => markdown.renderer.render(body, markdown.options, {});
+  if (sections.length <= 1) return sections[0] ? render(sections[0].body).trim() : "";
+  return sections
+    .map((section) => `<h3>${markdown.utils.escapeHtml(section.version)}</h3>${render(section.body)}`)
+    .join("")
+    .trim();
 }
 
 function clearPendingChangelog(): void {
@@ -72,16 +96,18 @@ export function bindChangelogEvents(): void {
 }
 
 export async function showPendingChangelog(): Promise<void> {
-  let pending: string | null;
+  let pending: { from?: string; to: string };
   let version: string;
   try {
-    pending = localStorage.getItem(pendingChangelogKey);
-    if (pending === null) return;
+    const stored = localStorage.getItem(pendingChangelogKey);
+    if (stored === null) return;
+    // Builds before the range support stored the bare target version.
+    pending = stored.startsWith("{") ? JSON.parse(stored) : { to: stored };
     version = await getVersion();
   } catch {
     return;
   }
-  const html = pending === version ? renderReleaseNotes(changelog, version) : "";
+  const html = pending.to === version ? renderReleaseNotes(changelog, version, pending.from) : "";
   if (!html) {
     clearPendingChangelog();
     return;
@@ -135,7 +161,7 @@ export async function checkForUpdate(): Promise<void> {
         }
       });
       try {
-        localStorage.setItem(pendingChangelogKey, update.version);
+        localStorage.setItem(pendingChangelogKey, JSON.stringify({ from: await getVersion(), to: update.version }));
       } catch {
         // A successful update still restarts when release notes cannot be remembered.
       }

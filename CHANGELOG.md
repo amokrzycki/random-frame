@@ -1,5 +1,13 @@
 # Random Frame release notes
 
+## 0.6.1
+
+### Smoother interactions
+
+- Refined loading transitions to reduce flicker and keep the Draw button and stage in sync.
+- Added subtle transitions to menus, Sync panels, empty and error states, and press feedback for controls.
+- Adjusted these effects for reduced motion settings.
+
 ## 0.6.0
 
 ### Your collection across devices
