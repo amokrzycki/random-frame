@@ -62,12 +62,18 @@ fn remove_drops_one_frame_and_restore_returns_it_in_place() -> Result<(), AppErr
     assert_eq!(removed.snapshot.index, -1);
     assert!(store.remove("prntsc", "bbb222").is_err());
     // The removal is a tombstone, so it survives a reload and reaches synced devices.
-    assert_eq!(ids(&HistoryStore::new(&directory)?.snapshot()), ["aaa111", "ccc333"]);
+    assert_eq!(
+        ids(&HistoryStore::new(&directory)?.snapshot()),
+        ["aaa111", "ccc333"]
+    );
     assert_eq!(store.sync_state().1.len(), 1);
 
     let restored = store.restore(item("bbb222", 20), removed.order_at)?;
     assert_eq!(ids(&restored), ["aaa111", "bbb222", "ccc333"]);
-    assert_eq!(ids(&store.restore(item("bbb222", 20), removed.order_at)?), ["aaa111", "bbb222", "ccc333"]);
+    assert_eq!(
+        ids(&store.restore(item("bbb222", 20), removed.order_at)?),
+        ["aaa111", "bbb222", "ccc333"]
+    );
     fs::remove_dir_all(directory).map_err(AppError::persistence)
 }
 

@@ -321,6 +321,11 @@ async function undoRemoval(
   orderAt: number,
   shownBefore?: { landed: HistoryItem | undefined },
 ): Promise<void> {
+  // goTo ignores calls while a frame loads, so restoring now would leave the frame off the stage.
+  if (shownBefore && state.loading) {
+    toast.error("A frame is loading. Try Undo again in a moment.");
+    return;
+  }
   try {
     const shown = state.history[state.index];
     const snapshot = await restoreHistoryItem(frame, orderAt);
