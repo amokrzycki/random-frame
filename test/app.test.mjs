@@ -19,7 +19,12 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   const originalGlobals = new Map(globalNames.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
   // Toasts schedule their own dismissal; the test never waits for it.
   let toastExpiry;
-  window.setTimeout = (callback) => {
+  let favoriteTip;
+  window.setTimeout = (callback, delay) => {
+    if (delay === 4000) {
+      favoriteTip = callback;
+      return 0;
+    }
     toastExpiry = callback;
     return 0;
   };
@@ -171,7 +176,9 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   keydown(document, "n");
   await flush();
   await flush();
-  // The first drawn frame says how to favorite, once.
+  // The first-draw tip waits for the image to settle.
+  assert.equal(localStorage.getItem("random-frame-favorite-tip"), null);
+  favoriteTip();
   assert.equal(localStorage.getItem("random-frame-favorite-tip"), "shown");
   assert.match(document.body.children.flatMap((region) => region.children).at(-1).textContent, /press F to favorite/);
   assert.equal(get("frame-count-current").textContent, "4");

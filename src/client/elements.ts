@@ -62,6 +62,8 @@ export const elements = {
   historyPagerNav: element<HTMLElement>("#history-pager-nav"),
   historyRange: element<HTMLElement>("#history-range"),
   historyPage: element<HTMLElement>("#history-page"),
+  historyPageJump: element<HTMLFormElement>("#history-page-jump"),
+  historyPageInput: element<HTMLInputElement>("#history-page-input"),
   historyPagePrevious: element<HTMLButtonElement>("#history-page-previous"),
   historyPageNext: element<HTMLButtonElement>("#history-page-next"),
   historyPageSize: element<HTMLSelectElement>("#history-page-size"),

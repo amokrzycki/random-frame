@@ -27,12 +27,12 @@
 
   .update-banner,
   .update-banner--leaving {
-    transform: translateX(-50%);
+    transform: none;
   }
 
   @starting-style {
     .update-banner {
-      transform: translateX(-50%);
+      transform: none;
     }
   }
 

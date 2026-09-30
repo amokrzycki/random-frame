@@ -130,11 +130,11 @@ test("favorites toggle from the info line and filter the history grid", async (t
   assert.equal(get("history-filter-favorites").getAttribute("aria-pressed"), "true");
   assert.equal(get("history-filter-all").getAttribute("aria-pressed"), "false");
   assert.deepEqual(labels(), [
-    "Show frame 3, ccc333, favorite",
-    "Show frame gone99, favorite",
-    "Show frame 2, bbb222, favorite",
+    "Show favorite 1, ccc333, favorite",
+    "Show favorite 2, gone99, favorite",
+    "Show favorite 3, bbb222, favorite",
   ]);
-  assert.equal(get("history-grid").children[1].children[0].children[1].textContent, "gone99");
+  assert.equal(get("history-grid").children[1].children[0].children[1].textContent, "2 · gone99");
   assert.equal(get("history-clear-button").hidden, true);
   assert.equal(get("history-clear-favorites-button").hidden, false);
 

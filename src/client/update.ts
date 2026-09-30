@@ -191,5 +191,5 @@ export async function checkForUpdate(): Promise<void> {
   banner.append(message, installButton, dismissButton);
   // A dialog may already be open by the time the check resolves.
   banner.inert = elements.main.inert;
-  document.body.append(banner);
+  (document.querySelector("#notice-rail") ?? document.body).append(banner);
 }

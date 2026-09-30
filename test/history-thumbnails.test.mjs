@@ -99,7 +99,7 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
   get("history-tool-button").click();
   assert.equal(get("history-filter-all").getAttribute("aria-pressed"), "true");
   // Newest first: the first page holds frames 12 down to 3.
-  assert.equal(get("history-page").textContent, "Page 1 of 2");
+  assert.equal(get("history-page").textContent, "of 2");
   assert.equal(get("history-grid").children.length, 10);
   await flush();
 
@@ -138,7 +138,7 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
   get("history-tool-button").click();
   get("history-filter-favorites").click();
   assert.equal(get("history-filter-favorites").getAttribute("aria-pressed"), "true");
-  assert.equal(get("history-grid").children[0].children[0].children[1].textContent, "11 · id10");
+  assert.equal(get("history-grid").children[0].children[0].children[1].textContent, "1 · id10");
   assert.equal(get("history-grid").children[0].children[0].children[0].src, "data:image/jpeg;base64,AA==");
 
   // Sync imports domain data only; the missing local thumbnail uses the same fetch path.

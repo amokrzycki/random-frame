@@ -24,11 +24,24 @@ import { applyHistory, state } from "./viewer-state.js";
 
 const favoriteTipKey = "random-frame-favorite-tip";
 
-// Said once, after the first drawn frame, to anyone who has not already found favorites.
+let favoriteTipTimer: ReturnType<typeof setTimeout>;
+
+// Give the first image time to settle; other notices and dialogs take priority.
 function showFavoriteTip(): void {
   if (localStorage.getItem(favoriteTipKey) || state.favorites.length) return;
-  localStorage.setItem(favoriteTipKey, "shown");
-  toast.info("Tip: press F to favorite a frame.");
+  clearTimeout(favoriteTipTimer);
+  favoriteTipTimer = window.setTimeout(() => {
+    if (
+      state.favorites.length ||
+      state.loading ||
+      elements.main.inert ||
+      getViewState() !== "image" ||
+      document.querySelector(".toast")
+    )
+      return;
+    localStorage.setItem(favoriteTipKey, "shown");
+    toast.info("Tip: press F to favorite a frame.");
+  }, 4000);
 }
 
 async function recordFrame(frame: Frame, canRecord = () => true): Promise<void> {

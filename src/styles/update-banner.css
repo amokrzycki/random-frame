@@ -1,11 +1,9 @@
 .update-banner {
-  position: fixed;
-  z-index: 20;
-  left: 50%;
-  top: calc(var(--titlebar-height) + 12px);
-  transform: translateX(-50%);
+  min-width: 0;
+  flex: 1;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 10px 14px;
   color: var(--white);
@@ -24,13 +22,13 @@
 @starting-style {
   .update-banner {
     opacity: 0;
-    transform: translate(-50%, -8px);
+    transform: translateY(8px);
   }
 }
 
 .update-banner--leaving {
   opacity: 0;
-  transform: translate(-50%, -8px);
+  transform: translateY(8px);
   transition-duration: 140ms;
 }
 

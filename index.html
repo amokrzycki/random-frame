@@ -133,7 +133,11 @@
                 <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m12 5-5 5 5 5" /></svg>
                 <span>Previous</span>
               </button>
-              <span class="history-pager__page" id="history-page"></span>
+              <form class="history-pager__jump" id="history-page-jump">
+                <label for="history-page-input">Page</label>
+                <input id="history-page-input" type="number" min="1" step="1" required aria-label="Jump to page">
+                <span id="history-page"></span>
+              </form>
               <button class="history-pager__step" id="history-page-next" type="button" aria-label="Next page">
                 <span>Next</span>
                 <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m8 5 5 5-5 5" /></svg>
@@ -746,8 +750,10 @@
     </main>
 
     <div class="sr-only" id="announcer" aria-live="polite"></div>
-    <div class="toast-region" aria-live="polite"></div>
-    <div class="toast-region toast-region--error" aria-live="assertive"></div>
+    <div class="notice-rail" id="notice-rail">
+      <div class="toast-region" aria-live="polite"></div>
+      <div class="toast-region toast-region--error" aria-live="assertive"></div>
+    </div>
     <script type="module" src="{{THEME_JS}}"></script>
     <script type="module" src="{{WINDOW_CONTROLS_JS}}"></script>
     <script type="module" src="{{APP_JS}}"></script>

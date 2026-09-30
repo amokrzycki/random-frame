@@ -212,6 +212,8 @@ export const ids = [
   "history-pager-nav",
   "history-range",
   "history-page",
+  "history-page-jump",
+  "history-page-input",
   "history-page-previous",
   "history-page-next",
   "history-page-size",

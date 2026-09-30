@@ -160,13 +160,15 @@ function renderHistoryPage(): void {
   if (entries.length <= PAGE_SIZES[0]) elements.historyPager.setAttribute("data-compact", "");
   else elements.historyPager.removeAttribute("data-compact");
   elements.historyPagerNav.hidden = view.pages === 1;
-  // Frame numbers count down the page, matching the tile captions; favorites carry no numbers, so they count ranks.
+  // Favorites count ranks; All keeps the original history frame numbers.
   const first = favoritesView ? view.start + 1 : entries.length - view.start;
   const last = favoritesView ? view.end : entries.length - view.end + 1;
   elements.historyRange.textContent = entries.length
     ? `${favoritesView ? "Favorites" : "Frames"} ${first.toLocaleString("en-US")}–${last.toLocaleString("en-US")} of ${entries.length.toLocaleString("en-US")}`
     : "";
-  elements.historyPage.textContent = `Page ${view.page + 1} of ${view.pages}`;
+  elements.historyPage.textContent = `of ${view.pages}`;
+  elements.historyPageInput.value = String(view.page + 1);
+  elements.historyPageInput.max = String(view.pages);
   elements.historyPageSize.value = String(state.pageSize);
   elements.historyPager.hidden = entries.length <= PAGE_SIZES[0];
   const visible = entries.slice(view.start, view.end);
@@ -178,7 +180,7 @@ function renderHistoryPage(): void {
   if (focused === elements.historyPagePrevious && view.page === 0) elements.historyPageNext.focus();
   if (focused === elements.historyPageNext && view.page === view.pages - 1) elements.historyPagePrevious.focus();
 
-  for (const { source, id, index: itemIndex } of visible) {
+  for (const [position, { source, id, index: itemIndex }] of visible.entries()) {
     const tile = document.createElement("div");
     const button = document.createElement("button");
     const image = document.createElement("img");
@@ -186,7 +188,8 @@ function renderHistoryPage(): void {
     const favorite = favoritesView || isFavorite({ source, id });
     button.className = "history-item";
     button.type = "button";
-    const name = itemIndex >= 0 ? `Show frame ${itemIndex + 1}, ${id}` : `Show frame ${id}`;
+    const number = favoritesView ? view.start + position + 1 : itemIndex + 1;
+    const name = `Show ${favoritesView ? "favorite" : "frame"} ${number}, ${id}`;
     button.setAttribute("aria-label", favorite ? `${name}, favorite` : name);
     if (itemIndex >= 0 && itemIndex === state.index) button.setAttribute("aria-current", "true");
     if (favorite) button.dataset.favorite = "";
@@ -200,7 +203,7 @@ function renderHistoryPage(): void {
     image.src = thumbnailSrc;
     image.alt = "";
     image.loading = "lazy";
-    label.textContent = itemIndex >= 0 ? `${itemIndex + 1} · ${id}` : id;
+    label.textContent = `${number} · ${id}`;
     button.append(image, label);
     button.addEventListener("click", () => {
       closeDialog(elements.historyDialog);
@@ -522,6 +525,11 @@ export function bindHistoryDialogEvents(): void {
   elements.historyPagePrevious.addEventListener("click", () => showHistoryPage(state.pageIndex - 1));
   elements.historyPageNext.addEventListener("click", () => showHistoryPage(state.pageIndex + 1));
   elements.historyPageSize.addEventListener("change", changePageSize);
+  elements.historyPageJump.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (!elements.historyPageInput.reportValidity()) return;
+    showHistoryPage(Number(elements.historyPageInput.value) - 1);
+  });
   elements.historyGrid.addEventListener("keydown", (event) => {
     if (event.altKey || event.ctrlKey || event.metaKey) return;
     const tiles = elements.historyGrid.children;
