@@ -18,6 +18,9 @@ export const state = {
   historyLoadFailed: false,
   pageSize: loadPageSize(localStorage),
   pageIndex: 0,
+  historyTab: "history" as "history" | "favourites",
+  historyReset: false,
+  navigationMode: "history" as "history" | "favourites",
   focusBeforeLoading: null as Element | null,
   historyReturnFocus: elements.toolsMenuButton as HTMLElement,
   ledger: [] as LedgerDay[],
@@ -31,6 +34,18 @@ export function applyHistory(snapshot: HistorySnapshot): void {
 
 export function applyFavorites(favorites: FavoriteItem[]): void {
   state.favorites.splice(0, state.favorites.length, ...favorites);
+  const current = state.history[state.index];
+  if (current && !isFavorite(current)) state.navigationMode = "history";
+}
+
+// Favorites keep the same newest-first positions as the dialog; history keeps its frame numbers.
+export function navigationView(): { items: (HistoryItem | FavoriteItem)[]; index: number } {
+  const current = state.history[state.index];
+  if (state.navigationMode === "favourites" && current && isFavorite(current)) {
+    const items = [...state.favorites].reverse();
+    return { items, index: items.findIndex((item) => item.source === current.source && item.id === current.id) };
+  }
+  return { items: state.history, index: state.index };
 }
 
 export function isFavorite(frame: { source: string; id: string }): boolean {

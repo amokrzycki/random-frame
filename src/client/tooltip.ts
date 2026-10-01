@@ -51,6 +51,7 @@ export function bindTooltipEvents(): void {
   document.addEventListener(
     "pointerdown",
     () => {
+      document.documentElement.dataset.input = "pointer";
       keyboardFocus = false;
       hide();
     },
@@ -60,6 +61,7 @@ export function bindTooltipEvents(): void {
   document.addEventListener(
     "keydown",
     (event) => {
+      document.documentElement.dataset.input = "keyboard";
       keyboardFocus =
         event.key === "Tab" ||
         (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key) &&

@@ -57,7 +57,7 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
     },
   });
 
-  const item = (id) => ({ source: "prntsc", id, sourcePageUrl: `https://prnt.sc/${id}`, viewedAt: 1 });
+  const item = (id) => ({ source: "prntsc", id, sourcePageUrl: `https://prnt.sc/${id}`, viewedAt: 1, addedAt: 1 });
   const history = { history: Array.from({ length: 12 }, (_, i) => item(`id${i}`)), index: -1 };
   history.history[8] = item("id7"); // duplicate on the first page
   const favorites = [item("id1"), item("id10")];
@@ -97,7 +97,7 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
   const get = (id) => document.querySelector(`#${id}`);
   const fetchedIds = () => calls.filter(({ command }) => command === "get_thumbnail_image").map(({ args }) => args.id);
   get("history-tool-button").click();
-  assert.equal(get("history-filter-all").getAttribute("aria-pressed"), "true");
+  assert.equal(get("history-filter-all").getAttribute("aria-selected"), "true");
   // Newest first: the first page holds frames 12 down to 3.
   assert.equal(get("history-page").textContent, "of 2");
   assert.equal(get("history-grid").children.length, 10);
@@ -137,7 +137,7 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
   );
   get("history-tool-button").click();
   get("history-filter-favorites").click();
-  assert.equal(get("history-filter-favorites").getAttribute("aria-pressed"), "true");
+  assert.equal(get("history-filter-favorites").getAttribute("aria-selected"), "true");
   assert.equal(get("history-grid").children[0].children[0].children[1].textContent, "1 · id10");
   assert.equal(get("history-grid").children[0].children[0].children[0].src, "data:image/jpeg;base64,AA==");
 

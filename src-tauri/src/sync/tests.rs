@@ -469,7 +469,7 @@ async fn exploration_stays_local_while_seen_history_and_favorites_sync(
     clear_local_history(&a_state)?;
     a.sync_now().await?;
     b.sync_now().await?;
-    assert!(b_state.history.snapshot().history.is_empty());
+    assert_eq!(b_state.history.snapshot().history, vec![]);
     assert_eq!(b_state.favorites.snapshot().len(), 1);
     assert_eq!(a_state.explored.counts(), a_counts);
     assert_eq!(b_state.explored.counts(), b_counts);
@@ -562,7 +562,7 @@ async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
     clear_local_history(&a_state)?;
     assert_eq!(a_state.seen.snapshot_with_generation().0, seen_before);
     assert_eq!(a_state.favorites.snapshot().len(), 1);
-    assert!(a_state.history.snapshot().history.is_empty());
+    assert_eq!(a_state.history.snapshot().history, vec![]);
     assert_eq!(a_state.history.sync_state().1.len(), 3);
     assert_eq!(a_state.activity.viewed_total(), 0);
     assert_eq!(a_state.explored.counts(), (5, 3, 1, 1));
@@ -578,7 +578,7 @@ async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
             }
         )]
     );
-    assert!(a_state.history.local_view_times().is_empty());
+    assert_eq!(a_state.history.local_view_times(), vec![]);
 
     // A encounters a 412 and must retain its tombstones through GET, merge, and retry.
     server
@@ -604,7 +604,7 @@ async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
         )?)
     };
     let after_clear = remote()?;
-    assert!(after_clear.history.is_empty());
+    assert_eq!(after_clear.history, vec![]);
     assert_eq!(after_clear.history_removed.len(), 3);
     assert_eq!(after_clear.seen, seen_before);
     assert_eq!(after_clear.favorites.len(), 1);
@@ -665,9 +665,9 @@ async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
         added_at: 2,
     })?;
     a_state.favorites.clear()?;
-    assert!(a_state.favorites.snapshot().is_empty());
+    assert_eq!(a_state.favorites.snapshot(), vec![]);
     a.sync_now().await?;
-    assert!(remote()?.favorites.is_empty());
+    assert_eq!(remote()?.favorites, vec![]);
     b.sync_now().await?;
     assert_eq!(
         b_state

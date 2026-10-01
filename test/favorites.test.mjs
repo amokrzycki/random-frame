@@ -65,6 +65,7 @@ test("favorites toggle from the info line and filter the history grid", async (t
         history.index = args.index;
         return structuredClone(history);
       }
+      if (command === "get_random_frame") return { ...item("new123"), mimeType: "image/png" };
       if (command === "get_frame_by_id") return { ...item(args.id), mimeType: "image/png" };
       if (command === "get_frame_image") return new Uint8Array([1]).buffer;
       throw new Error(`Unexpected command: ${command}`);
@@ -110,7 +111,7 @@ test("favorites toggle from the info line and filter the history grid", async (t
 
   // All shows every frame; starred tiles carry the badge, separate from the current-frame border.
   get("history-tool-button").click();
-  assert.equal(get("history-filter-all").getAttribute("aria-pressed"), "true");
+  assert.equal(get("history-filter-all").getAttribute("aria-selected"), "true");
   // Newest first.
   assert.deepEqual(labels(), [
     "Show frame 3, ccc333, favorite",
@@ -127,8 +128,8 @@ test("favorites toggle from the info line and filter the history grid", async (t
 
   // Favorites narrows the same grid to starred frames, most recently starred first.
   get("history-filter-favorites").click();
-  assert.equal(get("history-filter-favorites").getAttribute("aria-pressed"), "true");
-  assert.equal(get("history-filter-all").getAttribute("aria-pressed"), "false");
+  assert.equal(get("history-filter-favorites").getAttribute("aria-selected"), "true");
+  assert.equal(get("history-filter-all").getAttribute("aria-selected"), "false");
   assert.deepEqual(labels(), [
     "Show favorite 1, ccc333, favorite",
     "Show favorite 2, gone99, favorite",
@@ -138,22 +139,74 @@ test("favorites toggle from the info line and filter the history grid", async (t
   assert.equal(get("history-clear-button").hidden, true);
   assert.equal(get("history-clear-favorites-button").hidden, false);
 
-  // The filter resets to All on every open.
+  // Reopening keeps the Favorites tab.
   get("history-close-button").click();
   get("history-tool-button").click();
-  assert.equal(get("history-filter-all").getAttribute("aria-pressed"), "true");
+  assert.equal(get("history-filter-favorites").getAttribute("aria-selected"), "true");
 
   // A favorite missing from history is fetched by id and joins the end of history.
-  get("history-filter-favorites").click();
-  get("history-grid").children[1].children[0].click();
+  get("history-filter-all").click();
+  get("history-grid").children[0].children[0].click(); // The currently shown ccc333 is starred.
+  assert.equal(get("frame-count-current").textContent, "1");
+  assert.equal(get("frame-count-total").textContent, "3");
+  keydown(document, "ArrowRight"); // gone99 is a favorite missing from history.
   for (let i = 0; i < 3; i += 1) await flush();
   assert.equal(
     invocations.filter(({ command, args }) => command === "get_frame_by_id" && args.id === "gone99").length,
     1,
   );
   assert.match(get("image").alt, /gone99/);
-  assert.equal(get("frame-count-current").textContent, "4");
+  assert.equal(get("frame-count-current").textContent, "2");
+  assert.equal(get("frame-count-total").textContent, "3");
   assert.equal(star.getAttribute("aria-pressed"), "true");
+
+  // Main arrows browse only favorites, in the same order as the Favorites list.
+  get("next-button").click();
+  for (let i = 0; i < 3; i += 1) await flush();
+  assert.match(get("image").alt, /bbb222/);
+  assert.equal(get("frame-count-current").textContent, "3");
+  assert.equal(get("next-button").hidden, true);
+  keydown(document, "ArrowRight");
+  await flush();
+  assert.match(get("image").alt, /bbb222/);
+  assert.match(get("announcer").textContent, /last favorite/);
+  keydown(document, "ArrowLeft");
+  for (let i = 0; i < 3; i += 1) await flush();
+  assert.match(get("image").alt, /gone99/);
+
+  // The enlarged view and jump field use the same favorite positions.
+  get("image-zoom").click();
+  assert.equal(get("lightbox-caption").textContent, "gone99 · 2 / 3");
+  get("lightbox-previous").click();
+  for (let i = 0; i < 3; i += 1) await flush();
+  assert.match(get("image").alt, /ccc333/);
+  assert.equal(get("lightbox-caption").textContent, "ccc333 · 1 / 3");
+  get("lightbox-close-button").click();
+  get("position-button").click();
+  assert.equal(get("jump-input").max, "3");
+  get("jump-input").value = "2";
+  get("jump-form").dispatchEvent(new Event("submit", { cancelable: true }));
+  for (let i = 0; i < 3; i += 1) await flush();
+  assert.match(get("image").alt, /gone99/);
+
+  // Drawing returns the main arrows and counter to general history.
+  get("history-close-button").click();
+  get("draw-button").click();
+  for (let i = 0; i < 3; i += 1) await flush();
+  assert.match(get("image").alt, /new123/);
+  assert.equal(get("frame-count-total").textContent, "5");
+  get("previous-button").click();
+  for (let i = 0; i < 3; i += 1) await flush();
+  assert.match(get("image").alt, /gone99/);
+  get("previous-button").click();
+  for (let i = 0; i < 3; i += 1) await flush();
+  assert.match(get("image").alt, /ccc333/);
+  get("history-tool-button").click();
+  assert.equal(get("history-filter-all").getAttribute("aria-selected"), "true");
+  get("history-grid").children[1].children[0].click(); // gone99 is starred.
+  for (let i = 0; i < 3; i += 1) await flush();
+  assert.match(get("image").alt, /gone99/);
+  assert.equal(get("frame-count-total").textContent, "3");
 
   // The star button toggles back off with its own toast.
   star.click();
@@ -162,6 +215,7 @@ test("favorites toggle from the info line and filter the history grid", async (t
   assert.equal(star.getAttribute("aria-label"), "Add to favorites");
   assert.equal(lastToast().className, "toast toast--info");
   assert.equal(lastToast().textContent, "Removed from favorites");
+  assert.equal(get("frame-count-total").textContent, "5");
 
   // Undo puts the favorite back with its original date, so it keeps its place.
   const undo = lastToast().children[0];
@@ -200,8 +254,8 @@ test("favorites toggle from the info line and filter the history grid", async (t
   assert.equal(get("history-empty").hidden, false);
   assert.equal(get("history-empty-title").textContent, "No favorites yet.");
   assert.equal(clearFavorites.hidden, true);
-  // History itself is untouched.
-  assert.equal(history.history.length, 4);
+  // The only new history record came from Draw.
+  assert.equal(history.history.length, 5);
   assert.equal(
     invocations.some(({ command }) => command === "clear_history"),
     false,

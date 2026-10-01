@@ -55,7 +55,7 @@ function activeDialog(): HTMLDialogElement | undefined {
 
 function focusableIn(dialog: HTMLDialogElement): HTMLElement[] {
   return [...dialog.querySelectorAll<HTMLElement>(focusableSelector)].filter(
-    (item) => !item.matches(":disabled") && item.getClientRects().length > 0,
+    (item) => !item.matches(':disabled, [tabindex="-1"]') && item.getClientRects().length > 0,
   );
 }
 

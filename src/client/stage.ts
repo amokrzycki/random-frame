@@ -3,7 +3,7 @@ import { describeError } from "./errors.js";
 import { blobKey, blobs, cacheThumbnail, savedFrames } from "./frame-cache.js";
 import { adjacentPrntscId, nextHistoryIndex } from "./navigation.js";
 import { toast } from "./toast.js";
-import { isFavorite, state } from "./viewer-state.js";
+import { isFavorite, navigationView, state } from "./viewer-state.js";
 
 type ViewState = "empty" | "loading" | "error" | "image";
 
@@ -96,11 +96,14 @@ export function finishLoading(): void {
 
 export function syncControls(): void {
   const current = state.history[state.index];
+  const view = navigationView();
+  const favoritesView = view.items !== state.history;
+  const entryName = favoritesView ? "favorite" : "frame";
   // At 0/0 the arrows have nowhere to go; the empty stage points at Draw instead.
   // The frame count beside the ID carries the position, so the newest frame drops Next instead of disabling it.
-  elements.previous.hidden = !state.history.length;
-  elements.next.hidden = nextHistoryIndex(state.index, state.history.length) === null;
-  elements.previous.setAttribute("aria-disabled", String(state.loading || state.index <= 0));
+  elements.previous.hidden = !view.items.length;
+  elements.next.hidden = nextHistoryIndex(view.index, view.items.length) === null;
+  elements.previous.setAttribute("aria-disabled", String(state.loading || view.index <= 0));
   elements.next.setAttribute("aria-disabled", String(state.loading));
   // Copy and save act on the visible frame only, never on one hidden behind an error.
   const currentBlob = viewState === "image" && current && blobs.has(blobKey(current.source, current.id));
@@ -129,16 +132,20 @@ export function syncControls(): void {
   // Frame actions have nothing to act on until the first draw.
   elements.infoActions.hidden = !state.history.length;
   // History, the position readout, and the arrows stay enabled while loading (goTo ignores them), so they keep focus.
-  const position = state.history.length ? state.index + 1 : 0;
+  const position = view.items.length ? view.index + 1 : 0;
   elements.positionButton.disabled = !state.history.length;
   elements.positionButton.setAttribute(
     "aria-label",
-    `Jump to frame. Current frame ${position} of ${state.history.length}`,
+    `Jump to ${entryName}. Current ${entryName} ${position} of ${view.items.length}`,
   );
   elements.frameCountCurrent.textContent = String(position);
-  elements.frameCountTotal.textContent = String(state.history.length);
-  elements.jumpTotal.textContent = String(state.history.length);
-  elements.jumpInput.max = String(state.history.length);
+  elements.frameCountTotal.textContent = String(view.items.length);
+  elements.jumpTotal.textContent = String(view.items.length);
+  elements.jumpInput.max = String(view.items.length);
+  elements.positionButton.textContent = favoritesView ? "Jump to favorite" : "Jump to frame";
+  elements.lightboxCaption.textContent = current ? `${current.id} · ${position} / ${view.items.length}` : "";
+  elements.lightboxPrevious.setAttribute("aria-disabled", String(state.loading || view.index <= 0));
+  elements.lightboxNext.setAttribute("aria-disabled", String(state.loading || view.index >= view.items.length - 1));
   elements.historyClear.disabled = state.loading || !state.history.length;
   elements.imageIdValue.textContent = current?.id ?? "———";
   // The accessible name has to contain the visible text, so the ID leads and the purpose follows.

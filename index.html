@@ -69,11 +69,24 @@
         <header class="history-dialog__header">
           <h2 id="history-title">History</h2>
           <div class="history-dialog__actions">
-            <div class="history-filter">
-              <button class="history-filter__option" id="history-filter-all" type="button" aria-pressed="true">
+            <div class="history-filter" role="tablist" aria-label="History view">
+              <button
+                class="history-filter__option"
+                id="history-filter-all"
+                type="button"
+                role="tab"
+                aria-controls="history-body"
+                aria-selected="true">
                 All
               </button>
-              <button class="history-filter__option" id="history-filter-favorites" type="button" aria-pressed="false">
+              <button
+                class="history-filter__option"
+                id="history-filter-favorites"
+                type="button"
+                role="tab"
+                aria-controls="history-body"
+                aria-selected="false"
+                tabindex="-1">
                 Favorites
               </button>
             </div>
@@ -82,7 +95,7 @@
             </button>
           </div>
         </header>
-        <div class="history-dialog__body" id="history-body">
+        <div class="history-dialog__body" id="history-body" role="tabpanel" aria-labelledby="history-filter-all">
           <div class="history-grid" id="history-grid"></div>
           <div class="history-empty" id="history-empty" hidden>
             <p id="history-empty-title">No frames drawn yet.</p>
@@ -477,17 +490,17 @@
           </svg>
         </button>
         <div class="tools-menu" id="tools-menu" role="menu" aria-label="More" popover>
+          <button class="tools-menu__item" id="stats-button" type="button" role="menuitem" aria-keyshortcuts="T">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 16V10m6 6V4m6 12V7" /></svg>
+            Stats
+            <kbd aria-hidden="true">T</kbd>
+          </button>
           <button class="tools-menu__item" id="sync-button" type="button" role="menuitem">
             <svg viewBox="0 0 20 20" aria-hidden="true">
               <path
                 d="M16.5 8A6.5 6.5 0 0 0 5.4 4.4L3.5 6.3M3.5 3.5v2.8h2.8M3.5 12A6.5 6.5 0 0 0 14.6 15.6l1.9-1.9M13.7 13.7h2.8v2.8" />
             </svg>
             Sync
-          </button>
-          <button class="tools-menu__item" id="stats-button" type="button" role="menuitem" aria-keyshortcuts="T">
-            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 16V10m6 6V4m6 12V7" /></svg>
-            Stats
-            <kbd aria-hidden="true">T</kbd>
           </button>
           <button class="tools-menu__item" id="shortcuts-button" type="button" role="menuitem" aria-keyshortcuts="?">
             <svg viewBox="0 0 20 20" aria-hidden="true">

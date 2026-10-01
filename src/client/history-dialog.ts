@@ -21,6 +21,16 @@ import { applyFavorites, applyHistory, isFavorite, state } from "./viewer-state.
 type HistoryDialogTab = "history" | "favourites";
 export const pendingHistoryClearKey = "random-frame-history-clear-pending";
 let filter: HistoryDialogTab = "history";
+const views: Record<HistoryDialogTab, { page: number; scroll: number; initialized: boolean }> = {
+  history: { page: 0, scroll: 0, initialized: false },
+  favourites: { page: 0, scroll: 0, initialized: false },
+};
+
+function rememberView(): void {
+  views[filter].page = state.pageIndex;
+  views[filter].scroll = elements.historyBody.scrollTop;
+}
+
 const THUMBNAIL_CONCURRENCY = 3;
 const SAVE_DELAY_MS = 600;
 
@@ -29,15 +39,24 @@ interface GridEntry {
   source: string;
   id: string;
   index: number;
+  timestamp: number;
 }
 
 // Newest first, so page 1 is always full and the short page falls at the oldest end. Favorites view the same
 // grid through a filter, ordered by when each was starred.
 function gridEntries(): GridEntry[] {
-  if (filter === "history") return state.history.map(({ source, id }, index) => ({ source, id, index })).reverse();
+  if (filter === "history")
+    return state.history
+      .map(({ source, id, viewedAt }, index) => ({ source, id, index, timestamp: viewedAt }))
+      .reverse();
   const indexes = new Map(state.history.map((item, index) => [blobKey(item.source, item.id), index]));
   return state.favorites
-    .map(({ source, id }) => ({ source, id, index: indexes.get(blobKey(source, id)) ?? -1 }))
+    .map(({ source, id, addedAt }) => ({
+      source,
+      id,
+      index: indexes.get(blobKey(source, id)) ?? -1,
+      timestamp: addedAt,
+    }))
     .reverse();
 }
 
@@ -136,13 +155,20 @@ function watchTiles(tiles: PendingTile[]): void {
 }
 
 // Only the current page is laid out, so the dialog never builds thousands of DOM nodes.
-function renderHistoryPage(): void {
+function renderHistoryPage(scroll = elements.historyBody.scrollTop): void {
   const entries = gridEntries();
   const favoritesView = filter === "favourites";
   const view = historyPage(entries.length, state.pageIndex, state.pageSize);
+  if (view.page !== state.pageIndex) scroll = 0;
   state.pageIndex = view.page;
-  elements.historyFilterAll.setAttribute("aria-pressed", String(!favoritesView));
-  elements.historyFilterFavorites.setAttribute("aria-pressed", String(favoritesView));
+  elements.historyFilterAll.setAttribute("aria-selected", String(!favoritesView));
+  elements.historyFilterAll.tabIndex = favoritesView ? -1 : 0;
+  elements.historyFilterFavorites.setAttribute("aria-selected", String(favoritesView));
+  elements.historyFilterFavorites.tabIndex = favoritesView ? 0 : -1;
+  elements.historyBody.setAttribute(
+    "aria-labelledby",
+    favoritesView ? "history-filter-favorites" : "history-filter-all",
+  );
   elements.historyClear.hidden = favoritesView;
   elements.historyClearFavorites.hidden = !favoritesView || !state.favorites.length;
   elements.historyClearGroup.hidden = favoritesView;
@@ -154,7 +180,6 @@ function renderHistoryPage(): void {
   elements.historyEmptyDetail.textContent = favoritesView
     ? "Press F on a frame to keep it here."
     : "Draw a frame to begin your history.";
-  elements.historyBody.scrollTop = 0;
 
   // Below the smallest page size neither paging nor the size choice changes anything.
   if (entries.length <= PAGE_SIZES[0]) elements.historyPager.setAttribute("data-compact", "");
@@ -180,7 +205,7 @@ function renderHistoryPage(): void {
   if (focused === elements.historyPagePrevious && view.page === 0) elements.historyPageNext.focus();
   if (focused === elements.historyPageNext && view.page === view.pages - 1) elements.historyPagePrevious.focus();
 
-  for (const [position, { source, id, index: itemIndex }] of visible.entries()) {
+  for (const [position, { source, id, index: itemIndex, timestamp }] of visible.entries()) {
     const tile = document.createElement("div");
     const button = document.createElement("button");
     const image = document.createElement("img");
@@ -204,8 +229,23 @@ function renderHistoryPage(): void {
     image.alt = "";
     image.loading = "lazy";
     label.textContent = `${number} · ${id}`;
-    button.append(image, label);
+    const date = new Date(timestamp);
+    const time = document.createElement("time");
+    const day = document.createElement("span");
+    const clock = document.createElement("span");
+    time.className = "history-item__time";
+    time.id = `history-time-${position}`;
+    time.dateTime = date.toISOString();
+    day.textContent = date.toLocaleDateString();
+    clock.textContent = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+    time.append(day, clock);
+    button.setAttribute("aria-describedby", time.id);
+    button.append(image, label, time);
     button.addEventListener("click", () => {
+      state.navigationMode = favorite ? "favourites" : "history";
+      state.historyTab = state.navigationMode;
+      syncControls();
+      rememberView();
       closeDialog(elements.historyDialog);
       void (itemIndex >= 0 ? goTo(itemIndex) : loadById(id, source));
     });
@@ -227,6 +267,9 @@ function renderHistoryPage(): void {
     }
     elements.historyGrid.append(tile);
   }
+  elements.historyBody.scrollTop = scroll;
+  views[filter].page = view.page;
+  views[filter].scroll = scroll;
   watchTiles(loading);
 }
 
@@ -235,36 +278,70 @@ function showCurrentPage(): void {
   const entries = gridEntries();
   const position = state.index >= 0 ? entries.findIndex((entry) => entry.index === state.index) : -1;
   state.pageIndex = pageOf(Math.max(position, 0), state.pageSize);
-  renderHistoryPage();
+  renderHistoryPage(0);
 }
 
 function showFilter(next: HistoryDialogTab): void {
+  if (filter === next) {
+    renderHistoryPage();
+    return;
+  }
+  rememberView();
   filter = next;
-  showCurrentPage();
+  state.historyTab = next;
+  restoreView();
+  elements.historyBody.dataset.tabTransition = next;
+}
+
+function restoreView(): void {
+  const view = views[filter];
+  if (view.initialized) {
+    state.pageIndex = view.page;
+    renderHistoryPage(view.scroll);
+  } else {
+    showCurrentPage();
+    view.initialized = true;
+  }
 }
 
 export function openHistory(returnFocus?: HTMLElement): void {
   if (state.loading) return;
+  delete elements.historyBody.dataset.tabTransition;
   if (returnFocus) state.historyReturnFocus = returnFocus;
   elements.historyClear.disabled = !state.history.length;
   failedThumbnails.clear();
   saveFailureShown = false;
-  filter = "history";
-  showCurrentPage();
+  filter = state.historyTab;
+  if (state.historyReset) {
+    views.history.initialized = false;
+    state.historyReset = false;
+  }
+  const returning = views[filter].initialized;
+  restoreView();
+  const scroll = views[filter].scroll;
   openDialog(elements.historyDialog);
+  // A closed dialog has no layout. Restore synchronously after show(), before the first paint.
+  elements.historyBody.scrollTop = scroll;
   const position = gridEntries().findIndex((entry) => entry.index === state.index) - state.pageIndex * state.pageSize;
-  (elements.historyGrid.children[position]?.children[0] as HTMLElement | undefined)?.focus();
+  const selectedTab = filter === "history" ? elements.historyFilterAll : elements.historyFilterFavorites;
+  const current = elements.historyGrid.children[position]?.children[0] as HTMLElement | undefined;
+  (returning ? selectedTab : (current ?? selectedTab)).focus({ preventScroll: true });
 }
 
 function showHistoryPage(page: number): void {
   state.pageIndex = page;
-  renderHistoryPage();
+  renderHistoryPage(0);
 }
 
 function changePageSize(): void {
   // Keep the first frame of the current page in view across the size change.
   const firstShown = historyPage(gridEntries().length, state.pageIndex, state.pageSize).start;
+  const oldSize = state.pageSize;
   state.pageSize = parsePageSize(elements.historyPageSize.value);
+  for (const view of Object.values(views)) {
+    view.page = pageOf(view.page * oldSize, state.pageSize);
+    view.scroll = 0;
+  }
   savePageSize(localStorage, state.pageSize);
   showHistoryPage(pageOf(firstShown, state.pageSize));
 }
@@ -499,7 +576,20 @@ function bindClearConfirmation(
 export function bindHistoryDialogEvents(): void {
   elements.historyTool.addEventListener("click", () => openHistory(elements.historyTool));
   elements.removeFrame.addEventListener("click", () => void removeFromHistory(state.index));
-  elements.historyClose.addEventListener("click", () => closeDialog(elements.historyDialog));
+  elements.historyClose.addEventListener("click", () => {
+    rememberView();
+    closeDialog(elements.historyDialog);
+  });
+  elements.historyDialog.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") rememberView();
+  });
+  elements.dialogBackdrop.addEventListener(
+    "click",
+    () => {
+      if (elements.historyDialog.open) rememberView();
+    },
+    { capture: true },
+  );
   const resetHistoryConfirmation = bindClearConfirmation(
     elements.historyClear,
     elements.historyClearGroup,
@@ -522,6 +612,27 @@ export function bindHistoryDialogEvents(): void {
     resetFavoritesConfirmation();
     showFilter("favourites");
   });
+  elements.historyBody.addEventListener("scroll", () => {
+    if (elements.historyDialog.open) rememberView();
+  });
+  const tabs = [elements.historyFilterAll, elements.historyFilterFavorites];
+  for (const tab of tabs)
+    tab.addEventListener("keydown", (event) => {
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const next =
+        event.key === "Home"
+          ? elements.historyFilterAll
+          : event.key === "End"
+            ? elements.historyFilterFavorites
+            : tab === elements.historyFilterAll
+              ? elements.historyFilterFavorites
+              : elements.historyFilterAll;
+      next.click();
+      next.focus({ preventScroll: true });
+    });
   elements.historyPagePrevious.addEventListener("click", () => showHistoryPage(state.pageIndex - 1));
   elements.historyPageNext.addEventListener("click", () => showHistoryPage(state.pageIndex + 1));
   elements.historyPageSize.addEventListener("change", changePageSize);
@@ -532,13 +643,20 @@ export function bindHistoryDialogEvents(): void {
   });
   elements.historyGrid.addEventListener("keydown", (event) => {
     if (event.altKey || event.ctrlKey || event.metaKey) return;
+    const target = event.target as HTMLElement;
+    if (["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.isContentEditable) return;
     const tiles = elements.historyGrid.children;
-    const tile = (event.target as Element).closest<HTMLElement>(".history-tile");
+    const tile = target.closest<HTMLElement>(".history-tile");
     const current = Array.prototype.indexOf.call(tiles, tile) as number;
     if (current < 0) return;
     if (event.key === "Delete") {
       event.preventDefault();
       if (tile?.dataset.index && !event.repeat) void removeFromHistory(Number(tile.dataset.index));
+      return;
+    }
+    if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      focusTile(event.key === "Home" ? 0 : tiles.length - 1);
       return;
     }
     const columns = getComputedStyle(elements.historyGrid).gridTemplateColumns.split(" ").length;

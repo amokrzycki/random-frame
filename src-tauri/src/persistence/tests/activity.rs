@@ -220,7 +220,7 @@ fn recent_days_with_zero_max_days_returns_empty() -> Result<(), AppError> {
     let store = ActivityStore::new(&directory)?;
     let today = NaiveDate::from_ymd_opt(2026, 9, 20).unwrap_or_default();
     store.record(ExplorationOutcome::Viewed, "2026-09-20")?;
-    assert!(store.recent_days(today, 0).is_empty());
+    assert_eq!(store.recent_days(today, 0), vec![]);
     fs::remove_dir_all(directory).map_err(AppError::persistence)
 }
 

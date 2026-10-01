@@ -18,11 +18,15 @@ test("dialogs contain focus and suspend titlebar tools", async (t) => {
   const consent = get("entry-consent");
   const leave = get("leave-button");
   const entry = get("entry-dialog");
+  const history = get("history-dialog");
+  const all = get("history-filter-all");
+  const favorites = get("history-filter-favorites");
+  const close = get("history-close-button");
   const titlebarTool = get("stats-button");
   entry.contains = (node) => [entry, consent, leave].includes(node);
   entry.querySelectorAll = () => [consent, leave];
-  for (const item of [consent, leave]) {
-    item.matches = () => false;
+  for (const item of [consent, leave, all, favorites, close]) {
+    item.matches = (selector) => selector.includes('[tabindex="-1"]') && item.getAttribute("tabindex") === "-1";
     item.getClientRects = () => [1];
     item.hasAttribute = () => false;
   }
@@ -56,4 +60,17 @@ test("dialogs contain focus and suspend titlebar tools", async (t) => {
   assert.equal(get("main-content").inert, false);
   assert.equal(get("masthead-tools").inert, false);
   assert.equal(get("dialog-backdrop").hidden, true);
+
+  // An inactive tab remains programmatically focusable, but is outside the Tab cycle.
+  all.setAttribute("tabindex", "-1");
+  history.contains = (node) => [history, all, favorites, close].includes(node);
+  history.querySelectorAll = () => [all, favorites, close];
+  openDialog(history);
+  assert.equal(document.activeElement === favorites, true, "Initial focus skips the inactive tab");
+  close.focus();
+  assert.equal(tab(false).defaultPrevented, true);
+  assert.equal(document.activeElement === favorites, true, "Tab wraps to the selected tab");
+  assert.equal(tab(true).defaultPrevented, true);
+  assert.equal(document.activeElement === close, true, "Shift+Tab wraps from the selected tab");
+  history.close();
 });
