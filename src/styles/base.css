@@ -193,7 +193,7 @@ main,
 
 /* Forced colors drop background fills, which is how every pressed state here reads; repaint them in system colors. */
 @media (forced-colors: active) {
-  .history-filter__option[aria-pressed="true"],
+  .history-filter__option[aria-selected="true"],
   .theme-picker button[aria-checked="true"],
   #favorite-button[aria-pressed="true"],
   .lightbox-favorite[aria-pressed="true"] {

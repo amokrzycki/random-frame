@@ -125,7 +125,10 @@
   font: inherit;
   font-size: 13px;
   font-weight: 650;
-  transition: transform 140ms var(--ease-out);
+  transition:
+    transform 140ms var(--ease-out),
+    color 240ms var(--ease-out),
+    background-color 240ms var(--ease-out);
 }
 
 .history-filter__option:first-child {
@@ -138,7 +141,7 @@
 }
 
 .history-filter__option:hover,
-.history-filter__option[aria-pressed="true"] {
+.history-filter__option[aria-selected="true"] {
   color: var(--control-fill-text);
   background: var(--control-fill);
 }
@@ -157,6 +160,7 @@
 
 .history-clear-group {
   display: grid;
+  padding-bottom: 12px;
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-rows: auto 0fr;
   transition:
@@ -1004,6 +1008,38 @@
   gap: 12px;
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  .history-dialog__body[data-tab-transition="favourites"] > :is(.history-grid, .history-empty) {
+    animation: history-favorites-in 280ms var(--ease-out);
+  }
+
+  .history-dialog__body[data-tab-transition="history"] > :is(.history-grid, .history-empty) {
+    animation: history-all-in 280ms var(--ease-out);
+  }
+}
+
+@keyframes history-favorites-in {
+  from {
+    opacity: 0.8;
+    transform: translateX(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes history-all-in {
+  from {
+    opacity: 0.8;
+    transform: translateX(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 .history-tile {
   position: relative;
   min-width: 0;
@@ -1082,7 +1118,6 @@
 
 .history-item[aria-current="true"] {
   border-color: var(--blue);
-  box-shadow: inset 0 0 0 1px var(--blue);
 }
 
 .history-item:hover {
@@ -1156,7 +1191,7 @@
   }
 }
 
-.history-item span {
+.history-item > span {
   padding: 9px 11px 10px;
   display: block;
   overflow: hidden;
@@ -1165,6 +1200,20 @@
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-item__time {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 8px;
+  padding: 0 11px 10px;
+  color: var(--stage-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.history-item__time span {
   white-space: nowrap;
 }
 

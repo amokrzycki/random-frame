@@ -3,11 +3,11 @@ import { elements } from "./elements.js";
 import { describeError } from "./errors.js";
 import { type FavoriteItem, toggleFavorite } from "./favorites.js";
 import { blobKey, blobs, ensureThumbnail, savedFrames } from "./frame-cache.js";
-import { goTo } from "./frame-loader.js";
+import { goToPosition } from "./frame-loader.js";
 import { copyImage, saveImage } from "./image-actions.js";
 import { getViewState, syncControls } from "./stage.js";
 import { toast } from "./toast.js";
-import { applyFavorites, isFavorite, state } from "./viewer-state.js";
+import { applyFavorites, isFavorite, navigationView, state } from "./viewer-state.js";
 
 export async function saveCurrent(): Promise<void> {
   const current = state.history[state.index];
@@ -87,9 +87,7 @@ function showLightboxFrame(): void {
   if (!current) return;
   elements.lightboxImage.src = elements.image.src;
   elements.lightboxImage.alt = elements.image.alt;
-  elements.lightboxCaption.textContent = `${current.id} · ${state.index + 1} / ${state.history.length}`;
-  elements.lightboxPrevious.setAttribute("aria-disabled", String(state.index <= 0));
-  elements.lightboxNext.setAttribute("aria-disabled", String(state.index >= state.history.length - 1));
+  syncControls();
   setLightboxZoom(1);
 }
 
@@ -139,11 +137,12 @@ function toggleLightboxZoom(): void {
 }
 
 async function stepLightbox(offset: -1 | 1): Promise<void> {
-  const target = state.index + offset;
-  if (state.loading || target < 0 || target >= state.history.length) return;
+  const view = navigationView();
+  const target = view.index + offset;
+  if (state.loading || target < 0 || target >= view.items.length) return;
   elements.lightboxPrevious.setAttribute("aria-disabled", "true");
   elements.lightboxNext.setAttribute("aria-disabled", "true");
-  await goTo(target);
+  await goToPosition(target);
   if (getViewState() === "image") showLightboxFrame();
   else closeDialog(elements.lightboxDialog);
 }

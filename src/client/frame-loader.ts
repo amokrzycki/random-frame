@@ -20,7 +20,7 @@ import {
   syncControls,
 } from "./stage.js";
 import { toast } from "./toast.js";
-import { applyHistory, state } from "./viewer-state.js";
+import { applyHistory, navigationView, state } from "./viewer-state.js";
 
 const favoriteTipKey = "random-frame-favorite-tip";
 
@@ -79,6 +79,9 @@ export function cancelDraw(): boolean {
 
 export async function loadRandom(): Promise<void> {
   if (state.loading || state.historyLoadFailed || drawPaused()) return;
+  state.navigationMode = "history";
+  state.historyTab = "history";
+  state.historyReset = true;
   const version = ++drawVersion;
   viewBeforeDraw = getViewState();
   startLoading();
@@ -143,19 +146,31 @@ export async function goTo(targetIndex: number): Promise<void> {
   finishLoading();
 }
 
-export function goBack(): void {
-  void goTo(state.index - 1);
+// Navigation positions may belong to favorites; persisted selection still belongs to history.
+export async function goToPosition(position: number): Promise<void> {
+  const item = navigationView().items[position];
+  if (!item || state.loading) return;
+  const index = state.history.findIndex((frame) => frame.source === item.source && frame.id === item.id);
+  await (index >= 0 ? goTo(index) : loadById(item.id, item.source));
 }
 
-// Arrows only move through history. Past the last frame they point at Draw instead of drawing.
+export function goBack(): void {
+  void goToPosition(navigationView().index - 1);
+}
+
+// Past the last entry, arrows point at Draw instead of drawing.
 export function goNext(): void {
-  const targetIndex = nextHistoryIndex(state.index, state.history.length);
-  if (targetIndex !== null) return void goTo(targetIndex);
+  const view = navigationView();
+  const targetIndex = nextHistoryIndex(view.index, view.items.length);
+  if (targetIndex !== null) return void goToPosition(targetIndex);
   if (state.loading || state.historyLoadFailed || drawPaused()) return;
   restartAnimation(elements.draw);
   elements.draw.dataset.pulse = "";
   // A trailing no-break space alternates, so screen readers announce a repeated press too.
-  const notice = "This is the newest frame. Press N to draw another.";
+  const notice =
+    view.items !== state.history
+      ? "This is the last favorite. Press N to draw another."
+      : "This is the newest frame. Press N to draw another.";
   elements.announcer.textContent = elements.announcer.textContent === notice ? `${notice} ` : notice;
 }
 
@@ -192,7 +207,7 @@ function editPosition(editing: boolean): void {
     elements.positionButton.focus();
     return;
   }
-  elements.jumpInput.value = String(state.index + 1);
+  elements.jumpInput.value = String(navigationView().index + 1);
   elements.jumpInput.setCustomValidity("");
   elements.jumpInput.focus();
   elements.jumpInput.select?.();
@@ -222,13 +237,13 @@ export function bindNavigationEvents(): void {
   });
   elements.jumpForm.addEventListener("submit", (event) => {
     event.preventDefault();
-    const targetIndex = frameNumberToIndex(elements.jumpInput.value, state.history.length);
+    const targetIndex = frameNumberToIndex(elements.jumpInput.value, navigationView().items.length);
     if (targetIndex === null) {
-      elements.jumpInput.setCustomValidity(`Enter a number between 1 and ${state.history.length}.`);
+      elements.jumpInput.setCustomValidity(`Enter a number between 1 and ${navigationView().items.length}.`);
       elements.jumpInput.reportValidity();
       return;
     }
     editPosition(false);
-    void goTo(targetIndex);
+    void goToPosition(targetIndex);
   });
 }

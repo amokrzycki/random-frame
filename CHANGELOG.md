@@ -1,5 +1,19 @@
 # Random Frame release notes
 
+## 0.6.4
+
+### History and favorites
+
+- History and Favorites now show the date and time of each entry. The date is shown in your local time zone, and the time is shown in 24-hour format.
+- When you leave history or favorites, the app remember your tab selection and scroll position. You can also use the keyboard to move between tabs and through the list.
+- When you click on a favorite, the app switches from the general history to the favorites so you can switch between them more easily; tapping the “draw” button switches you back to the general history.
+
+## 0.6.3
+
+### Toasts and other feedback
+
+- Toast are fixed now, they stop appearing below the controls.
+
 ## 0.6.2
 
 ### A simpler way to get around
