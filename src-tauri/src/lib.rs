@@ -669,7 +669,7 @@ mod tests {
         assert!(state.seen.contains(prntsc::item_id_value("abc124")?));
         assert_eq!(state.activity.viewed_total(), 1);
         clear_local_history(&state)?;
-        assert!(state.history.snapshot().history.is_empty());
+        assert_eq!(state.history.snapshot().history, vec![]);
         assert_eq!(state.explored.count(), 1);
         assert_eq!(state.explored.viewable_count(), 1);
         assert_eq!(state.activity.viewed_total(), 0);

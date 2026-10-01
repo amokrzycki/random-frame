@@ -463,7 +463,7 @@ mod tests {
         };
 
         assert!(store.record(item.clone()).is_err());
-        assert!(store.snapshot().history.is_empty());
+        assert_eq!(store.snapshot().history, vec![]);
 
         *store
             .data

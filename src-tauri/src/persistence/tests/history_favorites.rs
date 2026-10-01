@@ -24,13 +24,13 @@ fn history_survives_reload_and_clear_is_persistent() -> Result<(), AppError> {
     assert_eq!(reloaded.sync_state().0.len(), 1);
     assert_eq!(reloaded.snapshot().history[0].viewed_at, 84);
     reloaded.clear()?;
-    assert!(HistoryStore::new(&directory)?.snapshot().history.is_empty());
+    assert_eq!(HistoryStore::new(&directory)?.snapshot().history, vec![]);
     fs::rename(
         directory.join("history.json"),
         directory.join("history.json.tmp"),
     )
     .map_err(AppError::persistence)?;
-    assert!(HistoryStore::new(&directory)?.snapshot().history.is_empty());
+    assert_eq!(HistoryStore::new(&directory)?.snapshot().history, vec![]);
     fs::remove_dir_all(directory).map_err(AppError::persistence)
 }
 
@@ -89,7 +89,7 @@ fn favorite_toggle_adds_then_removes_and_survives_reload() -> Result<(), AppErro
     let store = FavoriteStore::new(&directory)?;
     assert_eq!(store.toggle(item(42))?, vec![item(42)]);
     // Membership is by (source, id): a later timestamp still removes the same frame.
-    assert!(store.toggle(item(84))?.is_empty());
+    assert_eq!(store.toggle(item(84))?, vec![]);
     assert_eq!(store.toggle(item(126))?, vec![item(126)]);
 
     let reloaded = FavoriteStore::new(&directory)?;
@@ -103,7 +103,7 @@ fn favorite_toggle_adds_then_removes_and_survives_reload() -> Result<(), AppErro
     assert_eq!(FavoriteStore::new(&directory)?.snapshot(), vec![item(126)]);
     assert!(directory.join("favorites.json").exists());
     reloaded.clear()?;
-    assert!(FavoriteStore::new(&directory)?.snapshot().is_empty());
+    assert_eq!(FavoriteStore::new(&directory)?.snapshot(), vec![]);
     fs::remove_dir_all(directory).map_err(AppError::persistence)
 }
 
@@ -140,8 +140,8 @@ fn history_and_favorites_sync_merge_is_idempotent_and_preserves_removals() -> Re
     a_favorites.clear()?;
     b_history.merge_sync_state(a_history.sync_state())?;
     b_favorites.merge_sync_state(a_favorites.sync_state())?;
-    assert!(b_history.snapshot().history.is_empty());
-    assert!(b_favorites.snapshot().is_empty());
+    assert_eq!(b_history.snapshot().history, vec![]);
+    assert_eq!(b_favorites.snapshot(), vec![]);
     fs::remove_dir_all(a_dir).map_err(AppError::persistence)?;
     fs::remove_dir_all(b_dir).map_err(AppError::persistence)
 }
@@ -162,9 +162,9 @@ fn concurrent_favorites_project_once_and_toggle_removes_all_adds() -> Result<(),
     b.toggle(item.clone())?;
     a.merge_sync_state(b.sync_state())?;
     assert_eq!(a.snapshot(), vec![item.clone()]);
-    assert!(a.toggle(item)?.is_empty());
+    assert_eq!(a.toggle(item)?, vec![]);
     b.merge_sync_state(a.sync_state())?;
-    assert!(b.snapshot().is_empty());
+    assert_eq!(b.snapshot(), vec![]);
     fs::remove_dir_all(a_dir).map_err(AppError::persistence)?;
     fs::remove_dir_all(b_dir).map_err(AppError::persistence)
 }
@@ -320,7 +320,7 @@ fn cleared_favorites_are_not_restored_by_a_later_merge() -> Result<(), AppError>
     let before_clear = b.sync_state();
     b.clear()?;
     b.merge_sync_state(before_clear)?;
-    assert!(b.sync_state().0.is_empty());
+    assert_eq!(b.sync_state().0, vec![]);
     assert_eq!(b.sync_state().1.len(), 1);
     fs::remove_dir_all(a_dir).map_err(AppError::persistence)?;
     fs::remove_dir_all(b_dir).map_err(AppError::persistence)
