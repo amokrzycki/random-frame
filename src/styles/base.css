@@ -140,6 +140,10 @@ button {
   outline: 3px solid var(--blue);
   outline-offset: 4px;
 }
+/* Native focus-visible also matches clicked text fields and some scripted focus moves. */
+:root:not([data-input="keyboard"]) :is(:focus-visible, .entry-consent, .sync-dialog__saved) {
+  outline-style: none !important;
+}
 ::selection {
   color: var(--white);
   background: var(--blue);

@@ -119,6 +119,7 @@ export class FakeDocument extends EventTarget {
       },
     };
     this.body = new FakeElement(this);
+    this.documentElement = new FakeElement(this);
     this.elements.get("#history-clear-button").textContent = "Clear history & stats";
     this.elements.get("#history-clear-favorites-button").textContent = "Clear favorites";
   }
