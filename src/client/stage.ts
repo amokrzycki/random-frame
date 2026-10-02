@@ -361,8 +361,9 @@ export function bindStageEvents(): void {
   reducedMotion?.addEventListener("change", animateFocusFrame);
   document.addEventListener("visibilitychange", () => {
     for (const animation of focusAnimations) {
-      if (document.hidden) animation?.pause();
-      else if (!reducedMotion?.matches) animation?.play();
+      // Finished one-shot entrances stay finished; play() would rewind and replay them.
+      if (document.hidden && animation.playState === "running") animation.pause();
+      else if (!document.hidden && animation.playState === "paused" && !reducedMotion?.matches) animation.play();
     }
   });
   elements.imageGhost.addEventListener("animationend", () => {

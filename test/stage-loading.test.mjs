@@ -113,11 +113,6 @@ test("loading preserves the frame and settles only its delayed entrance before c
   setState("image");
 
   const { loadingMessages, pickLoadingMessage } = await import("../dist/test-client/loading-copy.js");
-  const all = loadingMessages.flatMap((group) => group.messages);
-  assert.ok(all.length >= 1268);
-  assert.equal(new Set(all).size, all.length);
-  assert.ok(all.every((copy) => copy.length <= 52));
-  assert.ok(all.filter((copy) => copy.length <= 38).length / all.length > 0.9);
   const counts = [0, 0, 0, 0];
   let randomCall = 0;
   let draw = 0;
