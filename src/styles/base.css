@@ -171,16 +171,17 @@ main,
   display: none !important;
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(1turn);
-  }
-}
 /* A focus pull: the frame develops out of the stage, or out of the one it replaces. */
 @keyframes reveal {
   from {
     opacity: 0;
-    filter: blur(10px);
+    filter: blur(3px);
+    transform: scale(1.012);
+  }
+  to {
+    opacity: 1;
+    filter: none;
+    transform: none;
   }
 }
 @keyframes fade-out {
@@ -188,13 +189,6 @@ main,
     opacity: 0;
   }
 }
-/* Reduced-motion loader: the ring breathes in place instead of turning. */
-@keyframes breathe {
-  50% {
-    opacity: 0.3;
-  }
-}
-
 /* Forced colors drop background fills, which is how every pressed state here reads; repaint them in system colors. */
 @media (forced-colors: active) {
   .history-filter__option[aria-selected="true"],

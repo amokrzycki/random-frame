@@ -81,32 +81,31 @@
     transform: translateY(-50%);
   }
 
-  /* Loader breathes rather than freezing; frames crossfade without the focus pull. */
-  .loading-state {
-    animation-name: fade-out;
-    animation-direction: reverse;
-  }
+  /* A still viewfinder; retain delayed fades and the image crossfade. */
   .empty-state {
     animation: fade-out 240ms var(--ease-out) reverse both !important;
   }
-  .loader {
-    animation: breathe 1.6s ease-in-out infinite !important;
-  }
-  .loader__indicator,
-  .draw-button__spinner-arc {
-    stroke-dasharray: none;
-  }
-  .draw-button[aria-busy="true"] .draw-button__spinner {
-    animation: breathe 1.6s ease-in-out infinite !important;
+  .loading-frame {
+    transform: none;
   }
   #image {
     animation: fade-out 240ms var(--ease-out) reverse both !important;
+    filter: none;
+    transform: none;
   }
   .image-ghost {
     animation-duration: 240ms !important;
   }
   .image-zoom[data-dimmed] {
     filter: none;
+    transform: none;
+  }
+  .image-zoom[data-dimmed="loading"] {
+    filter: brightness(0.82);
+  }
+  .image-ghost[data-dimmed="loading"] {
+    filter: brightness(0.82);
+    transform: none;
   }
 
   /* The hint row opens without easing. */

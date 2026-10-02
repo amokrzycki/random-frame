@@ -29,19 +29,20 @@ const statePanels: Record<ViewState, HTMLElement> = {
   image: elements.imageZoom,
 };
 
-// The ring's CSS animation is sometimes never instantiated by the webview, so the ring stays still; an animation made from script always runs.
+// Scripted motion is reliable in the desktop webview; CSS owns the delayed entrance.
 const reducedMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)");
-let spinner: Animation | undefined;
+let focusFrame: Animation | undefined;
 let loadingSince = 0;
 
 export function setState(next: ViewState): void {
-  spinner?.cancel();
-  spinner = undefined;
+  focusFrame?.cancel();
+  focusFrame = undefined;
   if (next === "loading" && !reducedMotion?.matches)
-    spinner = elements.loadingRing.animate(
-      { transform: ["rotate(0)", "rotate(1turn)"] },
-      { duration: 850, iterations: Infinity },
+    focusFrame = elements.loadingFrame.animate(
+      { transform: ["scale(1)", "scale(0.96)", "scale(1)"], opacity: [0.8, 1, 0.8] },
+      { duration: 3600, delay: 150, easing: "ease-in-out", iterations: Infinity },
     );
+  if (document.hidden) focusFrame?.pause();
   // A shown frame stays on stage, dimmed under the loader or an error, so the next one can crossfade in.
   const keepFrame = (next === "loading" || next === "error") && !elements.imageZoom.hidden;
   viewState = next;
@@ -49,7 +50,7 @@ export function setState(next: ViewState): void {
     target.hidden = name !== next && !(keepFrame && name === "image");
   elements.imageZoom.inert = keepFrame;
   elements.draw.toggleAttribute("data-invite", next === "empty");
-  // The value lets CSS hold the loading dim back 200ms while an error dims at once.
+  // The value lets CSS hold the loading dim back 150ms while an error dims at once.
   if (keepFrame) elements.imageZoom.dataset.dimmed = next;
   else delete elements.imageZoom.dataset.dimmed;
   if (next === "loading") {
@@ -66,10 +67,10 @@ const stateControls: Record<ViewState, HTMLElement | null> = {
   image: elements.draw,
 };
 
-// The loader appears after 200ms. Once it has, keep it up for 500ms, so it never flashes half-formed.
+// Let the delayed 220ms entrance finish, then hand straight into the image crossfade.
 export async function settleLoader(): Promise<void> {
-  const visible = Date.now() - loadingSince - 200;
-  if (visible > 0 && visible < 500) await new Promise((resolve) => setTimeout(resolve, 500 - visible));
+  const visible = Date.now() - loadingSince - 150;
+  if (visible > 0 && visible < 220) await new Promise((resolve) => setTimeout(resolve, 220 - visible));
 }
 
 export function startLoading(): void {
@@ -267,8 +268,10 @@ export function swapImage(url: string, id: string): void {
   const outgoing = image.src;
   const crossfade = !elements.imageZoom.hidden && outgoing.startsWith("blob:") && outgoing !== url;
   ghost.hidden = !crossfade;
+  delete ghost.dataset.dimmed;
   if (crossfade) {
     ghost.src = outgoing;
+    if (elements.imageZoom.dataset.dimmed === "loading") ghost.dataset.dimmed = "loading";
     restartAnimation(ghost);
   }
   image.src = url;
@@ -278,6 +281,16 @@ export function swapImage(url: string, id: string): void {
 }
 
 export function bindStageEvents(): void {
+  reducedMotion?.addEventListener("change", () => {
+    if (reducedMotion.matches) {
+      focusFrame?.cancel();
+      focusFrame = undefined;
+    }
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) focusFrame?.pause();
+    else if (!reducedMotion?.matches) focusFrame?.play();
+  });
   elements.imageGhost.addEventListener("animationend", () => {
     elements.imageGhost.hidden = true;
   });
