@@ -125,8 +125,7 @@ export async function goTo(targetIndex: number): Promise<void> {
   const cached = blobs.get(blobKey(current.source, current.id));
   try {
     if (!cached) {
-      setState("loading");
-      elements.loadingMessage.textContent = `Restoring frame ${targetIndex + 1}…`;
+      setState("loading", `Restoring frame ${targetIndex + 1}…`);
       elements.announcer.textContent = `Restoring frame ${targetIndex + 1}`;
       syncControls();
       const frame = await getFrameById(current.id, current.source);

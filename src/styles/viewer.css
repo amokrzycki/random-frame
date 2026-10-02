@@ -131,7 +131,7 @@
   display: grid;
   align-content: center;
   justify-items: center;
-  gap: 24px;
+  gap: 28px;
   color: var(--white);
   text-align: center;
   pointer-events: none;
@@ -184,18 +184,48 @@
   animation: loader-in 320ms var(--ease-out) backwards;
 }
 .loading-frame {
-  width: 96px;
+  width: 116px;
   height: auto;
   fill: none;
   stroke: var(--white);
-  stroke-width: 0.75;
-  opacity: 0.8;
+  stroke-width: 0.65;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.86;
   transform-origin: center;
+}
+/* Keep the caption's footprint steady as a slow draw gets one quiet copy change. */
+#loading-message {
+  width: min(38ch, calc(100% - 48px));
+  min-height: 1.5em;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+  text-shadow: 0 2px 8px rgb(0 0 0 / 24%);
+  text-wrap: balance;
+  animation: loading-message-in 280ms var(--ease-out) 150ms backwards;
+  transition:
+    opacity 280ms var(--ease-out),
+    transform 280ms var(--ease-out),
+    filter 280ms var(--ease-out);
+}
+#loading-message[data-changing] {
+  opacity: 0;
+  transform: translateY(2px);
+  filter: blur(2px);
+  transition-duration: 140ms;
+}
+@keyframes loading-message-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+    filter: blur(2px);
+  }
 }
 /* Appears only if the draw is still running after 3s, so quick draws never flash it. */
 .loading-hint {
   position: absolute;
-  top: calc(50% + 92px);
+  top: calc(50% + 104px);
+  color: var(--stage-muted);
   font-size: 12px;
   opacity: 0;
 }

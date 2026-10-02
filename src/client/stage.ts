@@ -1,6 +1,7 @@
 import { elements } from "./elements.js";
 import { describeError } from "./errors.js";
 import { blobKey, blobs, cacheThumbnail, savedFrames } from "./frame-cache.js";
+import { pickLoadingMessage } from "./loading-copy.js";
 import { adjacentPrntscId, nextHistoryIndex } from "./navigation.js";
 import { toast } from "./toast.js";
 import { isFavorite, navigationView, state } from "./viewer-state.js";
@@ -33,19 +34,32 @@ const statePanels: Record<ViewState, HTMLElement> = {
 const reducedMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)");
 let focusFrame: Animation | undefined;
 let loadingSince = 0;
+let messageTimer: ReturnType<typeof setTimeout> | undefined;
+let previousLoadingMessages: string[] = [];
+let currentLoadingMessages: string[] = [];
 
-export function setState(next: ViewState): void {
+function animateFocusFrame(): void {
   focusFrame?.cancel();
   focusFrame = undefined;
-  if (next === "loading" && !reducedMotion?.matches)
+  if (viewState === "loading" && !reducedMotion?.matches)
     focusFrame = elements.loadingFrame.animate(
-      { transform: ["scale(1)", "scale(0.96)", "scale(1)"], opacity: [0.8, 1, 0.8] },
-      { duration: 3600, delay: 150, easing: "ease-in-out", iterations: Infinity },
+      [
+        { transform: "scale(1)", opacity: 0.86 },
+        { transform: "scale(1.018)", opacity: 0.96 },
+        { transform: "scale(1)", opacity: 0.86 },
+      ],
+      { duration: 1900, delay: 150, easing: "ease-in-out", iterations: Infinity },
     );
   if (document.hidden) focusFrame?.pause();
+}
+
+export function setState(next: ViewState, loadingCopy?: string): void {
+  clearTimeout(messageTimer);
+  delete elements.loadingMessage.dataset.changing;
   // A shown frame stays on stage, dimmed under the loader or an error, so the next one can crossfade in.
   const keepFrame = (next === "loading" || next === "error") && !elements.imageZoom.hidden;
   viewState = next;
+  animateFocusFrame();
   for (const [name, target] of Object.entries(statePanels))
     target.hidden = name !== next && !(keepFrame && name === "image");
   elements.imageZoom.inert = keepFrame;
@@ -55,7 +69,22 @@ export function setState(next: ViewState): void {
   else delete elements.imageZoom.dataset.dimmed;
   if (next === "loading") {
     loadingSince = Date.now();
-    elements.loadingMessage.textContent = "Drawing a frame…";
+    if (loadingCopy === undefined) {
+      previousLoadingMessages = currentLoadingMessages;
+      currentLoadingMessages = [pickLoadingMessage(previousLoadingMessages)];
+      messageTimer = setTimeout(() => {
+        // A hidden window doesn't need a new caption. There is no repeating message interval.
+        if (document.hidden) return;
+        elements.loadingMessage.dataset.changing = "";
+        messageTimer = setTimeout(() => {
+          const message = pickLoadingMessage([...previousLoadingMessages, ...currentLoadingMessages]);
+          currentLoadingMessages.push(message);
+          elements.loadingMessage.textContent = message;
+          delete elements.loadingMessage.dataset.changing;
+        }, 140);
+      }, 4500);
+    }
+    elements.loadingMessage.textContent = loadingCopy ?? currentLoadingMessages[0] ?? "Drawing a frame…";
     elements.announcer.textContent = "Drawing a frame…";
   }
 }
@@ -67,10 +96,11 @@ const stateControls: Record<ViewState, HTMLElement | null> = {
   image: elements.draw,
 };
 
-// Let the delayed 220ms entrance finish, then hand straight into the image crossfade.
+// Let the caption's delayed entrance finish, then hand straight into the image crossfade.
 export async function settleLoader(): Promise<void> {
   const visible = Date.now() - loadingSince - 150;
-  if (visible > 0 && visible < 220) await new Promise((resolve) => setTimeout(resolve, 220 - visible));
+  const entrance = reducedMotion?.matches ? 220 : 280;
+  if (visible > 0 && visible < entrance) await new Promise((resolve) => setTimeout(resolve, entrance - visible));
 }
 
 export function startLoading(): void {
@@ -281,12 +311,7 @@ export function swapImage(url: string, id: string): void {
 }
 
 export function bindStageEvents(): void {
-  reducedMotion?.addEventListener("change", () => {
-    if (reducedMotion.matches) {
-      focusFrame?.cancel();
-      focusFrame = undefined;
-    }
-  });
+  reducedMotion?.addEventListener("change", animateFocusFrame);
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) focusFrame?.pause();
     else if (!reducedMotion?.matches) focusFrame?.play();

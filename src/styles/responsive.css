@@ -88,6 +88,14 @@
   .loading-frame {
     transform: none;
   }
+  #loading-message,
+  #loading-message[data-changing] {
+    transform: none;
+    filter: none;
+  }
+  #loading-message {
+    animation: fade-out 220ms var(--ease-out) 150ms reverse backwards !important;
+  }
   #image {
     animation: fade-out 240ms var(--ease-out) reverse both !important;
     filter: none;

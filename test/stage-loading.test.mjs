@@ -1,17 +1,44 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { FakeDocument, ids } from "./dom-fakes.mjs";
+import { FakeDocument, FakeStorage, ids } from "./dom-fakes.mjs";
 
 test("loading preserves the frame and settles only its delayed entrance before crossfade", async (t) => {
-  const original = Object.getOwnPropertyDescriptor(globalThis, "document");
+  const originals = Object.fromEntries(
+    ["document", "matchMedia", "localStorage"].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
+  );
   t.after(() => {
-    if (original) Object.defineProperty(globalThis, "document", original);
-    else delete globalThis.document;
+    for (const [key, original] of Object.entries(originals)) {
+      if (original) Object.defineProperty(globalThis, key, original);
+      else delete globalThis[key];
+    }
   });
   const document = new FakeDocument(ids);
   globalThis.document = document;
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: new FakeStorage() });
+  const preference = new EventTarget();
+  preference.matches = false;
+  globalThis.matchMedia = () => preference;
+  const animations = [];
+  document.querySelector("#loading-frame").animate = (keyframes) => {
+    const animation = {
+      keyframes,
+      playState: "running",
+      cancel() {
+        this.playState = "idle";
+      },
+      pause() {
+        this.playState = "paused";
+      },
+      play() {
+        this.playState = "running";
+      },
+    };
+    animations.push(animation);
+    return animation;
+  };
   t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1000 });
-  const { setState, settleLoader, swapImage } = await import("../dist/test-client/stage.js");
+  const { bindStageEvents, setState, settleLoader, swapImage } = await import("../dist/test-client/stage.js");
+  bindStageEvents();
   const image = document.querySelector("#image");
   const zoom = document.querySelector("#image-zoom");
   const ghost = document.querySelector("#image-ghost");
@@ -29,7 +56,8 @@ test("loading preserves the frame and settles only its delayed entrance before c
   const entrance = settleLoader().then(() => {
     settled = true;
   });
-  t.mock.timers.tick(209);
+  t.mock.timers.tick(269);
+  await Promise.resolve();
   await Promise.resolve();
   assert.equal(settled, false);
   t.mock.timers.tick(1);
@@ -44,4 +72,87 @@ test("loading preserves the frame and settles only its delayed entrance before c
   assert.equal(zoom.inert, false);
   swapImage("blob:third", "third");
   assert.equal(ghost.dataset.dimmed, undefined); // Cached navigation must not inherit the loading treatment.
+
+  // Constant randomness must still avoid repeats, including the previous draw's second message.
+  t.mock.method(Math, "random", () => 0);
+  const message = document.querySelector("#loading-message");
+  setState("loading");
+  const first = message.textContent;
+  t.mock.timers.tick(4499);
+  assert.equal(message.textContent, first);
+  t.mock.timers.tick(1);
+  t.mock.timers.tick(140);
+  const second = message.textContent;
+  assert.notEqual(second, first);
+  t.mock.timers.tick(20000);
+  assert.equal(message.textContent, second); // Only one replacement, even for a very slow draw.
+  setState("image");
+  setState("loading");
+  const next = message.textContent;
+  assert.notEqual(next, first);
+  assert.notEqual(next, second);
+  t.mock.timers.tick(4500);
+  t.mock.timers.tick(140);
+  assert.ok(![first, second, next].includes(message.textContent));
+  setState("image");
+  setState("loading");
+  const canceled = message.textContent;
+  t.mock.timers.tick(4500);
+  setState("error"); // Completing or canceling during the copy fade must discard the pending swap.
+  t.mock.timers.tick(10000);
+  assert.equal(message.textContent, canceled);
+  assert.equal(message.dataset.changing, undefined);
+  setState("loading", "Restoring frame 2…");
+  t.mock.timers.tick(10000);
+  assert.equal(message.textContent, "Restoring frame 2…");
+  setState("image");
+
+  const { loadingMessages, pickLoadingMessage } = await import("../dist/test-client/loading-copy.js");
+  const all = loadingMessages.flatMap((group) => group.messages);
+  assert.ok(all.length >= 60);
+  assert.equal(new Set(all).size, all.length);
+  assert.ok(all.every((copy) => copy.length <= 38));
+  const counts = [0, 0, 0, 0];
+  let randomCall = 0;
+  let draw = 0;
+  Math.random.mock.mockImplementation(() => (randomCall++ % 2 ? 0 : (draw++ + 0.5) / 1000));
+  for (let i = 0; i < 1000; i++) {
+    const copy = pickLoadingMessage([]);
+    const category = loadingMessages.findIndex((group) => group.messages.includes(copy));
+    assert.ok(category >= 0);
+    counts[category]++;
+  }
+  assert.ok(counts[0] >= 650); // Neutral dominates regardless of the size of the other pools.
+  assert.ok(counts[1] >= 150);
+  assert.ok(counts[2] > 0 && counts[2] <= 60);
+  assert.ok(counts[3] > 0 && counts[3] <= 15);
+
+  Math.random.mock.mockImplementation(() => 0);
+  setState("loading");
+  const moving = animations.at(-1);
+  assert.ok(
+    moving.keyframes.every((keyframe) =>
+      Object.keys(keyframe).every((key) => ["transform", "opacity", "offset"].includes(key)),
+    ),
+  ); // The repeated optics animate only composited properties.
+  document.hidden = true;
+  document.dispatchEvent(new Event("visibilitychange"));
+  assert.equal(moving.playState, "paused");
+  const hiddenCopy = message.textContent;
+  t.mock.timers.tick(10000);
+  assert.equal(message.textContent, hiddenCopy);
+  document.hidden = false;
+  document.dispatchEvent(new Event("visibilitychange"));
+  assert.equal(moving.playState, "running");
+  preference.matches = true;
+  preference.dispatchEvent(new Event("change"));
+  assert.equal(moving.playState, "idle");
+  const count = animations.length;
+  setState("loading");
+  assert.equal(animations.length, count); // Reduced motion starts with a still frame too.
+  preference.matches = false;
+  preference.dispatchEvent(new Event("change"));
+  assert.equal(animations.length, count + 1);
+  setState("empty");
+  assert.equal(animations.at(-1).playState, "idle");
 });
