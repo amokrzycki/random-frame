@@ -4,7 +4,7 @@ import { bindDialogChromeEvents, closeDialog, onDialogClosed, openDialog } from 
 import { elements } from "./elements.js";
 import { getFavorites } from "./favorites.js";
 import { bindFrameActionEvents } from "./frame-actions.js";
-import { releaseAllBlobs } from "./frame-cache.js";
+import { initializeThumbnailCache, persistThumbnails, releaseAllBlobs } from "./frame-cache.js";
 import { bindNavigationEvents, goTo } from "./frame-loader.js";
 import { bindHistoryDialogEvents, pendingHistoryClearKey } from "./history-dialog.js";
 import { historyFromStorage, shouldShowEntryDialog } from "./navigation.js";
@@ -56,6 +56,8 @@ async function initialize(): Promise<void> {
     let [snapshot, favorites] = await Promise.all([getHistory(), getFavorites()]);
     state.historyLoadFailed = false;
     applyFavorites(favorites);
+    await initializeThumbnailCache();
+    await persistThumbnails();
     const legacy = historyFromStorage(sessionStorage.getItem(storageKey));
     if (!snapshot.history.length && legacy.history.length) {
       for (const item of legacy.history) {
