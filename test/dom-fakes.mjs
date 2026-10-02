@@ -287,3 +287,23 @@ export const ids = [
   "stats-error",
   "stats-retry",
 ];
+
+// Native thumbnail commands shared by client integration tests.
+export function fakeThumbnailCache() {
+  const disk = new Map();
+  return {
+    disk,
+    invoke(command, args) {
+      if (command === "load_thumbnail_cache") return [...disk];
+      if (command !== "save_thumbnail_cache") return undefined;
+      for (const [key, bytes] of args.entries) disk.set(key, bytes);
+      for (const key of disk.keys()) if (!args.keep.includes(key)) disk.delete(key);
+      return null;
+    },
+    stored() {
+      return Object.fromEntries(
+        [...disk].map(([key, bytes]) => [key, `data:image/jpeg;base64,${Buffer.from(bytes).toString("base64")}`]),
+      );
+    },
+  };
+}

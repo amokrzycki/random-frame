@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { FakeDocument, FakeStorage, ids } from "./dom-fakes.mjs";
+import { FakeDocument, FakeStorage, fakeThumbnailCache, ids } from "./dom-fakes.mjs";
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -61,6 +61,7 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
   const history = { history: Array.from({ length: 12 }, (_, i) => item(`id${i}`)), index: -1 };
   history.history[8] = item("id7"); // duplicate on the first page
   const favorites = [item("id1"), item("id10")];
+  const native = fakeThumbnailCache();
   const calls = [];
   let active = 0;
   let peak = 0;
@@ -72,6 +73,7 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
   window.__TAURI_INTERNALS__ = {
     async invoke(command, args) {
       calls.push({ command, args });
+      if (command === "load_thumbnail_cache" || command === "save_thumbnail_cache") return native.invoke(command, args);
       if (command === "get_history") return structuredClone(history);
       if (command === "get_favorites") return structuredClone(favorites);
       if (command === "clear_history") {
@@ -131,10 +133,8 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
 
   // Closing the dialog saves what was fetched.
   get("history-close-button").click();
-  assert.equal(
-    JSON.parse(localStorage.getItem("prntsc-gallery-thumbnails"))["prntsc:id2"],
-    "data:image/jpeg;base64,AA==",
-  );
+  await flush();
+  assert.equal(native.stored()["prntsc:id2"], "data:image/jpeg;base64,AA==");
   get("history-tool-button").click();
   get("history-filter-favorites").click();
   assert.equal(get("history-filter-favorites").getAttribute("aria-selected"), "true");
@@ -154,11 +154,8 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
     false,
   );
   for (let i = 0; i < 301; i++) thumbnails.set(blobKey("prntsc", `overflow${i}`), "data:image/jpeg;base64,AA==");
-  persistThumbnails();
-  assert.equal(
-    JSON.parse(localStorage.getItem("prntsc-gallery-thumbnails"))["prntsc:id11"],
-    "data:image/jpeg;base64,AA==",
-  );
+  await persistThumbnails();
+  assert.equal(native.stored()["prntsc:id11"], "data:image/jpeg;base64,AA==");
 
   // History clearing retains cached thumbnails used by Favourites, including one no longer in History.
   get("history-filter-all").click();
@@ -168,7 +165,7 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
   clear.click();
   toastExpiry();
   await flush();
-  const stored = JSON.parse(localStorage.getItem("prntsc-gallery-thumbnails"));
+  const stored = native.stored();
   assert.deepEqual(Object.keys(stored).sort(), ["prntsc:id1", "prntsc:id10", "prntsc:id11"]);
   get("history-tool-button").click();
   get("history-filter-favorites").click();

@@ -1,5 +1,11 @@
 # Random Frame release notes
 
+## 0.6.5
+
+### Thumbnail storage
+
+- Thumbnails are now saved as local files instead of browser storage. Existing thumbnails are moved automatically, and thumbnails for favorites are kept when older history thumbnails are removed.
+
 ## 0.6.4
 
 ### History and favorites

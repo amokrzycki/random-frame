@@ -83,10 +83,10 @@ function stopThumbnailWork(): void {
   thumbnailQueue.length = 0;
 }
 
-function saveThumbnails(): void {
+async function saveThumbnails(): Promise<void> {
   clearTimeout(saveTimer);
   saveTimer = undefined;
-  if (persistThumbnails() || saveFailureShown) return;
+  if ((await persistThumbnails()) || saveFailureShown) return;
   saveFailureShown = true;
   toast.error("Thumbnails could not be saved locally.");
 }
@@ -447,16 +447,16 @@ async function clearSavedHistory(): Promise<void> {
   syncControls();
   state.historyReturnFocus = elements.draw;
   closeDialog(elements.historyDialog);
-  const finishClear = (): void => {
+  const finishClear = async (): Promise<void> => {
     releaseAllBlobs();
-    clearThumbnails(state.favorites);
+    await clearThumbnails(state.favorites);
     elements.image.src = "";
     elements.image.alt = "";
     state.loading = false;
     syncControls();
   };
   if (!durable) {
-    finishClear();
+    await finishClear();
     toast.success("History cleared");
     return;
   }
@@ -474,13 +474,13 @@ async function clearSavedHistory(): Promise<void> {
   };
   toast.info("History cleared. Drawing paused while Undo is available.", { label: "Undo", run: restore }, () => {
     void clearHistory().then(
-      () => {
+      async () => {
         try {
           localStorage.removeItem(pendingHistoryClearKey);
         } catch {
           // The next launch may repeat the already completed clear.
         }
-        finishClear();
+        await finishClear();
       },
       (error: unknown) => {
         restore();

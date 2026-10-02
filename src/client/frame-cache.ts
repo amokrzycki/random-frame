@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { getThumbnailBlob } from "./api.js";
 import { state } from "./viewer-state.js";
 
@@ -8,7 +9,7 @@ export interface CachedBlob {
 
 const thumbnailStorageKey = "prntsc-gallery-thumbnails";
 const THUMBNAIL_MAX_DIMENSION = 160;
-// ~5-8 KB each as base64 JPEG; only non-favourites count toward this budget.
+// Small JPEG files; only non-favourites count toward this budget.
 const THUMBNAIL_LIMIT = 300;
 let clearGeneration = 0;
 const pendingThumbnails = new Map<string, Promise<boolean>>();
@@ -35,35 +36,79 @@ function loadThumbnails(): Map<string, string> {
   }
 }
 
-export const thumbnails = loadThumbnails();
+export const thumbnails = new Map<string, string>();
+const savedThumbnails = new Map<string, string>();
+let initializing: Promise<boolean> | undefined;
+let initialized = false;
+let retainedAfterClear: Set<string> | undefined;
+let saveQueue: Promise<boolean> = Promise.resolve(true);
 
-export function persistThumbnails(): boolean {
-  const pinned = new Set(state.favorites.map(({ source, id }) => blobKey(source, id)));
-  const ordinary = [...thumbnails.keys()].filter((key) => !pinned.has(key));
-  for (const key of ordinary.slice(0, Math.max(0, ordinary.length - THUMBNAIL_LIMIT))) thumbnails.delete(key);
-  const write = (entries: Map<string, string>) =>
-    localStorage.setItem(thumbnailStorageKey, JSON.stringify(Object.fromEntries(entries)));
-  try {
-    write(thumbnails);
-    return true;
-  } catch (error) {
-    if (!(error instanceof Error && error.name === "QuotaExceededError")) return false;
-    for (const key of thumbnails.keys()) if (!pinned.has(key)) thumbnails.delete(key);
+function thumbnailBytes(image: string): number[] {
+  return Array.from(atob(image.slice(image.indexOf(",") + 1)), (character) => character.charCodeAt(0));
+}
+
+export function initializeThumbnailCache(): Promise<boolean> {
+  if (initialized) return Promise.resolve(true);
+  if (initializing) return initializing;
+  initializing = (async () => {
     try {
-      write(thumbnails);
+      const entries = await invoke<[string, number[]][]>("load_thumbnail_cache");
+      for (const [key, bytes] of entries) {
+        const image = `data:image/jpeg;base64,${btoa(bytes.map((byte) => String.fromCharCode(byte)).join(""))}`;
+        if ((!retainedAfterClear || retainedAfterClear.has(key)) && !thumbnails.has(key)) thumbnails.set(key, image);
+        savedThumbnails.set(key, image);
+      }
+      const legacy = loadThumbnails();
+      for (const [key, image] of legacy)
+        if ((!retainedAfterClear || retainedAfterClear.has(key)) && !thumbnails.has(key)) thumbnails.set(key, image);
+      if (legacy.size) {
+        const entries = [...thumbnails].filter(([key, image]) => savedThumbnails.get(key) !== image);
+        await invoke("save_thumbnail_cache", {
+          entries: entries.map(([key, image]) => [key, thumbnailBytes(image)]),
+          keep: [...thumbnails.keys()],
+        });
+        for (const [key, image] of entries) savedThumbnails.set(key, image);
+      }
+      // Remove the old value only after every legacy thumbnail was saved successfully.
+      try {
+        localStorage.removeItem(thumbnailStorageKey);
+      } catch {
+        // Saved files remain usable; legacy cleanup will be retried next launch.
+      }
+      initialized = true;
+      retainedAfterClear = undefined;
       return true;
     } catch {
-      // If a new pinned image does not fit, still free old ordinary entries on disk.
-      const previouslySaved = loadThumbnails();
-      for (const key of previouslySaved.keys()) if (!pinned.has(key)) previouslySaved.delete(key);
-      try {
-        write(previouslySaved);
-      } catch {
-        // Keep the previous value if storage itself is unavailable.
-      }
+      return false;
+    } finally {
+      initializing = undefined;
+    }
+  })();
+  return initializing;
+}
+
+export function persistThumbnails(): Promise<boolean> {
+  // Serialize writes and pruning so a delayed save cannot undo a later clear.
+  saveQueue = saveQueue.then(async () => {
+    if (!(await initializeThumbnailCache())) return false;
+    const pinned = new Set(state.favorites.map(({ source, id }) => blobKey(source, id)));
+    const ordinary = [...thumbnails.keys()].filter((key) => !pinned.has(key));
+    for (const key of ordinary.slice(0, Math.max(0, ordinary.length - THUMBNAIL_LIMIT))) thumbnails.delete(key);
+    const entries = [...thumbnails].filter(([key, image]) => savedThumbnails.get(key) !== image);
+    const keep = [...thumbnails.keys()];
+    try {
+      await invoke("save_thumbnail_cache", {
+        entries: entries.map(([key, image]) => [key, thumbnailBytes(image)]),
+        keep,
+      });
+      for (const key of savedThumbnails.keys()) if (!keep.includes(key)) savedThumbnails.delete(key);
+      for (const [key, image] of entries) savedThumbnails.set(key, image);
+      return true;
+    } catch {
       return false;
     }
-  }
+  });
+  return saveQueue;
 }
 
 export async function cacheThumbnail(
@@ -72,6 +117,7 @@ export async function cacheThumbnail(
   persist = true,
   generation = clearGeneration,
 ): Promise<boolean> {
+  await initializeThumbnailCache();
   if (thumbnails.get(key)) return persist ? persistThumbnails() : true;
   try {
     const bitmap = await createImageBitmap(blob);
@@ -98,6 +144,7 @@ export async function cacheThumbnail(
 }
 
 export async function ensureThumbnail(frame: { source: string; id: string }, persist = true): Promise<boolean> {
+  await initializeThumbnailCache();
   const key = blobKey(frame.source, frame.id);
   if (thumbnails.get(key)) return persist ? persistThumbnails() : true;
   const pending = pendingThumbnails.get(key);
@@ -120,16 +167,11 @@ export function releaseAllBlobs(): void {
   blobs.clear();
 }
 
-export function clearThumbnails(keep: readonly { source: string; id: string }[]): void {
+export async function clearThumbnails(keep: readonly { source: string; id: string }[]): Promise<void> {
   clearGeneration++;
   const retained = new Set(keep.map(({ source, id }) => blobKey(source, id)));
+  retainedAfterClear = retained;
+  await initializeThumbnailCache();
   for (const key of thumbnails.keys()) if (!retained.has(key)) thumbnails.delete(key);
-  if (thumbnails.size) persistThumbnails();
-  else {
-    try {
-      localStorage.removeItem(thumbnailStorageKey);
-    } catch {
-      // Clearing history still succeeds when local thumbnail storage is unavailable.
-    }
-  }
+  await persistThumbnails();
 }

@@ -10,6 +10,7 @@ mod sync;
 mod sync_crypto;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 mod sync_transport;
+mod thumbnail_cache;
 
 use chrono::Local;
 use error::{AppError, ErrorKind};
@@ -550,6 +551,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         .setup(|app| {
             let data_directory = app.path().app_data_dir()?;
             app.manage(AppState::new(&data_directory)?);
+            thumbnail_cache::setup(app)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -557,6 +559,8 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             get_frame_by_id,
             get_frame_image,
             get_thumbnail_image,
+            thumbnail_cache::load_thumbnail_cache,
+            thumbnail_cache::save_thumbnail_cache,
             get_history,
             record_history_item,
             select_history_item,
