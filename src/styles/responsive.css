@@ -92,6 +92,7 @@
   #loading-message[data-changing] {
     transform: none;
     filter: none;
+    clip-path: none;
   }
   #loading-message {
     animation: fade-out 220ms var(--ease-out) 150ms reverse backwards !important;

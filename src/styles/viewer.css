@@ -159,7 +159,7 @@
 .loading-state {
   opacity: 1;
   transition:
-    opacity 220ms var(--ease-out) 150ms,
+    opacity 100ms var(--ease-out) 150ms,
     display 120ms allow-discrete;
 }
 .loading-state[hidden] {
@@ -191,7 +191,8 @@
   stroke-width: 0.65;
   stroke-linecap: round;
   stroke-linejoin: round;
-  opacity: 0.86;
+  opacity: 0.96;
+  overflow: visible;
   transform-origin: center;
 }
 /* Keep the caption's footprint steady as a slow draw gets one quiet copy change. */
@@ -202,7 +203,7 @@
   letter-spacing: 0.01em;
   text-shadow: 0 2px 8px rgb(0 0 0 / 24%);
   text-wrap: balance;
-  animation: loading-message-in 280ms var(--ease-out) 150ms backwards;
+  animation: loading-message-in 320ms var(--ease-out) 420ms backwards;
   transition:
     opacity 280ms var(--ease-out),
     transform 280ms var(--ease-out),
@@ -216,9 +217,14 @@
 }
 @keyframes loading-message-in {
   from {
-    opacity: 0;
-    transform: translateY(4px);
-    filter: blur(2px);
+    clip-path: inset(0 0 100%);
+    transform: translateY(12px);
+    filter: blur(4px);
+  }
+  to {
+    clip-path: inset(0);
+    transform: translateY(0);
+    filter: blur(0);
   }
 }
 /* Appears only if the draw is still running after 3s, so quick draws never flash it. */

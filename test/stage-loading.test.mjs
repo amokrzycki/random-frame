@@ -19,23 +19,28 @@ test("loading preserves the frame and settles only its delayed entrance before c
   preference.matches = false;
   globalThis.matchMedia = () => preference;
   const animations = [];
-  document.querySelector("#loading-frame").animate = (keyframes) => {
-    const animation = {
-      keyframes,
-      playState: "running",
-      cancel() {
-        this.playState = "idle";
-      },
-      pause() {
-        this.playState = "paused";
-      },
-      play() {
-        this.playState = "running";
-      },
+  const frame = document.querySelector("#loading-frame");
+  frame.append(...Array.from({ length: 4 }, () => document.createElement("path")));
+  for (const target of [frame, ...frame.children, document.querySelector("#image-zoom")])
+    target.animate = (keyframes, options) => {
+      const animation = {
+        target,
+        keyframes,
+        options,
+        playState: "running",
+        cancel() {
+          this.playState = "idle";
+        },
+        pause() {
+          this.playState = "paused";
+        },
+        play() {
+          this.playState = "running";
+        },
+      };
+      animations.push(animation);
+      return animation;
     };
-    animations.push(animation);
-    return animation;
-  };
   t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1000 });
   const { bindStageEvents, setState, settleLoader, swapImage } = await import("../dist/test-client/stage.js");
   bindStageEvents();
@@ -56,7 +61,7 @@ test("loading preserves the frame and settles only its delayed entrance before c
   const entrance = settleLoader().then(() => {
     settled = true;
   });
-  t.mock.timers.tick(269);
+  t.mock.timers.tick(589);
   await Promise.resolve();
   await Promise.resolve();
   assert.equal(settled, false);
@@ -109,9 +114,10 @@ test("loading preserves the frame and settles only its delayed entrance before c
 
   const { loadingMessages, pickLoadingMessage } = await import("../dist/test-client/loading-copy.js");
   const all = loadingMessages.flatMap((group) => group.messages);
-  assert.ok(all.length >= 60);
+  assert.ok(all.length >= 1268);
   assert.equal(new Set(all).size, all.length);
-  assert.ok(all.every((copy) => copy.length <= 38));
+  assert.ok(all.every((copy) => copy.length <= 52));
+  assert.ok(all.filter((copy) => copy.length <= 38).length / all.length > 0.9);
   const counts = [0, 0, 0, 0];
   let randomCall = 0;
   let draw = 0;
@@ -129,30 +135,32 @@ test("loading preserves the frame and settles only its delayed entrance before c
 
   Math.random.mock.mockImplementation(() => 0);
   setState("loading");
-  const moving = animations.at(-1);
-  assert.ok(
-    moving.keyframes.every((keyframe) =>
-      Object.keys(keyframe).every((key) => ["transform", "opacity", "offset"].includes(key)),
-    ),
-  ); // The repeated optics animate only composited properties.
+  const moving = animations.filter((animation) => animation.playState === "running");
+  const entranceMotion = moving.find(
+    (animation) => animation.target === frame && animation.options.iterations !== Infinity,
+  );
+  assert.equal(entranceMotion.keyframes[0].transform, "scale(1.32)");
+  const loops = moving.filter((animation) => animation.options.iterations === Infinity);
+  assert.equal(loops.length, 6); // The viewfinder, all four corners, and image share one focus rhythm.
+  assert.ok(loops.every((animation) => animation.options.duration === 2600 && animation.options.delay === 750));
   document.hidden = true;
   document.dispatchEvent(new Event("visibilitychange"));
-  assert.equal(moving.playState, "paused");
+  assert.ok(moving.every((animation) => animation.playState === "paused"));
   const hiddenCopy = message.textContent;
   t.mock.timers.tick(10000);
   assert.equal(message.textContent, hiddenCopy);
   document.hidden = false;
   document.dispatchEvent(new Event("visibilitychange"));
-  assert.equal(moving.playState, "running");
+  assert.ok(moving.every((animation) => animation.playState === "running"));
   preference.matches = true;
   preference.dispatchEvent(new Event("change"));
-  assert.equal(moving.playState, "idle");
+  assert.ok(moving.every((animation) => animation.playState === "idle"));
   const count = animations.length;
   setState("loading");
   assert.equal(animations.length, count); // Reduced motion starts with a still frame too.
   preference.matches = false;
   preference.dispatchEvent(new Event("change"));
-  assert.equal(animations.length, count + 1);
+  assert.ok(animations.length > count);
   setState("empty");
-  assert.equal(animations.at(-1).playState, "idle");
+  assert.ok(animations.every((animation) => animation.playState === "idle"));
 });

@@ -32,25 +32,72 @@ const statePanels: Record<ViewState, HTMLElement> = {
 
 // Scripted motion is reliable in the desktop webview; CSS owns the delayed entrance.
 const reducedMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)");
-let focusFrame: Animation | undefined;
+let focusAnimations: Animation[] = [];
 let loadingSince = 0;
 let messageTimer: ReturnType<typeof setTimeout> | undefined;
 let previousLoadingMessages: string[] = [];
 let currentLoadingMessages: string[] = [];
 
 function animateFocusFrame(): void {
-  focusFrame?.cancel();
-  focusFrame = undefined;
-  if (viewState === "loading" && !reducedMotion?.matches)
-    focusFrame = elements.loadingFrame.animate(
-      [
-        { transform: "scale(1)", opacity: 0.86 },
-        { transform: "scale(1.018)", opacity: 0.96 },
-        { transform: "scale(1)", opacity: 0.86 },
-      ],
-      { duration: 1900, delay: 150, easing: "ease-in-out", iterations: Infinity },
+  for (const animation of focusAnimations) animation?.cancel();
+  focusAnimations = [];
+  if (viewState !== "loading" || reducedMotion?.matches) return;
+  const snap = { duration: 600, delay: 150, easing: "cubic-bezier(0.16, 1, 0.3, 1)", fill: "backwards" as const };
+  const rhythm = { duration: 2600, delay: 750, easing: "ease-in-out", iterations: Infinity };
+  const offsets = [0, 0.25, 0.5, 0.68, 0.76, 0.86, 1];
+  focusAnimations.push(
+    elements.loadingFrame.animate(
+      [{ transform: "scale(1.32)" }, { transform: "scale(0.96)", offset: 0.64 }, { transform: "scale(1)" }],
+      snap,
+    ),
+    elements.loadingFrame.animate(
+      [1, 1.04, 1.015, 1.075, 0.965, 1, 1].map((scale, i) => ({
+        transform: `scale(${scale})`,
+        offset: offsets[i] ?? 1,
+      })),
+      rhythm,
+    ),
+  );
+  for (const [i, corner] of Array.from(elements.loadingFrame.children).entries()) {
+    const x = i === 0 || i === 3 ? -1 : 1;
+    const y = i < 2 ? -1 : 1;
+    focusAnimations.push(
+      corner.animate(
+        [7, -0.7, 0].map((travel, index) => ({
+          transform: `translate(${x * travel}px, ${y * travel}px)`,
+          offset: [0, 0.64, 1][index] ?? 1,
+        })),
+        snap,
+      ),
+      corner.animate(
+        [0, 1.3, 0.4, 2.2, -0.8, 0, 0].map((travel, index) => ({
+          transform: `translate(${x * travel}px, ${y * travel}px)`,
+          offset: offsets[index] ?? 1,
+        })),
+        rhythm,
+      ),
     );
-  if (document.hidden) focusFrame?.pause();
+  }
+  if (elements.imageZoom.dataset.dimmed === "loading")
+    focusAnimations.push(
+      elements.imageZoom.animate(
+        [
+          [1.6, 0.82, 1.006],
+          [2.2, 0.8, 1.012],
+          [1.7, 0.82, 1.008],
+          [2.6, 0.78, 1.018],
+          [1.1, 0.86, 1.003],
+          [1.6, 0.82, 1.006],
+          [1.6, 0.82, 1.006],
+        ].map(([blur, brightness, scale], i) => ({
+          filter: `blur(${blur}px) brightness(${brightness})`,
+          transform: `scale(${scale})`,
+          offset: offsets[i] ?? 1,
+        })),
+        rhythm,
+      ),
+    );
+  if (document.hidden) for (const animation of focusAnimations) animation?.pause();
 }
 
 export function setState(next: ViewState, loadingCopy?: string): void {
@@ -59,7 +106,6 @@ export function setState(next: ViewState, loadingCopy?: string): void {
   // A shown frame stays on stage, dimmed under the loader or an error, so the next one can crossfade in.
   const keepFrame = (next === "loading" || next === "error") && !elements.imageZoom.hidden;
   viewState = next;
-  animateFocusFrame();
   for (const [name, target] of Object.entries(statePanels))
     target.hidden = name !== next && !(keepFrame && name === "image");
   elements.imageZoom.inert = keepFrame;
@@ -67,6 +113,7 @@ export function setState(next: ViewState, loadingCopy?: string): void {
   // The value lets CSS hold the loading dim back 150ms while an error dims at once.
   if (keepFrame) elements.imageZoom.dataset.dimmed = next;
   else delete elements.imageZoom.dataset.dimmed;
+  animateFocusFrame();
   if (next === "loading") {
     loadingSince = Date.now();
     if (loadingCopy === undefined) {
@@ -99,7 +146,7 @@ const stateControls: Record<ViewState, HTMLElement | null> = {
 // Let the caption's delayed entrance finish, then hand straight into the image crossfade.
 export async function settleLoader(): Promise<void> {
   const visible = Date.now() - loadingSince - 150;
-  const entrance = reducedMotion?.matches ? 220 : 280;
+  const entrance = reducedMotion?.matches ? 220 : 600;
   if (visible > 0 && visible < entrance) await new Promise((resolve) => setTimeout(resolve, entrance - visible));
 }
 
@@ -313,8 +360,10 @@ export function swapImage(url: string, id: string): void {
 export function bindStageEvents(): void {
   reducedMotion?.addEventListener("change", animateFocusFrame);
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) focusFrame?.pause();
-    else if (!reducedMotion?.matches) focusFrame?.play();
+    for (const animation of focusAnimations) {
+      if (document.hidden) animation?.pause();
+      else if (!reducedMotion?.matches) animation?.play();
+    }
   });
   elements.imageGhost.addEventListener("animationend", () => {
     elements.imageGhost.hidden = true;

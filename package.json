@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node build.mjs --watch",
     "build": "npm run typecheck && node build.mjs",
-    "build:test": "esbuild src/client/*.ts --bundle --external:./*.js --packages=external --loader:.md=text --platform=browser --format=esm --sourcemap --outdir=dist/test-client",
+    "build:test": "esbuild src/client/*.ts src/client/loading-copy/*.ts --bundle --external:./*.js --packages=external --loader:.md=text --platform=browser --format=esm --sourcemap --outdir=dist/test-client",
     "test": "npm run build && npm run build:test && node --test",
     "lint": "biome check",
     "typecheck": "tsc --noEmit",
