@@ -1,6 +1,7 @@
 import { elements } from "./elements.js";
 import { describeError } from "./errors.js";
 import { blobKey, blobs, cacheThumbnail, savedFrames } from "./frame-cache.js";
+import { pickLoadingMessage } from "./loading-copy.js";
 import { adjacentPrntscId, nextHistoryIndex } from "./navigation.js";
 import { toast } from "./toast.js";
 import { isFavorite, navigationView, state } from "./viewer-state.js";
@@ -29,19 +30,96 @@ const statePanels: Record<ViewState, HTMLElement> = {
   image: elements.imageZoom,
 };
 
-// The ring's CSS animation is sometimes never instantiated by the webview, so the ring stays still; an animation made from script always runs.
+// Scripted motion is reliable in the desktop webview; CSS owns the delayed entrance.
 const reducedMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)");
-let spinner: Animation | undefined;
-let loadingSince = 0;
+let focusAnimations: Animation[] = [];
+let captionWidth: Animation | undefined;
 
-export function setState(next: ViewState): void {
-  spinner?.cancel();
-  spinner = undefined;
-  if (next === "loading" && !reducedMotion?.matches)
-    spinner = elements.loadingRing.animate(
-      { transform: ["rotate(0)", "rotate(1turn)"] },
-      { duration: 850, iterations: Infinity },
+// The caption sizes the whole button, so tween its width between the measured old and new text.
+function setImageId(id: string) {
+  if (elements.imageIdValue.textContent === id) return;
+  const caption = elements.imageIdValue.parentElement;
+  const from = caption?.getBoundingClientRect().width;
+  captionWidth?.cancel();
+  elements.imageIdValue.textContent = id;
+  if (!caption || !from) return;
+  const to = caption.getBoundingClientRect().width;
+  if (reducedMotion?.matches || from === to) return;
+  captionWidth = caption.animate(
+    { width: [`${from}px`, `${to}px`] },
+    { duration: 320, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+  );
+}
+let loadingSince = 0;
+let messageTimer: ReturnType<typeof setTimeout> | undefined;
+let previousLoadingMessages: string[] = [];
+let currentLoadingMessages: string[] = [];
+
+function animateFocusFrame(): void {
+  for (const animation of focusAnimations) animation?.cancel();
+  focusAnimations = [];
+  if (viewState !== "loading" || reducedMotion?.matches) return;
+  const snap = { duration: 600, delay: 150, easing: "cubic-bezier(0.16, 1, 0.3, 1)", fill: "backwards" as const };
+  const rhythm = { duration: 2600, delay: 750, easing: "ease-in-out", iterations: Infinity };
+  const offsets = [0, 0.25, 0.5, 0.68, 0.76, 0.86, 1];
+  focusAnimations.push(
+    elements.loadingFrame.animate(
+      [{ transform: "scale(1.32)" }, { transform: "scale(0.96)", offset: 0.64 }, { transform: "scale(1)" }],
+      snap,
+    ),
+    elements.loadingFrame.animate(
+      [1, 1.04, 1.015, 1.075, 0.965, 1, 1].map((scale, i) => ({
+        transform: `scale(${scale})`,
+        offset: offsets[i] ?? 1,
+      })),
+      rhythm,
+    ),
+  );
+  for (const [i, corner] of Array.from(elements.loadingFrame.children).entries()) {
+    const x = i === 0 || i === 3 ? -1 : 1;
+    const y = i < 2 ? -1 : 1;
+    focusAnimations.push(
+      corner.animate(
+        [7, -0.7, 0].map((travel, index) => ({
+          transform: `translate(${x * travel}px, ${y * travel}px)`,
+          offset: [0, 0.64, 1][index] ?? 1,
+        })),
+        snap,
+      ),
+      corner.animate(
+        [0, 1.3, 0.4, 2.2, -0.8, 0, 0].map((travel, index) => ({
+          transform: `translate(${x * travel}px, ${y * travel}px)`,
+          offset: offsets[index] ?? 1,
+        })),
+        rhythm,
+      ),
     );
+  }
+  if (elements.imageZoom.dataset.dimmed === "loading")
+    focusAnimations.push(
+      elements.imageZoom.animate(
+        [
+          [1.6, 0.82, 1.006],
+          [2.2, 0.8, 1.012],
+          [1.7, 0.82, 1.008],
+          [2.6, 0.78, 1.018],
+          [1.1, 0.86, 1.003],
+          [1.6, 0.82, 1.006],
+          [1.6, 0.82, 1.006],
+        ].map(([blur, brightness, scale], i) => ({
+          filter: `blur(${blur}px) brightness(${brightness})`,
+          transform: `scale(${scale})`,
+          offset: offsets[i] ?? 1,
+        })),
+        rhythm,
+      ),
+    );
+  if (document.hidden) for (const animation of focusAnimations) animation?.pause();
+}
+
+export function setState(next: ViewState, loadingCopy?: string): void {
+  clearTimeout(messageTimer);
+  delete elements.loadingMessage.dataset.changing;
   // A shown frame stays on stage, dimmed under the loader or an error, so the next one can crossfade in.
   const keepFrame = (next === "loading" || next === "error") && !elements.imageZoom.hidden;
   viewState = next;
@@ -49,12 +127,28 @@ export function setState(next: ViewState): void {
     target.hidden = name !== next && !(keepFrame && name === "image");
   elements.imageZoom.inert = keepFrame;
   elements.draw.toggleAttribute("data-invite", next === "empty");
-  // The value lets CSS hold the loading dim back 200ms while an error dims at once.
+  // The value lets CSS hold the loading dim back 150ms while an error dims at once.
   if (keepFrame) elements.imageZoom.dataset.dimmed = next;
   else delete elements.imageZoom.dataset.dimmed;
+  animateFocusFrame();
   if (next === "loading") {
     loadingSince = Date.now();
-    elements.loadingMessage.textContent = "Drawing a frame…";
+    if (loadingCopy === undefined) {
+      previousLoadingMessages = currentLoadingMessages;
+      currentLoadingMessages = [pickLoadingMessage(previousLoadingMessages)];
+      messageTimer = setTimeout(() => {
+        // A hidden window doesn't need a new caption. There is no repeating message interval.
+        if (document.hidden) return;
+        elements.loadingMessage.dataset.changing = "";
+        messageTimer = setTimeout(() => {
+          const message = pickLoadingMessage([...previousLoadingMessages, ...currentLoadingMessages]);
+          currentLoadingMessages.push(message);
+          elements.loadingMessage.textContent = message;
+          delete elements.loadingMessage.dataset.changing;
+        }, 140);
+      }, 4500);
+    }
+    elements.loadingMessage.textContent = loadingCopy ?? currentLoadingMessages[0] ?? "Drawing a frame…";
     elements.announcer.textContent = "Drawing a frame…";
   }
 }
@@ -66,10 +160,11 @@ const stateControls: Record<ViewState, HTMLElement | null> = {
   image: elements.draw,
 };
 
-// The loader appears after 200ms. Once it has, keep it up for 500ms, so it never flashes half-formed.
+// Let the caption's delayed entrance finish, then hand straight into the image crossfade.
 export async function settleLoader(): Promise<void> {
-  const visible = Date.now() - loadingSince - 200;
-  if (visible > 0 && visible < 500) await new Promise((resolve) => setTimeout(resolve, 500 - visible));
+  const visible = Date.now() - loadingSince - 150;
+  const entrance = reducedMotion?.matches ? 220 : 600;
+  if (visible > 0 && visible < entrance) await new Promise((resolve) => setTimeout(resolve, entrance - visible));
 }
 
 export function startLoading(): void {
@@ -147,7 +242,7 @@ export function syncControls(): void {
   elements.lightboxPrevious.setAttribute("aria-disabled", String(state.loading || view.index <= 0));
   elements.lightboxNext.setAttribute("aria-disabled", String(state.loading || view.index >= view.items.length - 1));
   elements.historyClear.disabled = state.loading || !state.history.length;
-  elements.imageIdValue.textContent = current?.id ?? "———";
+  setImageId(current?.id ?? "———");
   // The accessible name has to contain the visible text, so the ID leads and the purpose follows.
   elements.frameMenuButton.setAttribute(
     "aria-label",
@@ -267,8 +362,10 @@ export function swapImage(url: string, id: string): void {
   const outgoing = image.src;
   const crossfade = !elements.imageZoom.hidden && outgoing.startsWith("blob:") && outgoing !== url;
   ghost.hidden = !crossfade;
+  delete ghost.dataset.dimmed;
   if (crossfade) {
     ghost.src = outgoing;
+    if (elements.imageZoom.dataset.dimmed === "loading") ghost.dataset.dimmed = "loading";
     restartAnimation(ghost);
   }
   image.src = url;
@@ -278,6 +375,14 @@ export function swapImage(url: string, id: string): void {
 }
 
 export function bindStageEvents(): void {
+  reducedMotion?.addEventListener("change", animateFocusFrame);
+  document.addEventListener("visibilitychange", () => {
+    for (const animation of focusAnimations) {
+      // Finished one-shot entrances stay finished; play() would rewind and replay them.
+      if (document.hidden && animation.playState === "running") animation.pause();
+      else if (!document.hidden && animation.playState === "paused" && !reducedMotion?.matches) animation.play();
+    }
+  });
   elements.imageGhost.addEventListener("animationend", () => {
     elements.imageGhost.hidden = true;
   });

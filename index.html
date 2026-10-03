@@ -581,9 +581,11 @@
           </div>
 
           <div class="loading-state" id="loading-state" hidden>
-            <svg class="loader" id="loading-ring" viewBox="0 0 36 36" aria-hidden="true">
-              <circle class="loader__track" cx="18" cy="18" r="15.5" />
-              <circle class="loader__indicator" cx="18" cy="18" r="15.5" />
+            <svg class="loading-frame" id="loading-frame" viewBox="0 0 72 52" aria-hidden="true">
+              <path d="M18 3H3v12" />
+              <path d="M54 3h15v12" />
+              <path d="M69 37v12H54" />
+              <path d="M18 49H3V37" />
             </svg>
             <p id="loading-message">Drawing a frame…</p>
             <p class="loading-hint" aria-hidden="true"><kbd>Esc</kbd> to cancel</p>
@@ -781,10 +783,6 @@
 
           <button class="draw-button" id="draw-button" type="button" aria-keyshortcuts="N">
             <span class="draw-button__label" id="draw-label">Draw</span>
-            <svg class="draw-button__spinner" viewBox="0 0 16 16" aria-hidden="true">
-              <circle class="draw-button__spinner-track" cx="8" cy="8" r="6.5" />
-              <circle class="draw-button__spinner-arc" cx="8" cy="8" r="6.5" />
-            </svg>
             <kbd class="draw-button__key" aria-hidden="true">N</kbd>
           </button>
         </div>

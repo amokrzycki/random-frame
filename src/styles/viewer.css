@@ -39,7 +39,6 @@
 }
 
 .empty-state,
-.loading-state,
 .error-state {
   width: min(500px, calc(100% - 80px));
   text-align: center;
@@ -126,24 +125,53 @@
 }
 
 .loading-state {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
   display: grid;
+  align-content: center;
   justify-items: center;
-  gap: 18px;
+  gap: 28px;
+  color: var(--white);
+  text-align: center;
+  pointer-events: none;
+}
+/* Optical shading covers the image stage, with no panel edge behind the viewfinder. */
+.loading-state::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(ellipse at 50% 52%, rgb(0 0 0 / 52%) 22%, rgb(0 0 0 / 28%) 55%, rgb(0 0 0 / 54%) 100%);
 }
 .loading-state p {
   margin: 0;
-  font-size: 14px;
+  font-size: 12px;
+  line-height: 1.5;
 }
 /* A scrim under the text, so it holds contrast over any frame that shows through the dimming. */
-.loading-state,
 .error-state {
   padding: 20px 24px;
   border-radius: var(--radius-primary);
   background: color-mix(in srgb, var(--stage) 78%, transparent);
 }
-/* A draw that lands inside 200ms never shows the loader or the dim, so quick draws do not flicker. */
+/* Short requests never reveal the optics; completion fades into the image crossfade. */
 .loading-state {
-  animation: loader-in 320ms var(--ease-out) 200ms backwards;
+  opacity: 1;
+  transition:
+    opacity 100ms var(--ease-out) 150ms,
+    display 120ms allow-discrete;
+}
+.loading-state[hidden] {
+  opacity: 0;
+  transition:
+    opacity 120ms var(--ease-out),
+    display 120ms allow-discrete;
+}
+@starting-style {
+  .loading-state {
+    opacity: 0;
+  }
 }
 @keyframes loader-in {
   from {
@@ -151,18 +179,59 @@
     transform: translateY(8px) scale(0.97);
   }
 }
-/* The first-run and cleared stage settles in with the loader's entrance; Draw's invite ring follows at 600ms. */
+/* The first-run stage settles in; Draw's invite ring follows at 600ms. */
 .empty-state {
   animation: loader-in 320ms var(--ease-out) backwards;
 }
-.loader {
-  width: 36px;
-  height: 36px;
+.loading-frame {
+  width: 116px;
+  height: auto;
   fill: none;
+  stroke: var(--white);
+  stroke-width: 0.65;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.96;
+  overflow: visible;
   transform-origin: center;
+}
+/* Keep the caption's footprint steady as a slow draw gets one quiet copy change. */
+#loading-message {
+  width: min(38ch, calc(100% - 48px));
+  min-height: 1.5em;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+  text-shadow: 0 2px 8px rgb(0 0 0 / 24%);
+  text-wrap: balance;
+  animation: loading-message-in 320ms var(--ease-out) 420ms backwards;
+  transition:
+    opacity 280ms var(--ease-out),
+    transform 280ms var(--ease-out),
+    filter 280ms var(--ease-out);
+}
+#loading-message[data-changing] {
+  opacity: 0;
+  transform: translateY(2px);
+  filter: blur(2px);
+  transition-duration: 140ms;
+}
+@keyframes loading-message-in {
+  from {
+    clip-path: inset(0 0 100%);
+    transform: translateY(12px);
+    filter: blur(4px);
+  }
+  to {
+    clip-path: inset(0);
+    transform: translateY(0);
+    filter: blur(0);
+  }
 }
 /* Appears only if the draw is still running after 3s, so quick draws never flash it. */
 .loading-hint {
+  position: absolute;
+  top: calc(50% + 104px);
+  color: var(--stage-muted);
   font-size: 12px;
   opacity: 0;
 }
@@ -180,22 +249,9 @@
 }
 @keyframes hint-in {
   to {
-    opacity: 0.7;
+    opacity: 0.9;
   }
 }
-.loader__track,
-.loader__indicator {
-  stroke-width: 1.5;
-}
-.loader__track {
-  stroke: var(--stage-line);
-}
-.loader__indicator {
-  stroke: var(--white);
-  stroke-dasharray: 24 74;
-  stroke-linecap: round;
-}
-
 /* A caption over the dimmed frame, not a headline: the frame behind it is still the subject. */
 .error-state {
   width: min(420px, calc(100% - 80px));
@@ -275,17 +331,18 @@
   cursor: zoom-in;
   transition:
     opacity 300ms var(--ease-out),
-    filter 300ms var(--ease-out);
+    filter 220ms var(--ease-out),
+    transform 450ms var(--ease-out);
 }
-
-/* The previous frame waits under the loader instead of cutting to black. */
-.image-zoom[data-dimmed] {
+.image-zoom[data-dimmed="error"] {
   opacity: 0.3;
   filter: blur(1px) saturate(0.5);
   transition-duration: 320ms;
 }
 .image-zoom[data-dimmed="loading"] {
-  transition-delay: 200ms;
+  filter: blur(1.6px) brightness(0.82);
+  transform: scale(1.006);
+  transition-delay: 150ms;
 }
 
 /* The stage clips overflow, so the ring sits inside the frame instead of around it. */
@@ -305,7 +362,7 @@
   max-height: calc(100% - 48px);
   object-fit: contain;
   cursor: zoom-in;
-  animation: reveal 400ms var(--ease-out) both;
+  animation: reveal 450ms var(--ease-out) both;
 }
 
 .image-ghost {
@@ -320,7 +377,12 @@
   object-fit: contain;
   pointer-events: none;
   translate: -50% -50%;
-  animation: fade-out 400ms ease-in forwards;
+  animation: fade-out 450ms ease-in forwards;
+}
+/* Hold the outgoing exposure while the replacement develops into focus. */
+.image-ghost[data-dimmed="loading"] {
+  filter: blur(1.6px) brightness(0.82);
+  transform: scale(1.006);
 }
 
 .nav-button {
@@ -886,39 +948,13 @@ a.tools-menu__item {
   cursor: progress;
 }
 
-/* Busy: label and spinner move as one beat; the key stays visible. The label and spinner crossfade at the same
-   position, so the button keeps its width; the label stays in the tree as the button's name. */
+/* Keep the action legible while the stage carries the loading feedback. */
 .draw-button__label {
-  transition:
-    opacity 160ms var(--ease-out),
-    transform 160ms var(--ease-out);
-}
-.draw-button[aria-busy="true"] .draw-button__label {
-  opacity: 0;
-  transform: scale(0.92);
-}
-.draw-button__spinner {
-  position: absolute;
-  left: 16px;
-  top: calc(50% - 8px);
-  width: 16px;
-  height: 16px;
-  fill: none;
-  stroke-width: 2;
-  opacity: 0;
   transition: opacity 160ms var(--ease-out);
 }
-.draw-button[aria-busy="true"] .draw-button__spinner {
-  opacity: 1;
-  animation: spin 0.85s linear infinite;
-}
-.draw-button__spinner-track {
-  stroke: color-mix(in srgb, var(--white) 32%, transparent);
-}
-.draw-button__spinner-arc {
-  stroke: var(--white);
-  stroke-dasharray: 10 31;
-  stroke-linecap: round;
+.draw-button[aria-busy="true"] .draw-button__label {
+  opacity: 0.7;
+  transition-delay: 150ms;
 }
 
 /* The empty stage invites the first draw: a slow cobalt ring, three times, until Draw is used. */

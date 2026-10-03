@@ -62,7 +62,7 @@ class FakeElement extends EventTarget {
   }
 
   animate() {
-    // The loader ring's spin is outside these tests.
+    // The loading frame's animation is outside these tests.
   }
 
   // Blobs whose first byte is 255 stand in for images that will not decode.
@@ -176,7 +176,7 @@ export const ids = [
   "empty-state",
   "loading-state",
   "loading-message",
-  "loading-ring",
+  "loading-frame",
   "error-state",
   "error-title",
   "error-message",
