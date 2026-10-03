@@ -37,13 +37,14 @@ let captionWidth: Animation | undefined;
 
 // The caption sizes the whole button, so tween its width between the measured old and new text.
 function setImageId(id: string) {
+  if (elements.imageIdValue.textContent === id) return;
   const caption = elements.imageIdValue.parentElement;
-  if (!caption || elements.imageIdValue.textContent === id) return;
-  const from = caption.getBoundingClientRect().width;
+  const from = caption?.getBoundingClientRect().width;
   captionWidth?.cancel();
   elements.imageIdValue.textContent = id;
+  if (!caption || !from) return;
   const to = caption.getBoundingClientRect().width;
-  if (reducedMotion?.matches || !from || from === to) return;
+  if (reducedMotion?.matches || from === to) return;
   captionWidth = caption.animate(
     { width: [`${from}px`, `${to}px`] },
     { duration: 320, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
