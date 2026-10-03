@@ -33,6 +33,22 @@ const statePanels: Record<ViewState, HTMLElement> = {
 // Scripted motion is reliable in the desktop webview; CSS owns the delayed entrance.
 const reducedMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)");
 let focusAnimations: Animation[] = [];
+let captionWidth: Animation | undefined;
+
+// The caption sizes the whole button, so tween its width between the measured old and new text.
+function setImageId(id: string) {
+  const caption = elements.imageIdValue.parentElement;
+  if (!caption || elements.imageIdValue.textContent === id) return;
+  const from = caption.getBoundingClientRect().width;
+  captionWidth?.cancel();
+  elements.imageIdValue.textContent = id;
+  const to = caption.getBoundingClientRect().width;
+  if (reducedMotion?.matches || !from || from === to) return;
+  captionWidth = caption.animate(
+    { width: [`${from}px`, `${to}px`] },
+    { duration: 320, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+  );
+}
 let loadingSince = 0;
 let messageTimer: ReturnType<typeof setTimeout> | undefined;
 let previousLoadingMessages: string[] = [];
@@ -225,7 +241,7 @@ export function syncControls(): void {
   elements.lightboxPrevious.setAttribute("aria-disabled", String(state.loading || view.index <= 0));
   elements.lightboxNext.setAttribute("aria-disabled", String(state.loading || view.index >= view.items.length - 1));
   elements.historyClear.disabled = state.loading || !state.history.length;
-  elements.imageIdValue.textContent = current?.id ?? "———";
+  setImageId(current?.id ?? "———");
   // The accessible name has to contain the visible text, so the ID leads and the purpose follows.
   elements.frameMenuButton.setAttribute(
     "aria-label",

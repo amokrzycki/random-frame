@@ -1,5 +1,15 @@
 # Random Frame release notes
 
+## 0.6.6
+
+### A new loading screen
+
+- The spinning ring is now a camera viewfinder that pulls into focus while a frame loads. The previous image stays on stage, slightly dimmed and blurred, and the new one sharpens into place when it arrives.
+- The Draw button no longer swaps its label for a spinner. The label stays readable and dims a little while a draw is in progress.
+- Each draw shows a short caption, such as "Restoring frame 12…" when you go back through history. Captions are mostly plain or archive-themed, with the occasional joke. A caption doesn't repeat within a session, and a draw that takes more than a few seconds switches to a second caption once.
+- Quick draws skip the loading screen, so nothing flashes. When the frame ID changes, its button now resizes smoothly.
+- With reduced motion turned on, the viewfinder stays still and the captions fade in. The animation pauses while the window is hidden.
+
 ## 0.6.5
 
 ### Thumbnail storage
