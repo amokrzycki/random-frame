@@ -7,8 +7,10 @@ use super::{
         SyncStatus,
     },
 };
+#[cfg(test)]
+use crate::persistence::{HistoryStore, SeenStore};
 use crate::{
-    persistence::{FavoriteStore, HistoryStore, SeenStore},
+    persistence::PersistentState,
     secure_storage::{SecretStore, StorageError},
     sync_crypto::{RootSecret, SyncKeys},
     sync_transport::SyncTransport,
@@ -21,9 +23,11 @@ use std::{
 use tokio::sync::Mutex as AsyncMutex;
 
 pub struct SyncEngine<S: SecretStore> {
+    #[cfg(test)]
     pub(super) seen: Arc<SeenStore>,
+    #[cfg(test)]
     pub(super) history: Arc<HistoryStore>,
-    favorites: Arc<FavoriteStore>,
+    pub(super) data: Arc<PersistentState>,
     pub(super) secret: S,
     transport: Option<SyncTransport>,
     pub(super) path: PathBuf,
@@ -35,9 +39,7 @@ pub struct SyncEngine<S: SecretStore> {
 impl<S: SecretStore> SyncEngine<S> {
     pub fn new(
         directory: &Path,
-        seen: Arc<SeenStore>,
-        history: Arc<HistoryStore>,
-        favorites: Arc<FavoriteStore>,
+        data: Arc<PersistentState>,
         secret: S,
         endpoint: Option<&str>,
     ) -> Self {
@@ -45,9 +47,11 @@ impl<S: SecretStore> SyncEngine<S> {
         let path = directory.join("sync-config.json");
         let config = load_config(&path).ok().flatten();
         Self {
-            seen,
-            history,
-            favorites,
+            #[cfg(test)]
+            seen: Arc::clone(&data.seen),
+            #[cfg(test)]
+            history: Arc::clone(&data.history),
+            data,
             secret,
             transport,
             path,
@@ -72,11 +76,7 @@ impl<S: SecretStore> SyncEngine<S> {
     }
 
     fn data(&self) -> SyncData<'_> {
-        SyncData {
-            seen: &self.seen,
-            history: &self.history,
-            favorites: &self.favorites,
-        }
+        SyncData { state: &self.data }
     }
 
     pub(super) fn config(&self) -> Result<Option<SyncLocalConfig>, SyncError> {
@@ -102,11 +102,7 @@ impl<S: SecretStore> SyncEngine<S> {
     }
 
     fn local_generation(&self) -> Generation {
-        (
-            self.seen.generation(),
-            self.history.generation(),
-            self.favorites.generation(),
-        )
+        self.data.generation()
     }
 
     fn set_state(&self, state: SyncState, error: Option<&SyncError>, revision: Option<i64>) {
@@ -179,11 +175,22 @@ impl<S: SecretStore> SyncEngine<S> {
         let envelope = keys
             .encrypt_snapshot(&snapshot)
             .map_err(|_| SyncError::InvalidRemoteData)?;
+        self.data
+            .begin_publication(keys.sync_id(), 0)
+            .map_err(|_| SyncError::Persistence)?;
         let revision = self
             .transport()?
             .create(keys.sync_id(), &keys.client_auth_token(), envelope)
             .await?;
         let recovery_key = root.recovery_key().to_string();
+        if self.data.complete_publication(keys.sync_id()).is_err() {
+            self.set_state(SyncState::Error, Some(&SyncError::Persistence), None);
+            return Ok(CreateSyncResult {
+                recovery_key,
+                status: self.status_snapshot(),
+                local_pairing_error: Some(SyncError::Persistence),
+            });
+        }
         if let Err(error) = self.secret.store(root).await {
             let category = if self.secret.delete().await.is_err() {
                 SyncError::CorruptLocalState
@@ -255,7 +262,7 @@ impl<S: SecretStore> SyncEngine<S> {
             .transport()?
             .get(keys.sync_id(), &keys.client_auth_token())
             .await?;
-        self.data().merge_remote(&keys, &remote)?;
+        let schema = self.data().merge_remote(&keys, &remote, 1, revision)?;
         let (revision, generation) = push_with_retries(
             &self.data(),
             self.transport.as_ref(),
@@ -263,6 +270,7 @@ impl<S: SecretStore> SyncEngine<S> {
             &keys,
             revision,
             None,
+            schema,
         )
         .await?;
         if let Err(error) = self.secret.store(root).await {
@@ -309,7 +317,10 @@ impl<S: SecretStore> SyncEngine<S> {
             .get(keys.sync_id(), &keys.client_auth_token())
             .await?;
         check_rollback(&config, revision)?;
-        self.data().merge_remote(&keys, &remote)?;
+        let schema =
+            self.data()
+                .merge_remote(&keys, &remote, config.highest_schema_version, revision)?;
+        config.highest_schema_version = config.highest_schema_version.max(schema);
         if config
             .last_accepted_revision
             .map_or(true, |floor| revision > floor)
@@ -317,6 +328,7 @@ impl<S: SecretStore> SyncEngine<S> {
             config.last_accepted_revision = Some(revision);
             self.save(&config)?;
         }
+        self.save(&config)?;
         let (revision, generation) = push_with_retries(
             &self.data(),
             self.transport.as_ref(),
@@ -324,10 +336,12 @@ impl<S: SecretStore> SyncEngine<S> {
             &keys,
             revision,
             Some(&mut config),
+            schema,
         )
         .await?;
         // A failed local save after PUT is recoverable: next GET may be above the old floor.
         config.last_accepted_revision = Some(revision);
+        config.highest_schema_version = 2;
         self.save(&config)?;
         *self
             .uploaded_generation

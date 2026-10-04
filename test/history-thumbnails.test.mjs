@@ -72,11 +72,17 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
   });
   window.__TAURI_INTERNALS__ = {
     async invoke(command, args) {
+      if (command === "complete_state_imports") return null;
+      if (command === "get_user_preferences" || command === "set_user_preferences")
+        return { theme: null, historyPageSize: null };
+      if (command === "import_session_history") return window.__TAURI_INTERNALS__.invoke("get_history");
       calls.push({ command, args });
       if (command === "load_thumbnail_cache" || command === "save_thumbnail_cache") return native.invoke(command, args);
       if (command === "get_history") return structuredClone(history);
       if (command === "get_favorites") return structuredClone(favorites);
-      if (command === "clear_history") {
+      if (command === "prepare_history_clear") return "clear-request";
+      if (command === "cancel_history_clear") return null;
+      if (command === "commit_history_clear") {
         history.history = [];
         history.index = -1;
         return null;
@@ -163,6 +169,7 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
   clear.click();
   await new Promise((resolve) => setTimeout(resolve, 520));
   clear.click();
+  await flush();
   toastExpiry();
   await flush();
   const stored = native.stored();

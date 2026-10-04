@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "favorites": [
+    {
+      "operation_id": [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3],
+      "added_at": 12,
+      "source": "prntsc",
+      "id": "abc123",
+      "source_page_url": "https://prnt.sc/abc123"
+    }
+  ],
+  "removed": [[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]]
+}

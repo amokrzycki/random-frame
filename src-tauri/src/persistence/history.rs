@@ -1,13 +1,15 @@
 use super::{
     activity::{activity_day, day_key},
     io::{load_json, save_json},
-    sync_ops::{cap_tombstones, operation_id, validate_item},
+    sync_ops::{deduplicate_tombstones, operation_id, validate_item},
 };
-use crate::{error::AppError, snapshot::MAX_SECTION};
+use crate::{error::AppError, snapshot::ViewStamp};
 use chrono::{Local, TimeZone};
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
+use std::collections::BTreeMap;
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
     sync::{
@@ -25,7 +27,7 @@ pub struct HistoryItem {
     pub viewed_at: u64,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(default)]
 struct HistoryData {
     #[serde(default = "schema_v2")]
@@ -44,11 +46,15 @@ fn schema_v2() -> u8 {
     2
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 struct HistoryOp {
     operation_id: [u8; 16],
     order_at: u64,
     viewed_at: u64,
+    #[serde(default)]
+    day: String,
+    #[serde(default)]
+    day_inferred: bool,
     source: String,
     id: String,
     source_page_url: String,
@@ -66,6 +72,7 @@ pub struct HistorySnapshot {
 pub struct RemovedFrame {
     pub snapshot: HistorySnapshot,
     pub order_at: u64,
+    pub last_view: ViewStamp,
 }
 
 pub type HistorySyncState = (Vec<crate::snapshot::SyncRecord>, Vec<[u8; 16]>);
@@ -84,12 +91,7 @@ impl HistoryData {
             .retain(|op| !removed.contains(&op.operation_id));
         self.history_ops
             .sort_by_key(|op| (op.order_at, op.operation_id));
-        // ponytail: 100k bounds projection/merge cost; older entries become synced
-        // removals so every device trims the same ones. Byte budget is checked separately.
-        let excess = self.history_ops.len().saturating_sub(MAX_SECTION);
-        self.removed_history_ops
-            .extend(self.history_ops.drain(..excess).map(|op| op.operation_id));
-        cap_tombstones(&mut self.removed_history_ops);
+        deduplicate_tombstones(&mut self.removed_history_ops);
         self.history = project_history(&self.history_ops);
         let keys: HashSet<_> = self.history.iter().map(history_key).collect();
         self.local_views.retain(|key, _| keys.contains(key));
@@ -110,9 +112,15 @@ pub struct HistoryStore {
 impl HistoryStore {
     pub fn new(directory: &Path) -> Result<Self, AppError> {
         fs::create_dir_all(directory).map_err(AppError::persistence)?;
-        let path = directory.join("history.json");
-        let mut data: HistoryData = load_json(&path)?;
-        if data.version != 2 || (data.history_ops.is_empty() && !data.history.is_empty()) {
+        let path = directory.join("history-v3.json");
+        let source = super::migration::source_path(directory, "history-v3.json", "history.json")?;
+        let mut data: HistoryData = load_json(&source)?;
+        if source == path && data.version != 3 {
+            return Err(AppError::persistence("Unsupported history schema"));
+        }
+        if source != path
+            && (data.version != 2 || (data.history_ops.is_empty() && !data.history.is_empty()))
+        {
             data.version = 2;
             data.history_ops = data
                 .history
@@ -122,6 +130,8 @@ impl HistoryStore {
                     operation_id: operation_id(),
                     order_at: index as u64,
                     viewed_at: item.viewed_at,
+                    day: local_stamp(item.viewed_at, true).day,
+                    day_inferred: true,
                     source: item.source.clone(),
                     id: item.id.clone(),
                     source_page_url: item.source_page_url.clone(),
@@ -132,8 +142,22 @@ impl HistoryStore {
                 .iter()
                 .map(|item| (history_key(item), item.viewed_at))
                 .collect();
-            save_json(&path, &data)?;
         }
+        for op in &mut data.history_ops {
+            if op.day.is_empty() {
+                let key = format!("{}\0{}", op.source, op.id);
+                op.viewed_at = op
+                    .viewed_at
+                    .max(data.local_views.get(&key).copied().unwrap_or(0));
+                op.day = local_stamp(op.viewed_at, true).day;
+                op.day_inferred = true;
+            }
+        }
+        data.version = 3;
+        let selected = data.selected_key();
+        data.normalize(selected);
+        save_json(&path, &data)?;
+        super::migration::receipt(directory, "history-v3")?;
         Ok(Self {
             path,
             data: Mutex::new(data),
@@ -160,8 +184,12 @@ impl HistoryStore {
                 .iter()
                 .map(|op| crate::snapshot::SyncRecord {
                     operation_id: op.operation_id,
-                    first_at: op.order_at,
-                    second_at: op.viewed_at,
+                    order_at: op.order_at,
+                    last_view: ViewStamp {
+                        at_ms: op.viewed_at,
+                        day: op.day.clone(),
+                        day_inferred: op.day_inferred,
+                    },
                     source: op.source.clone(),
                     id: op.id.clone(),
                     source_page_url: op.source_page_url.clone(),
@@ -179,6 +207,7 @@ impl HistoryStore {
         self.sync_state_with_generation().0
     }
 
+    #[cfg(test)]
     pub fn record(&self, item: HistoryItem) -> Result<HistorySnapshot, AppError> {
         validate_item(&item.source, &item.id, &item.source_page_url)?;
         let key = history_key(&item);
@@ -187,13 +216,25 @@ impl HistoryStore {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut next = data.clone();
-        next.version = 2;
+        next.version = 3;
         if let Some(op) = next
             .history_ops
             .iter_mut()
             .find(|op| op.source == item.source && op.id == item.id)
         {
-            op.viewed_at = op.viewed_at.max(item.viewed_at);
+            let stamp = local_stamp(item.viewed_at, false);
+            if stamp.key()
+                > (ViewStamp {
+                    at_ms: op.viewed_at,
+                    day: op.day.clone(),
+                    day_inferred: op.day_inferred,
+                })
+                .key()
+            {
+                op.viewed_at = stamp.at_ms;
+                op.day = stamp.day;
+                op.day_inferred = false;
+            }
         } else {
             // First-view time, kept above every known entry so a new frame always lands last.
             let order_at = next
@@ -207,6 +248,8 @@ impl HistoryStore {
                 operation_id: operation_id(),
                 order_at,
                 viewed_at: item.viewed_at,
+                day: local_stamp(item.viewed_at, false).day,
+                day_inferred: false,
                 source: item.source,
                 id: item.id,
                 source_page_url: item.source_page_url,
@@ -214,15 +257,18 @@ impl HistoryStore {
         }
         next.local_views.insert(key.clone(), item.viewed_at);
         next.normalize(Some(key));
-        self.save(&next)?;
-        *data = next;
-        self.generation.fetch_add(1, Ordering::Relaxed);
+        if *data != next {
+            self.save(&next)?;
+            *data = next;
+            self.generation.fetch_add(1, Ordering::Relaxed);
+        }
         let result = snapshot(&data);
         drop(data);
         Ok(result)
     }
 
     /// Prnt.sc frames first shown per local day (`YYYY-MM-DD`); revisits never touch `viewed_at`.
+    #[cfg(test)]
     pub fn prntsc_views_per_day(&self) -> BTreeMap<String, u64> {
         let data = self
             .data
@@ -242,14 +288,43 @@ impl HistoryStore {
         days
     }
 
+    #[cfg(test)]
     pub fn local_view_times(&self) -> Vec<Option<u64>> {
+        self.frame_views()
+            .iter()
+            .map(|view| Some(view.at_ms))
+            .collect()
+    }
+
+    pub fn frame_views(&self) -> Vec<FrameView> {
         let data = self
             .data
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut latest = HashMap::new();
+        for op in &data.history_ops {
+            let winner = latest
+                .entry((op.source.as_str(), op.id.as_str()))
+                .or_insert(op);
+            if (op.viewed_at, !op.day_inferred, &op.day)
+                > (winner.viewed_at, !winner.day_inferred, &winner.day)
+            {
+                *winner = op;
+            }
+        }
         data.history
             .iter()
-            .map(|item| data.local_views.get(&history_key(item)).copied())
+            .filter_map(|item| {
+                latest
+                    .get(&(item.source.as_str(), item.id.as_str()))
+                    .map(|op| FrameView {
+                        source: op.source.clone(),
+                        id: op.id.clone(),
+                        at_ms: op.viewed_at,
+                        day: op.day.clone(),
+                        day_inferred: op.day_inferred,
+                    })
+            })
             .collect()
     }
 
@@ -289,22 +364,47 @@ impl HistoryStore {
             .map(|&(_, order_at)| order_at)
             .min()
             .ok_or_else(|| AppError::invalid_input("Frame is not in history"))?;
+        let last_view = next
+            .history_ops
+            .iter()
+            .filter(|op| op.source == source && op.id == id)
+            .map(|op| ViewStamp {
+                at_ms: op.viewed_at,
+                day: op.day.clone(),
+                day_inferred: op.day_inferred,
+            })
+            .max_by(|a, b| a.key().cmp(&b.key()))
+            .ok_or_else(|| AppError::invalid_input("Frame is not in history"))?;
         next.removed_history_ops
             .extend(matching.iter().map(|&(operation_id, _)| operation_id));
         let selected = next.selected_key();
         next.normalize(selected);
-        self.save(&next)?;
-        *data = next;
-        self.generation.fetch_add(1, Ordering::Relaxed);
+        if *data != next {
+            self.save(&next)?;
+            *data = next;
+            self.generation.fetch_add(1, Ordering::Relaxed);
+        }
         let snapshot = snapshot(&data);
         drop(data);
-        Ok(RemovedFrame { snapshot, order_at })
+        Ok(RemovedFrame {
+            snapshot,
+            order_at,
+            last_view,
+        })
     }
 
     /// Undo for `remove`: a fresh op at the old `order_at`, so the frame returns to its place
     /// while the tombstones already synced elsewhere stay valid.
-    pub fn restore(&self, item: HistoryItem, order_at: u64) -> Result<HistorySnapshot, AppError> {
+    pub fn restore(
+        &self,
+        item: HistoryItem,
+        order_at: u64,
+        last_view: ViewStamp,
+    ) -> Result<HistorySnapshot, AppError> {
         validate_item(&item.source, &item.id, &item.source_page_url)?;
+        if crate::snapshot::validate_day(&last_view.day).is_err() {
+            return Err(AppError::invalid_input("Invalid view day"));
+        }
         let key = history_key(&item);
         let mut data = self
             .data
@@ -316,11 +416,13 @@ impl HistoryStore {
             .iter()
             .any(|op| op.source == item.source && op.id == item.id)
         {
-            next.local_views.insert(key, item.viewed_at);
+            next.local_views.insert(key, last_view.at_ms);
             next.history_ops.push(HistoryOp {
                 operation_id: operation_id(),
                 order_at,
-                viewed_at: item.viewed_at,
+                viewed_at: last_view.at_ms,
+                day: last_view.day,
+                day_inferred: last_view.day_inferred,
                 source: item.source,
                 id: item.id,
                 source_page_url: item.source_page_url,
@@ -328,14 +430,17 @@ impl HistoryStore {
         }
         let selected = next.selected_key();
         next.normalize(selected);
-        self.save(&next)?;
-        *data = next;
-        self.generation.fetch_add(1, Ordering::Relaxed);
+        if *data != next {
+            self.save(&next)?;
+            *data = next;
+            self.generation.fetch_add(1, Ordering::Relaxed);
+        }
         let result = snapshot(&data);
         drop(data);
         Ok(result)
     }
 
+    #[cfg(test)]
     pub fn clear(&self) -> Result<(), AppError> {
         let mut data = self
             .data
@@ -344,11 +449,13 @@ impl HistoryStore {
         let mut next = data.clone();
         next.removed_history_ops
             .extend(next.history_ops.iter().map(|op| op.operation_id));
-        next.version = 2;
+        next.version = 3;
         next.normalize(None);
-        self.save(&next)?;
-        *data = next;
-        self.generation.fetch_add(1, Ordering::Relaxed);
+        if *data != next {
+            self.save(&next)?;
+            *data = next;
+            self.generation.fetch_add(1, Ordering::Relaxed);
+        }
         drop(data);
         Ok(())
     }
@@ -379,17 +486,28 @@ impl HistoryStore {
                 if existing.source != op.source
                     || existing.id != op.id
                     || existing.source_page_url != op.source_page_url
-                    || existing.order_at != op.first_at
+                    || existing.order_at != op.order_at
                 {
                     return Err(AppError::persistence("Conflicting history operation"));
                 }
-                existing.viewed_at = existing.viewed_at.max(op.second_at);
+                let stamp = ViewStamp {
+                    at_ms: existing.viewed_at,
+                    day: existing.day.clone(),
+                    day_inferred: existing.day_inferred,
+                };
+                if op.last_view.key() > stamp.key() {
+                    existing.viewed_at = op.last_view.at_ms;
+                    existing.day = op.last_view.day;
+                    existing.day_inferred = op.last_view.day_inferred;
+                }
             } else {
                 positions.insert(op.operation_id, next.history_ops.len());
                 next.history_ops.push(HistoryOp {
                     operation_id: op.operation_id,
-                    order_at: op.first_at,
-                    viewed_at: op.second_at,
+                    order_at: op.order_at,
+                    viewed_at: op.last_view.at_ms,
+                    day: op.last_view.day,
+                    day_inferred: op.last_view.day_inferred,
                     source: op.source,
                     id: op.id,
                     source_page_url: op.source_page_url,
@@ -399,9 +517,11 @@ impl HistoryStore {
         next.removed_history_ops.extend(incoming.1);
         let selected = next.selected_key();
         next.normalize(selected);
-        self.save(&next)?;
-        *data = next;
-        self.generation.fetch_add(1, Ordering::Relaxed);
+        if *data != next {
+            self.save(&next)?;
+            *data = next;
+            self.generation.fetch_add(1, Ordering::Relaxed);
+        }
         drop(data);
         Ok(())
     }
@@ -479,4 +599,25 @@ mod tests {
         assert_eq!(store.snapshot().history.len(), 1);
         fs::remove_file(directory).map_err(AppError::persistence)
     }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FrameView {
+    pub source: String,
+    pub id: String,
+    pub at_ms: u64,
+    pub day: String,
+    pub day_inferred: bool,
+}
+pub(super) fn local_stamp(at_ms: u64, day_inferred: bool) -> ViewStamp {
+    let mut stamp = ViewStamp::inferred(at_ms);
+    if let Some(time) = i64::try_from(at_ms)
+        .ok()
+        .and_then(|ms| Local.timestamp_millis_opt(ms).single())
+    {
+        stamp.day = day_key(activity_day(&time));
+    }
+    stamp.day_inferred = day_inferred;
+    stamp
 }

@@ -107,7 +107,7 @@ fn activity_migration_folds_todays_partial_count_when_the_legacy_day_matches(
 }
 
 #[test]
-fn revisit_repair_only_lowers_overcounted_days_runs_once_and_persists() -> Result<(), AppError> {
+fn activity_reload_does_not_clamp_v2_operations() -> Result<(), AppError> {
     let directory = test_directory("activity-repair");
     let store = ActivityStore::new(&directory)?;
     // Migrated legacy views match history, so they survive.
@@ -117,14 +117,7 @@ fn revisit_repair_only_lowers_overcounted_days_runs_once_and_persists() -> Resul
         store.record(ExplorationOutcome::Viewed, "2026-09-22")?;
     }
     store.record(ExplorationOutcome::Rejected, "2026-09-22")?;
-    let first_views = BTreeMap::from([
-        ("2026-09-20".to_owned(), 9),
-        ("2026-09-21".to_owned(), 3),
-        ("2026-09-22".to_owned(), 4),
-    ]);
-
-    store.repair_revisit_views(&first_views)?;
-    store.repair_revisit_views(&BTreeMap::new())?;
+    let store = ActivityStore::new(&directory)?;
 
     let expected = vec![
         (
@@ -137,7 +130,7 @@ fn revisit_repair_only_lowers_overcounted_days_runs_once_and_persists() -> Resul
         (
             "2026-09-22".to_owned(),
             DailyActivitySnapshot {
-                viewed: 4,
+                viewed: 6,
                 rejected: 1,
             },
         ),
@@ -150,12 +143,12 @@ fn revisit_repair_only_lowers_overcounted_days_runs_once_and_persists() -> Resul
     );
     assert_eq!(
         store.viewed_total(),
-        104,
+        106,
         "legacy total survives the repair"
     );
     let reloaded = ActivityStore::new(&directory)?;
     assert_eq!(reloaded.recent_days(today, 183), expected);
-    assert_eq!(reloaded.viewed_total(), 104);
+    assert_eq!(reloaded.viewed_total(), 106);
     fs::remove_dir_all(directory).map_err(AppError::persistence)
 }
 

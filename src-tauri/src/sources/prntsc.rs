@@ -1,6 +1,6 @@
 use crate::error::{AppError, ErrorKind};
 use crate::persistence::{
-    activity_day, day_key, ActivityStore, ExplorationOutcome, ExplorationStore, SeenStore,
+    activity_day, day_key, ExplorationOutcome, ExplorationStore, PersistentState, SeenStore,
 };
 use chrono::Local;
 use reqwest::{redirect::Policy, Client};
@@ -16,7 +16,7 @@ mod parser;
 
 use id::make_id;
 pub use id::validate_item_id;
-pub(crate) use id::{item_id_value, LEGACY_MAX_VALUE};
+pub(crate) use id::{item_id_value, value_to_base36, LEGACY_MAX_VALUE};
 pub use parser::{extract_image_url, is_allowed_image_url};
 
 const MAX_IMAGE_BYTES: usize = 15_000_000;
@@ -68,16 +68,12 @@ pub struct Prntsc {
     client: Client,
     explored: Arc<ExplorationStore>,
     seen: Arc<SeenStore>,
-    activity: Arc<ActivityStore>,
+    data: Arc<PersistentState>,
     resolved: Mutex<ResolvedCache>,
 }
 
 impl Prntsc {
-    pub fn new(
-        explored: Arc<ExplorationStore>,
-        seen: Arc<SeenStore>,
-        activity: Arc<ActivityStore>,
-    ) -> Result<Self, AppError> {
+    pub fn new(data: Arc<PersistentState>) -> Result<Self, AppError> {
         let client = Client::builder()
             .user_agent(USER_AGENT)
             .redirect(Policy::none())
@@ -85,9 +81,9 @@ impl Prntsc {
             .map_err(AppError::network)?;
         Ok(Self {
             client,
-            explored,
-            seen,
-            activity,
+            explored: Arc::clone(&data.explored),
+            seen: Arc::clone(&data.seen),
+            data,
             resolved: Mutex::new(ResolvedCache::default()),
         })
     }
@@ -103,8 +99,7 @@ impl Prntsc {
         let result = self.get_thumbnail(id).await;
         if classify_rejection(&result) {
             record_exploration(
-                &self.explored,
-                &self.activity,
+                &self.data,
                 value,
                 ExplorationOutcome::Rejected,
                 &day_key(activity_day(&Local::now())),
@@ -116,16 +111,6 @@ impl Prntsc {
     pub async fn get_thumbnail(&self, id: &str) -> Result<FetchedFrame, AppError> {
         let item = self.resolve_item(id).await?;
         self.fetch_asset(item).await
-    }
-
-    pub fn record_viewed(&self, id: u64) -> Result<(), AppError> {
-        record_exploration(
-            &self.explored,
-            &self.activity,
-            id,
-            ExplorationOutcome::Viewed,
-            &day_key(activity_day(&Local::now())),
-        )
     }
 
     async fn resolve_item(&self, id: &str) -> Result<ResolvedItem, AppError> {
@@ -274,16 +259,13 @@ fn classify_rejection<T>(result: &Result<T, AppError>) -> bool {
 
 /// Counts an outcome once per unique id, so revisits re-fetched via `get_frame` never reach activity.
 fn record_exploration(
-    explored: &ExplorationStore,
-    activity: &ActivityStore,
+    data: &PersistentState,
     value: u64,
     outcome: ExplorationOutcome,
     day: &str,
 ) -> Result<(), AppError> {
-    if explored.mark(value, outcome)? {
-        activity.record(outcome, day)?;
-    }
-    Ok(())
+    let at_ms = u64::try_from(Local::now().timestamp_millis()).map_err(AppError::persistence)?;
+    data.discover(value, outcome, at_ms, day)
 }
 
 #[cfg(test)]
@@ -395,22 +377,22 @@ mod tests {
             std::process::id()
         ));
         let day = "2026-09-22";
-        let explored = ExplorationStore::new(&directory)?;
-        let activity = ActivityStore::new(&directory)?;
+        let data = PersistentState::new(&directory)?;
 
         // First view and one unavailable id.
-        record_exploration(&explored, &activity, 1, ExplorationOutcome::Viewed, day)?;
-        record_exploration(&explored, &activity, 2, ExplorationOutcome::Rejected, day)?;
+        record_exploration(&data, 1, ExplorationOutcome::Viewed, day)?;
+        record_exploration(&data, 2, ExplorationOutcome::Rejected, day)?;
         // Uncached back/forward or history jump re-fetches; may later fail.
-        record_exploration(&explored, &activity, 1, ExplorationOutcome::Viewed, day)?;
-        record_exploration(&explored, &activity, 1, ExplorationOutcome::Rejected, day)?;
-        record_exploration(&explored, &activity, 2, ExplorationOutcome::Rejected, day)?;
+        record_exploration(&data, 1, ExplorationOutcome::Viewed, day)?;
+        record_exploration(&data, 1, ExplorationOutcome::Rejected, day)?;
+        record_exploration(&data, 2, ExplorationOutcome::Rejected, day)?;
 
         // Restart reloads state, then re-fetches the selected frame.
-        drop((explored, activity));
-        let explored = ExplorationStore::new(&directory)?;
-        let activity = ActivityStore::new(&directory)?;
-        record_exploration(&explored, &activity, 1, ExplorationOutcome::Viewed, day)?;
+        drop(data);
+        let data = PersistentState::new(&directory)?;
+        let explored = &data.explored;
+        let activity = &data.activity;
+        record_exploration(&data, 1, ExplorationOutcome::Viewed, day)?;
 
         let today = chrono::NaiveDate::from_ymd_opt(2026, 9, 22).unwrap_or_default();
         assert_eq!(

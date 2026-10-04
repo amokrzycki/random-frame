@@ -5,6 +5,7 @@ import { loadPageSize } from "./history-pagination.js";
 import type { HistoryItem, HistorySnapshot } from "./persistence.js";
 import { getHistory } from "./persistence.js";
 import type { LedgerDay } from "./statistics.js";
+import { refreshUserPreferences } from "./user-preferences.js";
 
 // Single owner of the viewer's cross-cutting runtime state; feature modules read and
 // update the fields relevant to their own responsibility instead of holding copies.
@@ -55,6 +56,7 @@ export function isFavorite(frame: { source: string; id: string }): boolean {
 export async function refreshPersistedView(): Promise<void> {
   const current = state.index >= 0 ? state.history[state.index] : undefined;
   const [history, favorites] = await Promise.all([getHistory(), getFavorites()]);
+  await refreshUserPreferences();
   applyFavorites(favorites);
   applyHistory({
     ...history,
@@ -63,3 +65,8 @@ export async function refreshPersistedView(): Promise<void> {
       : -1,
   });
 }
+
+document.addEventListener("user-preferences", (event) => {
+  const size = (event as CustomEvent).detail?.historyPageSize;
+  if (size) state.pageSize = loadPageSize({ getItem: () => String(size) });
+});

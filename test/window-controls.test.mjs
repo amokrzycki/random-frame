@@ -52,6 +52,10 @@ test("window controls follow native maximized state and invoke native actions", 
       return id;
     },
     async invoke(command, args) {
+      if (command === "complete_state_imports") return null;
+      if (command === "get_user_preferences" || command === "set_user_preferences")
+        return { theme: null, historyPageSize: null };
+      if (command === "import_session_history") return window.__TAURI_INTERNALS__.invoke("get_history");
       commands.push(command);
       if (command === "plugin:window|is_maximized") return maximized;
       if (command === "plugin:window|toggle_maximize") {

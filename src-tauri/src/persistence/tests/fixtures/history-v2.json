@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "history": [{ "source": "prntsc", "id": "abc123", "sourcePageUrl": "https://prnt.sc/abc123", "viewedAt": 11 }],
+  "index": 0,
+  "history_ops": [
+    {
+      "operation_id": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+      "order_at": 10,
+      "viewed_at": 11,
+      "source": "prntsc",
+      "id": "abc123",
+      "source_page_url": "https://prnt.sc/abc123"
+    }
+  ],
+  "removed_history_ops": [[2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2]],
+  "local_views": { "prntsc\u0000abc123": 12 }
+}

@@ -26,8 +26,8 @@ fn history_survives_reload_and_clear_is_persistent() -> Result<(), AppError> {
     reloaded.clear()?;
     assert_eq!(HistoryStore::new(&directory)?.snapshot().history, vec![]);
     fs::rename(
-        directory.join("history.json"),
-        directory.join("history.json.tmp"),
+        directory.join("history-v3.json"),
+        directory.join("history-v3.json.tmp"),
     )
     .map_err(AppError::persistence)?;
     assert_eq!(HistoryStore::new(&directory)?.snapshot().history, vec![]);
@@ -68,10 +68,14 @@ fn remove_drops_one_frame_and_restore_returns_it_in_place() -> Result<(), AppErr
     );
     assert_eq!(store.sync_state().1.len(), 1);
 
-    let restored = store.restore(item("bbb222", 20), removed.order_at)?;
+    let restored = store.restore(
+        item("bbb222", 20),
+        removed.order_at,
+        removed.last_view.clone(),
+    )?;
     assert_eq!(ids(&restored), ["aaa111", "bbb222", "ccc333"]);
     assert_eq!(
-        ids(&store.restore(item("bbb222", 20), removed.order_at)?),
+        ids(&store.restore(item("bbb222", 20), removed.order_at, removed.last_view)?),
         ["aaa111", "bbb222", "ccc333"]
     );
     fs::remove_dir_all(directory).map_err(AppError::persistence)
@@ -96,12 +100,12 @@ fn favorite_toggle_adds_then_removes_and_survives_reload() -> Result<(), AppErro
     assert_eq!(reloaded.snapshot(), vec![item(126)]);
     // A save interrupted before its rename leaves only the .tmp file; it is recovered on load.
     fs::rename(
-        directory.join("favorites.json"),
-        directory.join("favorites.json.tmp"),
+        directory.join("favorites-v3.json"),
+        directory.join("favorites-v3.json.tmp"),
     )
     .map_err(AppError::persistence)?;
     assert_eq!(FavoriteStore::new(&directory)?.snapshot(), vec![item(126)]);
-    assert!(directory.join("favorites.json").exists());
+    assert!(directory.join("favorites-v3.json").exists());
     reloaded.clear()?;
     assert_eq!(FavoriteStore::new(&directory)?.snapshot(), vec![]);
     fs::remove_dir_all(directory).map_err(AppError::persistence)
@@ -192,8 +196,8 @@ fn history_merge_keeps_latest_view_and_selected_frame() -> Result<(), AppError> 
     b.merge_sync_state((
         vec![snapshot::SyncRecord {
             operation_id: [0; 16],
-            first_at: 0,
-            second_at: 10,
+            order_at: 0,
+            last_view: crate::snapshot::ViewStamp::inferred(10),
             source: "prntsc".into(),
             id: "before".into(),
             source_page_url: "https://prnt.sc/before".into(),
@@ -208,7 +212,7 @@ fn history_merge_keeps_latest_view_and_selected_frame() -> Result<(), AppError> 
             .iter()
             .filter(|time| time.is_some())
             .count(),
-        1
+        3
     );
     fs::remove_dir_all(a_dir).map_err(AppError::persistence)?;
     fs::remove_dir_all(b_dir).map_err(AppError::persistence)
@@ -256,7 +260,7 @@ fn new_frames_land_last_after_merges_and_remote_clears() -> Result<(), AppError>
 }
 
 #[test]
-fn sync_sections_stay_within_snapshot_limits() -> Result<(), AppError> {
+fn history_above_old_cap_and_more_than_100k_removals_are_retained() -> Result<(), AppError> {
     let directory = test_directory("history-limits");
     let history = HistoryStore::new(&directory)?;
     let favorites = FavoriteStore::new(&directory)?;
@@ -268,8 +272,8 @@ fn sync_sections_stay_within_snapshot_limits() -> Result<(), AppError> {
     let records = (0..=MAX_SECTION)
         .map(|index| snapshot::SyncRecord {
             operation_id: op_id(index),
-            first_at: index as u64,
-            second_at: index as u64,
+            order_at: index as u64,
+            last_view: crate::snapshot::ViewStamp::inferred(index as u64),
             source: "prntsc".into(),
             id: index.to_string(),
             source_page_url: String::new(),
@@ -280,11 +284,15 @@ fn sync_sections_stay_within_snapshot_limits() -> Result<(), AppError> {
         .collect();
     history.merge_sync_state((records, tombstones))?;
     let (ops, removed) = history.sync_state();
-    assert_eq!(ops.len(), MAX_SECTION);
-    assert_eq!(removed.len(), MAX_SECTION);
-    assert!(ops.iter().all(|op| op.id != "0"));
-    assert!(removed.contains(&op_id(0)));
-    assert_eq!(history.snapshot().history.len(), MAX_SECTION);
+    assert_eq!(ops.len(), MAX_SECTION + 1);
+    assert_eq!(removed.len(), MAX_SECTION + 1);
+    assert!(ops.iter().any(|op| op.id == "0"));
+    assert!(removed.contains(&op_id(1 << 32)));
+    assert_eq!(history.snapshot().history.len(), MAX_SECTION + 1);
+    let views = history.frame_views();
+    assert_eq!(views.len(), MAX_SECTION + 1);
+    assert_eq!(views[MAX_SECTION].id, MAX_SECTION.to_string());
+    assert_eq!(views[MAX_SECTION].at_ms, MAX_SECTION as u64);
 
     let long = FavoriteItem {
         source: "prntsc".into(),

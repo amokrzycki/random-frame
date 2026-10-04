@@ -69,6 +69,9 @@ struct ServerState {
     fail_next_update: bool,
     fail_next_create: bool,
     insert_on_update: Option<(Arc<SeenStore>, u64)>,
+    v1_on_update: Option<Vec<u8>>,
+    state_on_update: Option<Arc<crate::persistence::PersistentState>>,
+    block_config_on_update: Option<PathBuf>,
     history_on_update: Option<(Arc<HistoryStore>, HistoryItem)>,
     malformed_etag: bool,
     omit_etag: bool,
@@ -185,7 +188,11 @@ async fn server() -> Result<
                             payload,
                         )
                     } else if method == "PUT" {
-                        if state.fail_next_update {
+                        if let Some(envelope) = state.v1_on_update.take() {
+                            state.envelope = envelope;
+                            state.revision += 1;
+                            (412, None, Vec::new())
+                        } else if state.fail_next_update {
                             state.fail_next_update = false;
                             (503, None, Vec::new())
                         } else if state.force_conflict || state.conflicts_remaining > 0 {
@@ -200,11 +207,43 @@ async fn server() -> Result<
                         } else {
                             state.revision += 1;
                             state.envelope = body.to_vec();
+                            if let Some(path) = state.block_config_on_update.take() {
+                                if fs::create_dir(path.join("sync-config.json.tmp")).is_err() {
+                                    return;
+                                }
+                            }
                             if let Some((seen, id)) = state.insert_on_update.take() {
                                 let _ = seen.insert(id);
                             }
                             if let Some((history, item)) = state.history_on_update.take() {
                                 let _ = history.record(item);
+                            }
+                            if let Some(data) = state.state_on_update.take() {
+                                if data
+                                    .discover(
+                                        99,
+                                        crate::persistence::ExplorationOutcome::Viewed,
+                                        1,
+                                        "2026-10-02",
+                                    )
+                                    .is_err()
+                                {
+                                    return;
+                                }
+                                if data
+                                    .read(|| {
+                                        data.preferences.set(
+                                            crate::persistence::UserPreferences {
+                                                theme: Some("dark".into()),
+                                                history_page_size: Some(50),
+                                            },
+                                            false,
+                                        )
+                                    })
+                                    .is_err()
+                                {
+                                    return;
+                                }
                             }
                             (204, Some(format!("\"{}\"", state.revision)), Vec::new())
                         }
@@ -248,14 +287,7 @@ fn device(
     let seen = Arc::new(SeenStore::new(path).map_err(|_| SyncError::Persistence)?);
     let history = Arc::new(HistoryStore::new(path).map_err(|_| SyncError::Persistence)?);
     let favorites = Arc::new(FavoriteStore::new(path).map_err(|_| SyncError::Persistence)?);
-    Ok(SyncEngine::new(
-        path,
-        seen,
-        history,
-        favorites,
-        secret,
-        Some(url),
-    ))
+    make_engine(path, seen, history, favorites, secret, Some(url))
 }
 
 type TestDevice = (
@@ -335,14 +367,14 @@ async fn devices_converge_history_and_favorites() -> Result<(), Box<dyn std::err
         let seen = Arc::new(SeenStore::new(path).map_err(|_| SyncError::Persistence)?);
         let history = Arc::new(HistoryStore::new(path).map_err(|_| SyncError::Persistence)?);
         let favorites = Arc::new(FavoriteStore::new(path).map_err(|_| SyncError::Persistence)?);
-        let engine = SyncEngine::new(
+        let engine = make_engine(
             path,
             seen,
             Arc::clone(&history),
             Arc::clone(&favorites),
             secret,
             Some(&url),
-        );
+        )?;
         Ok((engine, history, favorites))
     };
     let (a, a_history, a_favorites) = make(&a_path, MemorySecret::default())?;
@@ -397,7 +429,7 @@ async fn devices_converge_history_and_favorites() -> Result<(), Box<dyn std::err
 }
 
 #[tokio::test]
-async fn exploration_stays_local_while_seen_history_and_favorites_sync(
+async fn exploration_syncs_with_seen_history_and_favorites(
 ) -> Result<(), Box<dyn std::error::Error>> {
     use crate::{
         clear_local_history,
@@ -440,18 +472,14 @@ async fn exploration_stays_local_while_seen_history_and_favorites_sync(
 
     let a = SyncEngine::new(
         &a_path,
-        Arc::clone(&a_state.seen),
-        Arc::clone(&a_state.history),
-        Arc::clone(&a_state.favorites),
+        Arc::clone(&a_state.data),
         MemorySecret::default(),
         Some(&url),
     );
     let key = a.create().await?.recovery_key;
     let b = SyncEngine::new(
         &b_path,
-        Arc::clone(&b_state.seen),
-        Arc::clone(&b_state.history),
-        Arc::clone(&b_state.favorites),
+        Arc::clone(&b_state.data),
         MemorySecret::default(),
         Some(&url),
     );
@@ -462,23 +490,23 @@ async fn exploration_stays_local_while_seen_history_and_favorites_sync(
     assert!(b_state.seen.contains(0));
     assert_eq!(b_state.history.snapshot().history.len(), 1);
     assert_eq!(b_state.favorites.snapshot().len(), 1);
-    assert!(b_state.seen.snapshot_with_generation().0.len() > b_state.explored.count());
-    assert_eq!(a_state.explored.counts(), a_counts);
-    assert_eq!(b_state.explored.counts(), b_counts);
+    assert_eq!(b_state.explored.count(), 122);
+    assert_eq!(a_state.explored.counts(), (122, 101, 20, 1));
+    assert_eq!(b_state.explored.counts(), (122, 101, 20, 1));
 
     clear_local_history(&a_state)?;
     a.sync_now().await?;
     b.sync_now().await?;
     assert_eq!(b_state.history.snapshot().history, vec![]);
     assert_eq!(b_state.favorites.snapshot().len(), 1);
-    assert_eq!(a_state.explored.counts(), a_counts);
-    assert_eq!(b_state.explored.counts(), b_counts);
+    assert_eq!(a_state.explored.counts(), (122, 101, 20, 1));
+    assert_eq!(b_state.explored.counts(), (122, 101, 20, 1));
     drop(a);
     drop(b);
     drop(a_state);
     drop(b_state);
-    assert_eq!(AppState::new(&a_path)?.explored.counts(), a_counts);
-    assert_eq!(AppState::new(&b_path)?.explored.counts(), b_counts);
+    assert_eq!(AppState::new(&a_path)?.explored.counts(), (122, 101, 20, 1));
+    assert_eq!(AppState::new(&b_path)?.explored.counts(), (122, 101, 20, 1));
     task.abort();
     fs::remove_dir_all(a_path)?;
     fs::remove_dir_all(b_path)?;
@@ -504,14 +532,7 @@ async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
     let a_state = AppState::new(&a_path)?;
     let b_state = AppState::new(&b_path)?;
     let engine = |path: &Path, state: &AppState, secret: MemorySecret| {
-        SyncEngine::new(
-            path,
-            Arc::clone(&state.seen),
-            Arc::clone(&state.history),
-            Arc::clone(&state.favorites),
-            secret,
-            Some(&url),
-        )
+        SyncEngine::new(path, Arc::clone(&state.data), secret, Some(&url))
     };
     let a = engine(&a_path, &a_state, a_secret.clone());
     let b = engine(&b_path, &b_state, b_secret.clone());
@@ -526,7 +547,7 @@ async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
         viewed_at,
     };
     for id in ["abc123", "abc124", "abc125"] {
-        record_accepted_frame(item(id), &a_state, false)?;
+        record_accepted_frame(&item(id), &a_state, false)?;
     }
     a_state.seen.merge(1..=5)?;
     a_state.explored.mark(10, ExplorationOutcome::Rejected)?;
@@ -544,7 +565,7 @@ async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
     let seen_before = a_state.seen.snapshot_with_generation().0;
     let key = a.create().await?.recovery_key;
     b.join(&key).await?;
-    assert_eq!(b_state.explored.count(), 0);
+    assert_eq!(b_state.explored.count(), 5);
     b_state.explored.mark(11, ExplorationOutcome::Rejected)?;
     b_state
         .activity
@@ -558,7 +579,7 @@ async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
     assert_eq!(b_state.favorites.snapshot().len(), 1);
 
     // B is offline: its three known operations are old, while this new operation is unknown to A.
-    record_accepted_frame(item("abc126"), &b_state, false)?;
+    record_accepted_frame(&item("abc126"), &b_state, false)?;
     clear_local_history(&a_state)?;
     assert_eq!(a_state.seen.snapshot_with_generation().0, seen_before);
     assert_eq!(a_state.favorites.snapshot().len(), 1);
@@ -622,9 +643,9 @@ async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
     assert_eq!(b_state.history.sync_state().1.len(), 3);
     assert_eq!(b_state.favorites.snapshot().len(), 1);
     assert_eq!(b_state.activity.viewed_total(), 2);
-    assert_eq!(b_state.explored.count(), 3);
-    assert_eq!(b_state.explored.viewable_count(), 2);
-    assert_eq!(b_state.explored.unavailable_count(), 1);
+    assert_eq!(b_state.explored.count(), 8);
+    assert_eq!(b_state.explored.viewable_count(), 5);
+    assert_eq!(b_state.explored.unavailable_count(), 2);
     assert_eq!(a_state.explored.counts(), (5, 3, 1, 1));
     assert_eq!(a_state.explored.viewable_count(), 3);
     assert_eq!(a_state.explored.unavailable_count(), 1);
@@ -699,12 +720,12 @@ async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
         a_restarted.seen.snapshot_with_generation().0,
         b_restarted.seen.snapshot_with_generation().0
     );
-    assert_eq!(a_restarted.activity.viewed_total(), 0);
-    assert_eq!(a_restarted.explored.counts(), (5, 3, 1, 1));
-    assert_eq!(a_restarted.explored.viewable_count(), 3);
-    assert_eq!(a_restarted.explored.unavailable_count(), 1);
+    assert_eq!(a_restarted.activity.viewed_total(), 2);
+    assert_eq!(a_restarted.explored.counts(), (8, 5, 2, 1));
+    assert_eq!(a_restarted.explored.viewable_count(), 5);
+    assert_eq!(a_restarted.explored.unavailable_count(), 2);
     assert_eq!(b_restarted.activity.viewed_total(), 2);
-    assert_eq!(b_restarted.explored.count(), 3);
+    assert_eq!(b_restarted.explored.count(), 8);
     engine(&a_path, &a_restarted, a_secret.clone())
         .startup_sync()
         .await?;
@@ -712,8 +733,8 @@ async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
         .startup_sync()
         .await?;
     assert_eq!(remote()?, stable);
-    assert_eq!(a_restarted.explored.counts(), (5, 3, 1, 1));
-    assert_eq!(b_restarted.explored.count(), 3);
+    assert_eq!(a_restarted.explored.counts(), (8, 5, 2, 1));
+    assert_eq!(b_restarted.explored.count(), 8);
     task.abort();
     fs::remove_dir_all(a_path)?;
     fs::remove_dir_all(b_path)?;
@@ -1278,5 +1299,249 @@ async fn join_conflict_retries_do_not_persist_pairing_until_cas_succeeds(
     task.abort();
     fs::remove_dir_all(a_path)?;
     fs::remove_dir_all(b_path)?;
+    Ok(())
+}
+
+fn make_engine(
+    path: &Path,
+    seen: Arc<SeenStore>,
+    history: Arc<HistoryStore>,
+    favorites: Arc<FavoriteStore>,
+    secret: MemorySecret,
+    endpoint: Option<&str>,
+) -> Result<SyncEngine<MemorySecret>, SyncError> {
+    use crate::persistence::{ActivityStore, ExplorationStore, PersistentState};
+    let state = PersistentState::with_stores(
+        path,
+        seen,
+        history,
+        favorites,
+        Arc::new(ExplorationStore::new(path).map_err(|_| SyncError::Persistence)?),
+        Arc::new(ActivityStore::new(path).map_err(|_| SyncError::Persistence)?),
+    )
+    .map_err(|_| SyncError::Persistence)?;
+    Ok(SyncEngine::new(path, Arc::new(state), secret, endpoint))
+}
+
+#[tokio::test]
+async fn v1_writer_cannot_overwrite_published_v2_after_cas_conflict(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (url, server, task) = server().await?;
+    let path = directory("mixed-version");
+    let a = device(&path, &url, MemorySecret::default())?;
+    let root = RootSecret::from_bytes(&(0u8..32).collect::<Vec<_>>())?;
+    let keys = root.derive();
+    let v1 = include_bytes!("../persistence/tests/fixtures/envelope-v1.bin").to_vec();
+    let transport = SyncTransport::new(&url)?;
+    let old_revision = transport
+        .create(keys.sync_id(), &keys.client_auth_token(), v1.clone())
+        .await?;
+    let mut old_change = snapshot::v1::parse_snapshot(include_bytes!(
+        "../persistence/tests/fixtures/snapshot-v1.bin"
+    ))?;
+    old_change.seen.push(99);
+    let old_envelope = keys.encrypt_snapshot(&snapshot::v1::serialize_snapshot(&old_change)?)?;
+    // A v1 write racing ahead of migration must be included by the v2 CAS retry.
+    server
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .v1_on_update = Some(old_envelope);
+    a.join(root.recovery_key().as_str()).await?;
+    assert!(a.seen.contains(99));
+    let (revision, published) = transport
+        .get(keys.sync_id(), &keys.client_auth_token())
+        .await?;
+    let plain = keys.decrypt_snapshot(keys.sync_id(), &published)?;
+    assert_eq!(
+        snapshot::decode_snapshot(&plain)?.original_schema_version,
+        2
+    );
+    // The old writer already prepared a v1 PUT. It loses CAS, then its frozen decoder
+    // rejects the GET result before another PUT can be built.
+    assert_eq!(
+        transport
+            .update(keys.sync_id(), &keys.client_auth_token(), old_revision, v1)
+            .await,
+        Err(crate::sync_transport::TransportError::Conflict)
+    );
+    assert!(matches!(
+        snapshot::v1::parse_snapshot(&plain),
+        Err(snapshot::v1::SnapshotError::UnsupportedVersion(2))
+    ));
+    assert_eq!(
+        transport
+            .get(keys.sync_id(), &keys.client_auth_token())
+            .await?
+            .0,
+        revision
+    );
+    task.abort();
+    fs::remove_dir_all(path)?;
+    Ok(())
+}
+#[tokio::test]
+async fn higher_revision_v1_is_rejected_after_v2() -> Result<(), Box<dyn std::error::Error>> {
+    let (url, server, task) = server().await?;
+    let path = directory("schema-downgrade");
+    let a = device(&path, &url, MemorySecret::default())?;
+    let key = a.create().await?.recovery_key;
+    let keys = RootSecret::from_recovery_key(&key)?.derive();
+    let before = a.data.snapshot()?.0;
+    let old = keys.encrypt_snapshot(include_bytes!(
+        "../persistence/tests/fixtures/snapshot-v1.bin"
+    ))?;
+    {
+        let mut state = server
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.revision += 1;
+        state.envelope = old;
+    }
+    assert!(matches!(
+        a.sync_now().await,
+        Err(SyncError::SchemaDowngrade)
+    ));
+    assert_eq!(a.data.snapshot()?.0, before);
+    assert!(!a.seen.contains(9));
+    drop(a);
+    let a = device(
+        &path,
+        &url,
+        MemorySecret {
+            value: Arc::new(Mutex::new(Some(
+                *RootSecret::from_recovery_key(&key)?.as_bytes(),
+            ))),
+            ..MemorySecret::default()
+        },
+    )?;
+    assert!(matches!(
+        a.sync_now().await,
+        Err(SyncError::SchemaDowngrade)
+    ));
+    task.abort();
+    fs::remove_dir_all(path)?;
+    Ok(())
+}
+#[tokio::test]
+async fn v1_upgrade_keeps_publication_floor_after_pairing_failure(
+) -> Result<(), Box<dyn std::error::Error>> {
+    for fail_secret_store in [false, true] {
+        let (url, server, task) = server().await?;
+        let path = directory("upgrade-pairing-failure");
+        let secret = MemorySecret::default();
+        secret
+            .fail_store
+            .store(fail_secret_store, Ordering::Relaxed);
+        let a = device(&path, &url, secret)?;
+        if !fail_secret_store {
+            server
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .block_config_on_update = Some(path.clone());
+        }
+        let root = RootSecret::from_bytes(&(0u8..32).collect::<Vec<_>>())?;
+        let keys = root.derive();
+        let v1 = include_bytes!("../persistence/tests/fixtures/envelope-v1.bin").to_vec();
+        SyncTransport::new(&url)?
+            .create(keys.sync_id(), &keys.client_auth_token(), v1.clone())
+            .await?;
+        assert!(matches!(
+            a.join(root.recovery_key().as_str()).await,
+            Err(SyncError::SecureStorage | SyncError::Persistence)
+        ));
+        assert_eq!(a.data.schema_floor(keys.sync_id())?, 2);
+        drop(a);
+        if !fail_secret_store {
+            fs::remove_dir(path.join("sync-config.json.tmp"))?;
+        }
+        let a = device(&path, &url, MemorySecret::default())?;
+        {
+            let mut state = server
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            state.revision += 1;
+            state.envelope = v1;
+        }
+        assert!(matches!(
+            a.join(root.recovery_key().as_str()).await,
+            Err(SyncError::SchemaDowngrade)
+        ));
+        task.abort();
+        fs::remove_dir_all(path)?;
+    }
+    Ok(())
+}
+#[tokio::test]
+async fn activity_exploration_and_preference_changes_during_upload_remain_dirty(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (url, server, task) = server().await?;
+    let path = directory("v2-inflight");
+    let a = device(&path, &url, MemorySecret::default())?;
+    a.create().await?;
+    server
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .state_on_update = Some(Arc::clone(&a.data));
+    let result = a.sync_now().await?;
+    assert!(result.dirty);
+    assert_eq!(a.data.activity.viewed_total(), 1);
+    assert_eq!(a.data.explored.count(), 1);
+    assert_eq!(a.data.preferences.get().history_page_size, Some(50));
+    assert!(!a.sync_now().await?.dirty);
+    task.abort();
+    fs::remove_dir_all(path)?;
+    Ok(())
+}
+#[tokio::test]
+#[ignore = "requires RANDOM_FRAME_SYNC_E2E_URL pointing to the unmodified local server"]
+async fn unmodified_server_recovers_complete_v2_state_on_a_third_device(
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::persistence::{ExplorationOutcome, UserPreferences};
+    let url = std::env::var("RANDOM_FRAME_SYNC_E2E_URL")?;
+    let paths = [directory("e2e-a"), directory("e2e-b"), directory("e2e-c")];
+    let a = device(&paths[0], &url, MemorySecret::default())?;
+    a.data.accept(
+        &HistoryItem {
+            source: "prntsc".into(),
+            id: "1".into(),
+            source_page_url: "https://prnt.sc/1".into(),
+            viewed_at: 1,
+        },
+        false,
+    )?;
+    a.data.favorites.toggle(FavoriteItem {
+        source: "prntsc".into(),
+        id: "1".into(),
+        source_page_url: "https://prnt.sc/1".into(),
+        added_at: 1,
+    })?;
+    a.data.preferences.set(
+        UserPreferences {
+            theme: Some("dark".into()),
+            history_page_size: Some(50),
+        },
+        false,
+    )?;
+    let key = a.create().await?.recovery_key;
+    let b = device(&paths[1], &url, MemorySecret::default())?;
+    b.join(&key).await?;
+    b.data
+        .discover(2, ExplorationOutcome::Rejected, 2, "2026-10-02")?;
+    b.sync_now().await?;
+    a.sync_now().await?;
+    let c = device(&paths[2], &url, MemorySecret::default())?;
+    c.join(&key).await?;
+    assert_eq!(a.data.snapshot()?.0, b.data.snapshot()?.0);
+    assert_eq!(b.data.snapshot()?.0, c.data.snapshot()?.0);
+    assert_eq!(c.data.activity.viewed_total(), 1);
+    assert_eq!(c.data.explored.counts(), (2, 1, 1, 0));
+    assert_eq!(c.data.preferences.get().theme.as_deref(), Some("dark"));
+    assert_eq!(
+        c.data.history.frame_views()[0].day,
+        a.data.history.frame_views()[0].day
+    );
+    for path in paths {
+        fs::remove_dir_all(path)?;
+    }
     Ok(())
 }

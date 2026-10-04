@@ -118,6 +118,10 @@ test("pages a long existing history without touching the stored records", async 
   Object.assign(globalThis, { document, localStorage, performance, sessionStorage: new FakeStorage(), window });
   window.__TAURI_INTERNALS__ = {
     async invoke(command, args) {
+      if (command === "complete_state_imports") return null;
+      if (command === "get_user_preferences" || command === "set_user_preferences")
+        return { theme: null, historyPageSize: null };
+      if (command === "import_session_history") return window.__TAURI_INTERNALS__.invoke("get_history");
       invocations.push(command);
       if (command === "get_history") return structuredClone(stored);
       if (command === "get_favorites") return [];
@@ -185,6 +189,7 @@ test("pages a long existing history without touching the stored records", async 
   get("history-page-size").value = "10";
   get("history-page-size").dispatchEvent(new Event("change"));
   get("history-close-button").click();
+  await flush();
 
   // Paging never writes history: the only backend write is the startup restore of the shown frame.
   assert.equal(invocations.filter((command) => command === "select_history_item").length, 1);

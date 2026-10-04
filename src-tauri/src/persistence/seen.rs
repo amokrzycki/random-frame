@@ -12,6 +12,10 @@ use std::{
 /// Remote merges update the JSON base; local views append fixed-width IDs to the log.
 pub struct SeenStore {
     path: PathBuf,
+    #[allow(
+        dead_code,
+        reason = "retained append-log API; coordinated writes currently use bulk merge"
+    )]
     log_path: PathBuf,
     ids: Mutex<HashSet<u64>>,
     generation: std::sync::atomic::AtomicU64,
@@ -65,6 +69,10 @@ impl SeenStore {
             .contains(&id)
     }
 
+    #[allow(
+        dead_code,
+        reason = "retained monotonic insert API is exercised by persistence and upload-race tests"
+    )]
     pub fn insert(&self, id: u64) -> Result<bool, AppError> {
         if id > crate::sources::prntsc::LEGACY_MAX_VALUE {
             return Err(AppError::invalid_input("Invalid legacy Prnt.sc seen ID"));
@@ -92,6 +100,7 @@ impl SeenStore {
             let _ = file.set_len(aligned_length);
             return Err(AppError::persistence(error));
         }
+        file.sync_all().map_err(AppError::persistence)?;
         ids.insert(id);
         drop(ids);
         self.generation

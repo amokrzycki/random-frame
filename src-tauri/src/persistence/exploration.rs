@@ -1,202 +1,216 @@
-use crate::{error::AppError, sources::prntsc::LEGACY_MAX_VALUE};
-use std::{
-    collections::{hash_map::Entry, HashMap},
-    fs::{self, OpenOptions},
-    io::Write,
-    path::{Path, PathBuf},
-    sync::Mutex,
+use super::io::{load_json, save_json};
+use crate::{
+    error::AppError,
+    snapshot::{merge_snapshots, ExplorationRecord, SyncSnapshot},
+    sources::prntsc::{item_id_value, value_to_base36, LEGACY_MAX_VALUE},
 };
-
-/// Classification recorded by `ExplorationStore`. `Unknown` marks legacy ids whose outcome can't be reconstructed.
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::BTreeMap,
+    fs,
+    path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Mutex,
+    },
+};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ExplorationClass {
-    Unknown,
+pub enum ExplorationOutcome {
     Viewed,
     Rejected,
 }
-
-impl ExplorationClass {
-    fn marker(self) -> Option<char> {
+impl ExplorationOutcome {
+    pub fn evidence(self) -> u8 {
         match self {
-            Self::Unknown => None,
-            Self::Viewed => Some('v'),
-            Self::Rejected => Some('r'),
-        }
-    }
-
-    fn from_marker(marker: &str) -> Option<Self> {
-        match marker {
-            "v" => Some(Self::Viewed),
-            "r" => Some(Self::Rejected),
-            _ => None,
+            Self::Viewed => 1,
+            Self::Rejected => 2,
         }
     }
 }
-
-fn corrupt_exploration() -> AppError {
-    AppError::persistence("Invalid Prnt.sc exploration data")
+#[derive(Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ExplorationData {
+    version: u8,
+    records: Vec<ExplorationRecord>,
 }
-
-fn parse_exploration_line(line: &str) -> Result<(u64, ExplorationClass), AppError> {
-    let (id, class) = match line.split_once(',') {
-        Some((id, marker)) => (
-            id,
-            ExplorationClass::from_marker(marker).ok_or_else(corrupt_exploration)?,
-        ),
-        None => (line, ExplorationClass::Unknown),
-    };
-    let id = id.parse().map_err(|_| corrupt_exploration())?;
-    if id > LEGACY_MAX_VALUE {
-        return Err(corrupt_exploration());
-    }
-    Ok((id, class))
-}
-
 pub struct ExplorationStore {
     path: PathBuf,
-    ids: Mutex<HashMap<u64, ExplorationClass>>,
+    ids: Mutex<BTreeMap<(String, String), u8>>,
+    generation: AtomicU64,
 }
-
 impl ExplorationStore {
     pub fn new(directory: &Path) -> Result<Self, AppError> {
         fs::create_dir_all(directory).map_err(AppError::persistence)?;
-        let path = directory.join("prntsc-explored.txt");
-        let ids = match fs::read_to_string(&path) {
-            Ok(contents) => {
-                let mut ids = HashMap::new();
-                for line in contents.lines() {
-                    let (id, class) = parse_exploration_line(line)?;
-                    match ids.entry(id) {
-                        Entry::Vacant(entry) => {
-                            entry.insert(class);
+        let path = directory.join("exploration-v2.json");
+        let source =
+            super::migration::source_path(directory, "exploration-v2.json", "prntsc-explored.txt")?;
+        let mut ids = BTreeMap::new();
+        if source == path {
+            let data: ExplorationData = load_json(&path)?;
+            if data.version != 2 {
+                return Err(AppError::persistence("Unsupported Exploration schema"));
+            }
+            crate::snapshot::validate_snapshot(&SyncSnapshot {
+                exploration: data.records.clone(),
+                ..SyncSnapshot::default()
+            })
+            .map_err(AppError::persistence)?;
+            for x in data.records {
+                ids.insert((x.source, x.id), x.evidence);
+            }
+        } else {
+            match fs::read_to_string(source) {
+                Ok(contents) => {
+                    for line in contents.lines() {
+                        let (id, evidence) = match line.split_once(',') {
+                            Some((id, "v")) => (id, 1),
+                            Some((id, "r")) => (id, 2),
+                            None => (line, 0),
+                            _ => return Err(AppError::persistence("Invalid exploration marker")),
+                        };
+                        let id: u64 = id.parse().map_err(AppError::persistence)?;
+                        if id > LEGACY_MAX_VALUE {
+                            return Err(AppError::persistence("Invalid exploration ID"));
                         }
-                        Entry::Occupied(entry) if *entry.get() == class => {}
-                        Entry::Occupied(_) => return Err(corrupt_exploration()),
+                        *ids.entry(("prntsc".into(), value_to_base36(id)))
+                            .or_insert(0) |= evidence;
                     }
                 }
-                ids
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(AppError::persistence(e)),
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => HashMap::new(),
-            Err(error) => return Err(AppError::persistence(error)),
-        };
+        }
+        save_json(
+            &path,
+            &ExplorationData {
+                version: 2,
+                records: records(&ids),
+            },
+        )?;
+        super::migration::receipt(directory, "exploration-v2")?;
         Ok(Self {
             path,
             ids: Mutex::new(ids),
+            generation: AtomicU64::new(0),
         })
     }
-
-    /// Marks a unique Prnt.sc id as explored under `outcome`. No-op if already recorded.
-    pub fn mark(&self, id: u64, outcome: ExplorationOutcome) -> Result<bool, AppError> {
-        if id > LEGACY_MAX_VALUE {
-            return Err(AppError::invalid_input("Invalid image identifier"));
-        }
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Relaxed)
+    }
+    pub fn sync_state(&self) -> Vec<ExplorationRecord> {
+        records(
+            &self
+                .ids
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        )
+    }
+    pub fn merge_sync_state(&self, incoming: Vec<ExplorationRecord>) -> Result<(), AppError> {
         let mut ids = self
             .ids
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if ids.contains_key(&id) {
+        let merged = merge_snapshots(
+            &SyncSnapshot {
+                exploration: records(&ids),
+                ..SyncSnapshot::default()
+            },
+            &SyncSnapshot {
+                exploration: incoming,
+                ..SyncSnapshot::default()
+            },
+        )
+        .map_err(AppError::persistence)?;
+        let next: BTreeMap<_, _> = merged
+            .exploration
+            .into_iter()
+            .map(|x| ((x.source, x.id), x.evidence))
+            .collect();
+        if *ids != next {
+            save_json(
+                &self.path,
+                &ExplorationData {
+                    version: 2,
+                    records: records(&next),
+                },
+            )?;
+            *ids = next;
+            drop(ids);
+            self.generation.fetch_add(1, Ordering::Relaxed);
+        }
+        Ok(())
+    }
+    #[cfg(test)]
+    pub fn mark(&self, id: u64, outcome: ExplorationOutcome) -> Result<bool, AppError> {
+        if id > LEGACY_MAX_VALUE {
+            return Err(AppError::invalid_input("Invalid image identifier"));
+        }
+        if self.contains(id) {
             return Ok(false);
         }
-        let class = match outcome {
-            ExplorationOutcome::Viewed => ExplorationClass::Viewed,
-            ExplorationOutcome::Rejected => ExplorationClass::Rejected,
-        };
-        let marker = class.marker().unwrap_or('?');
-        let result = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.path)
-            .and_then(|mut file| writeln!(file, "{id},{marker}"));
-        if let Err(error) = result {
-            drop(ids);
-            return Err(AppError::persistence(error));
-        }
-        ids.insert(id, class);
-        drop(ids);
+        self.merge_sync_state(vec![ExplorationRecord {
+            source: "prntsc".into(),
+            id: value_to_base36(id),
+            evidence: outcome.evidence(),
+        }])?;
         Ok(true)
     }
-
-    #[cfg(test)]
-    pub fn count(&self) -> usize {
+    pub fn contains(&self, id: u64) -> bool {
         self.ids
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .len()
+            .contains_key(&("prntsc".into(), value_to_base36(id)))
     }
-
-    /// One snapshot keeps the displayed categories coherent with the total during writes.
     pub fn counts(&self) -> (usize, usize, usize, usize) {
         let ids = self
             .ids
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let mut viewable = 0;
-        let mut unavailable = 0;
-        let mut unclassified = 0;
-        for class in ids.values() {
-            match class {
-                ExplorationClass::Viewed => viewable += 1,
-                ExplorationClass::Rejected => unavailable += 1,
-                ExplorationClass::Unknown => unclassified += 1,
+        let mut result = (0, 0, 0, 0);
+        for ((source, _), evidence) in ids.iter() {
+            if source != "prntsc" {
+                continue;
+            }
+            result.0 += 1;
+            if evidence & 1 != 0 {
+                result.1 += 1;
+            } else if evidence & 2 != 0 {
+                result.2 += 1;
+            } else {
+                result.3 += 1;
             }
         }
-        (ids.len(), viewable, unavailable, unclassified)
-    }
-
-    /// Unique Prnt.sc ids classified as viewed since tracking began. Excludes legacy ids.
-    #[cfg(test)]
-    pub fn viewable_count(&self) -> usize {
-        self.ids
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .values()
-            .filter(|class| **class == ExplorationClass::Viewed)
-            .count()
-    }
-
-    /// Unique Prnt.sc ids classified as rejected since tracking began. Excludes legacy ids.
-    #[cfg(test)]
-    pub fn unavailable_count(&self) -> usize {
-        self.ids
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .values()
-            .filter(|class| **class == ExplorationClass::Rejected)
-            .count()
-    }
-
-    pub fn contains(&self, id: u64) -> bool {
-        self.ids
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .contains_key(&id)
-    }
-
-    pub fn viewed_ids(&self) -> Result<Vec<u64>, AppError> {
-        let ids = self
-            .ids
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let result = match fs::read_to_string(&self.path) {
-            Ok(contents) => contents
-                .lines()
-                .map(parse_exploration_line)
-                .filter_map(|entry| match entry {
-                    Ok((id, ExplorationClass::Viewed)) => Some(Ok(id)),
-                    Ok(_) => None,
-                    Err(error) => Some(Err(AppError::persistence(error))),
-                })
-                .collect(),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
-            Err(error) => Err(AppError::persistence(error)),
-        };
         drop(ids);
         result
     }
+    pub fn viewed_ids(&self) -> Vec<u64> {
+        self.ids
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .filter(|((source, _), evidence)| source == "prntsc" && *evidence & 1 != 0)
+            .filter_map(|((_, id), _)| item_id_value(id).ok())
+            .collect()
+    }
+    #[cfg(test)]
+    pub fn count(&self) -> usize {
+        self.counts().0
+    }
+    #[cfg(test)]
+    pub fn viewable_count(&self) -> usize {
+        self.counts().1
+    }
+    #[cfg(test)]
+    pub fn unavailable_count(&self) -> usize {
+        self.counts().2
+    }
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExplorationOutcome {
-    Viewed,
-    Rejected,
+fn records(ids: &BTreeMap<(String, String), u8>) -> Vec<ExplorationRecord> {
+    ids.iter()
+        .map(|((source, id), evidence)| ExplorationRecord {
+            source: source.clone(),
+            id: id.clone(),
+            evidence: *evidence,
+        })
+        .collect()
 }

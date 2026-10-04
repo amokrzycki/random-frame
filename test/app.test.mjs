@@ -41,6 +41,8 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   let failNextDraw = false;
   let brokenNextImage = false;
   let failStats = false;
+  let failNextCancelClear = false;
+  let failNextCommitClear = false;
   const invocations = [];
   let persisted = { history: [], index: -1 };
   let finishStartupSync;
@@ -49,6 +51,14 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   });
   window.__TAURI_INTERNALS__ = {
     async invoke(command, args, options) {
+      if (command === "complete_state_imports") return null;
+      if (command === "get_user_preferences" || command === "set_user_preferences")
+        return { theme: null, historyPageSize: null };
+      if (command === "import_session_history") {
+        invocations.push({ command, args });
+        if (!persisted.history.length) persisted = { history: structuredClone(args.items), index: args.index };
+        return structuredClone(persisted);
+      }
       invocations.push({ command, args, options });
       if (command === "get_history") return structuredClone(persisted);
       if (command === "startup_sync") return startupSync;
@@ -70,7 +80,19 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
         persisted.index = args.index;
         return structuredClone(persisted);
       }
-      if (command === "clear_history") {
+      if (command === "prepare_history_clear") return "clear-request-1";
+      if (command === "cancel_history_clear") {
+        if (failNextCancelClear) {
+          failNextCancelClear = false;
+          throw new Error("Could not save cancellation");
+        }
+        return null;
+      }
+      if (command === "commit_history_clear") {
+        if (failNextCommitClear) {
+          failNextCommitClear = false;
+          throw new Error("Could not commit clear");
+        }
         persisted = { history: [], index: -1 };
         return null;
       }
@@ -128,13 +150,17 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   await flush();
   assert.ok(invocations.some(({ command }) => command === "startup_sync"));
   assert.ok(
+    invocations.findIndex(({ command }) => command === "import_session_history") <
+      invocations.findIndex(({ command }) => command === "startup_sync"),
+  );
+  assert.ok(
     invocations.findIndex(({ command }) => command === "startup_sync") <
       invocations.findIndex(({ command }) => command === "get_frame_by_id"),
   );
   assert.match(get("image").alt, /saved2/);
   assert.deepEqual(
-    invocations.filter(({ command }) => command === "record_history_item").map(({ args }) => args.legacyImport),
-    [true, true],
+    invocations.find(({ command }) => command === "import_session_history").args.items.map((item) => item.id),
+    ["saved1", "saved2"],
   );
   finishStartupSync({
     paired: false,
@@ -184,10 +210,10 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(get("frame-count-current").textContent, "4");
   assert.equal(get("image-id-value").textContent, "def456");
   assert.equal(get("draw-button").getAttribute("aria-busy"), "false");
-  assert.equal(historyWrites(), 4);
+  assert.equal(historyWrites(), 2);
   assert.deepEqual(
     invocations.filter(({ command }) => command === "record_history_item").map(({ args }) => args.legacyImport),
-    [true, true, false, false],
+    [false, false],
   );
 
   keydown(document, "t");
@@ -261,7 +287,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   await flush();
   await flush();
   assert.match(get("image").alt, /saved1/);
-  assert.equal(historyWrites(), 4);
+  assert.equal(historyWrites(), 2);
 
   get("save-button").click();
   await flush();
@@ -385,7 +411,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(get("frame-count-current").textContent, "5");
   assert.equal(get("frame-count-total").textContent, "5");
   assert.equal(persisted.history.length, 5);
-  assert.equal(historyWrites(), 5);
+  assert.equal(historyWrites(), 3);
   get("back-button").click();
   await flush();
   await flush();
@@ -393,7 +419,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
 
   // Clearing requires an explicit second activation with a visible confirmation label.
   const clearButton = get("history-clear-button");
-  const clears = () => invocations.filter(({ command }) => command === "clear_history").length;
+  const clears = () => invocations.filter(({ command }) => command === "commit_history_clear").length;
   get("history-tool-button").click();
   clearButton.click();
   await flush();
@@ -409,6 +435,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   clearButton.click();
   assert.equal(get("draw-button").getAttribute("aria-disabled"), "true");
   assert.equal(get("draw-button").getAttribute("data-invite"), null);
+  await flush();
   toastExpiry();
   await flush();
   assert.deepEqual(persisted, { history: [], index: -1 });
@@ -439,9 +466,54 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.match(get("announcer").textContent, /^Activate again to clear history & stats: \d+ frames? and streak$/);
   await new Promise((resolve) => setTimeout(resolve, 520));
   clearButton.click();
+  await flush();
   toastExpiry();
   await flush();
   assert.equal(clears(), 2);
+
+  // A failed durable clear or cancellation keeps drawing paused and retries the same request.
+  get("draw-button").click();
+  await flush();
+  await flush();
+  const beforeUndo = structuredClone(persisted);
+  get("history-tool-button").click();
+  clearButton.click();
+  await new Promise((resolve) => setTimeout(resolve, 520));
+  clearButton.click();
+  await flush();
+  failNextCancelClear = true;
+  keydown(document, "z");
+  await flush();
+  assert.equal(get("draw-button").getAttribute("aria-disabled"), "true");
+  const retryAction = () =>
+    document.body.children.filter((element) => element.className === "toast-region toast-region--error").at(-1)
+      .children[0].children[0];
+  assert.equal(retryAction().textContent, "Retry Undo");
+  retryAction().click();
+  await flush();
+  assert.deepEqual(persisted, beforeUndo);
+  assert.equal(get("draw-button").getAttribute("aria-disabled"), "false");
+  const cancellations = invocations.filter(({ command }) => command === "cancel_history_clear");
+  assert.equal(cancellations.length, 2);
+  assert.deepEqual(cancellations[0].args, cancellations[1].args);
+
+  get("history-tool-button").click();
+  clearButton.click();
+  await new Promise((resolve) => setTimeout(resolve, 520));
+  clearButton.click();
+  await flush();
+  failNextCommitClear = true;
+  toastExpiry();
+  await flush();
+  assert.equal(retryAction().textContent, "Retry");
+  assert.equal(get("draw-button").getAttribute("aria-disabled"), "true");
+  retryAction().click();
+  await flush();
+  await flush();
+  assert.deepEqual(persisted, { history: [], index: -1 });
+  assert.equal(get("draw-button").getAttribute("aria-disabled"), "false");
+  const commits = invocations.filter(({ command }) => command === "commit_history_clear");
+  assert.deepEqual(commits.at(-1).args, commits.at(-2).args);
 });
 
 test("migrates the legacy localStorage counter once on startup and clears it", async (t) => {
@@ -460,6 +532,10 @@ test("migrates the legacy localStorage counter once on startup and clears it", a
   const invocations = [];
   window.__TAURI_INTERNALS__ = {
     async invoke(command, args) {
+      if (command === "complete_state_imports") return null;
+      if (command === "get_user_preferences" || command === "set_user_preferences")
+        return { theme: null, historyPageSize: null };
+      if (command === "import_session_history") return { history: [], index: -1 };
       invocations.push({ command, args });
       if (command === "get_history") return { history: [], index: -1 };
       if (command === "get_favorites") return [];

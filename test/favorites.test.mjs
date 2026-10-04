@@ -37,6 +37,10 @@ test("favorites toggle from the info line and filter the history grid", async (t
   const invocations = [];
   window.__TAURI_INTERNALS__ = {
     async invoke(command, args) {
+      if (command === "complete_state_imports") return null;
+      if (command === "get_user_preferences" || command === "set_user_preferences")
+        return { theme: null, historyPageSize: null };
+      if (command === "import_session_history") return window.__TAURI_INTERNALS__.invoke("get_history");
       invocations.push({ command, args });
       if (command === "get_history") return structuredClone(history);
       if (command === "get_favorites") return structuredClone(favorites);

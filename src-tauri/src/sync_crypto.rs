@@ -125,7 +125,7 @@ impl SyncKeys {
     }
 
     pub fn encrypt_snapshot(&self, plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
-        snapshot::parse_snapshot(plaintext).map_err(|_| CryptoError::InvalidSnapshot)?;
+        snapshot::parse_snapshot(plaintext).map_err(snapshot_error)?;
         let mut nonce = [0; 24];
         OsRng.fill_bytes(&mut nonce);
         let mut envelope = Vec::with_capacity(HEADER_LEN + plaintext.len() + TAG_LEN);
@@ -178,7 +178,7 @@ impl SyncKeys {
                 },
             )
             .map_err(|_| CryptoError::InvalidEnvelope)?;
-        snapshot::parse_snapshot(&plaintext).map_err(|_| CryptoError::InvalidSnapshot)?;
+        snapshot::parse_snapshot(&plaintext).map_err(snapshot_error)?;
         Ok(plaintext)
     }
 
@@ -199,6 +199,7 @@ pub enum CryptoError {
     InvalidSecret,
     InvalidRecoveryKey,
     InvalidSnapshot,
+    UnsupportedSnapshotVersion(u32),
     InvalidEnvelope,
 }
 
@@ -207,6 +208,7 @@ impl fmt::Display for CryptoError {
         f.write_str(match self {
             Self::InvalidSecret => "Invalid stored sync secret",
             Self::InvalidRecoveryKey => "Invalid recovery key",
+            Self::UnsupportedSnapshotVersion(_) => "Unsupported sync snapshot version",
             Self::InvalidSnapshot => "Invalid seen snapshot",
             Self::InvalidEnvelope => "Encrypted sync data could not be opened",
         })
@@ -276,8 +278,8 @@ mod tests {
             seen: vec![1, 42],
             history: vec![SyncRecord {
                 operation_id: [1; 16],
-                first_at: 0,
-                second_at: 10,
+                order_at: 0,
+                last_view: crate::snapshot::ViewStamp::inferred(10),
                 source: "prntsc".into(),
                 id: "abc123".into(),
                 source_page_url: "https://prnt.sc/abc123".into(),
@@ -291,6 +293,7 @@ mod tests {
                 source_page_url: "https://prnt.sc/abc123".into(),
             }],
             favorites_removed: vec![],
+            ..SyncSnapshot::default()
         })
         .unwrap_or_else(|_| unreachable!());
         let keys = fixture().derive();
@@ -467,5 +470,32 @@ mod tests {
             keys.decrypt_snapshot(keys.sync_id(), &envelope),
             Err(CryptoError::InvalidSnapshot)
         );
+    }
+}
+
+fn snapshot_error(error: snapshot::SnapshotError) -> CryptoError {
+    match error {
+        snapshot::SnapshotError::UnsupportedVersion(version) => {
+            CryptoError::UnsupportedSnapshotVersion(version)
+        }
+        _ => CryptoError::InvalidSnapshot,
+    }
+}
+
+#[cfg(test)]
+mod frozen_snapshot_tests {
+    use super::*;
+    #[test]
+    fn frozen_v1_envelope_still_opens_without_changing_credentials() -> Result<(), CryptoError> {
+        let root = RootSecret::from_bytes(&(0u8..32).collect::<Vec<_>>())?;
+        let keys = root.derive();
+        assert_eq!(
+            keys.decrypt_snapshot(
+                keys.sync_id(),
+                include_bytes!("persistence/tests/fixtures/envelope-v1.bin")
+            )?,
+            include_bytes!("persistence/tests/fixtures/snapshot-v1.bin")
+        );
+        Ok(())
     }
 }

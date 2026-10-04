@@ -57,6 +57,7 @@ function currentTheme(): Theme {
 function choose(next: Choice): void {
   choice = next;
   apply();
+  document.dispatchEvent(new CustomEvent("theme-choice", { detail: next }));
   try {
     if (next === "system") localStorage.removeItem(storageKey);
     else localStorage.setItem(storageKey, next);
@@ -73,3 +74,11 @@ toggle?.addEventListener("click", () => choose(choice === "system" ? "light" : c
 for (const button of choices) button.addEventListener("click", () => choose(button.dataset.themeChoice as Choice));
 // Following the system means following it live.
 systemDark?.addEventListener?.("change", () => choice === "system" && apply());
+
+document.addEventListener("user-preferences", (event) => {
+  const next = (event as CustomEvent).detail?.theme;
+  if (next === "system" || next === "light" || next === "dark") {
+    choice = next;
+    apply();
+  }
+});

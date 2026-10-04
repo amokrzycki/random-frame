@@ -1,4 +1,4 @@
-import type { DailyActivity } from "./persistence.js";
+import type { DailyActivity, FrameView, HistoryItem } from "./persistence.js";
 
 export function formatExploredBreakdown(
   explored: number,
@@ -97,16 +97,32 @@ export interface LedgerDay {
 }
 
 // One entry per day with any activity, newest first. Frames join the day of their local `viewedAt`.
-export function ledgerDays(days: readonly DailyActivity[], viewedAt: readonly (number | null)[]): LedgerDay[] {
+export function ledgerDays(
+  days: readonly DailyActivity[],
+  viewedAt: readonly (number | null)[],
+  history: readonly HistoryItem[] = [],
+  sourceViews?: readonly FrameView[],
+): LedgerDay[] {
   const frames = new Map<string, number[]>();
   const newestFirst = viewedAt
     .flatMap((millis, index) => (millis === null ? [] : [{ millis, index }]))
     .sort((a, b) => b.millis - a.millis || b.index - a.index);
-  for (const { millis, index } of newestFirst) {
-    const key = localDayKey(millis);
-    const day = frames.get(key);
-    if (day) day.push(index);
-    else frames.set(key, [index]);
+  if (sourceViews) {
+    const positions = new Map(history.map((item, index) => [`${item.source}\0${item.id}`, index]));
+    for (const view of [...sourceViews].sort((a, b) => b.atMs - a.atMs)) {
+      const index = positions.get(`${view.source}\0${view.id}`);
+      if (index === undefined) continue;
+      const day = frames.get(view.day);
+      if (day) day.push(index);
+      else frames.set(view.day, [index]);
+    }
+  } else {
+    for (const { millis, index } of newestFirst) {
+      const key = localDayKey(millis);
+      const day = frames.get(key);
+      if (day) day.push(index);
+      else frames.set(key, [index]);
+    }
   }
   return days
     .filter((day) => day.viewed + day.rejected > 0)

@@ -1,18 +1,10 @@
-use crate::{
-    error::AppError,
-    snapshot::{validate_fields, MAX_SECTION},
-};
+use crate::{error::AppError, snapshot::validate_fields};
 use rand::{rngs::OsRng, RngCore};
-use std::collections::HashSet;
 
-/// Deduplicates removals in insertion order and keeps the newest `MAX_SECTION`.
-// ponytail: FIFO cap; a device offline across more than MAX_SECTION removals can bring
-// entries back. Add per-device acknowledgements if that ever matters.
-pub(super) fn cap_tombstones(removed: &mut Vec<[u8; 16]>) {
-    let mut seen = HashSet::new();
-    removed.retain(|id| seen.insert(*id));
-    let excess = removed.len().saturating_sub(MAX_SECTION);
-    removed.drain(..excess);
+/// Retain every known removal; upload budget errors must never discard state.
+pub(super) fn deduplicate_tombstones(removed: &mut Vec<[u8; 16]>) {
+    removed.sort_unstable();
+    removed.dedup();
 }
 
 pub(super) fn validate_item(source: &str, id: &str, source_page_url: &str) -> Result<(), AppError> {

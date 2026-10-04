@@ -15,6 +15,10 @@ test("migrates thumbnail storage and writes only changed files, with retry and e
   globalThis.window = {
     __TAURI_INTERNALS__: {
       async invoke(command, args) {
+        if (command === "complete_state_imports") return null;
+        if (command === "get_user_preferences" || command === "set_user_preferences")
+          return { theme: null, historyPageSize: null };
+        if (command === "import_session_history") return window.__TAURI_INTERNALS__.invoke("get_history");
         if (command === "load_thumbnail_cache") return [...disk];
         assert.equal(command, "save_thumbnail_cache");
         saves.push(structuredClone(args));

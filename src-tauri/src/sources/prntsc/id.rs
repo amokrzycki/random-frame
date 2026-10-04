@@ -15,7 +15,7 @@ pub(super) fn make_id() -> String {
     value_to_base36(random.sample(range))
 }
 
-fn value_to_base36(mut value: u64) -> String {
+pub(crate) fn value_to_base36(mut value: u64) -> String {
     if value == 0 {
         return "0".to_owned();
     }
