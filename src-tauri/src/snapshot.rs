@@ -166,7 +166,25 @@ pub enum SnapshotError {
 }
 impl fmt::Display for SnapshotError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Invalid sync snapshot: {self:?}")
+        match self {
+            Self::TruncatedHeader => f.write_str("Sync snapshot header is too short"),
+            Self::InvalidMagic => f.write_str("Sync snapshot has invalid magic bytes"),
+            Self::UnsupportedVersion(version) => {
+                write!(f, "Unsupported sync snapshot version: {version}")
+            }
+            Self::TooManyEntries => f.write_str("Sync snapshot has too many entries"),
+            Self::PayloadTooLarge => f.write_str("Sync snapshot exceeds payload limit"),
+            Self::InvalidLength => f.write_str("Sync snapshot has invalid length or field size"),
+            Self::InvalidLegacyId(id) => write!(f, "Invalid legacy Prnt.sc seen ID: {id}"),
+            Self::UnsortedOrDuplicate => {
+                f.write_str("Sync snapshot entries must be sorted and unique")
+            }
+            Self::InvalidValue => f.write_str("Sync snapshot contains invalid field value"),
+            Self::ConflictingOperation => f.write_str(
+                "Sync snapshot has conflicting operation with same ID but different payload",
+            ),
+            Self::CounterOverflow => f.write_str("Sync snapshot activity counter overflow"),
+        }
     }
 }
 impl std::error::Error for SnapshotError {}

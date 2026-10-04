@@ -149,4 +149,12 @@ test("history remembers each tab's page and scroll, uses entry dates, and keeps 
   assert.equal(get("history-page-input").value, "1");
   assert.equal(get("history-body").scrollTop, 0);
   get("history-close-button").click();
+
+  // A sync that lands while History is open redraws it from the reloaded state.
+  get("history-tool-button").click();
+  const before = tiles().length;
+  state.history.push({ source: "prntsc", id: "synced1", sourcePageUrl: "https://prnt.sc/synced1", viewedAt: 5 });
+  document.dispatchEvent(new CustomEvent("persisted-view-refreshed"));
+  assert.equal(tiles().length, before + 1);
+  get("history-close-button").click();
 });

@@ -142,30 +142,7 @@ impl PreferenceStore {
             return Ok(self.get());
         }
         let mut next = data.clone();
-        let max_clock = next
-            .preferences
-            .theme
-            .as_ref()
-            .map_or(0, |x| x.clock)
-            .max(
-                next.preferences
-                    .history_page_size
-                    .as_ref()
-                    .map_or(0, |x| x.clock),
-            )
-            .max(
-                next.devices
-                    .iter()
-                    .flat_map(|d| {
-                        [
-                            d.metadata.clock,
-                            d.last_sync.as_ref().map_or(0, |x| x.clock),
-                        ]
-                    })
-                    .max()
-                    .unwrap_or(0),
-            );
-        let clock = max_clock
+        let clock = max_clock(&next)
             .checked_add(1)
             .ok_or_else(|| AppError::persistence("Preference clock exhausted"))?;
         if let Some(value) = preferences.theme {

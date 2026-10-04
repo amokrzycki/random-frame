@@ -202,7 +202,7 @@
           </section>
         </div>
         <footer class="dialog-foot">
-          <p>Stats reset with History. IDs checked stay on this device, and don’t Sync.</p>
+          <p>Stats reset with History, and on linked devices once they Sync. IDs checked and Seen IDs stay.</p>
         </footer>
       </div>
     </dialog>
@@ -377,65 +377,120 @@
           </button>
         </header>
         <div class="history-dialog__body sync-dialog__body">
-          <p class="sync-dialog__status" id="sync-status" role="status" aria-live="polite">Checking Sync status…</p>
+          <div class="sync-dialog__summary" id="sync-summary">
+            <p class="sync-dialog__status" id="sync-status" role="status" aria-live="polite">Checking Sync status…</p>
+            <p class="sync-dialog__detail" id="sync-status-detail" hidden></p>
+            <p class="sync-dialog__meta" id="sync-last-synced" hidden></p>
+            <p class="sync-dialog__meta" id="sync-dirty" hidden>Changes waiting to sync</p>
+          </div>
           <div class="sync-dialog__error" id="sync-error" role="alert" hidden>
             <p id="sync-error-message"></p>
             <button class="sync-dialog__button" id="sync-retry" type="button" hidden>Try again</button>
           </div>
+          <section class="sync-dialog__scope" id="sync-scope" aria-labelledby="sync-scope-title">
+            <h3 id="sync-scope-title">What Sync covers</h3>
+            <ul>
+              <li>History and Favorites</li>
+              <li>Previously viewed and checked IDs</li>
+              <li>Activity &amp; Stats</li>
+              <li>Preferences: theme and history page size</li>
+            </ul>
+            <p>
+              Everything is encrypted before it leaves this device. Images saved to files aren’t backed up, so a
+              recovery key brings back your lists, not the files.
+            </p>
+          </section>
           <div id="sync-unpaired" hidden>
-            <p class="sync-dialog__copy">
-              Sync history, favorites, and Seen IDs across devices. Data is encrypted before it leaves this device.
-              Activity, exploration progress, and preferences sync too.
-            </p>
-            <p class="sync-dialog__copy sync-dialog__enable-note">
-              Save your recovery key to add devices or rejoin later. The app shows it only once.
-            </p>
-            <div class="sync-dialog__actions">
-              <button class="primary-action" id="sync-enable" type="button">Turn on Sync</button>
-              <button class="sync-dialog__button" id="sync-show-join" type="button">Join existing Sync</button>
-            </div>
-            <form id="sync-join-form" hidden>
-              <label for="sync-recovery-input">Recovery key</label>
-              <input
-                id="sync-recovery-input"
-                placeholder="Paste your recovery key"
-                type="text"
-                autocomplete="off"
-                autocapitalize="off"
-                spellcheck="false"
-                required>
+            <section class="sync-dialog__choice" id="sync-start" aria-labelledby="sync-start-title">
+              <h3 id="sync-start-title">Start a new Sync</h3>
+              <p class="sync-dialog__copy">
+                For your first device. Creates a new Sync from the data on this device and gives you a recovery key.
+              </p>
               <div class="sync-dialog__actions">
-                <button class="primary-action" id="sync-join" type="submit">Join Sync</button>
-                <button class="sync-dialog__button" id="sync-join-cancel" type="button">Cancel</button>
+                <button class="primary-action" id="sync-enable" type="button">Start a new Sync</button>
               </div>
-            </form>
+            </section>
+            <section class="sync-dialog__choice" aria-labelledby="sync-connect-title">
+              <h3 id="sync-connect-title">Connect this device</h3>
+              <p class="sync-dialog__copy" id="sync-connect-note">
+                Already use Sync on another device? Connect with its recovery key. Your saved data on this device will
+                be combined with your Sync. It won’t be replaced. Deletions already saved in that Sync will still apply.
+              </p>
+              <div class="sync-dialog__actions" id="sync-connect-actions">
+                <button class="sync-dialog__button" id="sync-show-join" type="button">Connect this device</button>
+              </div>
+              <form id="sync-join-form" hidden>
+                <label for="sync-recovery-input">Recovery key</label>
+                <input
+                  id="sync-recovery-input"
+                  placeholder="Paste your recovery key"
+                  type="text"
+                  autocomplete="off"
+                  autocapitalize="off"
+                  spellcheck="false"
+                  aria-describedby="sync-connect-note"
+                  required>
+                <div class="sync-dialog__actions">
+                  <button class="primary-action" id="sync-join" type="submit">Connect</button>
+                  <button class="sync-dialog__button" id="sync-join-cancel" type="button">Cancel</button>
+                </div>
+              </form>
+            </section>
           </div>
           <div id="sync-recovery" hidden>
-            <p>This key lets another device join your Sync. The app cannot show it again.</p>
-            <output id="sync-recovery-key" aria-label="Recovery key"></output>
+            <h3 id="sync-recovery-title">Your recovery key</h3>
+            <p>
+              Keep this key somewhere safe. Use it to bring your saved data to another device. Anyone with this key can
+              connect to your Sync.
+            </p>
+            <!-- biome-ignore lint/a11y/noNoninteractiveTabindex: keyboard users select the key by hand when copying fails -->
+            <output id="sync-recovery-key" aria-label="Recovery key" tabindex="0"></output>
             <button class="sync-dialog__button" id="sync-copy-key" type="button">Copy recovery key</button>
-            <p class="sync-dialog__blocked-note">Check the box below to finish.</p>
-            <label class="sync-dialog__saved">
-              <input id="sync-key-saved" type="checkbox">
-              <span>I’ve saved this recovery key somewhere safe</span>
-            </label>
+            <div id="sync-key-confirm">
+              <p class="sync-dialog__blocked-note">Check the box below to finish.</p>
+              <label class="sync-dialog__saved">
+                <input id="sync-key-saved" type="checkbox">
+                <span>I’ve saved this recovery key somewhere safe</span>
+              </label>
+            </div>
             <div class="sync-dialog__actions">
               <button class="primary-action" id="sync-done" type="button" aria-disabled="true">Done</button>
             </div>
           </div>
           <div id="sync-paired" hidden>
-            <div class="sync-dialog__meta"><p id="sync-dirty"></p></div>
+            <form class="sync-dialog__name" id="sync-name-form" novalidate>
+              <label for="sync-name-input">Name of this device</label>
+              <div class="sync-dialog__name-row">
+                <input
+                  id="sync-name-input"
+                  type="text"
+                  maxlength="128"
+                  autocomplete="off"
+                  spellcheck="false"
+                  aria-describedby="sync-name-error">
+                <button class="sync-dialog__button" id="sync-name-save" type="submit">Save name</button>
+              </div>
+              <p class="sync-dialog__field-error" id="sync-name-error" hidden></p>
+            </form>
+            <section class="sync-dialog__devices" aria-labelledby="sync-devices-title">
+              <h3 id="sync-devices-title">Devices</h3>
+              <p class="sync-dialog__copy">
+                Devices known from past syncs. This list doesn’t show which ones are online or still connected.
+              </p>
+              <ul class="sync-devices" id="sync-devices"></ul>
+            </section>
             <div class="sync-dialog__actions">
               <button class="primary-action" id="sync-now" type="button">Sync now</button>
+              <button class="sync-dialog__button" id="sync-show-key" type="button">Show recovery key</button>
               <button class="sync-dialog__button sync-dialog__button--danger" id="sync-leave" type="button">
-                Leave Sync
+                Disconnect this device
               </button>
             </div>
           </div>
           <div id="sync-leave-confirm" hidden>
             <p>
-              This device will stop syncing. History, favorites, and Seen IDs stay on this device. The remote Sync data
-              stays on the server. To join again, you will need your recovery key.
+              This device will stop syncing. The data on this device and your Sync data on the server stay as they are.
+              To connect again, you’ll need your recovery key.
             </p>
             <div class="sync-dialog__actions">
               <button class="sync-dialog__button" id="sync-leave-cancel" type="button">Cancel</button>
@@ -443,7 +498,7 @@
                 class="sync-dialog__button sync-dialog__button--danger"
                 id="sync-leave-confirm-button"
                 type="button">
-                Leave Sync on this device
+                Disconnect this device
               </button>
             </div>
           </div>

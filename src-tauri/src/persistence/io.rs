@@ -48,6 +48,9 @@ fn restore_json_backup<T: DeserializeOwned>(path: &Path) -> Result<T, AppError> 
 }
 
 /// Writes a `.json.tmp` sibling and renames it over the store, so a crash never leaves a torn file.
+// ponytail: explicit fsync after write and directory rename ensures durability across crashes.
+// Adds I/O overhead but prevents data loss on power failure or system crash. Acceptable tradeoff
+// for user data that cannot be recovered from the server.
 pub(crate) fn save_json<T: Serialize>(path: &Path, data: &T) -> Result<(), AppError> {
     let bytes = serde_json::to_vec(data).map_err(AppError::persistence)?;
     let temporary = path.with_extension("json.tmp");

@@ -431,6 +431,13 @@ async function undoRemoval(
   }
 }
 
+// Two-phase clear with Undo: prepare() freezes the operation set, then user can cancel (Undo)
+// or let it auto-commit. This ensures crash safety and prevents partial clears. The control flow
+// looks complex because we handle errors in both paths and retry on failure, but the pattern is:
+// 1. Snapshot the current state
+// 2. Prepare a durable clear request (gets a request ID)
+// 3. Optimistically clear the UI
+// 4. Either cancel (Undo) or commit (timeout) the request
 async function clearSavedHistory(): Promise<void> {
   if (state.loading) return;
   const previousHistory = [...state.history];
@@ -577,6 +584,16 @@ function bindClearConfirmation(
 }
 
 export function bindHistoryDialogEvents(): void {
+  // A sync that lands while History is open redraws the page; focus never falls out of the dialog.
+  document.addEventListener("persisted-view-refreshed", () => {
+    if (!elements.historyDialog.open) return;
+    elements.historyClear.disabled = !state.history.length;
+    renderHistoryPage();
+    if (!elements.historyDialog.contains(document.activeElement))
+      (filter === "history" ? elements.historyFilterAll : elements.historyFilterFavorites).focus({
+        preventScroll: true,
+      });
+  });
   elements.historyTool.addEventListener("click", () => openHistory(elements.historyTool));
   elements.removeFrame.addEventListener("click", () => void removeFromHistory(state.index));
   elements.historyClose.addEventListener("click", () => {

@@ -187,7 +187,10 @@ impl PersistentState {
             if pending.version != 1 {
                 return Err(AppError::persistence("Unsupported transaction schema"));
             }
-            // Revalidate the entire replay before its first store write.
+            // ponytail: recovery re-validates the entire snapshot before applying effects.
+            // This adds startup latency for large datasets, but ensures crash safety:
+            // a corrupted transaction file cannot partially apply and leave inconsistent state.
+            // Bounded by the 64MB upload limit; acceptable tradeoff for durability guarantees.
             snapshot::merge_snapshots(&self.snapshot_unlocked()?, &pending.effects)
                 .map_err(AppError::persistence)?;
             self.apply(&pending)?;

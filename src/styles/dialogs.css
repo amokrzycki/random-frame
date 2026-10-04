@@ -404,14 +404,127 @@
   font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
-.sync-dialog__meta p:empty {
-  display: none;
+.sync-dialog__summary {
+  display: grid;
+  gap: 4px;
+}
+.sync-dialog__summary > :not(.sync-dialog__status) {
+  padding-left: 17px;
+}
+.sync-dialog__body h3 {
+  margin: 0 0 4px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 650;
+}
+.sync-dialog__scope ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 18px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 13px;
+}
+.sync-dialog__scope p {
+  color: var(--muted);
+  font-size: 13px;
+}
+.sync-dialog__choice + .sync-dialog__choice {
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+.sync-dialog__name {
+  display: grid;
+  gap: 8px;
+}
+.sync-dialog__name label {
+  font-size: 13px;
+  font-weight: 650;
+}
+.sync-dialog__name-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+#sync-name-input {
+  flex: 1 1 18ch;
+  min-width: 0;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--field-line);
+  border-radius: 8px;
+  color: var(--ink);
+  background: var(--paper);
+  font: inherit;
+}
+#sync-name-input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+.sync-dialog__body .sync-dialog__field-error {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 13px;
+}
+.sync-dialog__field-error::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--danger);
+}
+.sync-dialog__devices {
+  margin-top: 22px;
+}
+.sync-devices {
+  display: grid;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.sync-device {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.sync-device__name {
+  min-width: 0;
+  font-weight: 650;
+}
+.sync-device__badge {
+  padding: 1px 8px;
+  border: 1px solid var(--control-line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.sync-device__meta {
+  flex: 1 1 100%;
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.sync-dialog__detail {
+  color: var(--muted);
+  font-size: 13px;
 }
 .sync-dialog__actions {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 22px;
+}
+.sync-dialog__choice .sync-dialog__actions {
+  margin-top: 14px;
 }
 .sync-dialog__button {
   min-height: 42px;
@@ -453,8 +566,11 @@
   min-height: 34px;
   margin-left: 17px;
 }
-/* With the status line stepped aside, the error is the first thing in the body. */
-.sync-dialog__status[hidden] + .sync-dialog__error {
+/* With the status lines stepped aside, the error is the first thing in the body. */
+.sync-dialog__summary:has(> .sync-dialog__status[hidden]) {
+  display: none;
+}
+.sync-dialog__summary:has(> .sync-dialog__status[hidden]) + .sync-dialog__error {
   margin-top: 0;
 }
 .sync-dialog__error::before {
@@ -477,8 +593,14 @@
 #sync-join-form .sync-dialog__actions {
   margin-top: 4px;
 }
-#sync-unpaired:has(#sync-join-form:not([hidden])) > :is(.sync-dialog__actions, .sync-dialog__enable-note) {
+/* Entering a key is the whole task: the other choice and the scope step aside, the merge note stays. */
+.sync-dialog[data-joining] :is(#sync-start, #sync-connect-actions, #sync-scope) {
   display: none;
+}
+.sync-dialog[data-joining] .sync-dialog__choice + .sync-dialog__choice {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
 }
 /* Panels swap via [hidden]; the incoming one settles in rather than popping. */
 :is(#sync-unpaired, #sync-join-form, #sync-recovery, #sync-paired, #sync-leave-confirm) {
