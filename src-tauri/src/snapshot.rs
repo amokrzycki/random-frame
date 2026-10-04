@@ -180,9 +180,9 @@ impl fmt::Display for SnapshotError {
                 f.write_str("Sync snapshot entries must be sorted and unique")
             }
             Self::InvalidValue => f.write_str("Sync snapshot contains invalid field value"),
-            Self::ConflictingOperation => {
-                f.write_str("Sync snapshot has conflicting operation with same ID but different payload")
-            }
+            Self::ConflictingOperation => f.write_str(
+                "Sync snapshot has conflicting operation with same ID but different payload",
+            ),
             Self::CounterOverflow => f.write_str("Sync snapshot activity counter overflow"),
         }
     }
