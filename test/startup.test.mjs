@@ -2,6 +2,18 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { FakeDocument, FakeStorage, ids } from "./dom-fakes.mjs";
 
+const unpairedStatus = {
+  supported: true,
+  paired: false,
+  state: "unpaired",
+  lastSuccessAt: null,
+  lastSuccessRevision: null,
+  dirty: false,
+  lastErrorCategory: null,
+  snapshotSchemaVersion: 1,
+  thisDeviceId: null,
+  devices: [],
+};
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 test("a failed startup load says so and Try again re-runs the load", async (t) => {
@@ -37,10 +49,8 @@ test("a failed startup load says so and Try again re-runs the load", async (t) =
         return { history: [], index: -1 };
       }
       if (command === "get_favorites") return [];
-      if (command === "startup_sync")
-        return { paired: false, state: "unpaired", lastSuccessRevision: null, dirty: false, lastErrorCategory: null };
-      if (command === "get_sync_status")
-        return { paired: false, state: "unpaired", lastSuccessRevision: null, dirty: false, lastErrorCategory: null };
+      if (command === "startup_sync") return unpairedStatus;
+      if (command === "get_sync_status") return unpairedStatus;
       return null;
     },
   };

@@ -132,8 +132,8 @@
           <li>viewing statistics and Seen IDs (identifiers of frames you have viewed, kept to skip repeats),</li>
           <li>Prnt.sc IDs checked (including ones with no image),</li>
           <li>
-            if you enable Sync: a pairing ID and the time of the last sync on this device, and your recovery key in your
-            system’s secure storage.
+            if you enable Sync: a pairing ID, a random device ID, the name you give this device, and the time of the
+            last sync on this device, and your recovery key in your system’s secure storage.
           </li>
         </ul>
 
@@ -154,8 +154,9 @@
           Sync transfers an encrypted copy of Seen IDs, history, favorites, exploration progress, Activity Stats, and
           preferences. Encryption and decryption happen on your device. The server operator does not receive the
           plaintext list of identifiers or your recovery key. The server can see connection metadata, the sync ID, and
-          the size and timing of transfers. Keep your recovery key safe: it allows another device to join your Sync and
-          cannot be shown again automatically.
+          the size and timing of transfers. The list of devices known from past syncs (name, platform, first joined and
+          last synced times) is part of the encrypted copy. Keep your recovery key safe: anyone with it can connect to
+          your Sync. You can show it again from the Sync dialog.
         </p>
 
         <p>With Sync on, the app contacts the Sync server when it starts and whenever you choose Sync now.</p>

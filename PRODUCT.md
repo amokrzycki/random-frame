@@ -24,7 +24,7 @@ Instead of an endless feed, Random Frame offers one deliberate draw at a time ac
 
 ## Operating Context
 
-The gallery is used as a focused desktop utility in a resizable window, primarily with keyboard and mouse. History can Sync across linked devices and can be cleared; known removals propagate through Sync, while new history created offline may appear later. Favorites and Seen IDs can Sync and survive History clearing. Local activity Stats (Frames drawn, Today, streak, and daily results) reset with History. Prnt.sc exploration progress is durable on this device across History clearing and restarts; it does not currently Sync.
+The gallery is used as a focused desktop utility in a resizable window, primarily with keyboard and mouse. History can Sync across linked devices and can be cleared; known removals propagate through Sync, while new history created offline may appear later. Favorites and Seen IDs can Sync and survive History clearing. Local activity Stats (Frames drawn, Today, streak, and daily results) reset with History. Prnt.sc exploration progress is durable across History clearing and restarts, and Syncs with the rest. The Sync dialog states what Sync covers, that images saved to files are not backed up, when this device last synced, and which devices are known from past syncs; it never implies presence or removal of devices.
 
 ## Capabilities and Constraints
 
@@ -38,7 +38,7 @@ The gallery is used as a focused desktop utility in a resizable window, primaril
 
 - **Draw / drawn:** the action and the stat. A frame is drawn; Stats count Frames drawn.
 - **Seen IDs:** the synced list of IDs of frames you have viewed, kept to skip repeats. Not a stat.
-- **IDs checked:** local Prnt.sc exploration, including IDs with no image. Does not Sync.
+- **IDs checked:** Prnt.sc exploration, including IDs with no image. Syncs and survives History clearing.
 - **Adjacent ID:** the Prnt.sc ID just before or after the shown one; distinct from the previous/next frame in history.
 - Do not call drawn frames "found"; one word per idea.
 - The current Prnt.sc mode can inspect the immediately adjacent base-36 identifiers; successful results join local history.

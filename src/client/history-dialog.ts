@@ -577,6 +577,16 @@ function bindClearConfirmation(
 }
 
 export function bindHistoryDialogEvents(): void {
+  // A sync that lands while History is open redraws the page; focus never falls out of the dialog.
+  document.addEventListener("persisted-view-refreshed", () => {
+    if (!elements.historyDialog.open) return;
+    elements.historyClear.disabled = !state.history.length;
+    renderHistoryPage();
+    if (!elements.historyDialog.contains(document.activeElement))
+      (filter === "history" ? elements.historyFilterAll : elements.historyFilterFavorites).focus({
+        preventScroll: true,
+      });
+  });
   elements.historyTool.addEventListener("click", () => openHistory(elements.historyTool));
   elements.removeFrame.addEventListener("click", () => void removeFromHistory(state.index));
   elements.historyClose.addEventListener("click", () => {

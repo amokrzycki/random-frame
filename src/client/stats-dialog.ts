@@ -155,6 +155,10 @@ export function bindStatsDialogEvents(): void {
   });
   elements.ledgerMore.addEventListener("click", () => renderLedgerPage()?.focus());
   elements.statsClose.addEventListener("click", () => closeDialog(elements.statsDialog));
+  // A sync that lands while Stats is open must not leave the old ledger on screen.
+  document.addEventListener("persisted-view-refreshed", () => {
+    if (elements.statsDialog.open) void loadStats();
+  });
   elements.statsDialog.addEventListener("close", () => {
     onDialogClosed();
     elements.toolsMenuButton.focus();

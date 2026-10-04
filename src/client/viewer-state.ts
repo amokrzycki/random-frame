@@ -64,6 +64,8 @@ export async function refreshPersistedView(): Promise<void> {
       ? history.history.findIndex((item: HistoryItem) => item.source === current.source && item.id === current.id)
       : -1,
   });
+  // Open dialogs built from this state (History, Stats) redraw themselves from it.
+  document.dispatchEvent(new CustomEvent("persisted-view-refreshed"));
 }
 
 document.addEventListener("user-preferences", (event) => {

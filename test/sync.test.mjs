@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { after, before, beforeEach, test } from "node:test";
 import { FakeDocument, FakeStorage, ids } from "./dom-fakes.mjs";
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
+const NOW = Date.now();
+const KEY = "rf1-secret-recovery-key";
+
 const unpaired = {
   supported: true,
   paired: false,
@@ -12,259 +15,596 @@ const unpaired = {
   dirty: true,
   lastErrorCategory: null,
   snapshotSchemaVersion: 1,
-  thisDeviceId: null,
+  thisDeviceId: "aabbccdd",
   devices: [],
 };
+const thisDevice = {
+  deviceId: "aabbccdd",
+  displayName: "Studio laptop",
+  platform: "linux",
+  joinedAt: NOW - 86_400_000 * 9,
+  lastSyncedAt: NOW - 60_000,
+  thisDevice: true,
+};
+const phone = {
+  deviceId: "11223344",
+  displayName: "Pocket phone",
+  platform: "android",
+  joinedAt: NOW - 86_400_000 * 3,
+  lastSyncedAt: NOW - 86_400_000,
+  thisDevice: false,
+};
 const paired = {
-  supported: true,
+  ...unpaired,
   paired: true,
   state: "idle",
-  lastSuccessAt: Date.now(),
-  lastSuccessRevision: 1,
+  lastSuccessAt: NOW - 60_000,
+  lastSuccessRevision: 4,
   dirty: false,
-  lastErrorCategory: null,
   snapshotSchemaVersion: 2,
-  thisDeviceId: "aabbccdd",
-  devices: [
-    {
-      deviceId: "aabbccdd",
-      displayName: "test",
-      platform: "node",
-      joinedAt: 1,
-      lastSyncedAt: Date.now(),
-      thisDevice: true,
-    },
-  ],
+  devices: [phone, thisDevice],
 };
 
-test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key lifecycle", async (t) => {
-  const document = new FakeDocument(ids);
-  const original = new Map(
-    ["document", "localStorage", "navigator"].map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]),
-  );
-  const copied = [];
+const document = new FakeDocument(ids);
+const localStorage = new FakeStorage();
+const names = ["document", "localStorage", "navigator", "window"];
+const originals = new Map(names.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+const get = (id) => document.querySelector(`#${id}`);
+const clipboard = { copied: [], fails: false };
+const listeners = [];
+let backend;
+let calls;
+let sync;
+let stateModule;
+
+function resetBackend() {
+  backend = {
+    current: structuredClone(unpaired),
+    fail: null,
+    statusFails: false,
+    partial: null,
+    activityTotal: 5,
+    history: [{ source: "prntsc", id: "abc123", sourcePageUrl: "https://prnt.sc/abc123", viewedAt: 1 }],
+    onSyncNow: null,
+  };
+  calls = [];
+  clipboard.copied = [];
+  clipboard.fails = false;
+}
+
+before(async () => {
   Object.defineProperty(globalThis, "document", { configurable: true, value: document });
-  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: new FakeStorage() });
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: localStorage });
   Object.defineProperty(globalThis, "navigator", {
     configurable: true,
-    value: { clipboard: { writeText: async (text) => copied.push(text) } },
+    value: {
+      clipboard: {
+        writeText: async (text) => {
+          if (clipboard.fails) throw new Error("denied");
+          clipboard.copied.push(text);
+        },
+      },
+    },
   });
-  t.after(() => {
-    for (const [name, descriptor] of original) {
-      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
-      else delete globalThis[name];
-    }
-  });
-  const get = (id) => document.querySelector(`#${id}`);
-  let current = structuredClone(unpaired);
-  let fail = null;
-  let pending = null;
-  let statusFails = false;
-  const calls = [];
+  // The fake DOM does not read the markup's hidden attributes.
+  for (const id of ["sync-join-form", "sync-leave-confirm", "sync-recovery", "sync-error", "sync-name-error"])
+    get(id).hidden = true;
+  resetBackend();
   globalThis.window = {
     setTimeout: () => 0,
     __TAURI_INTERNALS__: {
-      transformCallback: () => "cb-1",
+      transformCallback: (callback) => {
+        listeners.push(callback);
+        return `cb-${listeners.length}`;
+      },
       async invoke(command, args) {
         if (command === "complete_state_imports") return null;
         if (command === "get_user_preferences" || command === "set_user_preferences")
           return { theme: null, historyPageSize: null };
-        if (command === "import_session_history") return window.__TAURI_INTERNALS__.invoke("get_history");
+        if (command === "import_session_history") return { history: backend.history, index: -1 };
         calls.push({ command, args });
+        if (command === "plugin:event|listen") return 1;
         if (command === "get_sync_status") {
-          if (statusFails) throw { category: "timeout" };
-          return structuredClone(current);
+          if (backend.statusFails) throw { category: "timeout" };
+          return structuredClone(backend.current);
         }
-        if (fail && command === fail.command) throw fail.error;
+        if (backend.fail && command === backend.fail.command) throw backend.fail.error;
         if (command === "create_sync") {
-          current = structuredClone(paired);
-          return { recoveryKey: "test-recovery-key", status: structuredClone(current), localPairingError: null };
+          if (!backend.partial) backend.current = structuredClone(paired);
+          return {
+            recoveryKey: KEY,
+            status: structuredClone(backend.current),
+            localPairingError: backend.partial,
+          };
         }
         if (command === "join_sync") {
-          current = structuredClone(paired);
-          return structuredClone(current);
+          backend.current = structuredClone(paired);
+          return structuredClone(backend.current);
         }
         if (command === "sync_now") {
-          if (pending) return pending;
-          return structuredClone(current);
+          backend.onSyncNow?.();
+          return structuredClone(backend.current);
         }
         if (command === "leave_sync") {
-          current = structuredClone(unpaired);
-          return structuredClone(current);
+          backend.current = { ...structuredClone(unpaired), dirty: false };
+          return structuredClone(backend.current);
         }
-        if (command === "startup_sync") return structuredClone(current);
-        if (command === "plugin:event|listen") return "event-id-1";
-        if (command === "get_history") return { history: [], index: -1 };
+        if (command === "startup_sync") return structuredClone(backend.current);
+        if (command === "set_sync_device_name") {
+          const self = backend.current.devices.find((device) => device.thisDevice);
+          if (self) self.displayName = args.name;
+          backend.current.dirty = true;
+          return null;
+        }
+        if (command === "get_sync_recovery_key") return KEY;
+        if (command === "get_history") return { history: structuredClone(backend.history), index: -1 };
         if (command === "get_favorites") return [];
+        if (command === "get_exploration_stats") return { explored: 0, viewable: 0, unavailable: 0, unclassified: 0 };
+        if (command === "get_viewing_activity")
+          return { viewedTotal: backend.activityTotal, days: [], localViewTimes: [], frameViews: [] };
         throw new Error(`Unexpected command: ${command}`);
       },
     },
   };
-  t.after(() => delete globalThis.window);
-  const { bindSyncDialogEvents, runStartupSync } = await import("../dist/test-client/sync-dialog.js");
-  bindSyncDialogEvents();
-  await runStartupSync();
-  assert.equal(document.body.children.length, 0);
+  stateModule = await import("../dist/test-client/viewer-state.js");
+  stateModule.state.loading = false;
+  sync = await import("../dist/test-client/sync-dialog.js");
+  const stats = await import("../dist/test-client/stats-dialog.js");
+  sync.bindSyncDialogEvents();
+  stats.bindStatsDialogEvents();
+  await sync.runStartupSync();
+});
 
+after(() => {
+  for (const [name, descriptor] of originals) {
+    if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+    else delete globalThis[name];
+  }
+});
+
+beforeEach(() => {
+  for (const id of ["sync-dialog", "stats-dialog"]) if (get(id).open) get(id).close();
+  resetBackend();
+});
+
+async function open(status = backend.current) {
+  backend.current = structuredClone(status);
   get("sync-button").click();
   await flush();
   assert.equal(get("sync-dialog").open, true);
-  assert.equal(get("sync-unpaired").hidden, false);
-  assert.equal(get("sync-enable").hidden, false);
-  assert.equal(get("sync-show-join").hidden, false);
+}
 
-  fail = { command: "create_sync", error: { category: "invalid_endpoint" } };
-  get("sync-enable").click();
-  await flush();
-  assert.match(get("sync-error-message").textContent, /no server is set up/);
+const text = (id) => get(id).textContent;
+const rowTexts = (row) => row.children.map((child) => child.textContent);
+const submit = (id) => get(id).dispatchEvent(new Event("submit", { cancelable: true }));
+const syncCalls = (command) => calls.filter((call) => call.command === command);
+
+test("create and connect are separate flows that call their own commands", async () => {
+  await open(unpaired);
   assert.equal(get("sync-unpaired").hidden, false);
-  // Nothing to retry until the server is configured, and the message is not repeated in the status line.
-  assert.equal(get("sync-retry").hidden, true);
-  assert.equal(get("sync-status").hidden, true);
-  fail = { command: "create_sync", error: { category: "offline" } };
+  assert.equal(get("sync-paired").hidden, true);
+  assert.equal(get("sync-join-form").hidden, true);
+  assert.equal(text("sync-status"), "Sync is off");
+  assert.equal(get("sync-last-synced").hidden, true);
+
+  // Connecting needs the explicit key form; nothing runs until it is submitted.
+  get("sync-show-join").click();
+  assert.equal(get("sync-join-form").hidden, false);
+  assert.equal(document.activeElement, get("sync-recovery-input"));
+  assert.equal(syncCalls("create_sync").length + syncCalls("join_sync").length, 0);
+  get("sync-recovery-input").value = `  ${KEY}  `;
+  submit("sync-join-form");
+  await flush();
+  assert.deepEqual(
+    syncCalls("join_sync").map((call) => call.args),
+    [{ recoveryKey: KEY }],
+  );
+  assert.equal(syncCalls("create_sync").length, 0);
+  assert.equal(get("sync-paired").hidden, false);
+  assert.equal(get("sync-recovery-input").value, "");
+  assert.equal(document.activeElement, get("sync-now"));
+
+  get("sync-leave").click();
+  get("sync-leave-confirm-button").click();
+  await flush();
+  assert.equal(get("sync-unpaired").hidden, false);
   get("sync-enable").click();
   await flush();
-  assert.match(get("sync-error-message").textContent, /offline/);
-  assert.equal(get("sync-retry").hidden, false);
-  fail = null;
+  assert.equal(syncCalls("create_sync").length, 1);
+  assert.equal(syncCalls("join_sync").length, 1);
+});
+
+test("Start a new Sync shows the recovery key, gates leaving on a confirmation, and clears it on close", async () => {
+  await open(unpaired);
+  get("sync-enable").click();
+  await flush();
+  assert.equal(text("sync-recovery-key"), KEY);
+  assert.equal(get("sync-recovery").hidden, false);
+  assert.equal(get("sync-key-confirm").hidden, false);
+  assert.equal(get("sync-status").hidden, true);
+  assert.equal(get("sync-error").hidden, true);
+  assert.equal(document.activeElement, get("sync-key-saved"));
+  assert.equal(get("sync-close").disabled, true);
+  assert.equal(get("sync-done").getAttribute("aria-disabled"), "true");
+  assert.equal(JSON.stringify(backend.current).includes(KEY), false);
+
+  get("sync-copy-key").click();
+  await flush();
+  assert.deepEqual(clipboard.copied, [KEY]);
+  get("sync-close").click();
+  assert.equal(get("sync-dialog").open, true);
+  get("sync-done").click();
+  assert.equal(document.activeElement, get("sync-key-saved"));
+  assert.equal(get("sync-dialog").open, true);
+
+  get("sync-key-saved").checked = true;
+  get("sync-key-saved").dispatchEvent(new Event("change"));
+  assert.equal(get("sync-done").getAttribute("aria-disabled"), "false");
+  get("sync-done").click();
+  assert.equal(get("sync-dialog").open, false);
+  assert.equal(text("sync-recovery-key"), "");
+  assert.equal(get("sync-key-saved").checked, false);
+  assert.equal(document.activeElement, get("sync-button"));
+});
+
+test("a clipboard failure keeps the key on screen for manual copying", async () => {
+  await open(unpaired);
+  get("sync-enable").click();
+  await flush();
+  clipboard.fails = true;
+  get("sync-copy-key").click();
+  await flush();
+  assert.equal(get("sync-error").hidden, false);
+  assert.match(text("sync-error-message"), /copy it by hand/);
+  assert.equal(get("sync-retry").hidden, true);
+  assert.equal(text("sync-recovery-key"), KEY);
+});
+
+test("a created Sync whose local pairing failed keeps the key and explains what is left to do", async () => {
+  backend.partial = { category: "secure_storage" };
+  await open(unpaired);
+  get("sync-enable").click();
+  await flush();
+  assert.equal(text("sync-recovery-key"), KEY);
+  assert.equal(get("sync-error").hidden, false);
+  assert.match(text("sync-error-message"), /Your Sync was created/);
+  assert.match(text("sync-error-message"), /secure storage/);
+  assert.match(text("sync-error-message"), /connect this device/);
+  assert.equal(get("sync-retry").hidden, true);
+  // Still gated: the only copy of the key is on this screen.
+  assert.equal(get("sync-close").disabled, true);
+  get("sync-key-saved").checked = true;
+  get("sync-key-saved").dispatchEvent(new Event("change"));
+  get("sync-done").click();
+  assert.equal(get("sync-dialog").open, false);
+  get("sync-button").click();
+  await flush();
+  assert.equal(get("sync-unpaired").hidden, false);
+  assert.equal(get("sync-error").hidden, true);
+});
+
+test("every status has its own headline and the last sync time comes only from the status", async () => {
+  const cases = [
+    [{ ...unpaired }, "Sync is off"],
+    [{ ...paired, state: "syncing" }, "Syncing…"],
+    [{ ...paired, dirty: true }, "Changes waiting to sync"],
+    [{ ...paired }, "Sync completed"],
+    [{ ...paired, state: "offline", lastErrorCategory: "offline" }, "Sync couldn’t connect"],
+    [{ ...paired, state: "error", lastErrorCategory: "timeout" }, "Sync couldn’t connect"],
+    [{ ...paired, state: "error", lastErrorCategory: "secure_storage" }, "Sync needs attention"],
+    [{ ...paired, state: "error", lastErrorCategory: "unsupported_version" }, "Sync needs attention"],
+    [{ ...paired, supported: false, paired: false, state: "unpaired" }, "Sync isn’t available on this device"],
+  ];
+  for (const [status, headline] of cases) {
+    await open(status);
+    assert.equal(text("sync-status"), headline);
+    get("sync-dialog").close();
+  }
+
+  await open({ ...paired, lastSuccessAt: null, dirty: true });
+  assert.equal(text("sync-last-synced"), "Last synced on this device: Never");
+  assert.equal(text("sync-status"), "Changes waiting to sync");
+  // The headline already says it; the extra line only covers states that hide it.
+  assert.equal(get("sync-dirty").hidden, true);
+  get("sync-dialog").close();
+
+  await open({ ...paired, state: "offline", lastErrorCategory: "offline", dirty: true });
+  assert.equal(get("sync-dirty").hidden, false);
+  assert.match(text("sync-status-detail"), /offline/);
+  get("sync-dialog").close();
+
+  await open({ ...paired });
+  const shown = text("sync-last-synced");
+  assert.match(shown, /^Last synced on this device: Today, /);
+  // Refreshing status or failing a sync neither writes nor changes the time; Rust owns it.
+  get("sync-button").click();
+  await flush();
+  backend.fail = { command: "sync_now", error: { category: "offline" } };
+  get("sync-now").click();
+  await flush();
+  assert.equal(text("sync-last-synced"), shown);
+  assert.equal(
+    [...localStorage.values.keys()].some((key) => /sync/i.test(key)),
+    false,
+  );
+});
+
+test("the status says what Sync covers and what recovery doesn’t bring back", async () => {
+  await open(unpaired);
+  assert.equal(get("sync-scope").hidden, false);
+  get("sync-dialog").close();
+  await open(paired);
+  assert.equal(get("sync-scope").hidden, false);
+});
+
+test("the roster marks this device, shows missing dates, renders names as text, and offers no revocation", async () => {
+  const hostile = { ...phone, displayName: "<img src=x onerror=alert(1)>", joinedAt: 0, lastSyncedAt: null };
+  await open({ ...paired, devices: [hostile, thisDevice] });
+  const rows = get("sync-devices").children;
+  assert.equal(rows.length, 2);
+  // This device leads, whatever order the roster arrives in.
+  assert.deepEqual(rowTexts(rows[0]).slice(0, 2), ["Studio laptop", "This device"]);
+  assert.match(rowTexts(rows[0]).at(-1), /^Linux · First joined: .+ · Last synced: .+/);
+  assert.deepEqual(rowTexts(rows[1]), [
+    "<img src=x onerror=alert(1)>",
+    "Android · First joined: Not yet recorded · Last synced: Not yet recorded",
+  ]);
+  assert.equal(rows.filter((row) => row.dataset.thisDevice !== undefined).length, 1);
+  const shown = rows.flatMap(rowTexts).join(" ");
+  assert.doesNotMatch(shown, /online|active|connected|remove|revoke/i);
+  assert.equal(
+    rows.every((row) => row.children.every((child) => child.children.length === 0)),
+    true,
+  );
+});
+
+test("renaming works offline, trims, validates, and survives a status refresh while editing", async () => {
+  await open({ ...paired, state: "offline", lastErrorCategory: "offline", dirty: false });
+  assert.equal(get("sync-name-input").value, "Studio laptop");
+
+  get("sync-name-input").value = "  Desk  ";
+  get("sync-name-input").dispatchEvent(new Event("input"));
+  // A status event while typing must not overwrite the edit.
+  get("sync-button").click();
+  await flush();
+  assert.equal(get("sync-name-input").value, "  Desk  ");
+  submit("sync-name-form");
+  await flush();
+  assert.deepEqual(
+    syncCalls("set_sync_device_name").map((call) => call.args),
+    [{ name: "Desk" }],
+  );
+  assert.equal(get("sync-name-error").hidden, true);
+  assert.equal(get("sync-name-input").value, "Desk");
+  assert.equal(rowTexts(get("sync-devices").children[0])[0], "Desk");
+  assert.equal(get("sync-dirty").hidden, false);
+  assert.equal(syncCalls("sync_now").length, 0);
+  assert.equal(document.activeElement, get("sync-name-input"));
+
+  for (const [value, expected] of [
+    ["   ", /Enter a name/],
+    ["x".repeat(129), /128 characters/],
+    ["bad\u0007name", /control characters/],
+  ]) {
+    get("sync-name-input").value = value;
+    get("sync-name-input").dispatchEvent(new Event("input"));
+    submit("sync-name-form");
+    await flush();
+    assert.equal(get("sync-name-error").hidden, false);
+    assert.match(text("sync-name-error"), expected);
+    assert.equal(get("sync-name-input").getAttribute("aria-invalid"), "true");
+    assert.equal(document.activeElement, get("sync-name-input"));
+  }
+  assert.equal(syncCalls("set_sync_device_name").length, 1);
+  get("sync-name-input").dispatchEvent(new Event("input"));
+  assert.equal(get("sync-name-error").hidden, true);
+
+  backend.fail = { command: "set_sync_device_name", error: { category: "persistence" } };
+  get("sync-name-input").value = "Kitchen";
+  submit("sync-name-form");
+  await flush();
+  assert.match(text("sync-name-error"), /could not be saved/);
+  assert.match(text("sync-name-error"), /name was not changed/);
+});
+
+test("Show recovery key is an explicit action and the key leaves the page when hidden or closed", async () => {
+  await open(paired);
+  assert.equal(text("sync-recovery-key"), "");
+  assert.equal(syncCalls("get_sync_recovery_key").length, 0);
+  get("sync-show-key").click();
+  await flush();
+  assert.equal(syncCalls("get_sync_recovery_key").length, 1);
+  assert.equal(text("sync-recovery-key"), KEY);
+  assert.equal(get("sync-recovery").hidden, false);
+  assert.equal(get("sync-paired").hidden, true);
+  // Viewing a key already saved needs no confirmation checkbox, and nothing blocks leaving.
+  assert.equal(get("sync-key-confirm").hidden, true);
+  assert.equal(get("sync-close").disabled, false);
+  assert.equal(document.activeElement, get("sync-copy-key"));
+  assert.equal(JSON.stringify(backend.current).includes(KEY), false);
+  assert.equal(
+    [...localStorage.values.values()].some((value) => value.includes(KEY)),
+    false,
+  );
+
+  get("sync-done").click();
+  assert.equal(text("sync-recovery-key"), "");
+  assert.equal(get("sync-paired").hidden, false);
+  assert.equal(document.activeElement, get("sync-show-key"));
+
+  get("sync-show-key").click();
+  await flush();
+  assert.equal(text("sync-recovery-key"), KEY);
+  get("sync-close").click();
+  assert.equal(get("sync-dialog").open, false);
+  assert.equal(text("sync-recovery-key"), "");
+  get("sync-button").click();
+  await flush();
+  assert.equal(text("sync-recovery-key"), "");
+  assert.equal(get("sync-recovery").hidden, true);
+});
+
+test("a failed key read shows an error, no key, and returns focus to the button", async () => {
+  await open(paired);
+  backend.fail = { command: "get_sync_recovery_key", error: { category: "secure_storage" } };
+  get("sync-show-key").click();
+  await flush();
+  assert.equal(text("sync-recovery-key"), "");
+  assert.match(text("sync-error-message"), /secure storage/);
+  assert.equal(document.activeElement, get("sync-show-key"));
+});
+
+test("errors are specific, retry only when retrying can help, and never offer to overwrite the remote", async () => {
+  await open(paired);
+  const failWith = async (category) => {
+    backend.fail = { command: "sync_now", error: { category } };
+    get("sync-now").click();
+    await flush();
+    return { message: text("sync-error-message"), retry: !get("sync-retry").hidden };
+  };
+
+  const conflict = await failWith("conflict");
+  assert.match(conflict.message, /kept changing/);
+  assert.match(conflict.message, /safe/);
+  assert.equal(conflict.retry, true);
+
+  const newer = await failWith("unsupported_version");
+  assert.match(newer.message, /Update the app/);
+  assert.equal(newer.retry, false);
+
+  for (const category of ["invalid_remote_data", "schema_downgrade", "rollback_detected", "server_rollback_detected"]) {
+    const result = await failWith(category);
+    assert.match(result.message, /not applied/);
+    assert.equal(result.retry, false);
+    assert.doesNotMatch(result.message, /repair|overwrite|replace/i);
+  }
+
+  // Retry repeats the failed action and clears the error when it works.
+  await failWith("offline");
+  backend.fail = null;
   get("sync-retry").click();
   await flush();
   assert.equal(get("sync-error").hidden, true);
-  // The status line stays out of the recovery-key screen.
-  assert.equal(get("sync-status").hidden, true);
-  assert.equal(get("sync-recovery-key").textContent, "test-recovery-key");
-  assert.equal(get("sync-recovery").hidden, false);
-  assert.equal(get("sync-close").disabled, true);
-  assert.equal("recoveryKey" in current, false);
-  get("sync-copy-key").click();
-  await flush();
-  assert.deepEqual(copied, ["test-recovery-key"]);
-  get("sync-close").click();
-  assert.equal(get("sync-dialog").open, true);
-  get("sync-key-saved").checked = true;
-  get("sync-key-saved").dispatchEvent(new Event("change"));
-  assert.equal(get("sync-close").disabled, false);
-  get("sync-close").click();
-  assert.equal(get("sync-recovery-key").textContent, "");
-  assert.equal(get("sync-key-saved").checked, false);
-  get("sync-button").click();
-  await flush();
-  assert.equal(get("sync-recovery").hidden, true);
+  assert.deepEqual(
+    [...new Set(calls.map((call) => call.command))].filter((command) => /overwrite|repair|reset/.test(command)),
+    [],
+  );
   assert.equal(get("sync-paired").hidden, false);
-  assert.match(get("sync-status").textContent, /^Up to date/);
+});
 
-  current.dirty = true;
-  get("sync-button").click();
+test("an unsupported platform is a stated condition, not an unknown command", async () => {
+  await open({ ...unpaired, supported: false });
+  assert.equal(text("sync-status"), "Sync isn’t available on this device");
+  assert.equal(get("sync-enable").disabled, true);
+  assert.equal(get("sync-join").disabled, true);
+  backend.current = structuredClone(paired);
+  backend.fail = { command: "get_sync_recovery_key", error: { category: "unsupported_platform" } };
+  await open(paired);
+  get("sync-show-key").click();
   await flush();
-  assert.equal(get("sync-status").textContent, "Changes waiting to sync");
-  assert.equal(get("sync-dirty").textContent, "");
-  current.state = "syncing";
-  get("sync-button").click();
-  await flush();
-  assert.equal(get("sync-status").textContent, "Syncing…");
-  current.state = "offline";
-  current.lastErrorCategory = "offline";
-  get("sync-button").click();
-  await flush();
-  assert.match(get("sync-status").textContent, /offline/);
-  for (const [category, expected] of [
-    ["rollback_detected", /older/],
-    ["secure_storage", /secure storage/],
-  ]) {
-    current.state = "error";
-    current.lastErrorCategory = category;
-    get("sync-button").click();
-    await flush();
-    assert.match(get("sync-status").textContent, expected);
-    assert.equal(get("tools-menu-button").dataset.sync, "attention");
-  }
+  assert.match(text("sync-error-message"), /isn’t available on this device/);
+});
 
-  current = structuredClone(paired);
-  pending = new Promise((resolve) => {
-    get("sync-now").resolve = resolve;
-  });
-  get("sync-now").click();
-  assert.equal(get("sync-now").disabled, true);
-  assert.equal(get("sync-status").textContent, "Syncing…");
-  get("sync-now").resolve(structuredClone(current));
-  pending = null;
+test("a rejected recovery key keeps the text for fixing and returns focus to the field", async () => {
+  await open(unpaired);
+  get("sync-show-join").click();
+  backend.fail = { command: "join_sync", error: { category: "invalid_recovery_key", details: "private" } };
+  get("sync-recovery-input").value = "rf1-typo";
+  submit("sync-join-form");
   await flush();
-  assert.equal(get("sync-now").disabled, false);
-  assert.equal(get("tools-menu-button").dataset.sync, undefined);
-  assert.ok(calls.filter(({ command }) => command === "get_sync_status").length > 1);
+  assert.match(text("sync-error-message"), /isn’t valid/);
+  assert.doesNotMatch(text("sync-error-message"), /private/);
+  assert.equal(get("sync-recovery-input").value, "rf1-typo");
+  assert.equal(get("sync-retry").hidden, true);
+  assert.equal(document.activeElement, get("sync-recovery-input"));
+  assert.equal(get("sync-paired").hidden, true);
 
-  fail = {
-    command: "sync_now",
-    error: { category: "server_rollback_detected", details: { local_revision: 9, remote_revision: 3 } },
-  };
-  get("sync-now").click();
+  backend.fail = { command: "join_sync", error: { category: "missing_chain" } };
+  submit("sync-join-form");
   await flush();
-  assert.match(get("sync-error-message").textContent, /older/);
-  assert.doesNotMatch(get("sync-error-message").textContent, /9|3/);
-  fail = null;
+  assert.match(text("sync-error-message"), /No Sync was found/);
+  get("sync-join-cancel").click();
+  assert.equal(get("sync-join-form").hidden, true);
+  assert.equal(get("sync-recovery-input").value, "");
+  assert.equal(get("sync-error").hidden, true);
+  assert.equal(document.activeElement, get("sync-show-join"));
+});
 
+test("disconnecting works offline, keeps saved data, and manages focus", async () => {
+  await open(paired);
   get("sync-leave").click();
   assert.equal(get("sync-leave-confirm").hidden, false);
+  assert.equal(get("sync-paired").hidden, true);
   assert.equal(document.activeElement, get("sync-leave-cancel"));
-  fail = { command: "leave_sync", error: { category: "secure_storage" } };
+  get("sync-leave-cancel").click();
+  assert.equal(get("sync-leave-confirm").hidden, true);
+  assert.equal(document.activeElement, get("sync-leave"));
+
+  backend.fail = { command: "leave_sync", error: { category: "secure_storage" } };
+  get("sync-leave").click();
   get("sync-leave-confirm-button").click();
   await flush();
-  assert.equal(get("sync-paired").hidden, true);
   assert.equal(get("sync-leave-confirm").hidden, false);
-  assert.match(get("sync-error-message").textContent, /secure storage/);
-  fail = null;
+  assert.match(text("sync-error-message"), /secure storage/);
+  assert.equal(document.activeElement, get("sync-leave-confirm-button"));
+
+  backend.fail = null;
+  backend.onSyncNow = () => assert.fail("disconnecting must not need the server");
   get("sync-leave-confirm-button").click();
   await flush();
   assert.equal(get("sync-unpaired").hidden, false);
+  assert.equal(text("sync-status"), "Sync is off");
+  assert.equal(document.activeElement, get("sync-enable"));
+  // Only the local command ran; the saved frame is still in the view.
+  assert.equal(syncCalls("sync_now").length, 0);
+  assert.equal(stateModule.state.history.length, 1);
+});
 
-  get("sync-show-join").click();
-  assert.equal(document.activeElement, get("sync-recovery-input"));
-  get("sync-join-cancel").click();
-  assert.equal(get("sync-join-form").hidden, true);
-  assert.equal(document.activeElement, get("sync-show-join"));
-  get("sync-show-join").click();
-  fail = { command: "join_sync", error: { category: "invalid_recovery_key", details: "private" } };
-  get("sync-recovery-input").value = "bad";
-  get("sync-join-form").dispatchEvent(new Event("submit", { cancelable: true }));
-  await flush();
-  assert.match(get("sync-error-message").textContent, /not valid/);
-  assert.doesNotMatch(get("sync-error-message").textContent, /private/);
-  fail = null;
-  get("sync-join-form").dispatchEvent(new Event("submit", { cancelable: true }));
-  await flush();
-  assert.equal(get("sync-paired").hidden, false);
-  assert.equal(get("sync-recovery-input").value, "");
-
-  const { state } = await import("../dist/test-client/viewer-state.js");
-  state.loading = false;
-  state.history = [{ source: "prntsc", id: "abc123", sourcePageUrl: "https://prnt.sc/abc123", viewedAt: 1 }];
-  state.index = 0;
-  get("sync-now").click();
-  await flush();
-  assert.equal(get("frame-count-total").textContent, "0");
-  assert.equal(get("favorite-button").disabled, true);
-
-  // The earlier key copy raised its own toast; startup sync must not add another.
-  const toastCount = () => document.body.children[0]?.children.length ?? 0;
-  const toastsBefore = toastCount();
-  await runStartupSync();
-  assert.equal(calls.at(-1).command, "get_sync_status");
-  assert.equal(toastCount(), toastsBefore);
-  fail = { command: "startup_sync", error: { category: "offline" } };
-  await runStartupSync();
-  assert.equal(toastCount(), toastsBefore);
-
-  // A failed status check is an error with a retry, never a status line stuck on "Checking".
-  statusFails = true;
+test("a status failure is an error with a retry, never a status stuck on Checking", async () => {
+  backend.statusFails = true;
   get("sync-button").click();
   await flush();
   assert.equal(get("sync-error").hidden, false);
-  assert.equal(get("sync-status").hidden, true);
-  assert.match(get("sync-error-message").textContent, /took too long/);
+  assert.match(text("sync-error-message"), /took too long/);
   assert.equal(get("sync-retry").hidden, false);
-  statusFails = false;
+  backend.statusFails = false;
   get("sync-retry").click();
   await flush();
   assert.equal(get("sync-error").hidden, true);
-  assert.doesNotMatch(get("sync-status").textContent, /Checking/);
+  assert.doesNotMatch(text("sync-status"), /Checking/);
+});
+
+test("Sync now and the Sync event reload the history, favorites, and an open Stats dialog", async () => {
+  await open(paired);
+  get("stats-button").click();
+  await flush();
+  assert.equal(text("stats-total"), "5");
+
+  backend.activityTotal = 9;
+  backend.history = [...backend.history, { ...backend.history[0], id: "def456" }];
+  get("sync-now").click();
+  await flush();
+  assert.equal(text("stats-total"), "9");
+  assert.equal(stateModule.state.history.length, 2);
+  assert.equal(document.activeElement, get("sync-now"));
+
+  // A sync that finishes elsewhere (startup, another trigger) arrives as an event.
+  backend.activityTotal = 12;
+  backend.history = [...backend.history, { ...backend.history[0], id: "ghi789" }];
+  const handler = listeners.at(-1);
+  handler({ event: "sync-state-changed", id: 1, payload: null });
+  await flush();
+  assert.equal(text("stats-total"), "12");
+  assert.equal(stateModule.state.history.length, 3);
+});
+
+test("startup sync does not toast and a failing startup leaves the dialog quiet", async () => {
+  const toastCount = () => document.body.children[0]?.children.length ?? 0;
+  const before = toastCount();
+  await sync.runStartupSync();
+  assert.equal(syncCalls("startup_sync").length, 1);
+  backend.fail = { command: "startup_sync", error: { category: "offline" } };
+  await sync.runStartupSync();
+  assert.equal(toastCount(), before);
+  assert.equal(get("tools-menu-button").dataset.sync, undefined);
 });

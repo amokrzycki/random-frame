@@ -49,7 +49,7 @@ test("history and Stats copy distinguishes reset activity from persistent explor
   assert.match(copy, /New favorites created on an offline device may appear later/);
   assert.match(copy, /<dt>Frames drawn<\/dt>.*<dt>Today<\/dt>.*<dt>Activity streak<\/dt>/);
   assert.match(copy, /Prnt\.sc IDs checked/);
-  assert.match(copy, /Stats reset with History\. IDs checked stay on this device/);
+  assert.match(copy, /Stats reset with History, and on linked devices once they Sync\. IDs checked and Seen IDs stay/);
   assert.doesNotMatch(copy, /How stats work/);
   assert.match(copy, /Days you drew/);
   assert.doesNotMatch(copy, /Stats stay local and reset when history is cleared|since history clear/);
@@ -81,4 +81,66 @@ test("distilled menus keep Save beside Favorite and Clear in the History footer"
   assert.match(html, /id="favorite-button"[\s\S]*class="info-icon"\s+id="save-button"/);
   assert.match(history, /<footer class="history-footer">[\s\S]*id="history-clear-button"/);
   assert.doesNotMatch(history.split("</header>")[0], /history-clear/);
+});
+
+test("Sync dialog separates Start a new Sync from Connect this device and states scope, roster, and recovery honestly", async () => {
+  const html = await readFile(new URL("../dist/index.html", import.meta.url), "utf8");
+  const dialog = html.split('id="sync-dialog"')[1].split('id="dialog-backdrop"')[0];
+  const copy = dialog.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  const start = dialog.split('id="sync-start"')[1].split('id="sync-connect-title"')[0];
+  const connect = dialog.split('id="sync-connect-title"')[1].split('id="sync-recovery"')[0];
+  assert.match(start, /Start a new Sync/);
+  assert.match(start, /id="sync-enable"/);
+  assert.doesNotMatch(start, /recovery key to connect|sync-join/);
+  assert.match(connect, /Connect this device/);
+  assert.match(connect, /id="sync-show-join"/);
+  // The merge explanation is on screen before the key field and in the same section.
+  assert.ok(
+    connect
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .indexOf(
+        "Your saved data on this device will be combined with your Sync. It won’t be replaced. Deletions already saved in that Sync will still apply.",
+      ) >= 0,
+  );
+  assert.ok(connect.indexOf("will be combined") < connect.indexOf('id="sync-join-form"'));
+  assert.match(copy, /History and Favorites/);
+  assert.match(copy, /Previously viewed and checked IDs/);
+  assert.match(copy, /Activity &amp; Stats/);
+  assert.match(copy, /Preferences/);
+  assert.match(copy, /Images saved to files aren’t backed up/);
+  assert.match(
+    copy,
+    /Devices known from past syncs\. This list doesn’t show which ones are online or still connected\./,
+  );
+  assert.match(
+    copy,
+    /Keep this key somewhere safe\. Use it to bring your saved data to another device\. Anyone with this key can connect to your Sync\./,
+  );
+  assert.match(copy, /Show recovery key/);
+  assert.match(copy, /Sync now/);
+  assert.match(
+    copy,
+    /The data on this device and your Sync data on the server stay as they are\. To connect again, you’ll need your recovery key\./,
+  );
+  const buttons = [...dialog.matchAll(/<button[^>]*>([\s\S]*?)<\/button>/g)].map((match) =>
+    match[1].replace(/\s+/g, " ").trim(),
+  );
+  assert.ok(buttons.includes("Disconnect this device"));
+  assert.doesNotMatch(
+    copy,
+    /Leave Sync|Turn on Sync|Join existing Sync|cannot show it again|Remove device|Revoke|Online|Active now/,
+  );
+});
+
+test("no copy still says Stats or IDs checked stay on one device", async () => {
+  const files = ["index.html", "README.md", "PRODUCT.md", "DESIGN.md", "privacy.html"];
+  for (const name of files) {
+    const text = (await readFile(new URL(`../${name}`, import.meta.url), "utf8")).replace(/\s+/g, " ");
+    assert.doesNotMatch(
+      text,
+      /IDs checked stay on this device|IDs checked\.? (?:Does|do(?:es)?) not (?:currently )?Sync|it does not currently Sync|Settings and statistics stay on your device|Stats stay (?:here|local)/i,
+      name,
+    );
+  }
 });
