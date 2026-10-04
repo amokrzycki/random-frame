@@ -1,4 +1,5 @@
 mod activity;
+pub(crate) mod device;
 mod exploration;
 mod favorites;
 mod history;

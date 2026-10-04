@@ -1,3 +1,4 @@
+import { listen } from "@tauri-apps/api/event";
 import { closeDialog, onDialogClosed, openDialog } from "./dialogs.js";
 import { elements } from "./elements.js";
 import { syncControls } from "./stage.js";
@@ -94,42 +95,26 @@ function setStatus(next: SyncStatus): void {
   elements.toolsMenuButton.dataset.tip = label;
 }
 
-const lastSyncedKey = "random-frame-last-synced";
-
-function markSynced(value: SyncStatus): void {
-  if (!value.paired || value.state !== "idle" || value.lastErrorCategory) return;
-  try {
-    localStorage.setItem(lastSyncedKey, String(Date.now()));
-  } catch {
-    // The time is a courtesy; Sync itself does not depend on it.
-  }
-}
-
-// Time alone for today, date and time otherwise.
-function lastSyncedAt(): string | null {
-  try {
-    const stored = Number(localStorage.getItem(lastSyncedKey));
-    if (!stored) return null;
-    const when = new Date(stored);
-    const today = when.toDateString() === new Date().toDateString();
-    return when.toLocaleString(undefined, today ? { timeStyle: "short" } : { dateStyle: "medium", timeStyle: "short" });
-  } catch {
-    return null;
-  }
+function formatLastSynced(at: number): string {
+  const when = new Date(at);
+  const today = when.toDateString() === new Date().toDateString();
+  return when.toLocaleString(undefined, today ? { timeStyle: "short" } : { dateStyle: "medium", timeStyle: "short" });
 }
 
 function statusMessage(value: SyncStatus): string {
+  if (!value.supported) return "Sync isn’t supported on this device.";
   if (value.state === "syncing") return "Syncing…";
   if (value.lastErrorCategory) return errorCopy[value.lastErrorCategory] ?? "Sync needs attention.";
   if (value.state === "offline") return OFFLINE;
   if (value.state === "error") return "Sync needs attention.";
   if (value.dirty) return "Changes waiting to sync";
-  const at = lastSyncedAt();
-  return at ? `Up to date · last synced ${at}` : "Up to date";
+  const at = value.lastSuccessAt;
+  return at ? `Up to date · last synced ${formatLastSynced(at)}` : "Up to date";
 }
 
 function render(): void {
   const paired = status?.paired ?? false;
+  const supported = status?.supported ?? true;
   const showingKey = Boolean(elements.syncRecoveryKey.textContent);
   // An error already says what is wrong; the status line steps aside so the message appears once.
   // Not being paired is the default, not a status: the copy below already offers to turn Sync on.
@@ -147,11 +132,11 @@ function render(): void {
   elements.syncPaired.hidden = !paired || showingKey || !elements.syncLeaveConfirm.hidden;
   // The status line already says so when idle; offline and error states hide it.
   const settled = status?.state === "idle" && !status?.lastErrorCategory;
-  elements.syncDirty.textContent = paired && status?.dirty && !settled ? "Changes waiting to sync" : "";
-  elements.syncNow.disabled = busy || status?.state === "syncing";
-  elements.syncEnable.disabled = busy || !status;
-  elements.syncJoin.disabled = busy || !status;
-  elements.syncLeave.disabled = busy || status?.state === "syncing";
+  elements.syncDirty.textContent = paired && supported && status?.dirty && !settled ? "Changes waiting to sync" : "";
+  elements.syncNow.disabled = busy || !supported || status?.state === "syncing";
+  elements.syncEnable.disabled = busy || !supported || !status;
+  elements.syncJoin.disabled = busy || !supported || !status;
+  elements.syncLeave.disabled = busy || !supported || status?.state === "syncing";
   elements.syncLeaveConfirmButton.disabled = busy;
   elements.syncClose.disabled = busy || (showingKey && !elements.syncKeySaved.checked);
   // aria-disabled, not disabled: the note above already explains the gate, so Done keeps full strength and focus.
@@ -199,7 +184,6 @@ async function operate(message: string, action: () => Promise<SyncStatus>): Prom
       return false;
     }
     setStatus(result);
-    markSynced(result);
     if (!state.loading && !(await refreshView())) return false;
     await refresh();
     render();
@@ -212,6 +196,14 @@ async function operate(message: string, action: () => Promise<SyncStatus>): Prom
 }
 
 export function bindSyncDialogEvents(): void {
+  if (
+    (window as unknown as { __TAURI_INTERNALS__?: { transformCallback?: unknown } }).__TAURI_INTERNALS__
+      ?.transformCallback
+  ) {
+    void listen("sync-state-changed", () => {
+      void refresh();
+    });
+  }
   elements.syncButton.addEventListener("click", () => {
     if (elements.syncDialog.open) {
       void refresh();
@@ -309,7 +301,6 @@ export function bindSyncDialogEvents(): void {
 export async function runStartupSync(): Promise<void> {
   try {
     setStatus(await startupSync());
-    if (status) markSynced(status);
     if (state.loading) refreshAfterInitialize = true;
     else {
       await refreshPersistedView();

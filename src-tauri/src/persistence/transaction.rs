@@ -1,5 +1,6 @@
 //! One lock and a narrow write-ahead journal across the existing stores. HTTP never holds it.
 use super::{
+    device::DeviceIdentity,
     history::local_stamp,
     io::{load_json, save_json},
     sync_ops::operation_id,
@@ -54,11 +55,14 @@ pub struct PersistentState {
     pub explored: Arc<ExplorationStore>,
     pub activity: Arc<ActivityStore>,
     pub preferences: Arc<PreferenceStore>,
+    pub identity: Arc<DeviceIdentity>,
 }
 impl PersistentState {
     pub fn new(directory: &Path) -> Result<Self, AppError> {
-        Self::with_stores(
+        let identity = Arc::new(DeviceIdentity::new(directory)?);
+        Self::with_identity(
             directory,
+            Arc::clone(&identity),
             Arc::new(SeenStore::new(directory)?),
             Arc::new(HistoryStore::new(directory)?),
             Arc::new(FavoriteStore::new(directory)?),
@@ -66,8 +70,28 @@ impl PersistentState {
             Arc::new(ActivityStore::new(directory)?),
         )
     }
+    #[cfg(test)]
     pub fn with_stores(
         directory: &Path,
+        seen: Arc<SeenStore>,
+        history: Arc<HistoryStore>,
+        favorites: Arc<FavoriteStore>,
+        explored: Arc<ExplorationStore>,
+        activity: Arc<ActivityStore>,
+    ) -> Result<Self, AppError> {
+        Self::with_identity(
+            directory,
+            Arc::new(DeviceIdentity::new(directory)?),
+            seen,
+            history,
+            favorites,
+            explored,
+            activity,
+        )
+    }
+    pub fn with_identity(
+        directory: &Path,
+        identity: Arc<DeviceIdentity>,
         seen: Arc<SeenStore>,
         history: Arc<HistoryStore>,
         favorites: Arc<FavoriteStore>,
@@ -85,7 +109,8 @@ impl PersistentState {
             favorites,
             explored,
             activity,
-            preferences: Arc::new(PreferenceStore::new(directory)?),
+            preferences: Arc::new(PreferenceStore::with_identity(directory, identity.clone())?),
+            identity,
         };
         state.read(|| Ok(()))?;
         let clears: Clears = load_json(&state.clear_path)?;
@@ -114,6 +139,18 @@ impl PersistentState {
             self.activity.generation(),
             self.preferences.generation(),
         ]
+    }
+
+    pub fn stage_self_last_sync(&self, at_ms: u64) -> Result<(), AppError> {
+        self.read(|| self.preferences.update_self_last_sync(at_ms))
+    }
+
+    pub fn set_device_name(&self, name: &str) -> Result<(), AppError> {
+        self.read(|| {
+            self.identity.set_display_name(name)?;
+            self.preferences
+                .set_device_metadata(self.identity.metadata())
+        })
     }
     pub fn snapshot(&self) -> Result<(SyncSnapshot, Generation), AppError> {
         self.read(|| Ok((self.snapshot_unlocked()?, self.generation())))

@@ -13,6 +13,8 @@ pub struct SyncLocalConfig {
     pub(super) last_accepted_revision: Option<i64>,
     #[serde(default = "schema_v1")]
     pub(super) highest_schema_version: u32,
+    #[serde(default)]
+    pub(super) last_success_at: Option<u64>,
 }
 
 impl SyncLocalConfig {
@@ -22,6 +24,7 @@ impl SyncLocalConfig {
             sync_id,
             last_accepted_revision: Some(revision),
             highest_schema_version: 2,
+            last_success_at: None,
         }
     }
 
@@ -53,12 +56,45 @@ pub enum SyncState {
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DeviceSummary {
+    pub device_id: String,
+    pub display_name: String,
+    pub platform: String,
+    pub joined_at_ms: u64,
+    pub last_synced_at_ms: Option<u64>,
+    pub this_device: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SyncStatus {
+    pub supported: bool,
     pub paired: bool,
     pub state: SyncState,
+    pub last_success_at: Option<u64>,
     pub last_success_revision: Option<i64>,
     pub dirty: bool,
     pub last_error_category: Option<String>,
+    pub snapshot_schema_version: u32,
+    pub this_device_id: Option<String>,
+    pub devices: Vec<DeviceSummary>,
+}
+
+impl SyncStatus {
+    pub fn unsupported() -> Self {
+        Self {
+            supported: false,
+            paired: false,
+            state: SyncState::Unpaired,
+            last_success_at: None,
+            last_success_revision: None,
+            dirty: false,
+            last_error_category: Some("unsupported_platform".to_owned()),
+            snapshot_schema_version: 1,
+            this_device_id: None,
+            devices: Vec::new(),
+        }
+    }
 }
 
 #[derive(Serialize)]

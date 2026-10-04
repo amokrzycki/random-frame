@@ -1,7 +1,9 @@
 use super::{
+    device::{DeviceIdentity, DeviceMetadata},
     io::{load_json, save_json},
     sync_ops::operation_id,
 };
+use crate::time::now_ms;
 use crate::{
     error::AppError,
     snapshot::{merge_snapshots, DeviceRecord, PreferencesV2, Register, SyncSnapshot},
@@ -11,7 +13,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
-        Mutex,
+        Arc, Mutex,
     },
 };
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -32,15 +34,32 @@ pub struct PreferenceStore {
     path: PathBuf,
     data: Mutex<PreferenceData>,
     generation: AtomicU64,
+    identity: Option<Arc<DeviceIdentity>>,
 }
+#[allow(clippy::significant_drop_tightening)]
 impl PreferenceStore {
+    #[allow(dead_code)]
     pub fn new(directory: &Path) -> Result<Self, AppError> {
+        Self::load(directory, None)
+    }
+
+    pub fn with_identity(
+        directory: &Path,
+        identity: Arc<DeviceIdentity>,
+    ) -> Result<Self, AppError> {
+        Self::load(directory, Some(identity))
+    }
+
+    fn load(directory: &Path, identity: Option<Arc<DeviceIdentity>>) -> Result<Self, AppError> {
         let path = directory.join("preferences.json");
         let mut data: PreferenceData = load_json(&path)?;
         if data.version > 2 {
             return Err(AppError::persistence("Unsupported preferences schema"));
         }
         data.version = 2;
+        if let Some(identity) = &identity {
+            data.devices = Self::ensure_self_record(&data.devices, identity);
+        }
         crate::snapshot::validate_snapshot(&SyncSnapshot {
             preferences: data.preferences.clone(),
             devices: data.devices.clone(),
@@ -52,7 +71,45 @@ impl PreferenceStore {
             path,
             data: Mutex::new(data),
             generation: AtomicU64::new(0),
+            identity,
         })
+    }
+
+    fn ensure_self_record(
+        devices: &[DeviceRecord],
+        identity: &DeviceIdentity,
+    ) -> Vec<DeviceRecord> {
+        let id = identity.id();
+        if let Some(existing) = devices.iter().find(|d| d.device_id == id) {
+            let mut next = existing.clone();
+            if next.metadata.value.display_name != identity.display_name()
+                || next.metadata.value.platform != identity.platform()
+            {
+                next.metadata = Register {
+                    clock: next.metadata.clock.saturating_add(1).max(1),
+                    operation_id: operation_id(),
+                    value: identity.metadata(),
+                };
+            }
+            let mut out = devices.to_vec();
+            if let Some(slot) = out.iter_mut().find(|d| d.device_id == id) {
+                *slot = next;
+            }
+            out
+        } else {
+            let mut out = devices.to_vec();
+            out.push(DeviceRecord {
+                device_id: id,
+                metadata: Register {
+                    clock: 1,
+                    operation_id: operation_id(),
+                    value: identity.metadata(),
+                },
+                joined_at_ms: now_ms(),
+                last_sync: None,
+            });
+            out
+        }
     }
     pub fn generation(&self) -> u64 {
         self.generation.load(Ordering::Relaxed)
@@ -177,9 +234,7 @@ impl PreferenceStore {
         let mut next = data.clone();
         next.preferences = merged.preferences;
         next.devices = merged.devices;
-        let result = self.save_changed(&mut data, next);
-        drop(data);
-        result
+        self.save_changed(&mut data, next)
     }
     fn save_changed(
         &self,
@@ -193,4 +248,99 @@ impl PreferenceStore {
         }
         Ok(())
     }
+
+    pub fn set_device_metadata(&self, metadata: DeviceMetadata) -> Result<(), AppError> {
+        let identity = self
+            .identity
+            .as_ref()
+            .ok_or_else(|| AppError::invalid_input("No device identity"))?;
+        let mut data = self
+            .data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let id = identity.id();
+        let clock = max_clock(&data)
+            .checked_add(1)
+            .ok_or_else(|| AppError::persistence("Preference clock exhausted"))?;
+        let mut next = data.clone();
+        if let Some(slot) = next.devices.iter_mut().find(|d| d.device_id == id) {
+            slot.metadata = Register {
+                clock,
+                operation_id: operation_id(),
+                value: metadata,
+            };
+        } else {
+            next.devices.push(DeviceRecord {
+                device_id: id,
+                metadata: Register {
+                    clock,
+                    operation_id: operation_id(),
+                    value: metadata,
+                },
+                joined_at_ms: now_ms(),
+                last_sync: None,
+            });
+        }
+        self.save_changed(&mut data, next)
+    }
+
+    pub fn update_self_last_sync(&self, at_ms: u64) -> Result<(), AppError> {
+        let identity = self
+            .identity
+            .as_ref()
+            .ok_or_else(|| AppError::invalid_input("No device identity"))?;
+        let mut data = self
+            .data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let id = identity.id();
+        let clock = max_clock(&data)
+            .checked_add(1)
+            .ok_or_else(|| AppError::persistence("Preference clock exhausted"))?;
+        let mut next = data.clone();
+        if let Some(slot) = next.devices.iter_mut().find(|d| d.device_id == id) {
+            slot.last_sync = Some(Register {
+                clock,
+                operation_id: operation_id(),
+                value: at_ms,
+            });
+        } else {
+            next.devices.push(DeviceRecord {
+                device_id: id,
+                metadata: Register {
+                    clock,
+                    operation_id: operation_id(),
+                    value: identity.metadata(),
+                },
+                joined_at_ms: now_ms(),
+                last_sync: Some(Register {
+                    clock,
+                    operation_id: operation_id(),
+                    value: at_ms,
+                }),
+            });
+        }
+        self.save_changed(&mut data, next)
+    }
+}
+
+fn max_clock(data: &PreferenceData) -> u64 {
+    data.devices
+        .iter()
+        .flat_map(|d| {
+            [
+                d.metadata.clock,
+                d.last_sync.as_ref().map_or(0, |x| x.clock),
+            ]
+        })
+        .max()
+        .unwrap_or(0)
+        .max(
+            data.preferences.theme.as_ref().map_or(0, |x| x.clock).max(
+                data.preferences
+                    .history_page_size
+                    .as_ref()
+                    .map_or(0, |x| x.clock),
+            ),
+        )
 }

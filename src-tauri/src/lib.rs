@@ -1,16 +1,14 @@
 mod error;
 mod persistence;
 mod rate_limit;
-#[cfg(any(target_os = "linux", target_os = "windows"))]
 mod secure_storage;
 mod snapshot;
 mod sources;
-#[cfg(any(target_os = "linux", target_os = "windows"))]
 mod sync;
 mod sync_crypto;
-#[cfg(any(target_os = "linux", target_os = "windows"))]
 mod sync_transport;
 mod thumbnail_cache;
+mod time;
 
 use chrono::Local;
 use error::{AppError, ErrorKind};
@@ -21,7 +19,6 @@ use persistence::{
 };
 use rate_limit::RateLimiter;
 use reqwest::StatusCode;
-#[cfg(any(target_os = "linux", target_os = "windows"))]
 use secure_storage::SecureStorage;
 use serde::Serialize;
 use sources::{prntsc, prntsc::FetchedFrame, prntsc::Prntsc, select_source, Source};
@@ -34,7 +31,6 @@ use std::{
     },
     time::Duration,
 };
-#[cfg(any(target_os = "linux", target_os = "windows"))]
 use sync::{CreateSyncResult, SyncEngine, SyncError, SyncStatus};
 use tauri::{ipc::Response, Manager, State};
 
@@ -53,8 +49,7 @@ struct AppState {
     explored: Arc<ExplorationStore>,
     #[cfg(test)]
     seen: Arc<SeenStore>,
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
-    sync: SyncEngine<SecureStorage>,
+    sync: Option<SyncEngine<SecureStorage>>,
     activity: Arc<ActivityStore>,
     rate_limiter: Mutex<RateLimiter>,
     // UI loads one frame at a time; use a keyed cache if concurrent consumers are added.
@@ -62,7 +57,7 @@ struct AppState {
 }
 
 impl AppState {
-    fn new(data_directory: &Path) -> Result<Self, AppError> {
+    fn new(data_directory: &Path, app_handle: Option<tauri::AppHandle>) -> Result<Self, AppError> {
         let data = Arc::new(PersistentState::new(data_directory)?);
         let explored = Arc::clone(&data.explored);
         let activity = Arc::clone(&data.activity);
@@ -70,16 +65,20 @@ impl AppState {
         let seen = Arc::clone(&data.seen);
         let favorites = Arc::clone(&data.favorites);
         reconcile_seen(&seen, &history, &explored)?;
-        #[cfg(any(target_os = "linux", target_os = "windows"))]
-        let sync = SyncEngine::new(
-            data_directory,
-            Arc::clone(&data),
-            SecureStorage::default(),
-            std::env::var("RANDOM_FRAME_SYNC_BASE_URL")
-                .ok()
-                .as_deref()
-                .or(option_env!("RANDOM_FRAME_SYNC_BASE_URL")),
-        );
+        let sync = if cfg!(any(target_os = "linux", target_os = "windows")) {
+            Some(SyncEngine::new(
+                data_directory,
+                Arc::clone(&data),
+                SecureStorage::default(),
+                std::env::var("RANDOM_FRAME_SYNC_BASE_URL")
+                    .ok()
+                    .as_deref()
+                    .or(option_env!("RANDOM_FRAME_SYNC_BASE_URL")),
+                app_handle,
+            ))
+        } else {
+            None
+        };
         Ok(Self {
             prntsc: Prntsc::new(Arc::clone(&data))?,
             data,
@@ -89,7 +88,6 @@ impl AppState {
             explored,
             #[cfg(test)]
             seen,
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
             sync,
             activity,
             rate_limiter: Mutex::new(RateLimiter::new()),
@@ -590,47 +588,83 @@ fn set_user_preferences(
     })
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows"))]
 #[tauri::command]
 async fn get_sync_status(state: State<'_, AppState>) -> Result<SyncStatus, SyncError> {
-    state.sync.status().await
+    match &state.sync {
+        Some(sync) => sync.status().await,
+        None => Ok(SyncStatus::unsupported()),
+    }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows"))]
 #[tauri::command]
 async fn create_sync(state: State<'_, AppState>) -> Result<CreateSyncResult, SyncError> {
     state.ensure_imports_ready()?;
-    state.sync.create().await
+    match &state.sync {
+        Some(sync) => sync.create().await,
+        None => Err(SyncError::UnsupportedPlatform),
+    }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows"))]
 #[tauri::command]
 async fn join_sync(
     recovery_key: String,
     state: State<'_, AppState>,
 ) -> Result<SyncStatus, SyncError> {
     state.ensure_imports_ready()?;
-    state.sync.join(&recovery_key).await
+    match &state.sync {
+        Some(sync) => sync.join(&recovery_key).await,
+        None => Err(SyncError::UnsupportedPlatform),
+    }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows"))]
 #[tauri::command]
 async fn sync_now(state: State<'_, AppState>) -> Result<SyncStatus, SyncError> {
     state.ensure_imports_ready()?;
-    state.sync.sync_now().await
+    match &state.sync {
+        Some(sync) => sync.sync_now().await,
+        None => Err(SyncError::UnsupportedPlatform),
+    }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows"))]
 #[tauri::command]
 async fn startup_sync(state: State<'_, AppState>) -> Result<SyncStatus, SyncError> {
     state.ensure_imports_ready()?;
-    state.sync.startup_sync().await
+    match &state.sync {
+        Some(sync) => sync.startup_sync().await,
+        None => Ok(SyncStatus::unsupported()),
+    }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows"))]
 #[tauri::command]
 async fn leave_sync(state: State<'_, AppState>) -> Result<SyncStatus, SyncError> {
-    state.sync.leave().await
+    match &state.sync {
+        Some(sync) => sync.leave().await,
+        None => Err(SyncError::UnsupportedPlatform),
+    }
+}
+
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command arguments must be passed by value"
+)]
+fn set_sync_device_name(name: String, state: State<'_, AppState>) -> Result<(), SyncError> {
+    if state.sync.is_none() {
+        return Err(SyncError::UnsupportedPlatform);
+    }
+    let trimmed = name.trim();
+    state
+        .data
+        .set_device_name(trimmed)
+        .map_err(|_| SyncError::Persistence)
+}
+
+#[tauri::command]
+async fn get_sync_recovery_key(state: State<'_, AppState>) -> Result<String, SyncError> {
+    match &state.sync {
+        Some(sync) => sync.recovery_key().await,
+        None => Err(SyncError::UnsupportedPlatform),
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -649,7 +683,8 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let data_directory = app.path().app_data_dir()?;
-            app.manage(AppState::new(&data_directory)?);
+            let handle = app.handle().clone();
+            app.manage(AppState::new(&data_directory, Some(handle))?);
             thumbnail_cache::setup(app)?;
             Ok(())
         })
@@ -690,7 +725,11 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             startup_sync,
             #[cfg(any(target_os = "linux", target_os = "windows"))]
-            leave_sync
+            leave_sync,
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            set_sync_device_name,
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            get_sync_recovery_key
         ])
         .run(tauri::generate_context!())?;
     Ok(())
@@ -753,7 +792,7 @@ mod tests {
         SeenStore::new(&directory)?.insert(1)?;
 
         for _ in 0..2 {
-            let state = AppState::new(&directory)?;
+            let state = AppState::new(&directory, None)?;
             for id in [prntsc::item_id_value("abc123")?, 1, 4] {
                 assert!(state.seen.contains(id));
             }
@@ -770,7 +809,7 @@ mod tests {
     {
         let directory = test_state_directory("seen-repair-clear");
         HistoryStore::new(&directory)?.record(history_item("abc123"))?;
-        let state = AppState::new(&directory)?;
+        let state = AppState::new(&directory, None)?;
         let id = prntsc::item_id_value("abc123")?;
         assert!(state.seen.contains(id));
 
@@ -785,7 +824,7 @@ mod tests {
         assert_eq!(state.activity.viewed_total(), 0);
         assert!(state.seen.contains(id));
         drop(state);
-        let restarted = AppState::new(&directory)?;
+        let restarted = AppState::new(&directory, None)?;
         assert!(restarted.seen.contains(id));
         assert_eq!(restarted.explored.count(), 1);
         assert_eq!(restarted.explored.viewable_count(), 1);
@@ -796,7 +835,7 @@ mod tests {
     #[test]
     fn accepted_manual_frame_is_seen_once_without_blocking_reopen() -> Result<(), AppError> {
         let directory = test_state_directory("manual-seen");
-        let state = AppState::new(&directory)?;
+        let state = AppState::new(&directory, None)?;
         let id = prntsc::item_id_value("abc123")?;
         record_accepted_frame(&history_item("abc123"), &state, false)?;
         assert!(state.seen.contains(id));
@@ -810,7 +849,7 @@ mod tests {
     #[test]
     fn legacy_history_import_does_not_count_views_again() -> Result<(), AppError> {
         let directory = test_state_directory("legacy-import-activity");
-        let state = AppState::new(&directory)?;
+        let state = AppState::new(&directory, None)?;
         let id = prntsc::item_id_value("0abc123")?;
         record_accepted_frame(&history_item("0abc123"), &state, true)?;
         assert!(state.seen.contains(id));
@@ -819,14 +858,14 @@ mod tests {
         state.activity.migrate("2026-09-24", 1, 1, "2026-09-24")?;
         assert_eq!(state.activity.viewed_total(), 1);
         drop(state);
-        assert!(AppState::new(&directory)?.seen.contains(id));
+        assert!(AppState::new(&directory, None)?.seen.contains(id));
         std::fs::remove_dir_all(directory).map_err(AppError::persistence)
     }
 
     #[test]
     fn remote_snapshot_changes_only_seen() -> Result<(), AppError> {
         let directory = test_state_directory("remote-seen");
-        let state = AppState::new(&directory)?;
+        let state = AppState::new(&directory, None)?;
         let history_before = state.history.snapshot();
         assert_eq!(state.seen.merge([42_u64])?, 1);
         assert!(state.seen.contains(42));
@@ -837,7 +876,7 @@ mod tests {
             history_before.history.len()
         );
         drop(state);
-        let restarted = AppState::new(&directory)?;
+        let restarted = AppState::new(&directory, None)?;
         assert!(restarted.seen.contains(42));
         assert_eq!(restarted.explored.count(), 0);
         std::fs::remove_dir_all(directory).map_err(AppError::persistence)
@@ -885,7 +924,7 @@ mod tests {
         )?;
 
         for _ in 0..2 {
-            let state = AppState::new(&directory)?;
+            let state = AppState::new(&directory, None)?;
             let days = state.activity.recent_days(activity_day(&now), 1);
             assert_eq!(days[0].1.viewed, 5);
             assert_eq!(days[0].1.rejected, 2);
@@ -902,7 +941,7 @@ mod tests {
     ) -> Result<(), AppError> {
         // InternetArchive must short-circuit before state.prntsc, or its ids leak into Prnt.sc counters.
         let directory = test_state_directory("internet-archive");
-        let state = AppState::new(&directory)?;
+        let state = AppState::new(&directory, None)?;
 
         let result = random_frame(Source::InternetArchive, &state).await;
 
@@ -925,7 +964,7 @@ mod startup_guard_tests {
     #[test]
     fn sync_exports_wait_for_startup_imports() -> Result<(), AppError> {
         let directory = tests::test_state_directory("startup-gate");
-        let state = AppState::new(&directory)?;
+        let state = AppState::new(&directory, None)?;
         assert_eq!(
             state.ensure_imports_ready(),
             Err(SyncError::LocalMigrationPending)

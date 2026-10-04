@@ -3,8 +3,39 @@ import test from "node:test";
 import { FakeDocument, FakeStorage, ids } from "./dom-fakes.mjs";
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
-const unpaired = { paired: false, state: "unpaired", lastSuccessRevision: null, dirty: true, lastErrorCategory: null };
-const paired = { paired: true, state: "idle", lastSuccessRevision: 1, dirty: false, lastErrorCategory: null };
+const unpaired = {
+  supported: true,
+  paired: false,
+  state: "unpaired",
+  lastSuccessAt: null,
+  lastSuccessRevision: null,
+  dirty: true,
+  lastErrorCategory: null,
+  snapshotSchemaVersion: 1,
+  thisDeviceId: null,
+  devices: [],
+};
+const paired = {
+  supported: true,
+  paired: true,
+  state: "idle",
+  lastSuccessAt: Date.now(),
+  lastSuccessRevision: 1,
+  dirty: false,
+  lastErrorCategory: null,
+  snapshotSchemaVersion: 2,
+  thisDeviceId: "aabbccdd",
+  devices: [
+    {
+      deviceId: "aabbccdd",
+      displayName: "test",
+      platform: "node",
+      joinedAt: 1,
+      lastSyncedAt: Date.now(),
+      thisDevice: true,
+    },
+  ],
+};
 
 test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key lifecycle", async (t) => {
   const document = new FakeDocument(ids);
@@ -33,6 +64,7 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
   globalThis.window = {
     setTimeout: () => 0,
     __TAURI_INTERNALS__: {
+      transformCallback: () => "cb-1",
       async invoke(command, args) {
         if (command === "complete_state_imports") return null;
         if (command === "get_user_preferences" || command === "set_user_preferences")
@@ -61,6 +93,7 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
           return structuredClone(current);
         }
         if (command === "startup_sync") return structuredClone(current);
+        if (command === "plugin:event|listen") return "event-id-1";
         if (command === "get_history") return { history: [], index: -1 };
         if (command === "get_favorites") return [];
         throw new Error(`Unexpected command: ${command}`);

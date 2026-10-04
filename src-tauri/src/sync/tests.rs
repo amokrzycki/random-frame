@@ -58,6 +58,33 @@ impl SecretStore for MemorySecret {
     }
 }
 
+fn assert_sync_data_equal(actual: &snapshot::SyncSnapshot, expected: &snapshot::SyncSnapshot) {
+    assert_eq!(actual.seen, expected.seen, "seen mismatch");
+    assert_eq!(actual.history, expected.history, "history mismatch");
+    assert_eq!(
+        actual.history_removed, expected.history_removed,
+        "history_removed mismatch"
+    );
+    assert_eq!(actual.favorites, expected.favorites, "favorites mismatch");
+    assert_eq!(
+        actual.favorites_removed, expected.favorites_removed,
+        "favorites_removed mismatch"
+    );
+    assert_eq!(
+        actual.exploration, expected.exploration,
+        "exploration mismatch"
+    );
+    assert_eq!(actual.activity, expected.activity, "activity mismatch");
+    assert_eq!(
+        actual.activity_removed, expected.activity_removed,
+        "activity_removed mismatch"
+    );
+    assert_eq!(
+        actual.preferences, expected.preferences,
+        "preferences mismatch"
+    );
+}
+
 #[derive(Default)]
 struct ServerState {
     id: Option<String>,
@@ -442,8 +469,8 @@ async fn exploration_syncs_with_seen_history_and_favorites(
     let b_path = directory("local-exploration-b");
     fs::create_dir_all(&a_path)?;
     fs::write(a_path.join("prntsc-explored.txt"), "200\n")?;
-    let a_state = AppState::new(&a_path)?;
-    let b_state = AppState::new(&b_path)?;
+    let a_state = AppState::new(&a_path, None)?;
+    let b_state = AppState::new(&b_path, None)?;
     for id in 0..100 {
         a_state.explored.mark(id, ExplorationOutcome::Viewed)?;
         a_state.seen.insert(id)?;
@@ -475,6 +502,7 @@ async fn exploration_syncs_with_seen_history_and_favorites(
         Arc::clone(&a_state.data),
         MemorySecret::default(),
         Some(&url),
+        None,
     );
     let key = a.create().await?.recovery_key;
     let b = SyncEngine::new(
@@ -482,6 +510,7 @@ async fn exploration_syncs_with_seen_history_and_favorites(
         Arc::clone(&b_state.data),
         MemorySecret::default(),
         Some(&url),
+        None,
     );
     b.join(&key).await?;
     b.sync_now().await?;
@@ -505,8 +534,14 @@ async fn exploration_syncs_with_seen_history_and_favorites(
     drop(b);
     drop(a_state);
     drop(b_state);
-    assert_eq!(AppState::new(&a_path)?.explored.counts(), (122, 101, 20, 1));
-    assert_eq!(AppState::new(&b_path)?.explored.counts(), (122, 101, 20, 1));
+    assert_eq!(
+        AppState::new(&a_path, None)?.explored.counts(),
+        (122, 101, 20, 1)
+    );
+    assert_eq!(
+        AppState::new(&b_path, None)?.explored.counts(),
+        (122, 101, 20, 1)
+    );
     task.abort();
     fs::remove_dir_all(a_path)?;
     fs::remove_dir_all(b_path)?;
@@ -529,10 +564,10 @@ async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
     fs::write(a_path.join("prntsc-explored.txt"), "200\n")?;
     let a_secret = MemorySecret::default();
     let b_secret = MemorySecret::default();
-    let a_state = AppState::new(&a_path)?;
-    let b_state = AppState::new(&b_path)?;
+    let a_state = AppState::new(&a_path, None)?;
+    let b_state = AppState::new(&b_path, None)?;
     let engine = |path: &Path, state: &AppState, secret: MemorySecret| {
-        SyncEngine::new(path, Arc::clone(&state.data), secret, Some(&url))
+        SyncEngine::new(path, Arc::clone(&state.data), secret, Some(&url), None)
     };
     let a = engine(&a_path, &a_state, a_secret.clone());
     let b = engine(&b_path, &b_state, b_secret.clone());
@@ -676,7 +711,7 @@ async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
     let stable = remote()?;
     b.sync_now().await?;
     a.sync_now().await?;
-    assert_eq!(remote()?, stable);
+    assert_sync_data_equal(&remote()?, &stable);
 
     // Clear Favorites removes known entries, while B's new offline favorite survives.
     b_state.favorites.toggle(FavoriteItem {
@@ -704,14 +739,14 @@ async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
     assert_eq!(stable.favorites.len(), 1);
     assert_eq!(stable.favorites_removed.len(), 1);
     b.sync_now().await?;
-    assert_eq!(remote()?, stable);
+    assert_sync_data_equal(&remote()?, &stable);
 
     drop(a);
     drop(b);
     drop(a_state);
     drop(b_state);
-    let a_restarted = AppState::new(&a_path)?;
-    let b_restarted = AppState::new(&b_path)?;
+    let a_restarted = AppState::new(&a_path, None)?;
+    let b_restarted = AppState::new(&b_path, None)?;
     assert_eq!(a_restarted.history.snapshot().history.len(), 1);
     assert_eq!(b_restarted.history.snapshot().history.len(), 1);
     assert_eq!(a_restarted.favorites.snapshot().len(), 1);
@@ -732,7 +767,7 @@ async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
     engine(&b_path, &b_restarted, b_secret.clone())
         .startup_sync()
         .await?;
-    assert_eq!(remote()?, stable);
+    assert_sync_data_equal(&remote()?, &stable);
     assert_eq!(a_restarted.explored.counts(), (8, 5, 2, 1));
     assert_eq!(b_restarted.explored.count(), 8);
     task.abort();
@@ -1320,7 +1355,13 @@ fn make_engine(
         Arc::new(ActivityStore::new(path).map_err(|_| SyncError::Persistence)?),
     )
     .map_err(|_| SyncError::Persistence)?;
-    Ok(SyncEngine::new(path, Arc::new(state), secret, endpoint))
+    Ok(SyncEngine::new(
+        path,
+        Arc::new(state),
+        secret,
+        endpoint,
+        None,
+    ))
 }
 
 #[tokio::test]
@@ -1492,6 +1533,168 @@ async fn activity_exploration_and_preference_changes_during_upload_remain_dirty(
     fs::remove_dir_all(path)?;
     Ok(())
 }
+#[tokio::test]
+async fn device_identity_stable_across_restart_and_rejoin() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (url, _server, task) = server().await?;
+    let path = directory("device-restart");
+    let secret = MemorySecret::default();
+    let a = device(&path, &url, secret.clone())?;
+    let created = a.create().await?;
+    let first_id = created
+        .status
+        .this_device_id
+        .clone()
+        .ok_or("device id missing after create")?;
+    assert_eq!(a.status().await?.this_device_id, Some(first_id.clone()));
+
+    // Restart keeps the same device identity.
+    let restarted = device(&path, &url, secret.clone())?;
+    let restarted_status = restarted.status().await?;
+    assert_eq!(restarted_status.this_device_id, Some(first_id.clone()));
+    assert_eq!(restarted_status.devices.len(), 1);
+    assert!(restarted_status.devices[0].this_device);
+
+    // Disconnect keeps identity but drops pairing; rejoin keeps the same ID.
+    restarted.leave().await?;
+    let after_leave = device(&path, &url, secret.clone())?;
+    assert_eq!(
+        after_leave.status().await?.this_device_id,
+        Some(first_id.clone())
+    );
+    after_leave.join(&created.recovery_key).await?;
+    let rejoined_status = after_leave.status().await?;
+    assert_eq!(rejoined_status.this_device_id, Some(first_id.clone()));
+
+    // A fresh directory with the same recovery key gets a new identity.
+    let fresh_path = directory("device-fresh");
+    let fresh = device(&fresh_path, &url, MemorySecret::default())?;
+    fresh.join(&created.recovery_key).await?;
+    assert_ne!(fresh.status().await?.this_device_id, Some(first_id));
+
+    task.abort();
+    fs::remove_dir_all(path)?;
+    fs::remove_dir_all(fresh_path)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn roster_converges_with_this_device_flag() -> Result<(), Box<dyn std::error::Error>> {
+    let (url, _server, task) = server().await?;
+    let a_path = directory("roster-a");
+    let b_path = directory("roster-b");
+    let a = device(&a_path, &url, MemorySecret::default())?;
+    let b = device(&b_path, &url, MemorySecret::default())?;
+    let created = a.create().await?;
+    b.join(&created.recovery_key).await?;
+    a.sync_now().await?;
+    b.sync_now().await?;
+
+    let a_status = a.status().await?;
+    let b_status = b.status().await?;
+    assert_eq!(a_status.devices.len(), 2);
+    assert_eq!(b_status.devices.len(), 2);
+    assert_eq!(a_status.devices.iter().filter(|d| d.this_device).count(), 1);
+    assert_eq!(b_status.devices.iter().filter(|d| d.this_device).count(), 1);
+    let mut a_ids: Vec<_> = a_status
+        .devices
+        .iter()
+        .map(|d| d.device_id.clone())
+        .collect();
+    let mut b_ids: Vec<_> = b_status
+        .devices
+        .iter()
+        .map(|d| d.device_id.clone())
+        .collect();
+    a_ids.sort();
+    b_ids.sort();
+    assert_eq!(a_ids, b_ids);
+
+    task.abort();
+    fs::remove_dir_all(a_path)?;
+    fs::remove_dir_all(b_path)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn failed_put_does_not_advance_last_success_at() -> Result<(), Box<dyn std::error::Error>> {
+    let (url, server, task) = server().await?;
+    let path = directory("failed-put");
+    let a = device(&path, &url, MemorySecret::default())?;
+    a.create().await?;
+    let before = a.status().await?;
+    assert!(before.last_success_at.is_some());
+
+    a.seen.insert(42)?;
+    server
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .fail_next_update = true;
+    assert_eq!(a.sync_now().await.err(), Some(SyncError::ServerError));
+    let after = a.status().await?;
+    assert_eq!(after.last_success_at, before.last_success_at);
+    assert!(after.dirty);
+
+    task.abort();
+    fs::remove_dir_all(path)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn status_read_does_not_upload_or_change_roster() -> Result<(), Box<dyn std::error::Error>> {
+    let (url, server, task) = server().await?;
+    let path = directory("status-read");
+    let a = device(&path, &url, MemorySecret::default())?;
+    a.create().await?;
+    let before_requests = server
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .requests;
+    let before_devices = a.status().await?.devices.len();
+
+    let status = a.status().await?;
+    let after_requests = server
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .requests;
+    assert_eq!(after_requests, before_requests);
+    assert_eq!(status.devices.len(), before_devices);
+
+    task.abort();
+    fs::remove_dir_all(path)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn offline_rename_is_dirty_and_publishes_later() -> Result<(), Box<dyn std::error::Error>> {
+    let (url, _server, task) = server().await?;
+    let path = directory("offline-rename");
+    let a = device(&path, &url, MemorySecret::default())?;
+    a.create().await?;
+    a.sync_now().await?;
+    assert!(!a.status().await?.dirty);
+
+    a.data.set_device_name("Living Room")?;
+    let status = a.status().await?;
+    assert!(status.dirty);
+    assert!(status
+        .devices
+        .iter()
+        .any(|d| d.this_device && d.display_name == "Living Room"));
+
+    a.sync_now().await?;
+    let published = a.status().await?;
+    assert!(!published.dirty);
+    assert!(published
+        .devices
+        .iter()
+        .any(|d| d.this_device && d.display_name == "Living Room"));
+
+    task.abort();
+    fs::remove_dir_all(path)?;
+    Ok(())
+}
+
 #[tokio::test]
 #[ignore = "requires RANDOM_FRAME_SYNC_E2E_URL pointing to the unmodified local server"]
 async fn unmodified_server_recovers_complete_v2_state_on_a_third_device(
