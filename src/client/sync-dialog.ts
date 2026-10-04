@@ -281,6 +281,9 @@ async function refreshView(): Promise<boolean> {
 }
 
 // An action that returns a status changed saved data, so open views reload from it.
+// Return `undefined` for read-only operations (e.g. showing the recovery key) that
+// don't change sync state — the refresh at the end is still useful, but we skip
+// setStatus() since no status fields changed.
 async function operate(message: string, action: () => Promise<SyncStatus | undefined>): Promise<boolean> {
   if (busy) return false;
   busy = true;

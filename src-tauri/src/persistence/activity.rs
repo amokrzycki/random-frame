@@ -41,6 +41,8 @@ struct LegacyActivity {
     migrated: bool,
     revisit_views_repaired: bool,
     viewed_total: u64,
+    // ponytail: day keys are validated during LegacyImport creation in ActivityStore::new(),
+    // not during deserialization. Invalid keys are filtered out before creating the operation.
     days: BTreeMap<String, DailyCounts>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -77,13 +79,19 @@ impl ActivityStore {
             load_json::<ActivityData>(&path)?
         } else {
             let legacy: LegacyActivity = load_json(&source)?;
-            let operations = if legacy.viewed_total == 0 && legacy.days.is_empty() {
+            // Filter out invalid day keys during migration; validate_snapshot catches any remaining issues.
+            let valid_days: BTreeMap<String, DailyCounts> = legacy
+                .days
+                .into_iter()
+                .filter(|(day, _)| crate::snapshot::validate_day(day).is_ok())
+                .collect();
+            let operations = if legacy.viewed_total == 0 && valid_days.is_empty() {
                 Vec::new()
             } else {
                 vec![ActivityOperation::LegacyImport {
                     operation_id: operation_id(),
                     viewed_total: legacy.viewed_total,
-                    days: legacy.days,
+                    days: valid_days,
                 }]
             };
             ActivityData {

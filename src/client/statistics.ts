@@ -107,6 +107,10 @@ export function ledgerDays(
   const newestFirst = viewedAt
     .flatMap((millis, index) => (millis === null ? [] : [{ millis, index }]))
     .sort((a, b) => b.millis - a.millis || b.index - a.index);
+  // ponytail: Two code paths for historical reasons. sourceViews provides server-authoritative
+  // day keys (preserved across timezone changes), while localViewTimes requires inferring the
+  // day from the local timestamp. The sourceViews path is preferred when available (v2 sync),
+  // but localViewTimes fallback supports v1 data or unsynced history.
   if (sourceViews) {
     const positions = new Map(history.map((item, index) => [`${item.source}\0${item.id}`, index]));
     for (const view of [...sourceViews].sort((a, b) => b.atMs - a.atMs)) {
