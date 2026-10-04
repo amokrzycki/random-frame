@@ -1,6 +1,6 @@
 [package]
 name = "random-frame"
-version = "0.6.6"
+version = "0.7.0"
 description = "Random public images, one frame at a time"
 authors = ["Adrian Mokrzycki"]
 license = "MIT"

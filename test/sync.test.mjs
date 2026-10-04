@@ -34,6 +34,10 @@ test("Sync dialog handles pairing, status, manual sync, leave, and recovery-key 
     setTimeout: () => 0,
     __TAURI_INTERNALS__: {
       async invoke(command, args) {
+        if (command === "complete_state_imports") return null;
+        if (command === "get_user_preferences" || command === "set_user_preferences")
+          return { theme: null, historyPageSize: null };
+        if (command === "import_session_history") return window.__TAURI_INTERNALS__.invoke("get_history");
         calls.push({ command, args });
         if (command === "get_sync_status") {
           if (statusFails) throw { category: "timeout" };

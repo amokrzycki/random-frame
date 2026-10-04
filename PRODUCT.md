@@ -56,7 +56,7 @@ The supplied Chris Hannah implementation establishes the current Prnt.sc identif
 
 - The displayed media is always the focal point.
 - One clear action advances exploration; history stays effortless.
-- History, favorites, and Seen IDs can Sync. Activity Stats are local and reset with History; Prnt.sc exploration progress is durable, local, and does not Sync.
+- History, favorites, Seen IDs, exploration progress, Activity Stats, theme, and history page size can Sync. Clearing History & Stats removes known history and Activity operations; Seen, exploration progress, and favorites remain. Unknown offline changes can appear after sync.
 - Every item keeps a clear link to its source.
 - Upstream failures are explained plainly and recover gracefully.
 

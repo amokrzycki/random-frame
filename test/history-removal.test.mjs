@@ -31,6 +31,10 @@ test("removes one frame from the grid or the frame menu, and Undo puts it back i
   const calls = [];
   window.__TAURI_INTERNALS__ = {
     async invoke(command, args) {
+      if (command === "complete_state_imports") return null;
+      if (command === "get_user_preferences" || command === "set_user_preferences")
+        return { theme: null, historyPageSize: null };
+      if (command === "import_session_history") return window.__TAURI_INTERNALS__.invoke("get_history");
       calls.push({ command, args });
       if (command === "get_history") return structuredClone(history);
       if (command === "get_favorites") return [];
@@ -42,7 +46,11 @@ test("removes one frame from the grid or the frame menu, and Undo puts it back i
         const orderAt = history.history.findIndex(({ id }) => id === args.id);
         history.history.splice(orderAt, 1);
         history.index = -1;
-        return { snapshot: structuredClone(history), orderAt };
+        return {
+          snapshot: structuredClone(history),
+          orderAt,
+          lastView: { at_ms: 1, day: "2026-10-02", day_inferred: true },
+        };
       }
       if (command === "restore_history_item") {
         history.history.splice(args.orderAt, 0, args.item);
@@ -112,6 +120,7 @@ test("removes one frame from the grid or the frame menu, and Undo puts it back i
   assert.deepEqual(calls.find(({ command }) => command === "restore_history_item").args, {
     item: item("ddd444"),
     orderAt: 3,
+    lastView: { at_ms: 1, day: "2026-10-02", day_inferred: true },
   });
   assert.deepEqual(order(), ["4 · ddd444", "3 · ccc333", "2 · bbb222", "1 · aaa111"]);
   get("history-close-button").click();

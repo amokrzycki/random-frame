@@ -106,3 +106,13 @@ test("counts the draw streak back from today, or from yesterday while today is s
   assert.equal(drawStreak([day(1), day(2), day(0)]), 2);
   assert.equal(drawStreak([day(1), day(0), day(0)]), 0);
 });
+
+test("ledger uses the source day and frame key after recovery", () => {
+  const frames = [
+    { source: "prntsc", id: "a", viewedAt: 0 },
+    { source: "prntsc", id: "b", viewedAt: 0 },
+  ];
+  const sourceViews = [{ source: "prntsc", id: "b", atMs: 0, day: "2026-10-02", dayInferred: false }];
+  const ledger = ledgerDays([{ date: "2026-10-02", viewed: 1, rejected: 0 }], [null, null], frames, sourceViews);
+  assert.deepEqual(ledger[0].frames, [1]);
+});

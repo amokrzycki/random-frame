@@ -1,6 +1,6 @@
 use crate::error::AppError;
 use serde::{de::DeserializeOwned, Serialize};
-use std::{fs, path::Path};
+use std::{fs, io::Write, path::Path};
 
 /// Reads a JSON store, recovering a `.json.tmp` left by a save interrupted before its rename.
 pub(super) fn load_json<T: DeserializeOwned + Default>(path: &Path) -> Result<T, AppError> {
@@ -9,19 +9,21 @@ pub(super) fn load_json<T: DeserializeOwned + Default>(path: &Path) -> Result<T,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             let temporary = path.with_extension("json.tmp");
             match fs::read(&temporary) {
-                Ok(bytes) => match serde_json::from_slice(&bytes) {
-                    Ok(data) => {
+                Ok(bytes) => {
+                    if let Ok(data) = serde_json::from_slice(&bytes) {
                         fs::rename(temporary, path).map_err(AppError::persistence)?;
                         Ok(data)
-                    }
-                    Err(error) => {
+                    } else {
                         #[cfg(windows)]
                         if path.with_extension("json.bak").exists() {
                             return restore_json_backup(path);
                         }
-                        Err(AppError::persistence(error))
+                        // Without a committed file or backup, a torn first write has
+                        // not applied any effects. Retry its creator from empty state.
+                        fs::remove_file(temporary).map_err(AppError::persistence)?;
+                        Ok(T::default())
                     }
-                },
+                }
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                     #[cfg(windows)]
                     if path.with_extension("json.bak").exists() {
@@ -49,7 +51,12 @@ fn restore_json_backup<T: DeserializeOwned>(path: &Path) -> Result<T, AppError> 
 pub(crate) fn save_json<T: Serialize>(path: &Path, data: &T) -> Result<(), AppError> {
     let bytes = serde_json::to_vec(data).map_err(AppError::persistence)?;
     let temporary = path.with_extension("json.tmp");
-    if let Err(error) = fs::write(&temporary, bytes) {
+    let written = (|| {
+        let mut file = fs::File::create(&temporary)?;
+        file.write_all(&bytes)?;
+        file.sync_all()
+    })();
+    if let Err(error) = written {
         let _ = fs::remove_file(&temporary);
         return Err(AppError::persistence(error));
     }
@@ -67,5 +74,12 @@ pub(crate) fn save_json<T: Serialize>(path: &Path, data: &T) -> Result<(), AppEr
         let _ = fs::remove_file(backup);
         return Ok(());
     }
-    fs::rename(&temporary, path).map_err(AppError::persistence)
+    fs::rename(&temporary, path).map_err(AppError::persistence)?;
+    #[cfg(unix)]
+    if let Some(parent) = path.parent() {
+        fs::File::open(parent)
+            .and_then(|file| file.sync_all())
+            .map_err(AppError::persistence)?;
+    }
+    Ok(())
 }

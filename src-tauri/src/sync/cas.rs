@@ -32,12 +32,16 @@ pub(super) async fn push_with_retries(
     keys: &SyncKeys,
     mut revision: i64,
     mut config: Option<&mut SyncLocalConfig>,
+    mut schema_floor: u32,
 ) -> Result<(i64, Generation), SyncError> {
     for attempt in 0..MAX_CAS_ATTEMPTS {
         let (snapshot, generation) = data.local_snapshot()?;
         let envelope = keys
             .encrypt_snapshot(&snapshot)
             .map_err(|_| SyncError::InvalidRemoteData)?;
+        data.state
+            .begin_publication(keys.sync_id(), revision)
+            .map_err(|_| SyncError::Persistence)?;
         match transport
             .ok_or(SyncError::InvalidEndpoint)?
             .update(
@@ -48,8 +52,20 @@ pub(super) async fn push_with_retries(
             )
             .await
         {
-            Ok(next) => return Ok((next, generation)),
-            Err(TransportError::Conflict) if attempt + 1 < MAX_CAS_ATTEMPTS => {
+            Ok(next) => {
+                data.state
+                    .complete_publication(keys.sync_id())
+                    .map_err(|_| SyncError::Persistence)?;
+                return Ok((next, generation));
+            }
+            Err(TransportError::Conflict) => {
+                // A CAS rejection proves this request did not publish the envelope.
+                data.state
+                    .cancel_publication(keys.sync_id())
+                    .map_err(|_| SyncError::Persistence)?;
+                if attempt + 1 == MAX_CAS_ATTEMPTS {
+                    return Err(SyncError::Conflict);
+                }
                 let (latest, remote) = transport
                     .ok_or(SyncError::InvalidEndpoint)?
                     .get(keys.sync_id(), &keys.client_auth_token())
@@ -57,7 +73,14 @@ pub(super) async fn push_with_retries(
                 if let Some(config) = config.as_mut() {
                     check_rollback(config, latest)?;
                 }
-                data.merge_remote(keys, &remote)?;
+                let floor =
+                    schema_floor.max(config.as_ref().map_or(1, |c| c.highest_schema_version));
+                let schema = data.merge_remote(keys, &remote, floor, latest)?;
+                schema_floor = schema_floor.max(schema);
+                if let Some(config) = config.as_mut() {
+                    config.highest_schema_version = config.highest_schema_version.max(schema);
+                    save_config(path, config)?;
+                }
                 if let Some(config) = config.as_mut() {
                     if config
                         .last_accepted_revision

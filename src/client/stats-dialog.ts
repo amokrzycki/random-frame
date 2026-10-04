@@ -118,7 +118,7 @@ async function loadStats(): Promise<void> {
       // Inconsistent exploration counts must not hide the activity stats.
       elements.statsExploredBreakdown.textContent = "Exploration breakdown unavailable";
     }
-    renderLedger(ledgerDays(activity.days, activity.localViewTimes));
+    renderLedger(ledgerDays(activity.days, activity.localViewTimes, state.history, activity.frameViews));
     delete elements.statsExplored.dataset.state;
     elements.statsError.hidden = true;
     elements.ledger.hidden = false;
@@ -138,12 +138,8 @@ async function loadStats(): Promise<void> {
 export async function migrateLegacyStats(): Promise<void> {
   const legacy = parseLegacyStats(localStorage.getItem(LEGACY_STATS_STORAGE_KEY));
   if (!legacy) return;
-  try {
-    await migrateViewingStats(legacy.day, legacy.today, legacy.total);
-    localStorage.removeItem(LEGACY_STATS_STORAGE_KEY);
-  } catch {
-    // Best-effort; retried on the next launch if it failed this time
-  }
+  await migrateViewingStats(legacy.day, legacy.today, legacy.total);
+  localStorage.removeItem(LEGACY_STATS_STORAGE_KEY);
 }
 
 export function bindStatsDialogEvents(): void {

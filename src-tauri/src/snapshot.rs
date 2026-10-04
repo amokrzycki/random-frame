@@ -1,44 +1,156 @@
-//! Device-independent encrypted-sync plaintext format.
-
+//! Canonical, device-independent plaintext. The crypto envelope and credentials remain v1.
+mod merge;
+#[allow(
+    dead_code,
+    reason = "frozen v1 codec is retained for compatibility and mixed-version tests"
+)]
+pub(crate) mod v1;
 use crate::sources::prntsc::LEGACY_MAX_VALUE;
-use std::fmt;
+use chrono::{NaiveDate, TimeZone, Utc};
+pub use merge::merge_snapshots;
+pub(crate) use merge::reconcile_seen;
+use serde::{Deserialize, Serialize};
+use std::{collections::BTreeMap, fmt};
 
+pub const MAX_PLAINTEXT: usize = 67_108_864 - crate::sync_crypto::ENVELOPE_OVERHEAD;
+#[cfg(test)]
 pub const MAX_ENTRIES: usize = (MAX_PLAINTEXT - 32) / 8;
+// Only the frozen v1 decoder has a per-section cap. V2 is bounded by bytes, never trimmed.
+#[cfg(test)]
 pub const MAX_SECTION: usize = 100_000;
-pub const MAX_PLAINTEXT: usize =
-    crate::sync_transport::MAX_ENVELOPE - crate::sync_crypto::ENVELOPE_OVERHEAD;
+pub type OperationId = [u8; 16];
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct ViewStamp {
+    pub at_ms: u64,
+    pub day: String,
+    pub day_inferred: bool,
+}
+impl ViewStamp {
+    pub fn inferred(at_ms: u64) -> Self {
+        let day = i64::try_from(at_ms)
+            .ok()
+            .and_then(|ms| Utc.timestamp_millis_opt(ms).single())
+            .map_or_else(
+                || "1970-01-01".into(),
+                |time| time.format("%Y-%m-%d").to_string(),
+            );
+        Self {
+            at_ms,
+            day,
+            day_inferred: true,
+        }
+    }
+    pub(crate) fn key(&self) -> (u64, bool, &str) {
+        (self.at_ms, !self.day_inferred, &self.day)
+    }
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct SyncRecord {
-    pub operation_id: [u8; 16],
-    pub first_at: u64,
-    pub second_at: u64,
+    pub operation_id: OperationId,
+    pub order_at: u64,
+    pub last_view: ViewStamp,
     pub source: String,
     pub id: String,
     pub source_page_url: String,
 }
-
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct FavoriteRecord {
-    pub operation_id: [u8; 16],
+    pub operation_id: OperationId,
     pub added_at: u64,
     pub source: String,
     pub id: String,
     pub source_page_url: String,
 }
-
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct ExplorationRecord {
+    pub source: String,
+    pub id: String,
+    pub evidence: u8,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub enum Outcome {
+    Viewed,
+    Rejected,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+pub struct DailyCounts {
+    pub viewed: u64,
+    pub rejected: u64,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub enum ActivityOperation {
+    Discovery {
+        operation_id: OperationId,
+        source: String,
+        id: String,
+        outcome: Outcome,
+        occurred_at_ms: u64,
+        day: String,
+    },
+    LegacyImport {
+        operation_id: OperationId,
+        viewed_total: u64,
+        days: BTreeMap<String, DailyCounts>,
+    },
+}
+impl ActivityOperation {
+    pub fn operation_id(&self) -> OperationId {
+        match self {
+            Self::Discovery { operation_id, .. } | Self::LegacyImport { operation_id, .. } => {
+                *operation_id
+            }
+        }
+    }
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct Register<T> {
+    pub clock: u64,
+    pub operation_id: OperationId,
+    pub value: T,
+}
+impl<T> Register<T> {
+    pub fn stamp(&self) -> (u64, OperationId) {
+        (self.clock, self.operation_id)
+    }
+}
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+pub struct PreferencesV2 {
+    pub theme: Option<Register<String>>,
+    pub history_page_size: Option<Register<u16>>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct DeviceMetadata {
+    pub display_name: String,
+    pub platform: String,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct DeviceRecord {
+    pub device_id: OperationId,
+    pub metadata: Register<DeviceMetadata>,
+    pub joined_at_ms: u64,
+    pub last_sync: Option<Register<u64>>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Default, Deserialize, Serialize)]
 pub struct SyncSnapshot {
     pub seen: Vec<u64>,
     pub history: Vec<SyncRecord>,
-    pub history_removed: Vec<[u8; 16]>,
+    pub history_removed: Vec<OperationId>,
     pub favorites: Vec<FavoriteRecord>,
-    pub favorites_removed: Vec<[u8; 16]>,
+    pub favorites_removed: Vec<OperationId>,
+    pub exploration: Vec<ExplorationRecord>,
+    pub activity: Vec<ActivityOperation>,
+    pub activity_removed: Vec<OperationId>,
+    pub preferences: PreferencesV2,
+    pub devices: Vec<DeviceRecord>,
 }
-
-type ParsedRecord = ([u8; 16], u64, u64, String, String, String);
-
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
+pub struct DecodedSnapshot {
+    pub original_schema_version: u32,
+    pub data: SyncSnapshot,
+    pub needs_upgrade: bool,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SnapshotError {
     TruncatedHeader,
     InvalidMagic,
@@ -48,386 +160,583 @@ pub enum SnapshotError {
     InvalidLength,
     InvalidLegacyId(u64),
     UnsortedOrDuplicate,
+    InvalidValue,
+    ConflictingOperation,
+    CounterOverflow,
 }
-
 impl fmt::Display for SnapshotError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::TruncatedHeader => f.write_str("Truncated sync snapshot header"),
-            Self::InvalidMagic => f.write_str("Invalid sync snapshot magic"),
-            Self::UnsupportedVersion(version) => {
-                write!(f, "Unsupported sync snapshot version: {version}")
+        write!(f, "Invalid sync snapshot: {self:?}")
+    }
+}
+impl std::error::Error for SnapshotError {}
+const MAGIC: &[u8; 8] = b"RFSNAP\0\0";
+
+pub fn validate_day(day: &str) -> Result<(), SnapshotError> {
+    if day.len() != 10
+        || NaiveDate::parse_from_str(day, "%Y-%m-%d")
+            .ok()
+            .map_or(true, |d| d.format("%Y-%m-%d").to_string() != day)
+    {
+        return Err(SnapshotError::InvalidValue);
+    }
+    Ok(())
+}
+pub(crate) fn validate_fields(source: &str, id: &str, url: &str) -> Result<(), SnapshotError> {
+    if source.is_empty()
+        || source.len() > 32
+        || id.is_empty()
+        || id.len() > 128
+        || url.len() > 2048
+        || source.contains('\0')
+        || id.contains('\0')
+        || url.contains('\0')
+    {
+        return Err(SnapshotError::InvalidLength);
+    }
+    Ok(())
+}
+fn sorted<T: Ord>(iter: impl IntoIterator<Item = T>) -> Result<(), SnapshotError> {
+    let mut previous = None;
+    for value in iter {
+        if previous.as_ref().is_some_and(|p| p >= &value) {
+            return Err(SnapshotError::UnsortedOrDuplicate);
+        }
+        previous = Some(value);
+    }
+    Ok(())
+}
+pub fn activity_projection(
+    ops: &[ActivityOperation],
+) -> Result<(u64, BTreeMap<String, DailyCounts>), SnapshotError> {
+    let mut total = 0u64;
+    let mut days: BTreeMap<String, DailyCounts> = BTreeMap::new();
+    for op in ops {
+        match op {
+            ActivityOperation::Discovery { outcome, day, .. } => {
+                validate_day(day)?;
+                let counts = days.entry(day.clone()).or_default();
+                let count = match outcome {
+                    Outcome::Viewed => {
+                        total = total.checked_add(1).ok_or(SnapshotError::CounterOverflow)?;
+                        &mut counts.viewed
+                    }
+                    Outcome::Rejected => &mut counts.rejected,
+                };
+                *count = count.checked_add(1).ok_or(SnapshotError::CounterOverflow)?;
             }
-            Self::TooManyEntries => f.write_str("Too many sync snapshot entries"),
-            Self::PayloadTooLarge => f.write_str("Sync snapshot exceeds payload limit"),
-            Self::InvalidLength => f.write_str("Invalid sync snapshot length"),
-            Self::InvalidLegacyId(id) => write!(f, "Invalid legacy Prnt.sc seen ID: {id}"),
-            Self::UnsortedOrDuplicate => {
-                f.write_str("Sync snapshot entries must be sorted and unique")
+            ActivityOperation::LegacyImport {
+                viewed_total,
+                days: legacy,
+                ..
+            } => {
+                total = total
+                    .checked_add(*viewed_total)
+                    .ok_or(SnapshotError::CounterOverflow)?;
+                for (day, counts) in legacy {
+                    validate_day(day)?;
+                    let sum = days.entry(day.clone()).or_default();
+                    sum.viewed = sum
+                        .viewed
+                        .checked_add(counts.viewed)
+                        .ok_or(SnapshotError::CounterOverflow)?;
+                    sum.rejected = sum
+                        .rejected
+                        .checked_add(counts.rejected)
+                        .ok_or(SnapshotError::CounterOverflow)?;
+                }
             }
         }
     }
+    Ok((total, days))
 }
-
-impl std::error::Error for SnapshotError {}
-
-const MAGIC: &[u8; 8] = b"RFSNAP\0\0";
-const VERSION: u32 = 1;
-
-pub fn serialize_snapshot(snapshot: &SyncSnapshot) -> Result<Vec<u8>, SnapshotError> {
-    validate_snapshot(snapshot)?;
-    let mut out = Vec::with_capacity(32);
-    out.extend_from_slice(MAGIC);
-    out.extend_from_slice(&VERSION.to_le_bytes());
-    for count in [
-        snapshot.seen.len(),
-        snapshot.history.len(),
-        snapshot.history_removed.len(),
-        snapshot.favorites.len(),
-        snapshot.favorites_removed.len(),
-    ] {
-        out.extend_from_slice(
-            &u32::try_from(count)
-                .map_err(|_| SnapshotError::TooManyEntries)?
-                .to_le_bytes(),
-        );
-    }
-    for id in &snapshot.seen {
-        out.extend_from_slice(&id.to_le_bytes());
-    }
-    for record in &snapshot.history {
-        write_record(
-            &mut out,
-            record.operation_id,
-            record.first_at,
-            record.second_at,
-            record.source.as_bytes(),
-            record.id.as_bytes(),
-            record.source_page_url.as_bytes(),
-        )?;
-    }
-    for id in &snapshot.history_removed {
-        out.extend_from_slice(id);
-    }
-    for record in &snapshot.favorites {
-        write_record(
-            &mut out,
-            record.operation_id,
-            record.added_at,
-            0,
-            record.source.as_bytes(),
-            record.id.as_bytes(),
-            record.source_page_url.as_bytes(),
-        )?;
-    }
-    for id in &snapshot.favorites_removed {
-        out.extend_from_slice(id);
-    }
-    // Sections share the envelope budget, so a large Seen set leaves less room for the rest.
-    if plaintext_too_large(out.len()) {
-        return Err(SnapshotError::PayloadTooLarge);
-    }
-    Ok(out)
-}
-
-pub fn parse_snapshot(bytes: &[u8]) -> Result<SyncSnapshot, SnapshotError> {
-    if plaintext_too_large(bytes.len()) {
-        return Err(SnapshotError::PayloadTooLarge);
-    }
-    if bytes.len() < 32 {
-        return Err(SnapshotError::TruncatedHeader);
-    }
-    if &bytes[..8] != MAGIC {
-        return Err(SnapshotError::InvalidMagic);
-    }
-    if u32::from_le_bytes(
-        bytes[8..12]
-            .try_into()
-            .map_err(|_| SnapshotError::InvalidLength)?,
-    ) != VERSION
-    {
-        return Err(SnapshotError::UnsupportedVersion(u32::from_le_bytes(
-            bytes[8..12]
-                .try_into()
-                .map_err(|_| SnapshotError::InvalidLength)?,
-        )));
-    }
-    let mut pos = 12;
-    let mut counts = [0usize; 5];
-    for count in &mut counts {
-        *count = u32::from_le_bytes(
-            bytes[pos..pos + 4]
-                .try_into()
-                .map_err(|_| SnapshotError::InvalidLength)?,
-        ) as usize;
-        pos += 4;
-    }
-    if counts[0] > MAX_ENTRIES {
-        return Err(SnapshotError::PayloadTooLarge);
-    }
-    if counts[1..].iter().any(|count| *count > MAX_SECTION) {
-        return Err(SnapshotError::TooManyEntries);
-    }
-    let mut result = SyncSnapshot::default();
-    for _ in 0..counts[0] {
-        result.seen.push(read_u64(bytes, &mut pos)?);
-    }
-    for _ in 0..counts[1] {
-        result.history.push(read_sync_record(bytes, &mut pos)?);
-    }
-    for _ in 0..counts[2] {
-        result.history_removed.push(read_id(bytes, &mut pos)?);
-    }
-    for _ in 0..counts[3] {
-        result
-            .favorites
-            .push(read_favorite_record(bytes, &mut pos)?);
-    }
-    for _ in 0..counts[4] {
-        result.favorites_removed.push(read_id(bytes, &mut pos)?);
-    }
-    if pos != bytes.len() {
-        return Err(SnapshotError::InvalidLength);
-    }
-    validate_snapshot(&result)?;
-    Ok(result)
-}
-
-fn plaintext_too_large(len: usize) -> bool {
-    len > MAX_PLAINTEXT
-}
-
-fn validate_snapshot(value: &SyncSnapshot) -> Result<(), SnapshotError> {
-    if value.seen.len() > MAX_ENTRIES {
-        return Err(SnapshotError::PayloadTooLarge);
-    }
-    if value.history.len() > MAX_SECTION
-        || value.history_removed.len() > MAX_SECTION
-        || value.favorites.len() > MAX_SECTION
-        || value.favorites_removed.len() > MAX_SECTION
-    {
-        return Err(SnapshotError::TooManyEntries);
-    }
-    if let Some(id) = value.seen.iter().find(|id| **id > LEGACY_MAX_VALUE) {
+pub fn validate_snapshot(s: &SyncSnapshot) -> Result<(), SnapshotError> {
+    sorted(s.seen.iter())?;
+    if let Some(id) = s.seen.iter().find(|id| **id > LEGACY_MAX_VALUE) {
         return Err(SnapshotError::InvalidLegacyId(*id));
     }
-    if value.seen.windows(2).any(|w| w[0] >= w[1]) {
-        return Err(SnapshotError::UnsortedOrDuplicate);
-    }
-    if value
-        .history
-        .windows(2)
-        .any(|w| w[0].operation_id >= w[1].operation_id)
-        || value
-            .favorites
-            .windows(2)
-            .any(|w| w[0].operation_id >= w[1].operation_id)
-        || value.history_removed.windows(2).any(|w| w[0] >= w[1])
-        || value.favorites_removed.windows(2).any(|w| w[0] >= w[1])
+    sorted(s.history.iter().map(|x| x.operation_id))?;
+    sorted(s.history_removed.iter())?;
+    sorted(s.favorites.iter().map(|x| x.operation_id))?;
+    sorted(s.favorites_removed.iter())?;
+    sorted(s.exploration.iter().map(|x| (&x.source, &x.id)))?;
+    sorted(s.activity.iter().map(ActivityOperation::operation_id))?;
+    sorted(s.activity_removed.iter())?;
+    sorted(s.devices.iter().map(|x| x.device_id))?;
+    if s.history
+        .iter()
+        .any(|x| s.history_removed.binary_search(&x.operation_id).is_ok())
+        || s.favorites
+            .iter()
+            .any(|x| s.favorites_removed.binary_search(&x.operation_id).is_ok())
+        || s.activity
+            .iter()
+            .any(|x| s.activity_removed.binary_search(&x.operation_id()).is_ok())
     {
-        return Err(SnapshotError::UnsortedOrDuplicate);
+        return Err(SnapshotError::InvalidValue);
     }
-    for record in &value.history {
-        validate_fields(&record.source, &record.id, &record.source_page_url)?;
+    for x in &s.history {
+        validate_fields(&x.source, &x.id, &x.source_page_url)?;
+        validate_day(&x.last_view.day)?;
     }
-    for record in &value.favorites {
-        validate_fields(&record.source, &record.id, &record.source_page_url)?;
+    for x in &s.favorites {
+        validate_fields(&x.source, &x.id, &x.source_page_url)?;
+    }
+    for x in &s.exploration {
+        validate_fields(&x.source, &x.id, "")?;
+        if x.evidence > 3 {
+            return Err(SnapshotError::InvalidValue);
+        }
+    }
+    for x in &s.activity {
+        if let ActivityOperation::Discovery {
+            source, id, day, ..
+        } = x
+        {
+            validate_fields(source, id, "")?;
+            validate_day(day)?;
+        }
+    }
+    // Validate every operation, including tombstoned ones, but project only the active set.
+    let removed: std::collections::BTreeSet<_> = s.activity_removed.iter().collect();
+    for op in &s.activity {
+        activity_projection(std::slice::from_ref(op))?;
+    }
+    activity_projection(
+        &s.activity
+            .iter()
+            .filter(|x| !removed.contains(&x.operation_id()))
+            .cloned()
+            .collect::<Vec<_>>(),
+    )?;
+    if s.preferences
+        .theme
+        .as_ref()
+        .is_some_and(|x| !["system", "light", "dark"].contains(&x.value.as_str()))
+        || s.preferences
+            .history_page_size
+            .as_ref()
+            .is_some_and(|x| ![10, 25, 50, 100].contains(&x.value))
+    {
+        return Err(SnapshotError::InvalidValue);
+    }
+    for d in &s.devices {
+        if d.metadata.value.display_name.trim().is_empty()
+            || d.metadata.value.display_name.len() > 128
+            || d.metadata.value.platform.is_empty()
+            || d.metadata.value.platform.len() > 32
+        {
+            return Err(SnapshotError::InvalidValue);
+        }
     }
     Ok(())
 }
 
-pub(crate) fn validate_fields(source: &str, id: &str, url: &str) -> Result<(), SnapshotError> {
-    if source.is_empty() || source.len() > 32 || id.is_empty() || id.len() > 128 || url.len() > 2048
-    {
+// Every append checks the shared budget before allocating. Counts on read are bounded by
+// remaining bytes and minimum entry sizes before any collection is allocated.
+struct Writer(Vec<u8>);
+impl Writer {
+    fn bytes(&mut self, bytes: &[u8]) -> Result<(), SnapshotError> {
+        if self
+            .0
+            .len()
+            .checked_add(bytes.len())
+            .map_or(true, |n| n > MAX_PLAINTEXT)
+        {
+            return Err(SnapshotError::PayloadTooLarge);
+        }
+        self.0.extend_from_slice(bytes);
+        Ok(())
+    }
+    fn u8(&mut self, v: u8) -> Result<(), SnapshotError> {
+        self.bytes(&[v])
+    }
+    fn u16(&mut self, v: u16) -> Result<(), SnapshotError> {
+        self.bytes(&v.to_le_bytes())
+    }
+    fn u32(&mut self, v: u32) -> Result<(), SnapshotError> {
+        self.bytes(&v.to_le_bytes())
+    }
+    fn u64(&mut self, v: u64) -> Result<(), SnapshotError> {
+        self.bytes(&v.to_le_bytes())
+    }
+    fn text(&mut self, v: &str) -> Result<(), SnapshotError> {
+        self.u16(u16::try_from(v.len()).map_err(|_| SnapshotError::InvalidLength)?)?;
+        self.bytes(v.as_bytes())
+    }
+    fn count(&mut self, n: usize) -> Result<(), SnapshotError> {
+        self.u32(u32::try_from(n).map_err(|_| SnapshotError::TooManyEntries)?)
+    }
+    fn stamp<T>(&mut self, r: &Register<T>) -> Result<(), SnapshotError> {
+        self.u64(r.clock)?;
+        self.bytes(&r.operation_id)
+    }
+    fn optional<T>(
+        &mut self,
+        r: Option<&Register<T>>,
+        value: impl FnOnce(&mut Self, &T) -> Result<(), SnapshotError>,
+    ) -> Result<(), SnapshotError> {
+        self.u8(u8::from(r.is_some()))?;
+        if let Some(r) = r {
+            self.stamp(r)?;
+            value(self, &r.value)?;
+        }
+        Ok(())
+    }
+}
+struct Reader<'a> {
+    bytes: &'a [u8],
+    pos: usize,
+}
+impl<'a> Reader<'a> {
+    fn bytes(&mut self, n: usize) -> Result<&'a [u8], SnapshotError> {
+        let end = self
+            .pos
+            .checked_add(n)
+            .ok_or(SnapshotError::InvalidLength)?;
+        let bytes = self
+            .bytes
+            .get(self.pos..end)
+            .ok_or(SnapshotError::InvalidLength)?;
+        self.pos = end;
+        Ok(bytes)
+    }
+    fn u8(&mut self) -> Result<u8, SnapshotError> {
+        Ok(self.bytes(1)?[0])
+    }
+    fn u16(&mut self) -> Result<u16, SnapshotError> {
+        Ok(u16::from_le_bytes(
+            self.bytes(2)?
+                .try_into()
+                .map_err(|_| SnapshotError::InvalidLength)?,
+        ))
+    }
+    fn u32(&mut self) -> Result<u32, SnapshotError> {
+        Ok(u32::from_le_bytes(
+            self.bytes(4)?
+                .try_into()
+                .map_err(|_| SnapshotError::InvalidLength)?,
+        ))
+    }
+    fn u64(&mut self) -> Result<u64, SnapshotError> {
+        Ok(u64::from_le_bytes(
+            self.bytes(8)?
+                .try_into()
+                .map_err(|_| SnapshotError::InvalidLength)?,
+        ))
+    }
+    fn id(&mut self) -> Result<OperationId, SnapshotError> {
+        self.bytes(16)?
+            .try_into()
+            .map_err(|_| SnapshotError::InvalidLength)
+    }
+    fn text(&mut self) -> Result<String, SnapshotError> {
+        let n = self.u16()? as usize;
+        String::from_utf8(self.bytes(n)?.to_vec()).map_err(|_| SnapshotError::InvalidLength)
+    }
+    fn count(&mut self, minimum: usize) -> Result<usize, SnapshotError> {
+        let n = self.u32()? as usize;
+        if n > (self.bytes.len() - self.pos) / minimum {
+            return Err(SnapshotError::InvalidLength);
+        }
+        Ok(n)
+    }
+    fn bool(&mut self) -> Result<bool, SnapshotError> {
+        match self.u8()? {
+            0 => Ok(false),
+            1 => Ok(true),
+            _ => Err(SnapshotError::InvalidValue),
+        }
+    }
+    fn optional<T>(
+        &mut self,
+        value: impl FnOnce(&mut Self) -> Result<T, SnapshotError>,
+    ) -> Result<Option<Register<T>>, SnapshotError> {
+        if !self.bool()? {
+            return Ok(None);
+        }
+        Ok(Some(Register {
+            clock: self.u64()?,
+            operation_id: self.id()?,
+            value: value(self)?,
+        }))
+    }
+}
+
+pub fn serialize_snapshot(s: &SyncSnapshot) -> Result<Vec<u8>, SnapshotError> {
+    validate_snapshot(s)?;
+    let mut w = Writer(Vec::new());
+    w.bytes(MAGIC)?;
+    w.u32(2)?;
+    w.count(s.seen.len())?;
+    for x in &s.seen {
+        w.u64(*x)?;
+    }
+    w.count(s.history.len())?;
+    for x in &s.history {
+        w.bytes(&x.operation_id)?;
+        w.u64(x.order_at)?;
+        w.u64(x.last_view.at_ms)?;
+        w.text(&x.last_view.day)?;
+        w.u8(u8::from(x.last_view.day_inferred))?;
+        w.text(&x.source)?;
+        w.text(&x.id)?;
+        w.text(&x.source_page_url)?;
+    }
+    w.count(s.history_removed.len())?;
+    for x in &s.history_removed {
+        w.bytes(x)?;
+    }
+    w.count(s.favorites.len())?;
+    for x in &s.favorites {
+        w.bytes(&x.operation_id)?;
+        w.u64(x.added_at)?;
+        w.text(&x.source)?;
+        w.text(&x.id)?;
+        w.text(&x.source_page_url)?;
+    }
+    w.count(s.favorites_removed.len())?;
+    for x in &s.favorites_removed {
+        w.bytes(x)?;
+    }
+    w.count(s.exploration.len())?;
+    for x in &s.exploration {
+        w.text(&x.source)?;
+        w.text(&x.id)?;
+        w.u8(x.evidence)?;
+    }
+    w.count(s.activity.len())?;
+    for x in &s.activity {
+        w.bytes(&x.operation_id())?;
+        match x {
+            ActivityOperation::Discovery {
+                source,
+                id,
+                outcome,
+                occurred_at_ms,
+                day,
+                ..
+            } => {
+                w.u8(0)?;
+                w.text(source)?;
+                w.text(id)?;
+                w.u8(match outcome {
+                    Outcome::Viewed => 1,
+                    Outcome::Rejected => 2,
+                })?;
+                w.u64(*occurred_at_ms)?;
+                w.text(day)?;
+            }
+            ActivityOperation::LegacyImport {
+                viewed_total, days, ..
+            } => {
+                w.u8(1)?;
+                w.u64(*viewed_total)?;
+                w.count(days.len())?;
+                for (day, counts) in days {
+                    w.text(day)?;
+                    w.u64(counts.viewed)?;
+                    w.u64(counts.rejected)?;
+                }
+            }
+        }
+    }
+    w.count(s.activity_removed.len())?;
+    for x in &s.activity_removed {
+        w.bytes(x)?;
+    }
+    w.optional(s.preferences.theme.as_ref(), |w, v| w.text(v))?;
+    w.optional(s.preferences.history_page_size.as_ref(), |w, v| w.u16(*v))?;
+    w.count(s.devices.len())?;
+    for x in &s.devices {
+        w.bytes(&x.device_id)?;
+        w.stamp(&x.metadata)?;
+        w.text(&x.metadata.value.display_name)?;
+        w.text(&x.metadata.value.platform)?;
+        w.u64(x.joined_at_ms)?;
+        w.optional(x.last_sync.as_ref(), |w, v| w.u64(*v))?;
+    }
+    Ok(w.0)
+}
+pub fn parse_snapshot(bytes: &[u8]) -> Result<SyncSnapshot, SnapshotError> {
+    Ok(decode_snapshot(bytes)?.data)
+}
+#[allow(
+    clippy::too_many_lines,
+    reason = "explicit ordered wire sections keep the binary format reviewable"
+)]
+pub fn decode_snapshot(bytes: &[u8]) -> Result<DecodedSnapshot, SnapshotError> {
+    if bytes.len() > MAX_PLAINTEXT {
+        return Err(SnapshotError::PayloadTooLarge);
+    }
+    if bytes.len() < 12 {
+        return Err(SnapshotError::TruncatedHeader);
+    }
+    let mut r = Reader { bytes, pos: 0 };
+    if r.bytes(8)? != MAGIC {
+        return Err(SnapshotError::InvalidMagic);
+    }
+    let version = r.u32()?;
+    if version == 1 {
+        return decode_v1(bytes);
+    }
+    if version != 2 {
+        return Err(SnapshotError::UnsupportedVersion(version));
+    }
+    let mut s = SyncSnapshot::default();
+    for _ in 0..r.count(8)? {
+        s.seen.push(r.u64()?);
+    }
+    for _ in 0..r.count(51)? {
+        s.history.push(SyncRecord {
+            operation_id: r.id()?,
+            order_at: r.u64()?,
+            last_view: ViewStamp {
+                at_ms: r.u64()?,
+                day: r.text()?,
+                day_inferred: r.bool()?,
+            },
+            source: r.text()?,
+            id: r.text()?,
+            source_page_url: r.text()?,
+        });
+    }
+    for _ in 0..r.count(16)? {
+        s.history_removed.push(r.id()?);
+    }
+    for _ in 0..r.count(32)? {
+        s.favorites.push(FavoriteRecord {
+            operation_id: r.id()?,
+            added_at: r.u64()?,
+            source: r.text()?,
+            id: r.text()?,
+            source_page_url: r.text()?,
+        });
+    }
+    for _ in 0..r.count(16)? {
+        s.favorites_removed.push(r.id()?);
+    }
+    for _ in 0..r.count(7)? {
+        s.exploration.push(ExplorationRecord {
+            source: r.text()?,
+            id: r.text()?,
+            evidence: r.u8()?,
+        });
+    }
+    for _ in 0..r.count(29)? {
+        let operation_id = r.id()?;
+        s.activity.push(match r.u8()? {
+            0 => ActivityOperation::Discovery {
+                operation_id,
+                source: r.text()?,
+                id: r.text()?,
+                outcome: match r.u8()? {
+                    1 => Outcome::Viewed,
+                    2 => Outcome::Rejected,
+                    _ => return Err(SnapshotError::InvalidValue),
+                },
+                occurred_at_ms: r.u64()?,
+                day: r.text()?,
+            },
+            1 => {
+                let viewed_total = r.u64()?;
+                let mut days = BTreeMap::new();
+                let mut previous = None;
+                for _ in 0..r.count(28)? {
+                    let day = r.text()?;
+                    if previous.as_ref().is_some_and(|p| p >= &day) {
+                        return Err(SnapshotError::UnsortedOrDuplicate);
+                    }
+                    previous = Some(day.clone());
+                    days.insert(
+                        day,
+                        DailyCounts {
+                            viewed: r.u64()?,
+                            rejected: r.u64()?,
+                        },
+                    );
+                }
+                ActivityOperation::LegacyImport {
+                    operation_id,
+                    viewed_total,
+                    days,
+                }
+            }
+            _ => return Err(SnapshotError::InvalidValue),
+        });
+    }
+    for _ in 0..r.count(16)? {
+        s.activity_removed.push(r.id()?);
+    }
+    s.preferences.theme = r.optional(Reader::text)?;
+    s.preferences.history_page_size = r.optional(Reader::u16)?;
+    for _ in 0..r.count(55)? {
+        s.devices.push(DeviceRecord {
+            device_id: r.id()?,
+            metadata: Register {
+                clock: r.u64()?,
+                operation_id: r.id()?,
+                value: DeviceMetadata {
+                    display_name: r.text()?,
+                    platform: r.text()?,
+                },
+            },
+            joined_at_ms: r.u64()?,
+            last_sync: r.optional(Reader::u64)?,
+        });
+    }
+    if r.pos != bytes.len() {
         return Err(SnapshotError::InvalidLength);
     }
-    Ok(())
-}
-fn write_record(
-    out: &mut Vec<u8>,
-    op: [u8; 16],
-    a: u64,
-    b: u64,
-    source: &[u8],
-    id: &[u8],
-    url: &[u8],
-) -> Result<(), SnapshotError> {
-    out.extend_from_slice(&op);
-    out.extend_from_slice(&a.to_le_bytes());
-    out.extend_from_slice(&b.to_le_bytes());
-    for field in [source, id, url] {
-        out.extend_from_slice(
-            &(u16::try_from(field.len()).map_err(|_| SnapshotError::InvalidLength)?).to_le_bytes(),
-        );
-    }
-    out.extend_from_slice(source);
-    out.extend_from_slice(id);
-    out.extend_from_slice(url);
-    Ok(())
-}
-fn read_u64(bytes: &[u8], pos: &mut usize) -> Result<u64, SnapshotError> {
-    let end = pos.checked_add(8).ok_or(SnapshotError::InvalidLength)?;
-    let value = u64::from_le_bytes(
-        bytes
-            .get(*pos..end)
-            .ok_or(SnapshotError::InvalidLength)?
-            .try_into()
-            .map_err(|_| SnapshotError::InvalidLength)?,
-    );
-    *pos = end;
-    Ok(value)
-}
-fn read_id(bytes: &[u8], pos: &mut usize) -> Result<[u8; 16], SnapshotError> {
-    let end = pos.checked_add(16).ok_or(SnapshotError::InvalidLength)?;
-    let value = bytes
-        .get(*pos..end)
-        .ok_or(SnapshotError::InvalidLength)?
-        .try_into()
-        .map_err(|_| SnapshotError::InvalidLength)?;
-    *pos = end;
-    Ok(value)
-}
-fn read_record(bytes: &[u8], pos: &mut usize) -> Result<ParsedRecord, SnapshotError> {
-    let op = read_id(bytes, pos)?;
-    let a = read_u64(bytes, pos)?;
-    let b = read_u64(bytes, pos)?;
-    let lengths = [
-        read_u16(bytes, pos)?,
-        read_u16(bytes, pos)?,
-        read_u16(bytes, pos)?,
-    ];
-    let mut fields = Vec::new();
-    for len in lengths {
-        let len = len as usize;
-        let end = pos.checked_add(len).ok_or(SnapshotError::InvalidLength)?;
-        let text = String::from_utf8(
-            bytes
-                .get(*pos..end)
-                .ok_or(SnapshotError::InvalidLength)?
-                .to_vec(),
-        )
-        .map_err(|_| SnapshotError::InvalidLength)?;
-        *pos = end;
-        fields.push(text);
-    }
-    Ok((
-        op,
-        a,
-        b,
-        fields.remove(0),
-        fields.remove(0),
-        fields.remove(0),
-    ))
-}
-fn read_u16(bytes: &[u8], pos: &mut usize) -> Result<u16, SnapshotError> {
-    let end = pos.checked_add(2).ok_or(SnapshotError::InvalidLength)?;
-    let value = u16::from_le_bytes(
-        bytes
-            .get(*pos..end)
-            .ok_or(SnapshotError::InvalidLength)?
-            .try_into()
-            .map_err(|_| SnapshotError::InvalidLength)?,
-    );
-    *pos = end;
-    Ok(value)
-}
-fn read_sync_record(bytes: &[u8], pos: &mut usize) -> Result<SyncRecord, SnapshotError> {
-    let (operation_id, first_at, second_at, source, id, source_page_url) = read_record(bytes, pos)?;
-    Ok(SyncRecord {
-        operation_id,
-        first_at,
-        second_at,
-        source,
-        id,
-        source_page_url,
+    validate_snapshot(&s)?;
+    Ok(DecodedSnapshot {
+        original_schema_version: 2,
+        data: s,
+        needs_upgrade: false,
     })
 }
-fn read_favorite_record(bytes: &[u8], pos: &mut usize) -> Result<FavoriteRecord, SnapshotError> {
-    let (operation_id, added_at, _, source, id, source_page_url) = read_record(bytes, pos)?;
-    Ok(FavoriteRecord {
-        operation_id,
-        added_at,
-        source,
-        id,
-        source_page_url,
+fn decode_v1(bytes: &[u8]) -> Result<DecodedSnapshot, SnapshotError> {
+    let old = v1::parse_snapshot(bytes).map_err(|e| match e {
+        v1::SnapshotError::UnsupportedVersion(v) => SnapshotError::UnsupportedVersion(v),
+        v1::SnapshotError::PayloadTooLarge => SnapshotError::PayloadTooLarge,
+        _ => SnapshotError::InvalidLength,
+    })?;
+    let s = SyncSnapshot {
+        seen: old.seen,
+        history: old
+            .history
+            .into_iter()
+            .map(|x| SyncRecord {
+                operation_id: x.operation_id,
+                order_at: x.first_at,
+                last_view: ViewStamp::inferred(x.second_at),
+                source: x.source,
+                id: x.id,
+                source_page_url: x.source_page_url,
+            })
+            .collect(),
+        history_removed: old.history_removed,
+        favorites: old
+            .favorites
+            .into_iter()
+            .map(|x| FavoriteRecord {
+                operation_id: x.operation_id,
+                added_at: x.added_at,
+                source: x.source,
+                id: x.id,
+                source_page_url: x.source_page_url,
+            })
+            .collect(),
+        favorites_removed: old.favorites_removed,
+        ..SyncSnapshot::default()
+    };
+    validate_snapshot(&s)?;
+    Ok(DecodedSnapshot {
+        original_schema_version: 1,
+        data: s,
+        needs_upgrade: true,
     })
 }
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn plaintext_budget_has_exact_boundary() -> Result<(), std::num::TryFromIntError> {
-        assert_eq!(MAX_PLAINTEXT, 67_108_812);
-        assert!(!plaintext_too_large(MAX_PLAINTEXT));
-        assert!(plaintext_too_large(MAX_PLAINTEXT + 1));
-        assert_eq!(MAX_ENTRIES, 8_388_597);
-        let mut header = [0; 32];
-        header[..8].copy_from_slice(MAGIC);
-        header[8..12].copy_from_slice(&VERSION.to_le_bytes());
-        header[12..16].copy_from_slice(&u32::try_from(MAX_ENTRIES + 1)?.to_le_bytes());
-        assert_eq!(parse_snapshot(&header), Err(SnapshotError::PayloadTooLarge));
-        header[12..16].fill(0);
-        header[16..20].copy_from_slice(&u32::try_from(MAX_SECTION + 1)?.to_le_bytes());
-        assert_eq!(parse_snapshot(&header), Err(SnapshotError::TooManyEntries));
-        Ok(())
-    }
-
-    #[test]
-    fn snapshot_above_the_old_seen_limit_roundtrips() -> Result<(), SnapshotError> {
-        let snapshot = SyncSnapshot {
-            seen: (0..=2_000_000).collect(),
-            ..SyncSnapshot::default()
-        };
-        let bytes = serialize_snapshot(&snapshot)?;
-        assert_eq!(bytes.len(), 32 + 2_000_001 * 8);
-        assert_eq!(parse_snapshot(&bytes)?, snapshot);
-        Ok(())
-    }
-
-    #[test]
-    fn snapshot_roundtrip_is_canonical_and_rejects_unsorted_operations() -> Result<(), SnapshotError>
-    {
-        let snapshot = SyncSnapshot {
-            seen: vec![1, 9],
-            history: vec![SyncRecord {
-                operation_id: [1; 16],
-                first_at: 10,
-                second_at: 11,
-                source: "prntsc".into(),
-                id: "abc123".into(),
-                source_page_url: "https://prnt.sc/abc123".into(),
-            }],
-            history_removed: vec![[2; 16]],
-            favorites: vec![FavoriteRecord {
-                operation_id: [3; 16],
-                added_at: 12,
-                source: "prntsc".into(),
-                id: "abc123".into(),
-                source_page_url: "https://prnt.sc/abc123".into(),
-            }],
-            favorites_removed: vec![[4; 16]],
-        };
-        let bytes = serialize_snapshot(&snapshot)?;
-        assert_eq!(&bytes[..12], b"RFSNAP\0\0\x01\0\0\0");
-        assert_eq!(parse_snapshot(&bytes)?, snapshot);
-        let mut old_seen = bytes;
-        old_seen[..8].copy_from_slice(b"RFSEEN\0\0");
-        assert_eq!(parse_snapshot(&old_seen), Err(SnapshotError::InvalidMagic));
-        let mut invalid = snapshot;
-        invalid.history.push(SyncRecord {
-            operation_id: [0; 16],
-            first_at: 0,
-            second_at: 0,
-            source: "prntsc".into(),
-            id: "other".into(),
-            source_page_url: String::new(),
-        });
-        assert_eq!(
-            serialize_snapshot(&invalid),
-            Err(SnapshotError::UnsortedOrDuplicate)
-        );
-        Ok(())
-    }
-}
+#[path = "snapshot/tests.rs"]
+mod v2_tests;

@@ -3,7 +3,7 @@ use crate::persistence::save_json;
 use serde::{Deserialize, Serialize};
 use std::{fs, path::Path};
 
-pub(super) type Generation = (u64, u64, u64);
+pub(super) type Generation = crate::persistence::transaction::Generation;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -11,6 +11,8 @@ pub struct SyncLocalConfig {
     protocol_version: u8,
     pub(super) sync_id: String,
     pub(super) last_accepted_revision: Option<i64>,
+    #[serde(default = "schema_v1")]
+    pub(super) highest_schema_version: u32,
 }
 
 impl SyncLocalConfig {
@@ -19,11 +21,13 @@ impl SyncLocalConfig {
             protocol_version: 1,
             sync_id,
             last_accepted_revision: Some(revision),
+            highest_schema_version: 2,
         }
     }
 
     pub(super) fn validate(&self) -> Result<(), SyncError> {
-        if self.protocol_version != 1
+        if !(1..=2).contains(&self.highest_schema_version)
+            || self.protocol_version != 1
             || self.sync_id.len() != 64
             || !self
                 .sync_id
@@ -94,4 +98,8 @@ pub(super) fn load_config(path: &Path) -> Result<Option<SyncLocalConfig>, SyncEr
 pub(super) fn save_config(path: &Path, config: &SyncLocalConfig) -> Result<(), SyncError> {
     config.validate()?;
     save_json(path, config).map_err(|_| SyncError::Persistence)
+}
+
+fn schema_v1() -> u32 {
+    1
 }

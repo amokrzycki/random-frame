@@ -8,13 +8,21 @@ import { initializeThumbnailCache, persistThumbnails, releaseAllBlobs } from "./
 import { bindNavigationEvents, goTo } from "./frame-loader.js";
 import { bindHistoryDialogEvents, pendingHistoryClearKey } from "./history-dialog.js";
 import { historyFromStorage, shouldShowEntryDialog } from "./navigation.js";
-import { clearHistory, getHistory, recordHistoryItem, selectHistoryItem } from "./persistence.js";
+import {
+  commitHistoryClear,
+  completeStateImports,
+  getHistory,
+  importSessionHistory,
+  prepareHistoryClear,
+} from "./persistence.js";
 import { bindShortcutsEvents } from "./shortcuts.js";
 import { bindStageEvents, setState, showError, syncControls } from "./stage.js";
 import { bindStatsDialogEvents, migrateLegacyStats } from "./stats-dialog.js";
 import { bindSyncDialogEvents, refreshAfterStartup, runStartupSync } from "./sync-dialog.js";
+import { toast } from "./toast.js";
 import { bindTooltipEvents } from "./tooltip.js";
 import { bindChangelogEvents, checkForUpdate, showPendingChangelog } from "./update.js";
+import { initializeUserPreferences, updateUserPreferences } from "./user-preferences.js";
 import { applyFavorites, applyHistory, state } from "./viewer-state.js";
 
 const storageKey = "prntsc-gallery-history";
@@ -42,16 +50,13 @@ async function initialize(): Promise<void> {
       // History still loads when browser storage is unavailable.
     }
     if (pendingHistoryClear) {
-      await clearHistory();
+      const requestId = await prepareHistoryClear(true);
+      await commitHistoryClear(requestId);
       try {
         localStorage.removeItem(pendingHistoryClearKey);
       } catch {
         // The already completed clear is safe to repeat on the next launch.
       }
-    }
-    if (!startupSyncStarted) {
-      startupSyncStarted = true;
-      void runStartupSync();
     }
     let [snapshot, favorites] = await Promise.all([getHistory(), getFavorites()]);
     state.historyLoadFailed = false;
@@ -59,21 +64,24 @@ async function initialize(): Promise<void> {
     await initializeThumbnailCache();
     await persistThumbnails();
     const legacy = historyFromStorage(sessionStorage.getItem(storageKey));
-    if (!snapshot.history.length && legacy.history.length) {
-      for (const item of legacy.history) {
-        snapshot = await recordHistoryItem(
-          {
-            source: "prntsc",
-            id: item.id,
-            sourcePageUrl: `https://prnt.sc/${item.id}`,
-            viewedAt: Date.now(),
-          },
-          true,
-        );
-      }
-      if (legacy.index >= 0) snapshot = await selectHistoryItem(legacy.index);
-    }
+    snapshot = await importSessionHistory(
+      legacy.history.map((item) => ({
+        source: "prntsc",
+        id: item.id,
+        sourcePageUrl: `https://prnt.sc/${item.id}`,
+        viewedAt: Date.now(),
+      })),
+      legacy.index,
+    );
     sessionStorage.removeItem(storageKey);
+    await migrateLegacyStats();
+    await initializeUserPreferences();
+    await completeStateImports();
+    if (!startupSyncStarted) {
+      startupSyncStarted = true;
+      void runStartupSync();
+    }
+
     applyHistory({ ...snapshot, index: -1 });
     state.loading = false;
     syncControls();
@@ -251,4 +259,8 @@ syncControls();
 void initialize();
 void showPendingChangelog();
 void checkForUpdate();
-void migrateLegacyStats();
+
+document.addEventListener("theme-choice", (event) => {
+  const theme = (event as CustomEvent).detail as "system" | "light" | "dark";
+  void updateUserPreferences({ theme }).catch(() => toast.error("Theme could not be saved. Try again."));
+});

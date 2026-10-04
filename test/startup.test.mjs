@@ -27,6 +27,10 @@ test("a failed startup load says so and Try again re-runs the load", async (t) =
   const invocations = [];
   window.__TAURI_INTERNALS__ = {
     async invoke(command) {
+      if (command === "complete_state_imports") return null;
+      if (command === "get_user_preferences" || command === "set_user_preferences")
+        return { theme: null, historyPageSize: null };
+      if (command === "import_session_history") return window.__TAURI_INTERNALS__.invoke("get_history");
       invocations.push(command);
       if (command === "get_history") {
         if (failing) throw { kind: "persistence" };

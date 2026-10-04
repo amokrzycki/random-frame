@@ -1,8 +1,8 @@
 use super::{
     io::{load_json, save_json},
-    sync_ops::{cap_tombstones, operation_id, validate_item},
+    sync_ops::{deduplicate_tombstones, operation_id, validate_item},
 };
-use crate::{error::AppError, snapshot::MAX_SECTION};
+use crate::error::AppError;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -14,14 +14,14 @@ use std::{
     },
 };
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
 struct FavoriteData {
     version: u8,
     favorites: Vec<FavoriteOp>,
     removed: Vec<[u8; 16]>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 struct FavoriteOp {
     operation_id: [u8; 16],
     added_at: u64,
@@ -37,7 +37,7 @@ impl FavoriteData {
         let removed: HashSet<_> = self.removed.iter().copied().collect();
         self.favorites
             .retain(|op| !removed.contains(&op.operation_id));
-        cap_tombstones(&mut self.removed);
+        deduplicate_tombstones(&mut self.removed);
     }
 }
 
@@ -76,8 +76,10 @@ pub struct FavoriteStore {
 impl FavoriteStore {
     pub fn new(directory: &Path) -> Result<Self, AppError> {
         fs::create_dir_all(directory).map_err(AppError::persistence)?;
-        let path = directory.join("favorites.json");
-        let value: serde_json::Value = load_json(&path)?;
+        let path = directory.join("favorites-v3.json");
+        let source =
+            super::migration::source_path(directory, "favorites-v3.json", "favorites.json")?;
+        let value: serde_json::Value = load_json(&source)?;
         let mut data = if value.is_null() {
             FavoriteData {
                 version: 2,
@@ -104,11 +106,13 @@ impl FavoriteStore {
         } else {
             serde_json::from_value(value).map_err(AppError::persistence)?
         };
-        if data.version != 2 {
+        if (source == path && data.version != 3) || (source != path && data.version != 2) {
             return Err(AppError::persistence("Unsupported favorites schema"));
         }
+        data.version = 3;
         data.normalize();
         save_json(&path, &data)?;
+        super::migration::receipt(directory, "favorites-v3")?;
         Ok(Self {
             path,
             data: Mutex::new(data),
@@ -192,9 +196,11 @@ impl FavoriteStore {
         }
         next.removed.extend(incoming.1);
         next.normalize();
-        save_json(&self.path, &next)?;
-        *data = next;
-        self.generation.fetch_add(1, Ordering::Relaxed);
+        if *data != next {
+            save_json(&self.path, &next)?;
+            *data = next;
+            self.generation.fetch_add(1, Ordering::Relaxed);
+        }
         drop(data);
         Ok(())
     }
@@ -214,9 +220,6 @@ impl FavoriteStore {
             .map(|saved| saved.operation_id)
             .collect();
         if active_ids.is_empty() {
-            if next.favorites.len() >= MAX_SECTION {
-                return Err(AppError::invalid_input("Favorites limit reached"));
-            }
             next.favorites.push(FavoriteOp {
                 operation_id: operation_id(),
                 added_at: item.added_at,
@@ -228,9 +231,11 @@ impl FavoriteStore {
             next.removed.extend(active_ids);
         }
         next.normalize();
-        save_json(&self.path, &next)?;
-        *data = next;
-        self.generation.fetch_add(1, Ordering::Relaxed);
+        if *data != next {
+            save_json(&self.path, &next)?;
+            *data = next;
+            self.generation.fetch_add(1, Ordering::Relaxed);
+        }
         let result = favorite_projection(&data);
         drop(data);
         Ok(result)
@@ -245,9 +250,11 @@ impl FavoriteStore {
         next.removed
             .extend(next.favorites.iter().map(|item| item.operation_id));
         next.normalize();
-        save_json(&self.path, &next)?;
-        *data = next;
-        self.generation.fetch_add(1, Ordering::Relaxed);
+        if *data != next {
+            save_json(&self.path, &next)?;
+            *data = next;
+            self.generation.fetch_add(1, Ordering::Relaxed);
+        }
         drop(data);
         Ok(())
     }

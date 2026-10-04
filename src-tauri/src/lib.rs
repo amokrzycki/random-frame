@@ -15,8 +15,9 @@ mod thumbnail_cache;
 use chrono::Local;
 use error::{AppError, ErrorKind};
 use persistence::{
-    activity_day, day_key, ActivityStore, ExplorationStore, FavoriteItem, FavoriteStore,
-    HistoryItem, HistorySnapshot, HistoryStore, RemovedFrame, SeenStore,
+    activity_day, day_key, ActivityStore, ExplorationStore, FavoriteItem, FavoriteStore, FrameView,
+    HistoryItem, HistorySnapshot, HistoryStore, PersistentState, RemovedFrame, SeenStore,
+    UserPreferences,
 };
 use rate_limit::RateLimiter;
 use reqwest::StatusCode;
@@ -27,7 +28,10 @@ use sources::{prntsc, prntsc::FetchedFrame, prntsc::Prntsc, select_source, Sourc
 use std::{
     error::Error,
     path::Path,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     time::Duration,
 };
 #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -41,10 +45,13 @@ struct PendingFrame {
 }
 
 struct AppState {
+    data: Arc<PersistentState>,
+    imports_ready: AtomicBool,
     prntsc: Prntsc,
     history: Arc<HistoryStore>,
     favorites: Arc<FavoriteStore>,
     explored: Arc<ExplorationStore>,
+    #[cfg(test)]
     seen: Arc<SeenStore>,
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     sync: SyncEngine<SecureStorage>,
@@ -56,35 +63,31 @@ struct AppState {
 
 impl AppState {
     fn new(data_directory: &Path) -> Result<Self, AppError> {
-        let explored = Arc::new(ExplorationStore::new(data_directory)?);
-        let activity = Arc::new(ActivityStore::new(data_directory)?);
-        let history = Arc::new(HistoryStore::new(data_directory)?);
-        let seen = Arc::new(SeenStore::new(data_directory)?);
+        let data = Arc::new(PersistentState::new(data_directory)?);
+        let explored = Arc::clone(&data.explored);
+        let activity = Arc::clone(&data.activity);
+        let history = Arc::clone(&data.history);
+        let seen = Arc::clone(&data.seen);
+        let favorites = Arc::clone(&data.favorites);
         reconcile_seen(&seen, &history, &explored)?;
-        let favorites = Arc::new(FavoriteStore::new(data_directory)?);
         #[cfg(any(target_os = "linux", target_os = "windows"))]
         let sync = SyncEngine::new(
             data_directory,
-            Arc::clone(&seen),
-            Arc::clone(&history),
-            Arc::clone(&favorites),
+            Arc::clone(&data),
             SecureStorage::default(),
             std::env::var("RANDOM_FRAME_SYNC_BASE_URL")
                 .ok()
                 .as_deref()
                 .or(option_env!("RANDOM_FRAME_SYNC_BASE_URL")),
         );
-        // Best-effort; retried next launch if the write fails.
-        let _ = activity.repair_revisit_views(&history.prntsc_views_per_day());
         Ok(Self {
-            prntsc: Prntsc::new(
-                Arc::clone(&explored),
-                Arc::clone(&seen),
-                Arc::clone(&activity),
-            )?,
+            prntsc: Prntsc::new(Arc::clone(&data))?,
+            data,
+            imports_ready: AtomicBool::new(false),
             history,
             favorites,
             explored,
+            #[cfg(test)]
             seen,
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             sync,
@@ -92,6 +95,15 @@ impl AppState {
             rate_limiter: Mutex::new(RateLimiter::new()),
             pending: Mutex::new(None),
         })
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    fn ensure_imports_ready(&self) -> Result<(), SyncError> {
+        if self.imports_ready.load(Ordering::Acquire) {
+            Ok(())
+        } else {
+            Err(SyncError::LocalMigrationPending)
+        }
     }
 
     fn take_api_token(&self) -> Result<(), AppError> {
@@ -141,7 +153,7 @@ fn reconcile_seen(
         .filter(|item| item.source == "prntsc")
         .filter_map(|item| prntsc::item_id_value(&item.id).ok());
     let from_explored = explored
-        .viewed_ids()?
+        .viewed_ids()
         .into_iter()
         .filter(|id| *id <= prntsc::LEGACY_MAX_VALUE);
     seen.merge(from_history.chain(from_explored))?;
@@ -289,8 +301,8 @@ async fn get_thumbnail_image(
     clippy::needless_pass_by_value,
     reason = "Tauri command state extractors must be passed by value"
 )]
-fn get_history(state: State<'_, AppState>) -> HistorySnapshot {
-    state.history.snapshot()
+fn get_history(state: State<'_, AppState>) -> Result<HistorySnapshot, AppError> {
+    state.data.read(|| Ok(state.history.snapshot()))
 }
 
 #[tauri::command]
@@ -303,11 +315,11 @@ fn record_history_item(
     legacy_import: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<HistorySnapshot, AppError> {
-    record_accepted_frame(item, &state, legacy_import.unwrap_or(false))
+    record_accepted_frame(&item, &state, legacy_import.unwrap_or(false))
 }
 
 fn record_accepted_frame(
-    item: HistoryItem,
+    item: &HistoryItem,
     state: &AppState,
     legacy_import: bool,
 ) -> Result<HistorySnapshot, AppError> {
@@ -317,14 +329,8 @@ fn record_accepted_frame(
     } else {
         None
     };
-    let snapshot = state.history.record(item)?;
-    if let Some(id) = legacy_id {
-        if !legacy_import {
-            state.prntsc.record_viewed(id)?;
-        }
-        state.seen.insert(id)?;
-    }
-    Ok(snapshot)
+    let _ = legacy_id;
+    state.data.accept(item, legacy_import)
 }
 
 #[tauri::command]
@@ -336,7 +342,7 @@ fn select_history_item(
     index: usize,
     state: State<'_, AppState>,
 ) -> Result<HistorySnapshot, AppError> {
-    state.history.select(index)
+    state.data.read(|| state.history.select(index))
 }
 
 #[tauri::command]
@@ -350,7 +356,7 @@ fn remove_history_item(
     id: String,
     state: State<'_, AppState>,
 ) -> Result<RemovedFrame, AppError> {
-    state.history.remove(&source, &id)
+    state.data.read(|| state.history.remove(&source, &id))
 }
 
 #[tauri::command]
@@ -361,9 +367,12 @@ fn remove_history_item(
 fn restore_history_item(
     item: HistoryItem,
     order_at: u64,
+    last_view: crate::snapshot::ViewStamp,
     state: State<'_, AppState>,
 ) -> Result<HistorySnapshot, AppError> {
-    state.history.restore(item, order_at)
+    state
+        .data
+        .read(|| state.history.restore(item, order_at, last_view))
 }
 
 #[tauri::command]
@@ -377,9 +386,8 @@ fn clear_history(state: State<'_, AppState>) -> Result<(), AppError> {
 }
 
 fn clear_local_history(state: &AppState) -> Result<(), AppError> {
-    reconcile_seen(&state.seen, &state.history, &state.explored)?;
-    state.activity.clear()?;
-    state.history.clear()
+    let request = state.data.prepare_clear()?;
+    state.data.commit_clear(&request)
 }
 
 #[tauri::command]
@@ -387,8 +395,8 @@ fn clear_local_history(state: &AppState) -> Result<(), AppError> {
     clippy::needless_pass_by_value,
     reason = "Tauri command state extractors must be passed by value"
 )]
-fn get_favorites(state: State<'_, AppState>) -> Vec<FavoriteItem> {
-    state.favorites.snapshot()
+fn get_favorites(state: State<'_, AppState>) -> Result<Vec<FavoriteItem>, AppError> {
+    state.data.read(|| Ok(state.favorites.snapshot()))
 }
 
 #[tauri::command]
@@ -404,7 +412,7 @@ fn toggle_favorite(
     if source == Source::Prntsc {
         prntsc::validate_item_id(&item.id)?;
     }
-    state.favorites.toggle(item)
+    state.data.read(|| state.favorites.toggle(item))
 }
 
 #[tauri::command]
@@ -413,7 +421,7 @@ fn toggle_favorite(
     reason = "Tauri command state extractors must be passed by value"
 )]
 fn clear_favorites(state: State<'_, AppState>) -> Result<(), AppError> {
-    state.favorites.clear()
+    state.data.read(|| state.favorites.clear())
 }
 
 #[tauri::command]
@@ -421,15 +429,17 @@ fn clear_favorites(state: State<'_, AppState>) -> Result<(), AppError> {
     clippy::needless_pass_by_value,
     reason = "Tauri command state extractors must be passed by value"
 )]
-fn get_exploration_stats(state: State<'_, AppState>) -> ExplorationStats {
-    let (explored, viewable, unavailable, unclassified) = state.explored.counts();
-    ExplorationStats {
-        explored,
-        total: LEGACY_ID_SPACE_SIZE,
-        viewable,
-        unavailable,
-        unclassified,
-    }
+fn get_exploration_stats(state: State<'_, AppState>) -> Result<ExplorationStats, AppError> {
+    state.data.read(|| {
+        let (explored, viewable, unavailable, unclassified) = state.explored.counts();
+        Ok(ExplorationStats {
+            explored,
+            total: LEGACY_ID_SPACE_SIZE,
+            viewable,
+            unavailable,
+            unclassified,
+        })
+    })
 }
 
 // Half a year keeps the heatmap compact; a full year would force tiny cells or widen the dialog.
@@ -451,6 +461,7 @@ struct ViewingActivity {
     viewed_total: u64,
     days: Vec<DailyActivity>,
     local_view_times: Vec<Option<u64>>,
+    frame_views: Vec<FrameView>,
 }
 
 #[tauri::command]
@@ -458,23 +469,27 @@ struct ViewingActivity {
     clippy::needless_pass_by_value,
     reason = "Tauri command state extractors must be passed by value"
 )]
-fn get_viewing_activity(state: State<'_, AppState>) -> ViewingActivity {
-    let today = activity_day(&Local::now());
-    let days = state
-        .activity
-        .recent_days(today, ACTIVITY_WINDOW_DAYS)
-        .into_iter()
-        .map(|(date, daily)| DailyActivity {
-            date,
-            viewed: daily.viewed,
-            rejected: daily.rejected,
+fn get_viewing_activity(state: State<'_, AppState>) -> Result<ViewingActivity, AppError> {
+    state.data.read(|| {
+        let today = activity_day(&Local::now());
+        let days = state
+            .activity
+            .recent_days(today, ACTIVITY_WINDOW_DAYS)
+            .into_iter()
+            .map(|(date, daily)| DailyActivity {
+                date,
+                viewed: daily.viewed,
+                rejected: daily.rejected,
+            })
+            .collect();
+        let frame_views = state.history.frame_views();
+        Ok(ViewingActivity {
+            viewed_total: state.activity.viewed_total(),
+            days,
+            local_view_times: frame_views.iter().map(|view| Some(view.at_ms)).collect(),
+            frame_views,
         })
-        .collect();
-    ViewingActivity {
-        viewed_total: state.activity.viewed_total(),
-        days,
-        local_view_times: state.history.local_view_times(),
-    }
+    })
 }
 
 /// One-shot migration of the legacy client-side viewing counter into the backend store.
@@ -490,9 +505,89 @@ fn migrate_viewing_stats(
     state: State<'_, AppState>,
 ) -> Result<(), AppError> {
     let today = day_key(activity_day(&Local::now()));
+    state.data.read(|| {
+        state
+            .activity
+            .migrate(&legacy_day, legacy_today, legacy_total, &today)
+    })
+}
+
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command arguments must be passed by value"
+)]
+fn complete_state_imports(state: State<'_, AppState>) -> Result<(), AppError> {
+    state.data.read(|| Ok(()))?;
+    state.imports_ready.store(true, Ordering::Release);
+    Ok(())
+}
+
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command arguments must be passed by value"
+)]
+fn import_session_history(
+    items: Vec<HistoryItem>,
+    index: i64,
+    state: State<'_, AppState>,
+) -> Result<HistorySnapshot, AppError> {
+    state.data.import_session_history(items, index)
+}
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command arguments must be passed by value"
+)]
+fn prepare_history_clear(
+    legacy_pending: Option<bool>,
+    state: State<'_, AppState>,
+) -> Result<String, AppError> {
     state
-        .activity
-        .migrate(&legacy_day, legacy_today, legacy_total, &today)
+        .data
+        .prepare_clear_request(legacy_pending.unwrap_or(false))
+}
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command arguments must be passed by value"
+)]
+fn commit_history_clear(request_id: String, state: State<'_, AppState>) -> Result<(), AppError> {
+    state.data.commit_clear(&request_id)
+}
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command arguments must be passed by value"
+)]
+fn cancel_history_clear(request_id: String, state: State<'_, AppState>) -> Result<(), AppError> {
+    state.data.cancel_clear(&request_id)
+}
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command arguments must be passed by value"
+)]
+fn get_user_preferences(state: State<'_, AppState>) -> Result<UserPreferences, AppError> {
+    state.data.read(|| Ok(state.data.preferences.get()))
+}
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command arguments must be passed by value"
+)]
+fn set_user_preferences(
+    preferences: UserPreferences,
+    legacy_import: Option<bool>,
+    state: State<'_, AppState>,
+) -> Result<UserPreferences, AppError> {
+    state.data.read(|| {
+        state
+            .data
+            .preferences
+            .set(preferences, legacy_import.unwrap_or(false))
+    })
 }
 
 #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -504,6 +599,7 @@ async fn get_sync_status(state: State<'_, AppState>) -> Result<SyncStatus, SyncE
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 #[tauri::command]
 async fn create_sync(state: State<'_, AppState>) -> Result<CreateSyncResult, SyncError> {
+    state.ensure_imports_ready()?;
     state.sync.create().await
 }
 
@@ -513,18 +609,21 @@ async fn join_sync(
     recovery_key: String,
     state: State<'_, AppState>,
 ) -> Result<SyncStatus, SyncError> {
+    state.ensure_imports_ready()?;
     state.sync.join(&recovery_key).await
 }
 
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 #[tauri::command]
 async fn sync_now(state: State<'_, AppState>) -> Result<SyncStatus, SyncError> {
+    state.ensure_imports_ready()?;
     state.sync.sync_now().await
 }
 
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 #[tauri::command]
 async fn startup_sync(state: State<'_, AppState>) -> Result<SyncStatus, SyncError> {
+    state.ensure_imports_ready()?;
     state.sync.startup_sync().await
 }
 
@@ -563,10 +662,17 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             thumbnail_cache::save_thumbnail_cache,
             get_history,
             record_history_item,
+            import_session_history,
+            complete_state_imports,
             select_history_item,
             remove_history_item,
             restore_history_item,
             clear_history,
+            prepare_history_clear,
+            commit_history_clear,
+            cancel_history_clear,
+            get_user_preferences,
+            set_user_preferences,
             get_favorites,
             toggle_favorite,
             clear_favorites,
@@ -614,7 +720,7 @@ mod tests {
         assert_eq!(retry_decision(19, &no_new_frame), RetryDecision::Abort);
     }
 
-    fn test_state_directory(name: &str) -> std::path::PathBuf {
+    pub(super) fn test_state_directory(name: &str) -> std::path::PathBuf {
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::SystemTime::UNIX_EPOCH)
             .map_or(0, |duration| duration.as_nanos());
@@ -668,8 +774,8 @@ mod tests {
         let id = prntsc::item_id_value("abc123")?;
         assert!(state.seen.contains(id));
 
-        record_accepted_frame(history_item("abc124"), &state, false)?;
-        record_accepted_frame(history_item("abc124"), &state, false)?;
+        record_accepted_frame(&history_item("abc124"), &state, false)?;
+        record_accepted_frame(&history_item("abc124"), &state, false)?;
         assert!(state.seen.contains(prntsc::item_id_value("abc124")?));
         assert_eq!(state.activity.viewed_total(), 1);
         clear_local_history(&state)?;
@@ -692,10 +798,10 @@ mod tests {
         let directory = test_state_directory("manual-seen");
         let state = AppState::new(&directory)?;
         let id = prntsc::item_id_value("abc123")?;
-        record_accepted_frame(history_item("abc123"), &state, false)?;
+        record_accepted_frame(&history_item("abc123"), &state, false)?;
         assert!(state.seen.contains(id));
         assert_eq!(state.explored.viewable_count(), 1);
-        record_accepted_frame(history_item("abc123"), &state, false)?;
+        record_accepted_frame(&history_item("abc123"), &state, false)?;
         assert_eq!(state.history.snapshot().history.len(), 1);
         assert_eq!(state.activity.viewed_total(), 1);
         std::fs::remove_dir_all(directory).map_err(AppError::persistence)
@@ -706,7 +812,7 @@ mod tests {
         let directory = test_state_directory("legacy-import-activity");
         let state = AppState::new(&directory)?;
         let id = prntsc::item_id_value("0abc123")?;
-        record_accepted_frame(history_item("0abc123"), &state, true)?;
+        record_accepted_frame(&history_item("0abc123"), &state, true)?;
         assert!(state.seen.contains(id));
         assert_eq!(state.activity.viewed_total(), 0);
         assert_eq!(state.explored.viewable_count(), 0);
@@ -781,9 +887,9 @@ mod tests {
         for _ in 0..2 {
             let state = AppState::new(&directory)?;
             let days = state.activity.recent_days(activity_day(&now), 1);
-            assert_eq!(days[0].1.viewed, 3);
+            assert_eq!(days[0].1.viewed, 5);
             assert_eq!(days[0].1.rejected, 2);
-            assert_eq!(state.activity.viewed_total(), 3);
+            assert_eq!(state.activity.viewed_total(), 5);
             assert_eq!(state.explored.viewable_count(), 3);
             assert_eq!(state.explored.unavailable_count(), 2);
             assert_eq!(state.history.snapshot().history.len(), 3);
@@ -809,6 +915,23 @@ mod tests {
         ));
         assert_eq!(state.explored.count(), 0);
         assert_eq!(state.activity.viewed_total(), 0);
+        std::fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+}
+
+#[cfg(all(test, any(target_os = "linux", target_os = "windows")))]
+mod startup_guard_tests {
+    use super::*;
+    #[test]
+    fn sync_exports_wait_for_startup_imports() -> Result<(), AppError> {
+        let directory = tests::test_state_directory("startup-gate");
+        let state = AppState::new(&directory)?;
+        assert_eq!(
+            state.ensure_imports_ready(),
+            Err(SyncError::LocalMigrationPending)
+        );
+        state.imports_ready.store(true, Ordering::Release);
+        assert_eq!(state.ensure_imports_ready(), Ok(()));
         std::fs::remove_dir_all(directory).map_err(AppError::persistence)
     }
 }

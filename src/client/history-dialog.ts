@@ -13,9 +13,18 @@ import {
 } from "./frame-cache.js";
 import { goTo, loadById } from "./frame-loader.js";
 import { historyPage, PAGE_SIZES, pageOf, parsePageSize, savePageSize } from "./history-pagination.js";
-import { clearHistory, type HistoryItem, removeHistoryItem, restoreHistoryItem } from "./persistence.js";
+import {
+  cancelHistoryClear,
+  commitHistoryClear,
+  type HistoryItem,
+  prepareHistoryClear,
+  removeHistoryItem,
+  restoreHistoryItem,
+  type ViewStamp,
+} from "./persistence.js";
 import { getViewState, setState, syncControls } from "./stage.js";
 import { toast } from "./toast.js";
+import { updateUserPreferences } from "./user-preferences.js";
 import { applyFavorites, applyHistory, isFavorite, state } from "./viewer-state.js";
 
 type HistoryDialogTab = "history" | "favourites";
@@ -343,6 +352,9 @@ function changePageSize(): void {
     view.scroll = 0;
   }
   savePageSize(localStorage, state.pageSize);
+  void updateUserPreferences({ historyPageSize: state.pageSize }).catch(() =>
+    toast.error("Page size could not be saved. Try again."),
+  );
   showHistoryPage(pageOf(firstShown, state.pageSize));
 }
 
@@ -370,7 +382,7 @@ export async function removeFromHistory(index: number): Promise<void> {
   const wasShown = index === state.index;
   const position = gridEntries().findIndex((entry) => entry.index === index) - state.pageIndex * state.pageSize;
   try {
-    const { snapshot, orderAt } = await removeHistoryItem(frame.source, frame.id);
+    const { snapshot, orderAt, lastView } = await removeHistoryItem(frame.source, frame.id);
     applyHistoryKeepingShown(snapshot, wasShown ? undefined : state.history[state.index]);
     if (wasShown && !state.history.length) {
       elements.image.src = "";
@@ -385,7 +397,7 @@ export async function removeFromHistory(index: number): Promise<void> {
     } else if (!state.history.length) elements.draw.focus();
     toast.info("Removed from history", {
       label: "Undo",
-      run: () => void undoRemoval(frame, orderAt, wasShown ? { landed } : undefined),
+      run: () => void undoRemoval(frame, orderAt, lastView, wasShown ? { landed } : undefined),
     });
   } catch (error) {
     toast.error(describeError(error, "That frame could not be removed. Try again.").message);
@@ -398,6 +410,7 @@ export async function removeFromHistory(index: number): Promise<void> {
 async function undoRemoval(
   frame: HistoryItem,
   orderAt: number,
+  lastView: ViewStamp,
   shownBefore?: { landed: HistoryItem | undefined },
 ): Promise<void> {
   // goTo ignores calls while a frame loads, so restoring now would leave the frame off the stage.
@@ -407,7 +420,7 @@ async function undoRemoval(
   }
   try {
     const shown = state.history[state.index];
-    const snapshot = await restoreHistoryItem(frame, orderAt);
+    const snapshot = await restoreHistoryItem(frame, orderAt, lastView);
     applyHistoryKeepingShown(snapshot, shown);
     syncControls();
     if (elements.historyDialog.open) renderHistoryPage();
@@ -424,22 +437,15 @@ async function clearSavedHistory(): Promise<void> {
   const previousIndex = state.index;
   const previousView = getViewState();
   state.loading = true;
-  let durable = false;
+  syncControls();
+  let requestId: string;
   try {
-    localStorage.setItem(pendingHistoryClearKey, "true");
-    durable = true;
-  } catch {
-    // Without a restart marker, finish the clear before showing success.
-  }
-  if (!durable) {
-    try {
-      await clearHistory();
-    } catch (error) {
-      state.loading = false;
-      syncControls();
-      toast.error(describeError(error, "History could not be cleared. Try again.").message);
-      return;
-    }
+    requestId = await prepareHistoryClear();
+  } catch (error) {
+    state.loading = false;
+    syncControls();
+    toast.error(describeError(error, "History could not be cleared. Try again.").message);
+    return;
   }
   state.history.length = 0;
   state.index = -1;
@@ -455,39 +461,36 @@ async function clearSavedHistory(): Promise<void> {
     state.loading = false;
     syncControls();
   };
-  if (!durable) {
-    await finishClear();
-    toast.success("History cleared");
-    return;
-  }
-  const restore = (): void => {
-    try {
-      localStorage.removeItem(pendingHistoryClearKey);
-    } catch {
-      // Storage was unavailable when the clear began.
-    }
+  const restoreView = (): void => {
     state.history.splice(0, state.history.length, ...previousHistory);
     state.index = previousIndex;
     setState(previousView);
     state.loading = false;
     syncControls();
   };
-  toast.info("History cleared. Drawing paused while Undo is available.", { label: "Undo", run: restore }, () => {
-    void clearHistory().then(
+  const restore = (): void => {
+    void cancelHistoryClear(requestId).then(restoreView, (error: unknown) => {
+      toast.error(describeError(error, "Undo could not be saved. Retry Undo or restart to finish clearing.").message, {
+        label: "Retry Undo",
+        run: restore,
+      });
+    });
+  };
+  const commit = (): void => {
+    void commitHistoryClear(requestId).then(
       async () => {
-        try {
-          localStorage.removeItem(pendingHistoryClearKey);
-        } catch {
-          // The next launch may repeat the already completed clear.
-        }
         await finishClear();
       },
       (error: unknown) => {
-        restore();
-        toast.error(describeError(error, "History could not be cleared. Try again.").message);
+        // Keep drawing paused: the durable transaction will be recovered on retry or restart.
+        toast.error(
+          describeError(error, "History could not be cleared. Retry or restart to finish clearing.").message,
+          { label: "Retry", run: commit },
+        );
       },
     );
-  });
+  };
+  toast.info("History cleared. Drawing paused while Undo is available.", { label: "Undo", run: restore }, commit);
 }
 
 async function clearSavedFavorites(): Promise<void> {

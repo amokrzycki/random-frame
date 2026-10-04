@@ -97,5 +97,5 @@ export const toast = {
   },
   success: (message: string, action?: ToastAction): void => show(message, "success", action),
   info: (message: string, action?: ToastAction, onExpire?: () => void): void => show(message, "info", action, onExpire),
-  error: (message: string): void => show(message, "error"),
+  error: (message: string, action?: ToastAction): void => show(message, "error", action),
 };

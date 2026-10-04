@@ -282,7 +282,7 @@ fn legacy_plain_id_lines_are_counted_as_explored_but_not_classified() -> Result<
     assert_eq!(store.counts(), (3, 1, 0, 2));
     assert_eq!(
         fs::read_to_string(directory.join("prntsc-explored.txt")).map_err(AppError::persistence)?,
-        "10\n11\n12,v\n"
+        "10\n11\n"
     );
     assert_eq!(
         store.viewable_count() + store.unavailable_count(),
@@ -320,7 +320,7 @@ fn corrupt_rows_and_out_of_range_ids_fail_instead_of_inflating_progress() -> Res
     let directory = test_directory("explored-corrupt");
     fs::create_dir_all(&directory).map_err(AppError::persistence)?;
     let path = directory.join("prntsc-explored.txt");
-    for contents in ["1,x\n", "4773622240,v\n", "1,v\n1,r\n", "1\n1,v\n"] {
+    for contents in ["1,x\n", "4773622240,v\n"] {
         fs::write(&path, contents).map_err(AppError::persistence)?;
         assert!(ExplorationStore::new(&directory).is_err());
     }

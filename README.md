@@ -44,7 +44,7 @@ npx tauri dev
 
 `npm run dev` only watches and rebuilds the static frontend; Tauri runs the application.
 
-Sync needs a server endpoint. Set `RANDOM_FRAME_SYNC_BASE_URL` to a validated HTTPS URL for production, or a loopback HTTP URL for local testing, before launching or building the app. Without it, the gallery still works locally and Sync setup reports that the server is not configured. Sync is opt-in; settings and statistics remain local. Seen IDs, history, and favorites are sent only as an encrypted snapshot. Save the recovery key when enabling Sync: the app cannot show it again automatically.
+Sync needs a server endpoint. Set `RANDOM_FRAME_SYNC_BASE_URL` to a validated HTTPS URL for production, or a loopback HTTP URL for local testing, before launching or building the app. Without it, the gallery still works locally and Sync setup reports that the server is not configured. Sync is opt-in. Seen IDs, history, favorites, exploration progress, Activity Stats, theme, and history page size are sent only as an encrypted snapshot. Save the recovery key when enabling Sync: the app cannot show it again automatically.
 
 | Command             | Description                           |
 | ------------------- | ------------------------------------- |
@@ -83,3 +83,5 @@ contact@amokrzycki.ovh
 ## License
 
 [MIT](LICENSE) © 2026 Adrian Mokrzycki ([amokrzycki](https://github.com/amokrzycki))
+
+Sync v2's binary format, local migration, clear/replay rules, and compatibility checks are documented in [docs/sync-v2.md](docs/sync-v2.md).
