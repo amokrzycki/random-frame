@@ -30,6 +30,7 @@ pub enum SyncError {
         local_revision: i64,
         remote_revision: i64,
     },
+    UnsupportedPlatform,
 }
 
 impl std::fmt::Display for SyncError {
@@ -94,6 +95,7 @@ impl SyncError {
             Self::RateLimited => "rate_limited",
             Self::ServerError => "server_error",
             Self::BodyTooLarge => "body_too_large",
+            Self::UnsupportedPlatform => "unsupported_platform",
         }
     }
 }

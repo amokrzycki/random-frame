@@ -2,12 +2,26 @@ import { invoke } from "@tauri-apps/api/core";
 
 export type SyncState = "unpaired" | "idle" | "syncing" | "offline" | "error";
 
+export interface DeviceSummary {
+  deviceId: string;
+  displayName: string;
+  platform: string;
+  joinedAt: number;
+  lastSyncedAt: number | null;
+  thisDevice: boolean;
+}
+
 export interface SyncStatus {
+  supported: boolean;
   paired: boolean;
   state: SyncState;
+  lastSuccessAt: number | null;
   lastSuccessRevision: number | null;
   dirty: boolean;
   lastErrorCategory: string | null;
+  snapshotSchemaVersion: number;
+  thisDeviceId: string | null;
+  devices: DeviceSummary[];
 }
 
 export interface SyncError {
@@ -27,3 +41,5 @@ export const joinSync = (recoveryKey: string): Promise<SyncStatus> => invoke("jo
 export const syncNow = (): Promise<SyncStatus> => invoke("sync_now");
 export const startupSync = (): Promise<SyncStatus> => invoke("startup_sync");
 export const leaveSync = (): Promise<SyncStatus> => invoke("leave_sync");
+export const setSyncDeviceName = (name: string): Promise<void> => invoke("set_sync_device_name", { name });
+export const getSyncRecoveryKey = (): Promise<string> => invoke("get_sync_recovery_key");

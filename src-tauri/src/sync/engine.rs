@@ -3,8 +3,8 @@ use super::{
     errors::SyncError,
     reconcile::SyncData,
     state::{
-        load_config, save_config, CreateSyncResult, Generation, SyncLocalConfig, SyncState,
-        SyncStatus,
+        load_config, save_config, CreateSyncResult, DeviceSummary, Generation, SyncLocalConfig,
+        SyncState, SyncStatus,
     },
 };
 #[cfg(test)]
@@ -14,12 +14,14 @@ use crate::{
     secure_storage::{SecretStore, StorageError},
     sync_crypto::{RootSecret, SyncKeys},
     sync_transport::SyncTransport,
+    time::now_ms,
 };
 use std::{
     fs,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
+use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex as AsyncMutex;
 
 pub struct SyncEngine<S: SecretStore> {
@@ -34,6 +36,7 @@ pub struct SyncEngine<S: SecretStore> {
     pub(super) operation: AsyncMutex<()>,
     status: Mutex<SyncStatus>,
     uploaded_generation: Mutex<Option<Generation>>,
+    app_handle: Option<AppHandle>,
 }
 
 impl<S: SecretStore> SyncEngine<S> {
@@ -42,6 +45,7 @@ impl<S: SecretStore> SyncEngine<S> {
         data: Arc<PersistentState>,
         secret: S,
         endpoint: Option<&str>,
+        app_handle: Option<AppHandle>,
     ) -> Self {
         let transport = endpoint.and_then(|value| SyncTransport::new(value).ok());
         let path = directory.join("sync-config.json");
@@ -57,17 +61,23 @@ impl<S: SecretStore> SyncEngine<S> {
             path,
             operation: AsyncMutex::new(()),
             status: Mutex::new(SyncStatus {
+                supported: true,
                 paired: config.is_some(),
                 state: if config.is_some() {
                     SyncState::Idle
                 } else {
                     SyncState::Unpaired
                 },
+                last_success_at: None,
                 last_success_revision: config.and_then(|c| c.last_accepted_revision),
                 dirty: true,
                 last_error_category: None,
+                snapshot_schema_version: 1,
+                this_device_id: None,
+                devices: Vec::new(),
             }),
             uploaded_generation: Mutex::new(None),
+            app_handle,
         }
     }
 
@@ -98,6 +108,31 @@ impl<S: SecretStore> SyncEngine<S> {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         status.dirty = uploaded != Some(self.local_generation());
+        status.last_success_at = self.config().ok().flatten().and_then(|c| c.last_success_at);
+        status.snapshot_schema_version = self
+            .config()
+            .ok()
+            .flatten()
+            .map_or(1, |c| c.highest_schema_version);
+        status.this_device_id = Some(hex::encode(self.data.identity.id()));
+        status.devices = self
+            .data
+            .preferences
+            .sync_state()
+            .1
+            .iter()
+            .map(|d| {
+                let this = d.device_id == self.data.identity.id();
+                DeviceSummary {
+                    device_id: hex::encode(d.device_id),
+                    display_name: d.metadata.value.display_name.clone(),
+                    platform: d.metadata.value.platform.clone(),
+                    joined_at_ms: d.joined_at_ms,
+                    last_synced_at_ms: d.last_sync.as_ref().map(|r| r.value),
+                    this_device: this,
+                }
+            })
+            .collect();
         status
     }
 
@@ -117,6 +152,12 @@ impl<S: SecretStore> SyncEngine<S> {
         }
     }
 
+    fn notify_state_changed(&self) {
+        if let Some(handle) = &self.app_handle {
+            let _ = handle.emit("sync-state-changed", ());
+        }
+    }
+
     pub async fn status(&self) -> Result<SyncStatus, SyncError> {
         match self.config()? {
             None => match self.secret.load().await {
@@ -132,6 +173,16 @@ impl<S: SecretStore> SyncEngine<S> {
                 Ok(self.status_snapshot())
             }
         }
+    }
+
+    pub async fn recovery_key(&self) -> Result<String, SyncError> {
+        let config = self.config()?.ok_or(SyncError::Unpaired)?;
+        let root = self.secret.load().await?;
+        let keys = root.derive();
+        if keys.sync_id() != config.sync_id {
+            return Err(SyncError::CorruptLocalState);
+        }
+        Ok(root.recovery_key().to_string())
     }
 
     async fn paired(&self) -> Result<(SyncLocalConfig, SyncKeys), SyncError> {
@@ -171,6 +222,9 @@ impl<S: SecretStore> SyncEngine<S> {
     async fn create_inner(&self) -> Result<CreateSyncResult, SyncError> {
         let root = RootSecret::generate();
         let keys = root.derive();
+        self.data
+            .stage_self_last_sync(now_ms())
+            .map_err(|_| SyncError::Persistence)?;
         let (snapshot, generation) = self.data().local_snapshot()?;
         let envelope = keys
             .encrypt_snapshot(&snapshot)
@@ -204,7 +258,8 @@ impl<S: SecretStore> SyncEngine<S> {
                 local_pairing_error: Some(category),
             });
         }
-        let config = SyncLocalConfig::new(keys.sync_id().to_owned(), revision);
+        let mut config = SyncLocalConfig::new(keys.sync_id().to_owned(), revision);
+        config.last_success_at = Some(now_ms());
         if let Err(error) = self.save(&config) {
             let cleanup = self.secret.delete().await;
             let category = if cleanup.is_err() {
@@ -228,6 +283,7 @@ impl<S: SecretStore> SyncEngine<S> {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .paired = true;
         self.set_state(SyncState::Idle, None, Some(revision));
+        self.notify_state_changed();
         Ok(CreateSyncResult {
             recovery_key,
             status: self.status_snapshot(),
@@ -263,6 +319,9 @@ impl<S: SecretStore> SyncEngine<S> {
             .get(keys.sync_id(), &keys.client_auth_token())
             .await?;
         let schema = self.data().merge_remote(&keys, &remote, 1, revision)?;
+        self.data
+            .stage_self_last_sync(now_ms())
+            .map_err(|_| SyncError::Persistence)?;
         let (revision, generation) = push_with_retries(
             &self.data(),
             self.transport.as_ref(),
@@ -280,7 +339,9 @@ impl<S: SecretStore> SyncEngine<S> {
                 error.into()
             });
         }
-        if let Err(error) = self.save(&SyncLocalConfig::new(keys.sync_id().to_owned(), revision)) {
+        let mut config = SyncLocalConfig::new(keys.sync_id().to_owned(), revision);
+        config.last_success_at = Some(now_ms());
+        if let Err(error) = self.save(&config) {
             self.secret
                 .delete()
                 .await
@@ -296,6 +357,7 @@ impl<S: SecretStore> SyncEngine<S> {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .paired = true;
         self.set_state(SyncState::Idle, None, Some(revision));
+        self.notify_state_changed();
         Ok(self.status_snapshot())
     }
 
@@ -329,6 +391,9 @@ impl<S: SecretStore> SyncEngine<S> {
             self.save(&config)?;
         }
         self.save(&config)?;
+        self.data
+            .stage_self_last_sync(now_ms())
+            .map_err(|_| SyncError::Persistence)?;
         let (revision, generation) = push_with_retries(
             &self.data(),
             self.transport.as_ref(),
@@ -342,12 +407,14 @@ impl<S: SecretStore> SyncEngine<S> {
         // A failed local save after PUT is recoverable: next GET may be above the old floor.
         config.last_accepted_revision = Some(revision);
         config.highest_schema_version = 2;
+        config.last_success_at = Some(now_ms());
         self.save(&config)?;
         *self
             .uploaded_generation
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(generation);
         self.set_state(SyncState::Idle, None, Some(revision));
+        self.notify_state_changed();
         Ok(self.status_snapshot())
     }
 
@@ -380,12 +447,18 @@ impl<S: SecretStore> SyncEngine<S> {
             .status
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = SyncStatus {
+            supported: true,
             paired: false,
             state: SyncState::Unpaired,
+            last_success_at: None,
             last_success_revision: None,
             dirty: true,
             last_error_category: None,
+            snapshot_schema_version: 1,
+            this_device_id: None,
+            devices: Vec::new(),
         };
+        self.notify_state_changed();
         Ok(self.status_snapshot())
     }
 
