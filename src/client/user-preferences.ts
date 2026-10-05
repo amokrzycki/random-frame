@@ -1,4 +1,4 @@
-import { PAGE_SIZE_STORAGE_KEY, PAGE_SIZES } from "./history-pagination.js";
+import { DEFAULT_PAGE_SIZE, PAGE_SIZE_STORAGE_KEY, PAGE_SIZES } from "./history-pagination.js";
 import { getUserPreferences, setUserPreferences, type UserPreferences } from "./persistence.js";
 
 const themeKey = "random-frame-theme";
@@ -26,11 +26,21 @@ export function applyUserPreferences(preferences: UserPreferences | null): void 
   if (!preferences) return;
   try {
     if (preferences.theme) localStorage.setItem(themeKey, preferences.theme);
+    else localStorage.removeItem(themeKey);
     if (preferences.historyPageSize) localStorage.setItem(PAGE_SIZE_STORAGE_KEY, String(preferences.historyPageSize));
+    else localStorage.removeItem(PAGE_SIZE_STORAGE_KEY);
   } catch {
     // Rust remains authoritative when the early-render cache is unavailable.
   }
-  document.dispatchEvent(new CustomEvent("user-preferences", { detail: preferences }));
+  // Absent registers are authoritative defaults for presentation, without creating synced values.
+  document.dispatchEvent(
+    new CustomEvent("user-preferences", {
+      detail: {
+        theme: preferences.theme ?? "system",
+        historyPageSize: preferences.historyPageSize ?? DEFAULT_PAGE_SIZE,
+      },
+    }),
+  );
 }
 
 export async function initializeUserPreferences(): Promise<void> {

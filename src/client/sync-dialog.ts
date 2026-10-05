@@ -378,6 +378,15 @@ async function operate(message: string, action: () => Promise<SyncStatus | undef
     try {
       result = await action();
     } catch (error) {
+      // Restore can replace local stores before credential or config saves fail.
+      if (!state.loading) {
+        try {
+          await refreshPersistedView();
+          syncControls();
+        } catch {
+          // Keep the action's original error and retry; a pending journal may still block reads.
+        }
+      }
       showError(safeError(error), notRetryable.has(category(error) ?? "") ? null : () => operate(message, action));
       await refresh();
       return false;

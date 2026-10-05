@@ -75,6 +75,8 @@ function resetBackend() {
     },
     summaryFails: false,
     history: [{ source: "prntsc", id: "abc123", sourcePageUrl: "https://prnt.sc/abc123", viewedAt: 1 }],
+    favorites: [],
+    onJoin: null,
     onSyncNow: null,
   };
   calls = [];
@@ -128,6 +130,7 @@ before(async () => {
           if (backend.statusFails) throw { category: "timeout" };
           return structuredClone(backend.current);
         }
+        if (command === "join_sync") backend.onJoin?.();
         if (backend.fail && command === backend.fail.command) throw backend.fail.error;
         if (command === "create_sync") {
           if (!backend.partial) backend.current = structuredClone(paired);
@@ -162,7 +165,7 @@ before(async () => {
         }
         if (command === "get_sync_recovery_key") return KEY;
         if (command === "get_history") return { history: structuredClone(backend.history), index: -1 };
-        if (command === "get_favorites") return [];
+        if (command === "get_favorites") return structuredClone(backend.favorites);
         if (command === "get_exploration_stats") return { explored: 0, viewable: 0, unavailable: 0, unclassified: 0 };
         if (command === "get_viewing_activity")
           return { viewedTotal: backend.activityTotal, days: [], localViewTimes: [], frameViews: [] };
@@ -814,6 +817,37 @@ test("a failed join preserves either explicit choice for retry, then success res
     assert.equal(get("sync-paired").hidden, false);
     assert.equal(restoreOption().checked, false);
     assert.equal(mergeOption().checked, false);
+  }
+});
+
+test("Restore reloads replaced views when final local pairing fails", async () => {
+  for (const category of ["secure_storage", "persistence"]) {
+    const oldItem = { source: "prntsc", id: "oldlocal", sourcePageUrl: "https://prnt.sc/oldlocal", viewedAt: 1 };
+    stateModule.applyHistory({ history: [oldItem], index: 0 });
+    stateModule.applyFavorites([{ ...oldItem, addedAt: 1 }]);
+    await openJoin();
+    choose("restore");
+    get("sync-recovery-input").value = KEY;
+    // Native Restore replaces the stores before saving credentials and sync-config.
+    backend.onJoin = () => {
+      backend.history = [];
+      backend.favorites = [];
+    };
+    backend.fail = { command: "join_sync", error: { category } };
+    submit("sync-join-form");
+    await flush();
+    assert.deepEqual(stateModule.state.history, []);
+    assert.deepEqual(stateModule.state.favorites, []);
+    assert.equal(stateModule.state.index, -1);
+    assert.equal(get("favorite-button").disabled, true);
+    assert.equal(get("sync-retry").hidden, false);
+    assert.match(text("sync-error-message"), category === "secure_storage" ? /secure storage/ : /could not be saved/);
+    assert.equal(get("sync-recovery-input").value, KEY);
+    assert.equal(restoreOption().checked, true);
+    backend.fail = null;
+    get("sync-retry").click();
+    await flush();
+    assert.equal(get("sync-paired").hidden, false);
   }
 });
 
