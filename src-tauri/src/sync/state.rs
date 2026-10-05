@@ -48,7 +48,7 @@ impl SyncLocalConfig {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum JoinMode {
-    /// The remote state replaces this device's synchronized state; nothing local is published.
+    /// Remote wins in represented domains; unsupported domains migrate from durable local v2 state.
     Restore,
     /// Remote and local synchronized state are unioned, local deletions included.
     Merge,
@@ -67,18 +67,11 @@ pub struct LocalSyncSummary {
 }
 
 impl LocalSyncSummary {
-    pub(super) fn from_snapshot(s: &crate::snapshot::SyncSnapshot) -> Self {
-        // Meaningful = any synchronized content or deletion except the device roster, which a
-        // fresh install always has. A device with only deletions is NOT empty.
-        let meaningful = !(s.seen.is_empty()
-            && s.history.is_empty()
-            && s.history_removed.is_empty()
-            && s.favorites.is_empty()
-            && s.favorites_removed.is_empty()
-            && s.exploration.is_empty()
-            && s.activity.is_empty()
-            && s.activity_removed.is_empty()
-            && s.preferences == crate::snapshot::PreferencesV2::default());
+    pub(super) fn from_snapshot(
+        s: &crate::snapshot::SyncSnapshot,
+        this_device: crate::snapshot::OperationId,
+    ) -> Self {
+        let meaningful = s.has_meaningful_synchronized_state(this_device);
         Self {
             history: s.history.len(),
             history_removals: s.history_removed.len(),

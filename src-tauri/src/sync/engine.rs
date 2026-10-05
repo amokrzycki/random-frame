@@ -296,7 +296,10 @@ impl<S: SecretStore> SyncEngine<S> {
     /// Counts of what this device would bring into (Merge) or lose to (Restore) a join.
     pub fn local_summary(&self) -> Result<LocalSyncSummary, SyncError> {
         let (snapshot, _) = self.data.snapshot().map_err(|_| SyncError::Persistence)?;
-        Ok(LocalSyncSummary::from_snapshot(&snapshot))
+        Ok(LocalSyncSummary::from_snapshot(
+            &snapshot,
+            self.data.identity.id(),
+        ))
     }
 
     pub async fn join(&self, recovery_key: &str, mode: JoinMode) -> Result<SyncStatus, SyncError> {

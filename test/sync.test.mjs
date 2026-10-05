@@ -108,7 +108,7 @@ before(async () => {
     "sync-name-error",
   ])
     get(id).hidden = true;
-  get("sync-join-restore").checked = true;
+  get("sync-join-restore").checked = false;
   resetBackend();
   globalThis.window = {
     setTimeout: () => 0,
@@ -216,6 +216,8 @@ test("create and connect are separate flows that call their own commands", async
   assert.equal(get("sync-join-form").hidden, false);
   assert.equal(document.activeElement, get("sync-recovery-input"));
   assert.equal(syncCalls("create_sync").length + syncCalls("join_sync").length, 0);
+  await flush();
+  choose("restore");
   get("sync-recovery-input").value = `  ${KEY}  `;
   submit("sync-join-form");
   await flush();
@@ -532,6 +534,8 @@ test("an unsupported platform is a stated condition, not an unknown command", as
 test("a rejected recovery key keeps the text for fixing and returns focus to the field", async () => {
   await open(unpaired);
   get("sync-show-join").click();
+  await flush();
+  choose("restore");
   backend.fail = { command: "join_sync", error: { category: "invalid_recovery_key", details: "private" } };
   get("sync-recovery-input").value = "rf1-typo";
   submit("sync-join-form");
@@ -652,14 +656,17 @@ async function openJoin(summary) {
   await flush();
 }
 
-test("joining defaults to Restore and asks the native side for the local summary", async () => {
+test("meaningful state starts neutral; explicitly choosing Restore enables joining", async () => {
   await openJoin();
   assert.equal(syncCalls("get_sync_join_summary").length, 1);
-  assert.equal(restoreOption().checked, true);
+  assert.equal(restoreOption().checked, false);
   assert.equal(mergeOption().checked, false);
-  assert.equal(text("sync-join"), "Restore this device");
+  assert.equal(text("sync-join"), "Connect this device");
   assert.equal(get("sync-join-modes").hidden, false);
   assert.equal(get("sync-join-fresh").hidden, true);
+  assert.equal(get("sync-join").disabled, true);
+  choose("restore");
+  assert.equal(restoreOption().checked, true);
   assert.equal(get("sync-join").disabled, false);
   get("sync-recovery-input").value = KEY;
   submit("sync-join-form");
@@ -672,6 +679,7 @@ test("joining defaults to Restore and asks the native side for the local summary
 test("choosing Merge sends merge, and the label never decides the mode", async () => {
   await openJoin();
   choose("merge");
+  assert.equal(get("sync-join").disabled, false);
   assert.equal(text("sync-join"), "Merge this device");
   get("sync-recovery-input").value = KEY;
   submit("sync-join-form");
@@ -683,7 +691,8 @@ test("choosing Merge sends merge, and the label never decides the mode", async (
   await open(unpaired);
   get("sync-show-join").click();
   await flush();
-  assert.equal(restoreOption().checked, true);
+  assert.equal(restoreOption().checked, false);
+  choose("restore");
   get("sync-join").textContent = "Merge this device";
   get("sync-recovery-input").value = KEY;
   submit("sync-join-form");
@@ -691,10 +700,12 @@ test("choosing Merge sends merge, and the label never decides the mode", async (
   assert.deepEqual(joinCalls().at(-1), { recoveryKey: KEY, mode: "restore" });
 });
 
-test("submitting without a choice cannot merge and never calls the backend", async () => {
+test("Enter/form submission without a choice cannot Restore or Merge, regardless of button text", async () => {
   await openJoin();
-  restoreOption().checked = false;
-  mergeOption().checked = false;
+  assert.equal(restoreOption().checked, false);
+  assert.equal(mergeOption().checked, false);
+  assert.equal(get("sync-join").disabled, true);
+  get("sync-join").textContent = "Restore this device";
   get("sync-recovery-input").value = KEY;
   submit("sync-join-form");
   await flush();
@@ -702,6 +713,17 @@ test("submitting without a choice cannot merge and never calls the backend", asy
   assert.match(text("sync-error-message"), /Choose how this device should join/);
   assert.equal(document.activeElement, restoreOption());
   assert.equal(get("sync-recovery-input").value, KEY);
+});
+
+test("a submit while the summary is still loading cannot join even with a selected radio", async () => {
+  await open(unpaired);
+  get("sync-show-join").click();
+  choose("restore");
+  get("sync-recovery-input").value = KEY;
+  assert.equal(get("sync-join").disabled, true);
+  submit("sync-join-form");
+  await flush();
+  assert.equal(joinCalls().length, 0);
 });
 
 test("the local summary is aggregate counts and the Merge warning names previous deletions", async () => {
@@ -718,8 +740,8 @@ test("the local summary is aggregate counts and the Merge warning names previous
   );
   const visible = [text("sync-join-local"), text("sync-join-merge-deletions")].join(" ");
   assert.doesNotMatch(visible, /[0-9a-f]{16}|operation|tombstone|CRDT|snapshot|revision/i);
-  // Restore stays the selected, default choice even with deletions present.
-  assert.equal(restoreOption().checked, true);
+  // Deletion warnings never select a mode.
+  assert.equal(restoreOption().checked, false);
   get("sync-join-cancel").click();
   assert.equal(text("sync-join-local"), "");
   assert.equal(get("sync-join-merge-deletions").hidden, true);
@@ -731,6 +753,9 @@ test("a device with only deletions is not treated as empty", async () => {
   assert.equal(get("sync-join-fresh").hidden, true);
   assert.equal(text("sync-join-local"), "This device currently has 5 previous deletions.");
   assert.match(text("sync-join-merge-deletions"), /5 previous deletions that will also be merged/);
+  assert.equal(restoreOption().checked, false);
+  assert.equal(mergeOption().checked, false);
+  assert.equal(get("sync-join").disabled, true);
   // Without any deletions the Merge line stays quiet.
   get("sync-join-cancel").click();
   await openJoin({ history: 2, historyRemovals: 0, meaningful: true });
@@ -756,7 +781,7 @@ test("an unreadable summary keeps both choices instead of assuming the device is
   assert.equal(get("sync-join-modes").hidden, false);
   assert.equal(get("sync-join-fresh").hidden, true);
   assert.equal(get("sync-join-local").hidden, true);
-  assert.equal(get("sync-join").disabled, false);
+  assert.equal(get("sync-join").disabled, true);
   choose("merge");
   get("sync-recovery-input").value = KEY;
   submit("sync-join-form");
@@ -764,36 +789,42 @@ test("an unreadable summary keeps both choices instead of assuming the device is
   assert.deepEqual(joinCalls(), [{ recoveryKey: KEY, mode: "merge" }]);
 });
 
-test("a failed join keeps the chosen mode for the key fix and for Try again", async () => {
-  await openJoin();
-  choose("merge");
-  get("sync-recovery-input").value = KEY;
-  backend.fail = { command: "join_sync", error: { category: "timeout" } };
-  submit("sync-join-form");
-  await flush();
-  assert.equal(get("sync-join-form").hidden, false);
-  assert.equal(mergeOption().checked, true);
-  assert.equal(restoreOption().checked, false);
-  assert.equal(get("sync-recovery-input").value, KEY);
-  assert.equal(get("sync-retry").hidden, false);
-  backend.fail = null;
-  get("sync-retry").click();
-  await flush();
-  assert.deepEqual(joinCalls(), [
-    { recoveryKey: KEY, mode: "merge" },
-    { recoveryKey: KEY, mode: "merge" },
-  ]);
-  assert.equal(get("sync-paired").hidden, false);
+test("a failed join preserves either explicit choice for retry, then success resets to neutral", async () => {
+  for (const mode of ["restore", "merge"]) {
+    const start = joinCalls().length;
+    await openJoin();
+    choose(mode);
+    get("sync-recovery-input").value = KEY;
+    backend.fail = { command: "join_sync", error: { category: "timeout" } };
+    submit("sync-join-form");
+    await flush();
+    assert.equal(get("sync-join-form").hidden, false);
+    assert.equal(mergeOption().checked, mode === "merge");
+    assert.equal(restoreOption().checked, mode === "restore");
+    assert.equal(get("sync-join").disabled, false);
+    assert.equal(get("sync-recovery-input").value, KEY);
+    assert.equal(get("sync-retry").hidden, false);
+    backend.fail = null;
+    get("sync-retry").click();
+    await flush();
+    assert.deepEqual(joinCalls().slice(start), [
+      { recoveryKey: KEY, mode },
+      { recoveryKey: KEY, mode },
+    ]);
+    assert.equal(get("sync-paired").hidden, false);
+    assert.equal(restoreOption().checked, false);
+    assert.equal(mergeOption().checked, false);
+  }
 });
 
-test("cancelling a join returns to Restore and forgets the key and the summary", async () => {
+test("cancelling a join returns to neutral and forgets the key and the summary", async () => {
   await openJoin({ historyRemovals: 9 });
   choose("merge");
   get("sync-recovery-input").value = KEY;
   get("sync-join-cancel").click();
   assert.equal(get("sync-join-form").hidden, true);
   assert.equal(get("sync-recovery-input").value, "");
-  assert.equal(restoreOption().checked, true);
+  assert.equal(restoreOption().checked, false);
   assert.equal(mergeOption().checked, false);
   assert.equal(syncCalls("join_sync").length, 0);
 });
@@ -815,7 +846,9 @@ test("the options are native radios with labelled consequences for assistive tec
     for (const described of input.match(/aria-describedby="([^"]+)"/)[1].split(" "))
       assert.match(form, new RegExp(`id="${described}"`), described);
   }
-  assert.match(form.match(/<input[^>]*id="sync-join-restore"[^>]*>/)[0], /\bchecked\b/);
+  // Fake DOM cannot exercise native arrow keys or implicit Enter submission.
+  // Assert native grouping and neutral markup; form-handler tests cover submission safety.
+  assert.doesNotMatch(form.match(/<input[^>]*id="sync-join-restore"[^>]*>/)[0], /\bchecked\b/);
   assert.doesNotMatch(form.match(/<input[^>]*id="sync-join-merge"[^>]*>/)[0], /\bchecked\b/);
   const css = await readFile(new URL("../dist/styles.css", import.meta.url), "utf8");
   assert.match(css, /\.sync-join__option:has\(input:focus-visible\)/);
@@ -829,7 +862,8 @@ test("join copy is concrete, avoids vague promises, and keeps developer terms ou
     "Enter your recovery key, then choose how this device should join your Sync.",
     "Restore this device from Sync",
     "Replace this device’s synced data with the copy already in Sync. Best for a new installation or another computer.",
-    "Local history, favorites, activity and previous deletions on this device will not be added to Sync.",
+    "Local history, favorites and their previous deletions will not be added to Sync.",
+    "If your Sync was saved by an older app, data it could not save is kept from this device.",
     "Merge this device with Sync",
     "Combine this device’s existing synced data with the copy already in Sync.",
     "Previous deletions on this device are included. They may remove items that still exist on your other devices.",

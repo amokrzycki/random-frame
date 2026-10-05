@@ -64,15 +64,44 @@ impl SyncData<'_> {
         Ok(remote)
     }
 
-    /// Restore target: the remote state plus only this device's roster record. Nothing
-    /// is read from local stores, so no pre-join local state can reach an upload.
+    /// Schema-aware Restore, not CRDT union. Represented domains are remote-authoritative,
+    /// including explicit empty values. Only unsupported content domains use captured local
+    /// v2 state. A stale local roster is never imported; identity registers only this device.
     pub(super) fn restore_target(
         &self,
-        remote: &snapshot::SyncSnapshot,
+        remote: &snapshot::DecodedSnapshot,
+        local: &snapshot::SyncSnapshot,
         at_ms: u64,
     ) -> Result<snapshot::SyncSnapshot, SyncError> {
-        let mut target = remote.clone();
+        use snapshot::SyncDomain;
+        debug_assert!([
+            SyncDomain::Seen,
+            SyncDomain::History,
+            SyncDomain::HistoryRemovals,
+            SyncDomain::Favorites,
+            SyncDomain::FavoriteRemovals,
+        ]
+        .into_iter()
+        .all(|domain| remote.represents(domain)));
+        let mut target = remote.data.clone();
+        if !remote.represents(SyncDomain::Exploration) {
+            target.exploration.clone_from(&local.exploration);
+        }
+        if !remote.represents(SyncDomain::Activity) {
+            target.activity.clone_from(&local.activity);
+        }
+        if !remote.represents(SyncDomain::ActivityRemovals) {
+            target.activity_removed.clone_from(&local.activity_removed);
+        }
+        if !remote.represents(SyncDomain::Preferences) {
+            target.preferences.clone_from(&local.preferences);
+        }
+        if !remote.represents(SyncDomain::Devices) {
+            target.devices.clear();
+        }
         PreferenceStore::register_self(&mut target, &self.state.identity, at_ms);
+        // Keep the existing persistence invariant: viewed evidence in retained History or
+        // Exploration implies Seen. This never copies the unrelated local Seen collection.
         snapshot::reconcile_seen(&mut target);
         snapshot::validate_snapshot(&target).map_err(|_| SyncError::InvalidRemoteData)?;
         Ok(target)

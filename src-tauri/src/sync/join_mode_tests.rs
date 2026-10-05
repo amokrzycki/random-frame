@@ -530,7 +530,7 @@ async fn merge_cas_conflict_still_unions_both_sides() -> TestResult {
 }
 
 #[tokio::test]
-async fn restore_v1_remote_upgrades_without_importing_local_activity() -> TestResult {
+async fn restore_v1_remote_preserves_local_activity_during_upgrade() -> TestResult {
     let (url, server, task) = server().await?;
     let root = RootSecret::from_bytes(&(0_u8..32).collect::<Vec<_>>())?;
     let keys = root.derive();
@@ -556,11 +556,11 @@ async fn restore_v1_remote_upgrades_without_importing_local_activity() -> TestRe
     local
         .join(root.recovery_key().as_str(), JoinMode::Restore)
         .await?;
-    // The v1 chain carries no Activity, so Restore keeps none of the local counts either.
-    assert_eq!(local.data.activity.viewed_total(), 0);
+    // Schema absence is not an authoritative empty Activity domain.
+    assert_eq!(local.data.activity.viewed_total(), 5755);
     assert_eq!(remote_schema(&server, &keys)?, 2);
     let published = remote(&server, &keys)?;
-    assert_eq!(published.activity.len(), 0);
+    assert_eq!(published.activity, local.data.snapshot()?.0.activity);
 
     // Schema downgrade protection still applies to Restore, and leaves local state alone.
     local.leave().await?;
@@ -579,6 +579,339 @@ async fn restore_v1_remote_upgrades_without_importing_local_activity() -> TestRe
         Some(SyncError::SchemaDowngrade)
     );
     assert_eq!(local.data.snapshot()?.0, before);
+    task.abort();
+    fs::remove_dir_all(path)?;
+    Ok(())
+}
+
+/// A fully migrated old installation: disk and browser `LegacyImport` operations, a Discovery,
+/// Exploration, explicit preferences, conflicting v1 state and unrelated stale roster.
+fn migrated_v1_joiner(
+    path: &Path,
+    url: &str,
+) -> Result<SyncEngine<MemorySecret>, Box<dyn std::error::Error>> {
+    fs::create_dir_all(path)?;
+    fs::write(
+        path.join("activity.json"),
+        br#"{"viewed_total":4995,"days":{"2026-10-01":{"viewed":12,"rejected":2}}}"#,
+    )?;
+    fs::write(path.join("prntsc-explored.txt"), "210,r\n211\n")?;
+    let local = device(path, url, MemorySecret::default())?;
+    local
+        .data
+        .activity
+        .migrate("2026-10-02", 2, 4, "2026-10-02")?;
+    local
+        .data
+        .discover(700_001, ExplorationOutcome::Viewed, 1, "2026-10-02")?;
+    local
+        .data
+        .activity
+        .merge_sync_state(vec![], vec![op_id(880_000)], false)?;
+    local.data.import_session_history(
+        vec![HistoryItem {
+            source: "prntsc".into(),
+            id: "stale".into(),
+            source_page_url: "https://prnt.sc/stale".into(),
+            viewed_at: 1,
+        }],
+        0,
+    )?;
+    local
+        .data
+        .history
+        .merge_sync_state((vec![], vec![[1; 16]]))?;
+    local.data.favorites.toggle(favorite("stale"))?;
+    local
+        .data
+        .favorites
+        .merge_sync_state((vec![], vec![[2; 16]]))?;
+    local.data.seen.merge([999_999])?;
+    local.data.preferences.set(
+        UserPreferences {
+            theme: Some("light".into()),
+            history_page_size: Some(100),
+        },
+        true,
+    )?;
+    local.data.preferences.merge(
+        snapshot::PreferencesV2::default(),
+        vec![snapshot::DeviceRecord {
+            device_id: [9; 16],
+            metadata: snapshot::Register {
+                clock: 1,
+                operation_id: op_id(77),
+                value: DeviceMetadata {
+                    display_name: "Stale device".into(),
+                    platform: "windows".into(),
+                },
+            },
+            joined_at_ms: 1,
+            last_sync: None,
+        }],
+    )?;
+    assert_eq!(local.data.activity.viewed_total(), 5000);
+    Ok(local)
+}
+
+async fn create_v1_chain(
+    url: &str,
+) -> Result<
+    (
+        RootSecret,
+        crate::sync_crypto::SyncKeys,
+        snapshot::DecodedSnapshot,
+    ),
+    Box<dyn std::error::Error>,
+> {
+    let root = RootSecret::from_bytes(&(0_u8..32).collect::<Vec<_>>())?;
+    let keys = root.derive();
+    let envelope = include_bytes!("../persistence/tests/fixtures/envelope-v1.bin").to_vec();
+    let decoded = snapshot::decode_snapshot(&keys.decrypt_snapshot(keys.sync_id(), &envelope)?)?;
+    SyncTransport::new(url)?
+        .create(keys.sync_id(), &keys.client_auth_token(), envelope)
+        .await?;
+    Ok((root, keys, decoded))
+}
+
+fn assert_content_eq(a: &SyncSnapshot, b: &SyncSnapshot) {
+    let mut a = a.clone();
+    let mut b = b.clone();
+    a.devices.clear();
+    b.devices.clear();
+    assert_eq!(a, b);
+}
+
+#[tokio::test]
+async fn restore_v1_preserves_only_unsupported_content_and_round_trips_without_reimport(
+) -> TestResult {
+    let (url, server, task) = server().await?;
+    let (root, keys, decoded) = create_v1_chain(&url).await?;
+    let path = directory("v1-preserved-content");
+    let local = migrated_v1_joiner(&path, &url)?;
+    let before = local.data.snapshot()?.0;
+    local.join(&root.recovery_key(), JoinMode::Restore).await?;
+    let published = remote(&server, &keys)?;
+    assert_eq!(remote_schema(&server, &keys)?, 2);
+    assert_eq!(published.history, decoded.data.history);
+    assert_eq!(published.history_removed, decoded.data.history_removed);
+    assert_eq!(published.favorites, decoded.data.favorites);
+    assert_eq!(published.favorites_removed, decoded.data.favorites_removed);
+    assert_eq!(published.exploration, before.exploration);
+    assert_eq!(published.activity, before.activity);
+    assert_eq!(published.activity_removed, before.activity_removed);
+    assert_eq!(published.preferences, before.preferences);
+    assert!(!published.seen.contains(&999_999));
+    let mut expected = decoded.data;
+    expected.exploration = before.exploration;
+    expected.activity = before.activity;
+    expected.activity_removed = before.activity_removed;
+    expected.preferences = before.preferences;
+    snapshot::reconcile_seen(&mut expected);
+    assert_content_eq(&published, &expected);
+    assert_eq!(published.devices.len(), 1);
+    assert_eq!(published.devices[0].device_id, local.data.identity.id());
+    assert_eq!(local.data.activity.viewed_total(), 5000);
+    let restored = local.data.snapshot()?.0;
+    let secret = local.secret.clone();
+    drop(local);
+
+    // The durable operations, import IDs and receipt flags survive restart unchanged.
+    let reopened = device(&path, &url, secret)?;
+    assert_eq!(reopened.data.snapshot()?.0, restored);
+    reopened
+        .data
+        .activity
+        .migrate("2026-10-02", 999, 999, "2026-10-02")?;
+    reopened.data.preferences.set(
+        UserPreferences {
+            theme: Some("dark".into()),
+            history_page_size: Some(10),
+        },
+        true,
+    )?;
+    reopened.data.import_session_history(
+        vec![HistoryItem {
+            source: "prntsc".into(),
+            id: "browser-stale".into(),
+            source_page_url: "https://prnt.sc/browser-stale".into(),
+            viewed_at: 1,
+        }],
+        0,
+    )?;
+    assert_eq!(reopened.data.snapshot()?.0, restored);
+    reopened.sync_now().await?;
+    reopened.leave().await?;
+    reopened
+        .join(&root.recovery_key(), JoinMode::Restore)
+        .await?;
+    assert_eq!(reopened.data.activity.viewed_total(), 5000);
+    assert_content_eq(&remote(&server, &keys)?, &published);
+
+    let third_path = directory("v1-third");
+    let third = device(&third_path, &url, MemorySecret::default())?;
+    third.join(&root.recovery_key(), JoinMode::Restore).await?;
+    assert_content_eq(&third.data.snapshot()?.0, &published);
+    assert_eq!(third.data.activity.viewed_total(), 5000);
+    task.abort();
+    fs::remove_dir_all(path)?;
+    fs::remove_dir_all(third_path)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn restore_v1_cas_retry_uses_latest_schema_and_v2_empty_domains_are_authoritative(
+) -> TestResult {
+    // Test both another v1 writer and a v2 writer, including explicitly empty v2 domains.
+    for latest_schema in [1, 2] {
+        let (url, server, task) = server().await?;
+        let (root, keys, decoded) = create_v1_chain(&url).await?;
+        let path = directory("v1-cas-schema");
+        let local = migrated_v1_joiner(&path, &url)?;
+        let before = local.data.snapshot()?.0;
+        let newer = if latest_schema == 1 {
+            let mut newer = snapshot::v1::parse_snapshot(include_bytes!(
+                "../persistence/tests/fixtures/snapshot-v1.bin"
+            ))?;
+            newer.seen.push(999_998);
+            snapshot::v1::serialize_snapshot(&newer)?
+        } else {
+            // No Activity/Exploration/preferences: these are explicit authoritative empties.
+            let mut newer = decoded.data;
+            newer.seen.push(999_998);
+            snapshot::serialize_snapshot(&newer)?
+        };
+        lock(&server).v1_on_update = Some(keys.encrypt_snapshot(&newer)?);
+        local.join(&root.recovery_key(), JoinMode::Restore).await?;
+        let published = remote(&server, &keys)?;
+        assert!(published.seen.contains(&999_998));
+        let mut expected = snapshot::decode_snapshot(&newer)?.data;
+        if latest_schema == 1 {
+            expected.exploration = before.exploration;
+            expected.activity = before.activity;
+            expected.activity_removed = before.activity_removed;
+            expected.preferences = before.preferences;
+        }
+        snapshot::reconcile_seen(&mut expected);
+        assert_content_eq(&published, &expected);
+        assert_eq!(
+            local.data.activity.viewed_total(),
+            if latest_schema == 1 { 5000 } else { 0 }
+        );
+        assert_eq!(remote_schema(&server, &keys)?, 2);
+        task.abort();
+        fs::remove_dir_all(path)?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn restore_v1_empty_local_upgrades_cleanly_and_reaches_third_device() -> TestResult {
+    let (url, server, task) = server().await?;
+    let (root, keys, decoded) = create_v1_chain(&url).await?;
+    let path = directory("v1-empty");
+    let third_path = directory("v1-empty-third");
+    let local = device(&path, &url, MemorySecret::default())?;
+    assert!(!local.local_summary()?.meaningful);
+    local.join(&root.recovery_key(), JoinMode::Restore).await?;
+    let published = remote(&server, &keys)?;
+    let mut expected = decoded.data;
+    snapshot::reconcile_seen(&mut expected);
+    assert_content_eq(&published, &expected);
+    assert_eq!(published.activity, vec![]);
+    assert_eq!(
+        published.activity_removed,
+        Vec::<snapshot::OperationId>::new()
+    );
+    assert_eq!(published.exploration, vec![]);
+    assert_eq!(published.preferences, snapshot::PreferencesV2::default());
+    assert_eq!(remote_schema(&server, &keys)?, 2);
+    let third = device(&third_path, &url, MemorySecret::default())?;
+    third.join(&root.recovery_key(), JoinMode::Restore).await?;
+    assert_content_eq(&third.data.snapshot()?.0, &published);
+    task.abort();
+    fs::remove_dir_all(path)?;
+    fs::remove_dir_all(third_path)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn restore_v1_invalid_remote_failed_put_and_partial_replace_are_safe() -> TestResult {
+    let (url, server, task) = server().await?;
+    let (root, keys, _) = create_v1_chain(&url).await?;
+    let path = directory("v1-failure-safety");
+    let local = migrated_v1_joiner(&path, &url)?;
+    let before = local.data.snapshot()?.0;
+    let good = lock(&server).envelope.clone();
+    // A damaged legacy v1 envelope must leave every migrated local domain untouched.
+    let mut invalid = good.clone();
+    invalid.truncate(invalid.len() - 1);
+    lock(&server).envelope = invalid;
+    assert_eq!(
+        local
+            .join(&root.recovery_key(), JoinMode::Restore)
+            .await
+            .err(),
+        Some(SyncError::InvalidRemoteData)
+    );
+    assert_eq!(local.data.snapshot()?.0, before);
+    lock(&server).envelope = good;
+    lock(&server).fail_next_update = true;
+    assert_eq!(
+        local
+            .join(&root.recovery_key(), JoinMode::Restore)
+            .await
+            .err(),
+        Some(SyncError::ServerError)
+    );
+    assert_eq!(local.data.snapshot()?.0, before);
+    fs::create_dir(path.join("favorites-v3.json.tmp"))?;
+    assert_eq!(
+        local
+            .join(&root.recovery_key(), JoinMode::Restore)
+            .await
+            .err(),
+        Some(SyncError::Persistence)
+    );
+    let published = remote(&server, &keys)?;
+    assert_eq!(published.activity, before.activity);
+    assert!(
+        local.data.snapshot().is_err(),
+        "journal must block half-replaced state"
+    );
+    assert!(!path.join("sync-config.json").exists());
+    fs::remove_dir(path.join("favorites-v3.json.tmp"))?;
+    drop(local);
+    let reopened = device(&path, &url, MemorySecret::default())?;
+    assert_content_eq(&reopened.data.snapshot()?.0, &published);
+    reopened
+        .join(&root.recovery_key(), JoinMode::Restore)
+        .await?;
+    assert_eq!(reopened.data.activity.viewed_total(), 5000);
+    task.abort();
+    fs::remove_dir_all(path)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn merge_v1_keeps_crdt_union_for_represented_and_unsupported_domains() -> TestResult {
+    let (url, server, task) = server().await?;
+    let (root, keys, decoded) = create_v1_chain(&url).await?;
+    let path = directory("v1-merge-unchanged");
+    let local = migrated_v1_joiner(&path, &url)?;
+    let before = local.data.snapshot()?.0;
+    let mut expected = snapshot::merge_snapshots(&before, &decoded.data)?;
+    snapshot::reconcile_seen(&mut expected);
+    local.join(&root.recovery_key(), JoinMode::Merge).await?;
+    let published = remote(&server, &keys)?;
+    assert_content_eq(&published, &expected);
+    assert_eq!(published.activity, before.activity);
+    assert_eq!(published.activity_removed, before.activity_removed);
+    assert_eq!(local.data.activity.viewed_total(), 5000);
+    assert!(published.history_removed.contains(&[1; 16]));
+    assert!(published.favorites_removed.contains(&[2; 16]));
+    assert!(published.seen.contains(&999_999));
+    assert!(published.devices.iter().any(|d| d.device_id == [9; 16]));
     task.abort();
     fs::remove_dir_all(path)?;
     Ok(())
@@ -793,7 +1126,7 @@ async fn summary_counts_are_aggregate_and_tombstone_only_devices_are_not_empty()
     assert!(summary.meaningful);
 
     let default = SyncSnapshot::default();
-    assert!(!state::LocalSyncSummary::from_snapshot(&default).meaningful);
+    assert!(!state::LocalSyncSummary::from_snapshot(&default, [0; 16]).meaningful);
     for (label, changed) in [
         (
             "seen",
@@ -825,7 +1158,7 @@ async fn summary_counts_are_aggregate_and_tombstone_only_devices_are_not_empty()
         ),
     ] {
         assert!(
-            state::LocalSyncSummary::from_snapshot(&changed).meaningful,
+            state::LocalSyncSummary::from_snapshot(&changed, [0; 16]).meaningful,
             "{label}"
         );
     }
@@ -956,5 +1289,41 @@ async fn unmodified_server_incident_restore_and_merge() -> TestResult {
         );
         t.finish()?;
     }
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires RANDOM_FRAME_SYNC_E2E_URL pointing to the unmodified local server"]
+async fn unmodified_server_v1_restore_preserves_migrated_state() -> TestResult {
+    let url = std::env::var("RANDOM_FRAME_SYNC_E2E_URL")?;
+    let (root, keys, decoded) = create_v1_chain(&url).await?;
+    let path = directory("e2e-v1-migrated");
+    let third_path = directory("e2e-v1-third");
+    let local = migrated_v1_joiner(&path, &url)?;
+    let before = local.data.snapshot()?.0;
+    local.join(&root.recovery_key(), JoinMode::Restore).await?;
+    let (_, envelope) = SyncTransport::new(&url)?
+        .get(keys.sync_id(), &keys.client_auth_token())
+        .await?;
+    let published = snapshot::decode_snapshot(&keys.decrypt_snapshot(keys.sync_id(), &envelope)?)?;
+    assert_eq!(published.original_schema_version, 2);
+    assert_eq!(published.data.history, decoded.data.history);
+    assert_eq!(published.data.history_removed, decoded.data.history_removed);
+    assert_eq!(published.data.favorites, decoded.data.favorites);
+    assert_eq!(
+        published.data.favorites_removed,
+        decoded.data.favorites_removed
+    );
+    assert_eq!(published.data.activity, before.activity);
+    assert_eq!(published.data.activity_removed, before.activity_removed);
+    assert_eq!(published.data.exploration, before.exploration);
+    assert_eq!(published.data.preferences, before.preferences);
+    assert_eq!(local.data.activity.viewed_total(), 5000);
+    let third = device(&third_path, &url, MemorySecret::default())?;
+    third.join(&root.recovery_key(), JoinMode::Restore).await?;
+    assert_content_eq(&third.data.snapshot()?.0, &published.data);
+    assert_eq!(third.data.activity.viewed_total(), 5000);
+    fs::remove_dir_all(path)?;
+    fs::remove_dir_all(third_path)?;
     Ok(())
 }

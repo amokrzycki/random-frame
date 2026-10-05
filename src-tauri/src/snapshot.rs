@@ -150,11 +150,59 @@ pub struct SyncSnapshot {
     pub preferences: PreferencesV2,
     pub devices: Vec<DeviceRecord>,
 }
+impl SyncSnapshot {
+    /// Any content, deletion or explicit preference Merge can contribute. The automatic
+    /// self roster record alone is not meaningful; records of other devices are.
+    pub fn has_meaningful_synchronized_state(&self, this_device: OperationId) -> bool {
+        !(self.seen.is_empty()
+            && self.history.is_empty()
+            && self.history_removed.is_empty()
+            && self.favorites.is_empty()
+            && self.favorites_removed.is_empty()
+            && self.exploration.is_empty()
+            && self.activity.is_empty()
+            && self.activity_removed.is_empty()
+            && self.preferences == PreferencesV2::default()
+            && self.devices.iter().all(|d| d.device_id == this_device))
+    }
+}
+
+/// Schema capability, independent of whether a represented section happens to be empty.
+#[derive(Clone, Copy)]
+pub(crate) enum SyncDomain {
+    Seen,
+    History,
+    HistoryRemovals,
+    Favorites,
+    FavoriteRemovals,
+    Exploration,
+    Activity,
+    ActivityRemovals,
+    Preferences,
+    Devices,
+}
 #[derive(Debug)]
 pub struct DecodedSnapshot {
     pub original_schema_version: u32,
     pub data: SyncSnapshot,
     pub needs_upgrade: bool,
+}
+impl DecodedSnapshot {
+    pub(crate) fn represents(&self, domain: SyncDomain) -> bool {
+        match self.original_schema_version {
+            1 => matches!(
+                domain,
+                SyncDomain::Seen
+                    | SyncDomain::History
+                    | SyncDomain::HistoryRemovals
+                    | SyncDomain::Favorites
+                    | SyncDomain::FavoriteRemovals
+            ),
+            2 => true,
+            // Unsupported schemas cannot reach Restore through decode_snapshot.
+            _ => false,
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SnapshotError {

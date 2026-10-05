@@ -29,6 +29,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
     return 0;
   };
   localStorage.setItem("random-frame-risk-accepted", "accepted");
+  localStorage.setItem("random-frame-viewing-stats", JSON.stringify({ day: "2026-10-02", today: 1, total: 2 }));
   sessionStorage.setItem(
     "prntsc-gallery-history",
     JSON.stringify({ history: [{ id: "saved1" }, { id: "saved2" }], index: 1 }),
@@ -51,9 +52,14 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   });
   window.__TAURI_INTERNALS__ = {
     async invoke(command, args, options) {
-      if (command === "complete_state_imports") return null;
-      if (command === "get_user_preferences" || command === "set_user_preferences")
+      if (command === "complete_state_imports") {
+        invocations.push({ command, args });
+        return null;
+      }
+      if (command === "get_user_preferences" || command === "set_user_preferences") {
+        invocations.push({ command, args });
         return { theme: null, historyPageSize: null };
+      }
       if (command === "import_session_history") {
         invocations.push({ command, args });
         if (!persisted.history.length) persisted = { history: structuredClone(args.items), index: args.index };
@@ -149,6 +155,17 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   await flush();
   await flush();
   assert.ok(invocations.some(({ command }) => command === "startup_sync"));
+  for (const command of ["import_session_history", "migrate_viewing_stats", "set_user_preferences"]) {
+    assert.ok(
+      invocations.findIndex((call) => call.command === command) <
+        invocations.findIndex((call) => call.command === "complete_state_imports"),
+      command,
+    );
+  }
+  assert.ok(
+    invocations.findIndex(({ command }) => command === "complete_state_imports") <
+      invocations.findIndex(({ command }) => command === "startup_sync"),
+  );
   assert.ok(
     invocations.findIndex(({ command }) => command === "import_session_history") <
       invocations.findIndex(({ command }) => command === "startup_sync"),

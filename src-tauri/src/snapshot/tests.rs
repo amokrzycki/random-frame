@@ -236,3 +236,128 @@ fn plaintext_budget_has_exact_boundary_without_trimming() -> Result<(), Snapshot
     assert_eq!(state.seen.len(), MAX_ENTRIES);
     Ok(())
 }
+
+#[test]
+fn schema_capability_is_independent_of_empty_sections() -> Result<(), SnapshotError> {
+    let old = decode_snapshot(
+        &v1::serialize_snapshot(&v1::SyncSnapshot::default())
+            .map_err(|_| SnapshotError::InvalidValue)?,
+    )?;
+    let new = decode_snapshot(&serialize_snapshot(&SyncSnapshot::default())?)?;
+    for (domain, represented_v1) in [
+        (SyncDomain::Seen, true),
+        (SyncDomain::History, true),
+        (SyncDomain::HistoryRemovals, true),
+        (SyncDomain::Favorites, true),
+        (SyncDomain::FavoriteRemovals, true),
+        (SyncDomain::Exploration, false),
+        (SyncDomain::Activity, false),
+        (SyncDomain::ActivityRemovals, false),
+        (SyncDomain::Preferences, false),
+        (SyncDomain::Devices, false),
+    ] {
+        assert_eq!(old.represents(domain), represented_v1);
+        assert!(new.represents(domain));
+    }
+    Ok(())
+}
+
+#[test]
+fn meaningful_state_covers_every_domain_and_excludes_only_self_roster() {
+    let self_id = [1; 16];
+    let default = SyncSnapshot::default();
+    assert!(!default.has_meaningful_synchronized_state(self_id));
+    assert!(!SyncSnapshot {
+        devices: vec![device(1, 1)],
+        ..default.clone()
+    }
+    .has_meaningful_synchronized_state(self_id));
+    let history = SyncRecord {
+        operation_id: [1; 16],
+        order_at: 1,
+        last_view: ViewStamp::inferred(1),
+        source: "prntsc".into(),
+        id: "0".into(),
+        source_page_url: "https://prnt.sc/0".into(),
+    };
+    for state in [
+        SyncSnapshot {
+            seen: vec![1],
+            ..default.clone()
+        },
+        SyncSnapshot {
+            history: vec![history],
+            ..default.clone()
+        },
+        SyncSnapshot {
+            history_removed: vec![[1; 16]],
+            ..default.clone()
+        },
+        SyncSnapshot {
+            favorites: vec![FavoriteRecord {
+                operation_id: [1; 16],
+                added_at: 1,
+                source: "prntsc".into(),
+                id: "0".into(),
+                source_page_url: "https://prnt.sc/0".into(),
+            }],
+            ..default.clone()
+        },
+        SyncSnapshot {
+            favorites_removed: vec![[1; 16]],
+            ..default.clone()
+        },
+        SyncSnapshot {
+            exploration: vec![ExplorationRecord {
+                source: "prntsc".into(),
+                id: "0".into(),
+                evidence: 0,
+            }],
+            ..default.clone()
+        },
+        SyncSnapshot {
+            activity: vec![discovery(1, "0", "2026-10-02")],
+            ..default.clone()
+        },
+        SyncSnapshot {
+            activity: vec![ActivityOperation::LegacyImport {
+                operation_id: [1; 16],
+                viewed_total: 0,
+                days: BTreeMap::new(),
+            }],
+            ..default.clone()
+        },
+        SyncSnapshot {
+            activity_removed: vec![[1; 16]],
+            ..default.clone()
+        },
+        SyncSnapshot {
+            preferences: PreferencesV2 {
+                theme: Some(Register {
+                    clock: 1,
+                    operation_id: [1; 16],
+                    value: "system".into(),
+                }),
+                history_page_size: None,
+            },
+            ..default.clone()
+        },
+        SyncSnapshot {
+            preferences: PreferencesV2 {
+                theme: None,
+                history_page_size: Some(Register {
+                    clock: 1,
+                    operation_id: [1; 16],
+                    value: 10,
+                }),
+            },
+            ..default.clone()
+        },
+        SyncSnapshot {
+            devices: vec![device(2, 1)],
+            ..default
+        },
+    ] {
+        assert!(state.has_meaningful_synchronized_state(self_id));
+    }
+}

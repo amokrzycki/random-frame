@@ -103,9 +103,9 @@ pub(super) async fn push_with_retries(
 }
 
 /// First publication of a Restore join. Every attempt rebuilds the upload from the latest
-/// remote snapshot plus this device's roster record; local stores are never read, so a 412
-/// retry cannot turn into a merge of pre-join state. Local stores are replaced only after
-/// the server accepted the upload.
+/// remote schema and snapshot, with unsupported content domains taken from one validated,
+/// durable local snapshot. A retry that observes v2 stops using preserved local domains.
+/// Represented local state never enters the upload; replacement follows server acceptance.
 pub(super) async fn restore_with_retries(
     data: &SyncData<'_>,
     transport: Option<&SyncTransport>,
@@ -115,8 +115,15 @@ pub(super) async fn restore_with_retries(
 ) -> Result<(i64, Generation), SyncError> {
     let transport = transport.ok_or(SyncError::InvalidEndpoint)?;
     let mut schema_floor = remote.original_schema_version;
+    let local = if remote.needs_upgrade {
+        data.state.snapshot().map_err(|_| SyncError::Persistence)?.0
+    } else {
+        // V2 Restore continues to ignore local content. The schema floor prevents
+        // any retry from falling back to v1 and needing unsupported-domain state.
+        snapshot::SyncSnapshot::default()
+    };
     for attempt in 0..MAX_CAS_ATTEMPTS {
-        let target = data.restore_target(&remote.data, now_ms())?;
+        let target = data.restore_target(&remote, &local, now_ms())?;
         let bytes = snapshot::serialize_snapshot(&target).map_err(|error| match error {
             snapshot::SnapshotError::PayloadTooLarge => SyncError::BodyTooLarge,
             _ => SyncError::Persistence,

@@ -148,7 +148,9 @@ function renderJoin(): void {
     deletions > 0
       ? `This device has ${plural(deletions, "previous deletion", "previous deletions")} that will also be merged.`
       : "";
-  elements.syncJoin.textContent = selectedJoinMode() === "merge" ? "Merge this device" : "Restore this device";
+  const mode = selectedJoinMode();
+  elements.syncJoin.textContent =
+    mode === "merge" ? "Merge this device" : mode === "restore" ? "Restore this device" : "Connect this device";
 }
 
 async function loadJoinSummary(): Promise<void> {
@@ -168,7 +170,7 @@ async function loadJoinSummary(): Promise<void> {
 
 function resetJoin(): void {
   elements.syncRecoveryInput.value = "";
-  elements.syncJoinRestore.checked = true;
+  elements.syncJoinRestore.checked = false;
   elements.syncJoinMerge.checked = false;
   joinSummary = null;
   joinSummaryLoaded = false;
@@ -313,7 +315,7 @@ function render(): void {
   elements.syncShowKey.disabled = busy || !supported;
   elements.syncNameInput.disabled = busy || !supported;
   elements.syncEnable.disabled = busy || !supported || !status;
-  elements.syncJoin.disabled = busy || !supported || !status || !joinSummaryLoaded;
+  elements.syncJoin.disabled = busy || !supported || !status || !joinSummaryLoaded || selectedJoinMode() === null;
   for (const option of [elements.syncJoinRestore, elements.syncJoinMerge]) option.disabled = busy;
   elements.syncLeave.disabled = busy || !supported || status?.state === "syncing";
   elements.syncLeaveConfirmButton.disabled = busy;
@@ -509,7 +511,10 @@ export function bindSyncDialogEvents(): void {
     void loadJoinSummary();
   });
   for (const option of [elements.syncJoinRestore, elements.syncJoinMerge])
-    option.addEventListener("change", renderJoin);
+    option.addEventListener("change", () => {
+      renderJoin();
+      render();
+    });
   elements.syncJoinCancel.addEventListener("click", () => {
     elements.syncJoinForm.hidden = true;
     delete elements.syncDialog.dataset.joining;
@@ -542,6 +547,7 @@ export function bindSyncDialogEvents(): void {
   elements.syncJoinForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const mode = selectedJoinMode();
+    if (busy || !joinSummaryLoaded) return;
     if (!mode) {
       showError("Choose how this device should join your Sync.");
       elements.syncJoinRestore.focus();

@@ -102,7 +102,8 @@ before anything runs. After either join completes, the device is a normal partic
 and every later sync is the same CRDT sync. Recovery keys, credentials, the envelope
 and the snapshot format are unchanged.
 
-**Restore** (the UI default): the remote state wins for this device's pre-join state.
+**Restore**: the remote state wins for pre-join domains its schema represents.
+Meaningful local state requires an explicit choice; neither radio is preselected.
 **Merge**: CRDT union of the remote and the whole local state, previous deletions
 included. The 2026-10-05 incident shape (remote 5,752 History; local 3 additions and
 1,214 removals matching remote operations) gives 5,752 under Restore and 4,541 under
@@ -116,30 +117,55 @@ stamp, CAS retries merge the newer remote into local, and schema-downgrade check
 
 ### Restore
 
-Restore replaces every synchronized domain (Seen, History and removals, Favorites and
-removals, Exploration, Activity and removals, preferences, device roster) and nothing
-else. Device identity, thumbnails, Sync credentials/config, schema floors and
-publication receipts are device-local and untouched.
+V2 Restore replaces every synchronized domain (Seen, History and removals, Favorites
+and removals, Exploration, Activity and removals, preferences, device roster).
+V1 Restore is a schema-aware migration to v2, using `DecodedSnapshot::represents`:
+
+| Domain | V1 capability | Restore source |
+| --- | --- | --- |
+| Seen | Represented | Remote; never copy the local Seen collection |
+| History and History removals | Represented | Remote; discard local additions and tombstones |
+| Favorites and Favorite removals | Represented | Remote; discard local additions and tombstones |
+| Exploration | Unsupported | Validated, durable local v2 records |
+| Activity and Activity removals | Unsupported | Validated, durable local v2 operations and removals |
+| Preferences | Unsupported | Local v2 registers, including explicit values and their stamps |
+| Device roster and metadata | Unsupported | Register only this device from its identity; discard stale roster records |
+
+The existing persistence invariant still reconciles Seen from retained viewed History
+and Exploration evidence. This can derive Seen IDs from preserved Exploration, but
+never copies unrelated local Seen additions. It keeps the migration, restart and
+third-device results consistent. Reconciliation never creates Activity.
+
+Local Activity keeps operation IDs, LegacyImport IDs, buckets and removals exactly;
+it is neither rebuilt from History nor re-imported from browser counters. Empty local
+unsupported domains remain empty, without synthetic operations. This is replacement
+by domain capability, not CRDT union: all represented local domains are discarded.
+Device identity, thumbnails, Sync credentials/config, schema floors and publication
+receipts remain device-local and untouched.
 
 Sequence, in `engine::join_inner` and `cas::restore_with_retries`:
 
 1. GET the remote envelope.
 2. Authenticate, decrypt, decode, and apply the downgrade rules (`decode_remote`,
    shared with Merge). Any failure returns here with local state unchanged.
-3. Build the upload from the remote snapshot plus this device's own roster record
-   and last-sync register (`restore_target`). No local store is read.
+3. For an upgrade, capture one validated local snapshot after all imports are durable.
+   Build the upload with `restore_target` from the latest remote schema's represented
+   domains and only unsupported local content, plus this device's roster record and
+   last-sync register. V2 Restore reads no local content.
 4. PUT with `If-Match`, using the existing publication/schema-floor receipts.
 5. On 412, GET the latest remote and go back to step 2 with the same mode, up to
-   the same three attempts. Because step 3 never reads local stores, a retry cannot
-   become a Merge. A conflict after the last attempt returns `conflict`, local state
-   unchanged.
+   the same three attempts. Latest v1 continues the same migration using the captured
+   local state. Latest v2 is fully authoritative, including empty Activity, Exploration
+   and preferences: preserved local domains are no longer injected. Downgrade checks
+   still prohibit a subsequent v1. No retry imports represented local domains. A final
+   conflict returns `conflict` with local content unchanged.
 6. After the server accepted the PUT, `PersistentState::replace_synchronized` writes
    the uploaded snapshot through the existing `state-transaction.json` journal
    (`replace: true`). Each store step is set-to-target, so a crash replays the journal
    at the next start and finishes the replacement. Half-local, half-remote state is
    never exported (`snapshot()` runs recovery first).
 7. Only then are the secret and `sync-config.json` saved, as in Merge. If pairing
-   fails, the device holds exactly the remote state plus its roster record and no
+   fails, the device holds exactly the uploaded target plus its roster record and no
    credentials; retrying either mode is safe, and no pre-join deletion can leak.
 
 This orders the replacement after the PUT rather than before it: a failed or refused
@@ -166,18 +192,30 @@ installation are not published under Restore; Merge keeps publishing them as bef
   session import) and the preferences `imported` flag (localStorage preferences).
 - Prepared "clear history" requests (`history-clear.json`) hold pre-join operation
   IDs; they are voided so a later commit cannot publish those deletions.
-- Preferences become the remote values, including "unset" when the remote has none.
-- A v1 remote has no Activity operations, so Restore leaves Activity empty rather than
-  keeping a local import that the shared copy never had.
+- V2 preferences become remote values, including "unset"; v1 preserves local registers.
+- V1 preserves the migrated Activity ledger; restart uses the durable v2 ledger rather
+  than legacy files or browser counters. `imports_ready` remains mandatory for summary,
+  create, join and startup Sync. Browser History, Activity and preferences import before
+  `complete_state_imports()`; failures keep the gate closed.
 
 ### Local summary
 
 `get_sync_join_summary` returns aggregate counts only (History, Favorites, previous
 deletions across History/Favorites/Activity) and `meaningful`. A device has meaningful
-local synchronized state if anything other than its own roster record is present:
-Seen, History, Favorites, Exploration, Activity, any removal, or a set preference. A
-device with only deletions is not empty. When nothing is present, the UI skips the
-choice and runs Restore; if the summary cannot be read it shows both choices.
+local synchronized state according to `SyncSnapshot::has_meaningful_synchronized_state`:
+any Seen, History, History removal, Favorite, Favorite removal, Exploration record,
+Activity operation (including LegacyImport), Activity removal, explicit preference
+register, or roster record for another device. Only the automatic self roster record
+is excluded; explicit default-valued preferences still count. A tombstone-only device
+is not empty. No visible History length, installation age or platform decides emptiness.
+
+For meaningful or unknown state, both native radios start unchecked and submit stays
+disabled until a deliberate selection. The form handler also rejects an absent mode
+and a still-loading summary, so Enter cannot choose a default. A failed join keeps the
+selected mode and retries exactly that choice. Success, cancel and dialog reset return
+to neutral. Button text never decides the mode. Truly empty state skips the choice and
+uses automatic Restore. Fake-DOM tests verify form guards and native accessible markup;
+they cannot simulate browser radio arrow keys or implicit Enter submission.
 
 ## Verification
 
