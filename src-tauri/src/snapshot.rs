@@ -137,6 +137,14 @@ pub struct DeviceRecord {
     pub joined_at_ms: u64,
     pub last_sync: Option<Register<u64>>,
 }
+/// Zero means unknown, not an earlier historical join.
+pub(crate) fn earliest_joined_at(a: u64, b: u64) -> u64 {
+    match (a, b) {
+        (0, known) | (known, 0) => known,
+        _ => a.min(b),
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Default, Deserialize, Serialize)]
 pub struct SyncSnapshot {
     pub seen: Vec<u64>,

@@ -144,8 +144,31 @@ impl PersistentState {
         ]
     }
 
-    pub fn stage_self_last_sync(&self, at_ms: u64) -> Result<(), AppError> {
-        self.read(|| self.preferences.update_self_last_sync(at_ms))
+    /// Stage only in the upload copy. Failed publication must not alter the durable roster.
+    pub fn snapshot_for_publication(
+        &self,
+        at_ms: u64,
+    ) -> Result<(SyncSnapshot, Generation), AppError> {
+        self.read(|| {
+            let mut snapshot = self.snapshot_unlocked()?;
+            PreferenceStore::stage_self_last_sync(&mut snapshot, &self.identity, at_ms);
+            Ok((snapshot, self.generation()))
+        })
+    }
+
+    /// Acknowledge the exact self record in the accepted envelope, preserving edits made
+    /// during HTTP. Only the preference generation caused by this acknowledgement is clean.
+    pub fn record_published_self(
+        &self,
+        record: crate::snapshot::DeviceRecord,
+        mut generation: Generation,
+    ) -> Result<Generation, AppError> {
+        self.read(|| {
+            self.preferences
+                .merge(crate::snapshot::PreferencesV2::default(), vec![record])?;
+            generation[5] = self.preferences.generation();
+            Ok(generation)
+        })
     }
 
     pub fn set_device_name(&self, name: &str) -> Result<(), AppError> {

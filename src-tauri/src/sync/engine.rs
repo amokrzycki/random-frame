@@ -222,10 +222,7 @@ impl<S: SecretStore> SyncEngine<S> {
     async fn create_inner(&self) -> Result<CreateSyncResult, SyncError> {
         let root = RootSecret::generate();
         let keys = root.derive();
-        self.data
-            .stage_self_last_sync(now_ms())
-            .map_err(|_| SyncError::Persistence)?;
-        let (snapshot, generation) = self.data().local_snapshot()?;
+        let (snapshot, generation, self_record) = self.data().local_snapshot()?;
         let envelope = keys
             .encrypt_snapshot(&snapshot)
             .map_err(|_| SyncError::InvalidRemoteData)?;
@@ -247,6 +244,14 @@ impl<S: SecretStore> SyncEngine<S> {
                 local_pairing_error: Some(SyncError::Persistence),
             });
         }
+        let Ok(generation) = self.data.record_published_self(self_record, generation) else {
+            self.set_state(SyncState::Error, Some(&SyncError::Persistence), None);
+            return Ok(CreateSyncResult {
+                recovery_key,
+                status: self.status_snapshot(),
+                local_pairing_error: Some(SyncError::Persistence),
+            });
+        };
         if let Err(error) = self.secret.store(root).await {
             let category = if self.secret.delete().await.is_err() {
                 SyncError::CorruptLocalState
@@ -332,9 +337,6 @@ impl<S: SecretStore> SyncEngine<S> {
         let (revision, generation) = match mode {
             JoinMode::Merge => {
                 let schema = self.data().merge_remote(&keys, &remote, 1, revision)?;
-                self.data
-                    .stage_self_last_sync(now_ms())
-                    .map_err(|_| SyncError::Persistence)?;
                 push_with_retries(
                     &self.data(),
                     self.transport.as_ref(),
@@ -417,9 +419,6 @@ impl<S: SecretStore> SyncEngine<S> {
             self.save(&config)?;
         }
         self.save(&config)?;
-        self.data
-            .stage_self_last_sync(now_ms())
-            .map_err(|_| SyncError::Persistence)?;
         let (revision, generation) = push_with_retries(
             &self.data(),
             self.transport.as_ref(),

@@ -210,6 +210,22 @@ impl PreferenceStore {
     /// leaving every other record as given.
     pub fn register_self(snapshot: &mut SyncSnapshot, identity: &DeviceIdentity, at_ms: u64) {
         snapshot.devices = Self::ensure_self_record(&snapshot.devices, identity);
+        Self::stage_self_last_sync(snapshot, identity, at_ms);
+    }
+
+    /// Publication updates only the last-sync register, preserving synchronized metadata.
+    pub fn stage_self_last_sync(
+        snapshot: &mut SyncSnapshot,
+        identity: &DeviceIdentity,
+        at_ms: u64,
+    ) {
+        if !snapshot
+            .devices
+            .iter()
+            .any(|d| d.device_id == identity.id())
+        {
+            snapshot.devices = Self::ensure_self_record(&snapshot.devices, identity);
+        }
         snapshot.devices.sort_by_key(|d| d.device_id);
         let clock = snapshot_clock(snapshot).saturating_add(1);
         let id = identity.id();
@@ -292,45 +308,6 @@ impl PreferenceStore {
                 },
                 joined_at_ms: now_ms(),
                 last_sync: None,
-            });
-        }
-        self.save_changed(&mut data, next)
-    }
-
-    pub fn update_self_last_sync(&self, at_ms: u64) -> Result<(), AppError> {
-        let identity = self
-            .identity
-            .as_ref()
-            .ok_or_else(|| AppError::invalid_input("No device identity"))?;
-        let mut data = self
-            .data
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let id = identity.id();
-        let clock = max_clock(&data)
-            .checked_add(1)
-            .ok_or_else(|| AppError::persistence("Preference clock exhausted"))?;
-        let mut next = data.clone();
-        if let Some(slot) = next.devices.iter_mut().find(|d| d.device_id == id) {
-            slot.last_sync = Some(Register {
-                clock,
-                operation_id: operation_id(),
-                value: at_ms,
-            });
-        } else {
-            next.devices.push(DeviceRecord {
-                device_id: id,
-                metadata: Register {
-                    clock,
-                    operation_id: operation_id(),
-                    value: identity.metadata(),
-                },
-                joined_at_ms: now_ms(),
-                last_sync: Some(Register {
-                    clock,
-                    operation_id: operation_id(),
-                    value: at_ms,
-                }),
             });
         }
         self.save_changed(&mut data, next)

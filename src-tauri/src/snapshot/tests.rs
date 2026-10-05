@@ -12,6 +12,7 @@ fn v1_snapshot_preserves_operations_and_tombstones() -> Result<(), SnapshotError
     assert_eq!(decoded.data.favorites[0].operation_id, [3; 16]);
     assert_eq!(decoded.data.favorites_removed, vec![[4; 16]]);
     assert_eq!(decoded.data.activity, vec![]);
+    assert_eq!(decoded.data.devices, vec![]);
     assert!(decoded.data.history[0].last_view.day_inferred);
     Ok(())
 }
@@ -360,4 +361,44 @@ fn meaningful_state_covers_every_domain_and_excludes_only_self_roster() {
     ] {
         assert!(state.has_meaningful_synchronized_state(self_id));
     }
+}
+
+#[test]
+fn roster_merge_keeps_earliest_nonzero_join_time() -> Result<(), SnapshotError> {
+    for (a, b, expected) in [(200, 100, 100), (0, 100, 100), (100, 0, 100), (0, 0, 0)] {
+        let left = SyncSnapshot {
+            devices: vec![DeviceRecord {
+                joined_at_ms: a,
+                ..device(1, 1)
+            }],
+            ..SyncSnapshot::default()
+        };
+        let right = SyncSnapshot {
+            devices: vec![DeviceRecord {
+                joined_at_ms: b,
+                ..device(1, 1)
+            }],
+            ..SyncSnapshot::default()
+        };
+        assert_eq!(
+            merge_snapshots(&left, &right)?.devices[0].joined_at_ms,
+            expected
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn legacy_v2_zero_and_absent_device_dates_roundtrip() -> Result<(), SnapshotError> {
+    let record = DeviceRecord {
+        joined_at_ms: 0,
+        last_sync: None,
+        ..device(1, 1)
+    };
+    let state = SyncSnapshot {
+        devices: vec![record],
+        ..Default::default()
+    };
+    assert_eq!(parse_snapshot(&serialize_snapshot(&state)?)?, state);
+    Ok(())
 }
