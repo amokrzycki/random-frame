@@ -37,7 +37,7 @@ pub(super) async fn push_with_retries(
     mut schema_floor: u32,
 ) -> Result<(i64, Generation), SyncError> {
     for attempt in 0..MAX_CAS_ATTEMPTS {
-        let (snapshot, generation) = data.local_snapshot()?;
+        let (snapshot, generation, self_record) = data.local_snapshot()?;
         let envelope = keys
             .encrypt_snapshot(&snapshot)
             .map_err(|_| SyncError::InvalidRemoteData)?;
@@ -59,6 +59,10 @@ pub(super) async fn push_with_retries(
             Ok(next) => {
                 data.state
                     .complete_publication(keys.sync_id())
+                    .map_err(|_| SyncError::Persistence)?;
+                let generation = data
+                    .state
+                    .record_published_self(self_record, generation)
                     .map_err(|_| SyncError::Persistence)?;
                 return Ok((next, generation));
             }

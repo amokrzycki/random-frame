@@ -224,8 +224,8 @@ function deviceRow(device: DeviceSummary): HTMLLIElement {
   // textContent only: device names come from other devices.
   meta.textContent = [
     platformNames[device.platform.toLowerCase()] ?? device.platform,
-    `First joined: ${formatWhen(device.joinedAt)}`,
-    `Last synced: ${formatWhen(device.lastSyncedAt)}`,
+    `First joined: ${formatWhen(device.joinedAtMs)}`,
+    `Last synced: ${formatWhen(device.lastSyncedAtMs)}`,
   ]
     .filter(Boolean)
     .join(" · ");

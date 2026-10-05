@@ -6,8 +6,8 @@ export interface DeviceSummary {
   deviceId: string;
   displayName: string;
   platform: string;
-  joinedAt: number;
-  lastSyncedAt: number | null;
+  joinedAtMs: number;
+  lastSyncedAtMs: number | null;
   thisDevice: boolean;
 }
 

@@ -54,6 +54,9 @@ fn preference_store_keeps_self_device_and_tracks_last_sync() -> Result<(), AppEr
     let (_, devices) = store.sync_state();
     assert_eq!(devices.len(), 1);
     assert_eq!(devices[0].device_id, identity.id());
+    let joined = devices[0].joined_at_ms;
+    assert!(joined > 0);
+    assert!(devices[0].last_sync.is_none());
     assert_eq!(
         devices[0].metadata.value.display_name,
         identity.display_name()
@@ -64,11 +67,32 @@ fn preference_store_keeps_self_device_and_tracks_last_sync() -> Result<(), AppEr
     let (_, devices) = store.sync_state();
     assert_eq!(devices[0].metadata.value.display_name, "Office");
 
-    store.update_self_last_sync(1_000_000)?;
+    let mut upload = crate::snapshot::SyncSnapshot {
+        devices: store.sync_state().1,
+        ..Default::default()
+    };
+    PreferenceStore::stage_self_last_sync(&mut upload, &identity, 1_000_000);
+    assert!(store.sync_state().1[0].last_sync.is_none());
+    store.merge(crate::snapshot::PreferencesV2::default(), upload.devices)?;
     let (_, devices) = PreferenceStore::with_identity(&dir, Arc::clone(&identity))?.sync_state();
     assert_eq!(
         devices[0].last_sync.as_ref().map(|r| r.value),
         Some(1_000_000)
     );
+    assert_eq!(devices[0].joined_at_ms, joined);
+    fs::remove_dir_all(dir).map_err(AppError::persistence)
+}
+
+#[test]
+fn legacy_zero_join_time_survives_preferences_restart() -> Result<(), AppError> {
+    let dir = test_directory("legacy-device-date");
+    let identity = Arc::new(DeviceIdentity::new(&dir)?);
+    let store = PreferenceStore::with_identity(&dir, Arc::clone(&identity))?;
+    let mut devices = store.sync_state().1;
+    devices[0].joined_at_ms = 0;
+    store.replace(crate::snapshot::PreferencesV2::default(), devices)?;
+    let restarted = PreferenceStore::with_identity(&dir, identity)?;
+    assert_eq!(restarted.sync_state().1[0].joined_at_ms, 0);
+    assert!(restarted.sync_state().1[0].last_sync.is_none());
     fs::remove_dir_all(dir).map_err(AppError::persistence)
 }

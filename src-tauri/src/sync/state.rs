@@ -99,7 +99,9 @@ pub struct DeviceSummary {
     pub device_id: String,
     pub display_name: String,
     pub platform: String,
+    #[serde(rename = "joinedAtMs")]
     pub joined_at_ms: u64,
+    #[serde(rename = "lastSyncedAtMs")]
     pub last_synced_at_ms: Option<u64>,
     pub this_device: bool,
 }
@@ -177,4 +179,34 @@ pub(super) fn save_config(path: &Path, config: &SyncLocalConfig) -> Result<(), S
 
 fn schema_v1() -> u32 {
     1
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DeviceSummary;
+
+    #[test]
+    fn device_summary_matches_frontend_ipc_fixture() -> Result<(), serde_json::Error> {
+        let device = DeviceSummary {
+            device_id: "aabbccdd".into(),
+            display_name: "Studio laptop".into(),
+            platform: "linux".into(),
+            joined_at_ms: 1_700_000_000_000,
+            last_synced_at_ms: Some(1_700_000_060_000),
+            this_device: true,
+        };
+        let expected: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../test/fixtures/sync-device-summary.json"
+        ))?;
+        assert_eq!(serde_json::to_value(&device)?, expected);
+        let legacy = DeviceSummary {
+            joined_at_ms: 0,
+            last_synced_at_ms: None,
+            ..device
+        };
+        let json = serde_json::to_value(legacy)?;
+        assert_eq!(json["joinedAtMs"], 0);
+        assert!(json["lastSyncedAtMs"].is_null());
+        Ok(())
+    }
 }

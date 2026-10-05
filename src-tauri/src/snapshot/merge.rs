@@ -96,7 +96,7 @@ pub fn merge_snapshots(a: &SyncSnapshot, b: &SyncSnapshot) -> Result<SyncSnapsho
                 a.metadata = register(Some(&a.metadata), Some(&b.metadata))?
                     .ok_or(SnapshotError::InvalidValue)?;
                 a.last_sync = register(a.last_sync.as_ref(), b.last_sync.as_ref())?;
-                a.joined_at_ms = a.joined_at_ms.min(b.joined_at_ms);
+                a.joined_at_ms = super::earliest_joined_at(a.joined_at_ms, b.joined_at_ms);
                 Ok(())
             },
         )?,

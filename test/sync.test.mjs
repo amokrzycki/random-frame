@@ -23,16 +23,16 @@ const thisDevice = {
   deviceId: "aabbccdd",
   displayName: "Studio laptop",
   platform: "linux",
-  joinedAt: NOW - 86_400_000 * 9,
-  lastSyncedAt: NOW - 60_000,
+  joinedAtMs: NOW - 86_400_000 * 9,
+  lastSyncedAtMs: NOW - 60_000,
   thisDevice: true,
 };
 const phone = {
   deviceId: "11223344",
   displayName: "Pocket phone",
   platform: "android",
-  joinedAt: NOW - 86_400_000 * 3,
-  lastSyncedAt: NOW - 86_400_000,
+  joinedAtMs: NOW - 86_400_000 * 3,
+  lastSyncedAtMs: NOW - 86_400_000,
   thisDevice: false,
 };
 const paired = {
@@ -367,7 +367,7 @@ test("the status says what Sync covers and what recovery doesn’t bring back", 
 });
 
 test("the roster marks this device, shows missing dates, renders names as text, and offers no revocation", async () => {
-  const hostile = { ...phone, displayName: "<img src=x onerror=alert(1)>", joinedAt: 0, lastSyncedAt: null };
+  const hostile = { ...phone, displayName: "<img src=x onerror=alert(1)>", joinedAtMs: 0, lastSyncedAtMs: null };
   await open({ ...paired, devices: [hostile, thisDevice] });
   const rows = get("sync-devices").children;
   assert.equal(rows.length, 2);
@@ -906,5 +906,15 @@ test("join copy is concrete, avoids vague promises, and keeps developer terms ou
   assert.doesNotMatch(
     copy,
     /keep local data|combine safely|nothing will be lost|tombstone|CRDT|operation|revision|snapshot/i,
+  );
+});
+
+test("the roster renders the Rust serialization contract fixture", async () => {
+  const device = JSON.parse(await readFile(new URL("./fixtures/sync-device-summary.json", import.meta.url), "utf8"));
+  await open({ ...paired, devices: [device] });
+  const format = (at) => new Date(at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  assert.equal(
+    rowTexts(get("sync-devices").children[0]).at(-1),
+    `Linux · First joined: ${format(1700000000000)} · Last synced: ${format(1700000060000)}`,
   );
 });

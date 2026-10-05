@@ -104,6 +104,7 @@ struct ServerState {
     v1_on_update: Option<Vec<u8>>,
     state_on_update: Option<Arc<crate::persistence::PersistentState>>,
     block_config_on_update: Option<PathBuf>,
+    block_preferences_on_update: Option<PathBuf>,
     history_on_update: Option<(Arc<HistoryStore>, HistoryItem)>,
     malformed_etag: bool,
     omit_etag: bool,
@@ -241,6 +242,11 @@ async fn server() -> Result<
                             state.envelope = body.to_vec();
                             if let Some(path) = state.block_config_on_update.take() {
                                 if fs::create_dir(path.join("sync-config.json.tmp")).is_err() {
+                                    return;
+                                }
+                            }
+                            if let Some(path) = state.block_preferences_on_update.take() {
+                                if fs::create_dir(path.join("preferences.json.tmp")).is_err() {
                                     return;
                                 }
                             }
@@ -1572,6 +1578,9 @@ async fn device_identity_stable_across_restart_and_rejoin() -> Result<(), Box<dy
     let secret = MemorySecret::default();
     let a = device(&path, &url, secret.clone())?;
     let created = a.create().await?;
+    let first_joined = created.status.devices[0].joined_at_ms;
+    assert!(first_joined > 0);
+    assert!(created.status.devices[0].last_synced_at_ms.is_some());
     let first_id = created
         .status
         .this_device_id
@@ -1585,6 +1594,11 @@ async fn device_identity_stable_across_restart_and_rejoin() -> Result<(), Box<dy
     assert_eq!(restarted_status.this_device_id, Some(first_id.clone()));
     assert_eq!(restarted_status.devices.len(), 1);
     assert!(restarted_status.devices[0].this_device);
+    assert_eq!(restarted_status.devices[0].joined_at_ms, first_joined);
+    assert_eq!(
+        restarted_status.last_success_at,
+        created.status.last_success_at
+    );
 
     // Disconnect keeps identity but drops pairing; rejoin keeps the same ID.
     restarted.leave().await?;
@@ -1598,6 +1612,7 @@ async fn device_identity_stable_across_restart_and_rejoin() -> Result<(), Box<dy
         .await?;
     let rejoined_status = after_leave.status().await?;
     assert_eq!(rejoined_status.this_device_id, Some(first_id.clone()));
+    assert_eq!(rejoined_status.devices[0].joined_at_ms, first_joined);
 
     // A fresh directory with the same recovery key gets a new identity.
     let fresh_path = directory("device-fresh");
@@ -1657,6 +1672,7 @@ async fn failed_put_does_not_advance_last_success_at() -> Result<(), Box<dyn std
     a.create().await?;
     let before = a.status().await?;
     assert!(before.last_success_at.is_some());
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
 
     a.seen.insert(42)?;
     server
@@ -1666,6 +1682,10 @@ async fn failed_put_does_not_advance_last_success_at() -> Result<(), Box<dyn std
     assert_eq!(a.sync_now().await.err(), Some(SyncError::ServerError));
     let after = a.status().await?;
     assert_eq!(after.last_success_at, before.last_success_at);
+    assert_eq!(
+        after.devices[0].last_synced_at_ms,
+        before.devices[0].last_synced_at_ms
+    );
     assert!(after.dirty);
 
     task.abort();
@@ -2178,5 +2198,283 @@ async fn windows_published_tombstones_before_linux_import_converge_without_activ
     task.abort();
     fs::remove_dir_all(windows_path)?;
     fs::remove_dir_all(linux_path)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn restore_preserves_earliest_known_self_join() -> Result<(), Box<dyn std::error::Error>> {
+    let (url, _, task) = server().await?;
+    let a_path = directory("join-time-a");
+    let b_path = directory("join-time-b");
+    let a = device(&a_path, &url, MemorySecret::default())?;
+    let b = device(&b_path, &url, MemorySecret::default())?;
+    let mut known = b.data.preferences.sync_state().1;
+    known[0].joined_at_ms = 100;
+    b.data
+        .preferences
+        .replace(snapshot::PreferencesV2::default(), known)?;
+    let created = a.create().await?;
+    let joined = b.join(&created.recovery_key, JoinMode::Restore).await?;
+    let self_record = joined
+        .devices
+        .iter()
+        .find(|d| d.this_device)
+        .ok_or("missing self")?;
+    assert_eq!(self_record.joined_at_ms, 100);
+    assert!(self_record.last_synced_at_ms.is_some());
+    task.abort();
+    fs::remove_dir_all(a_path)?;
+    fs::remove_dir_all(b_path)?;
+    Ok(())
+}
+
+fn self_timestamp(status: &SyncStatus) -> Option<u64> {
+    status
+        .devices
+        .iter()
+        .find(|d| d.this_device)
+        .and_then(|d| d.last_synced_at_ms)
+}
+
+fn published_snapshot(
+    server: &Arc<Mutex<ServerState>>,
+    key: &str,
+) -> Result<snapshot::SyncSnapshot, Box<dyn std::error::Error>> {
+    let keys = RootSecret::from_recovery_key(key)?.derive();
+    let envelope = server
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .envelope
+        .clone();
+    Ok(snapshot::parse_snapshot(
+        &keys.decrypt_snapshot(keys.sync_id(), &envelope)?,
+    )?)
+}
+
+#[tokio::test]
+async fn roster_timestamps_match_create_join_retry_startup_and_remote_publication(
+) -> Result<(), Box<dyn std::error::Error>> {
+    for mode in [JoinMode::Merge, JoinMode::Restore] {
+        let (url, server, task) = server().await?;
+        let a_path = directory("timestamp-publish-a");
+        let b_path = directory("timestamp-publish-b");
+        let a = device(&a_path, &url, MemorySecret::default())?;
+        let b = device(&b_path, &url, MemorySecret::default())?;
+        let created = a.create().await?;
+        let published = published_snapshot(&server, &created.recovery_key)?;
+        assert!(created.status.devices[0].joined_at_ms > 0);
+        assert_eq!(
+            published.devices[0].last_sync.as_ref().map(|r| r.value),
+            self_timestamp(&created.status)
+        );
+        assert!(self_timestamp(&created.status).is_some());
+        let b_joined = b.status().await?.devices[0].joined_at_ms;
+        server
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .force_conflict = true;
+        let joined = b.join(&created.recovery_key, mode).await?;
+        let published = published_snapshot(&server, &created.recovery_key)?;
+        let record = published
+            .devices
+            .iter()
+            .find(|d| d.device_id == b.data.identity.id())
+            .ok_or("missing published self")?;
+        assert_eq!(record.joined_at_ms, b_joined);
+        assert_eq!(
+            record.last_sync.as_ref().map(|r| r.value),
+            self_timestamp(&joined)
+        );
+        assert!(self_timestamp(&joined).is_some());
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        let synced = b.startup_sync().await?;
+        assert!(self_timestamp(&synced) > self_timestamp(&joined));
+        assert!(synced.last_success_at >= self_timestamp(&synced));
+        assert!(!synced.dirty);
+        let received = a.sync_now().await?;
+        let b_record = received
+            .devices
+            .iter()
+            .find(|d| d.device_id == hex::encode(b.data.identity.id()))
+            .ok_or("missing received device")?;
+        assert_eq!(b_record.last_synced_at_ms, self_timestamp(&synced));
+        assert_eq!(b_record.joined_at_ms, b_joined);
+        task.abort();
+        fs::remove_dir_all(a_path)?;
+        fs::remove_dir_all(b_path)?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn failed_create_and_join_never_record_unpublished_timestamps(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (url, server, task) = server().await?;
+    let a_path = directory("timestamp-failure-a");
+    let a = device(&a_path, &url, MemorySecret::default())?;
+    server
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .fail_next_create = true;
+    assert_eq!(a.create().await.err(), Some(SyncError::ServerError));
+    assert_eq!(self_timestamp(&a.status().await?), None);
+    let created = a.create().await?;
+    for mode in [JoinMode::Merge, JoinMode::Restore] {
+        let path = directory("timestamp-failed-join");
+        let b = device(&path, &url, MemorySecret::default())?;
+        server
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .fail_next_update = true;
+        assert_eq!(
+            b.join(&created.recovery_key, mode).await.err(),
+            Some(SyncError::ServerError)
+        );
+        assert_eq!(self_timestamp(&b.status().await?), None);
+        assert_eq!(
+            self_timestamp(
+                &device(&path, &url, MemorySecret::default())?
+                    .status()
+                    .await?
+            ),
+            None
+        );
+        assert!(!published_snapshot(&server, &created.recovery_key)?
+            .devices
+            .iter()
+            .any(|d| d.device_id == b.data.identity.id()));
+        fs::remove_dir_all(path)?;
+    }
+    task.abort();
+    fs::remove_dir_all(a_path)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn rejected_sync_and_prepublication_persistence_failure_preserve_roster_timestamp(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (url, server, task) = server().await?;
+    let path = directory("timestamp-rejected");
+    let secret = MemorySecret::default();
+    let a = device(&path, &url, secret.clone())?;
+    let created = a.create().await?;
+    a.sync_now().await?;
+    let before = a.status().await?;
+    let original = server
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .envelope
+        .clone();
+    for failure in 0..5 {
+        {
+            let mut state = server
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            match failure {
+                0 => state.rate_limit_next_get = true,
+                1 => state.envelope = vec![0; 52],
+                2 => state.revision = 1,
+                3 => state.conflicts_remaining = MAX_CAS_ATTEMPTS,
+                _ => {
+                    fs::create_dir(path.join("sync-config.json.tmp"))?;
+                }
+            }
+        }
+        let result = a.sync_now().await;
+        if failure == 2 {
+            assert_eq!(
+                result.err(),
+                Some(SyncError::ServerRollbackDetected {
+                    local_revision: 2,
+                    remote_revision: 1,
+                })
+            );
+        } else {
+            assert!(result.is_err());
+        }
+        let after = a.status().await?;
+        assert_eq!(self_timestamp(&after), self_timestamp(&before));
+        assert_eq!(after.last_success_at, before.last_success_at);
+        let mut state = server
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.envelope.clone_from(&original);
+        state.revision = 2;
+    }
+    fs::remove_dir(path.join("sync-config.json.tmp"))?;
+    task.abort();
+    assert!(a.startup_sync().await.is_err());
+    assert_eq!(self_timestamp(&a.status().await?), self_timestamp(&before));
+    let restarted = device(&path, &url, secret)?;
+    assert_eq!(
+        self_timestamp(&restarted.status().await?),
+        self_timestamp(&before)
+    );
+    assert_eq!(
+        published_snapshot(&server, &created.recovery_key)?.devices[0]
+            .last_sync
+            .as_ref()
+            .map(|r| r.value),
+        self_timestamp(&before)
+    );
+    fs::remove_dir_all(path)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn published_timestamp_survives_local_save_failure_and_recovers_from_remote(
+) -> Result<(), Box<dyn std::error::Error>> {
+    for fail_preferences in [true, false] {
+        let (url, server, task) = server().await?;
+        let path = directory("timestamp-save-failure");
+        let a = device(&path, &url, MemorySecret::default())?;
+        let created = a.create().await?;
+        let before = a.status().await?;
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        {
+            let mut state = server
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if fail_preferences {
+                state.block_preferences_on_update = Some(path.clone());
+            } else {
+                state.block_config_on_update = Some(path.clone());
+            }
+        }
+        assert_eq!(a.sync_now().await.err(), Some(SyncError::Persistence));
+        let after = a.status().await?;
+        assert_eq!(after.last_success_at, before.last_success_at);
+        let published = published_snapshot(&server, &created.recovery_key)?;
+        let timestamp = published.devices[0].last_sync.as_ref().map(|r| r.value);
+        assert!(timestamp > self_timestamp(&before));
+        if fail_preferences {
+            assert_eq!(self_timestamp(&after), self_timestamp(&before));
+        } else {
+            // The roster records a real accepted PUT even if saving local success fails.
+            assert_eq!(self_timestamp(&after), timestamp);
+        }
+        fs::remove_dir(path.join(if fail_preferences {
+            "preferences.json.tmp"
+        } else {
+            "sync-config.json.tmp"
+        }))?;
+        let other_path = directory("timestamp-save-failure-peer");
+        let other = device(&other_path, &url, MemorySecret::default())?;
+        let received = other.join(&created.recovery_key, JoinMode::Restore).await?;
+        assert_eq!(
+            received
+                .devices
+                .iter()
+                .find(|d| !d.this_device)
+                .ok_or("missing peer")?
+                .last_synced_at_ms,
+            timestamp
+        );
+        a.sync_now().await?;
+        assert!(self_timestamp(&a.status().await?) >= timestamp);
+        task.abort();
+        fs::remove_dir_all(path)?;
+        fs::remove_dir_all(other_path)?;
+    }
     Ok(())
 }
