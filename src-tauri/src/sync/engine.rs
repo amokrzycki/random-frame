@@ -1,10 +1,10 @@
 use super::{
-    cas::{check_rollback, push_with_retries},
+    cas::{check_rollback, push_with_retries, restore_with_retries},
     errors::SyncError,
     reconcile::SyncData,
     state::{
-        load_config, save_config, CreateSyncResult, DeviceSummary, Generation, SyncLocalConfig,
-        SyncState, SyncStatus,
+        load_config, save_config, CreateSyncResult, DeviceSummary, Generation, JoinMode,
+        LocalSyncSummary, SyncLocalConfig, SyncState, SyncStatus,
     },
 };
 #[cfg(test)]
@@ -229,6 +229,8 @@ impl<S: SecretStore> SyncEngine<S> {
         let envelope = keys
             .encrypt_snapshot(&snapshot)
             .map_err(|_| SyncError::InvalidRemoteData)?;
+        #[cfg(any(test, debug_assertions))]
+        crate::snapshot::report_upload(&snapshot, &envelope);
         self.data
             .begin_publication(keys.sync_id(), 0)
             .map_err(|_| SyncError::Persistence)?;
@@ -291,7 +293,13 @@ impl<S: SecretStore> SyncEngine<S> {
         })
     }
 
-    pub async fn join(&self, recovery_key: &str) -> Result<SyncStatus, SyncError> {
+    /// Counts of what this device would bring into (Merge) or lose to (Restore) a join.
+    pub fn local_summary(&self) -> Result<LocalSyncSummary, SyncError> {
+        let (snapshot, _) = self.data.snapshot().map_err(|_| SyncError::Persistence)?;
+        Ok(LocalSyncSummary::from_snapshot(&snapshot))
+    }
+
+    pub async fn join(&self, recovery_key: &str, mode: JoinMode) -> Result<SyncStatus, SyncError> {
         let _guard = self
             .operation
             .try_lock()
@@ -307,31 +315,46 @@ impl<S: SecretStore> SyncEngine<S> {
         let root = RootSecret::from_recovery_key(recovery_key)
             .map_err(|_| SyncError::InvalidRecoveryKey)?;
         self.set_state(SyncState::Syncing, None, None);
-        let result = self.join_inner(root).await;
+        let result = self.join_inner(root, mode).await;
         self.finish(&result);
         result
     }
 
-    async fn join_inner(&self, root: RootSecret) -> Result<SyncStatus, SyncError> {
+    async fn join_inner(&self, root: RootSecret, mode: JoinMode) -> Result<SyncStatus, SyncError> {
         let keys = root.derive();
         let (revision, remote) = self
             .transport()?
             .get(keys.sync_id(), &keys.client_auth_token())
             .await?;
-        let schema = self.data().merge_remote(&keys, &remote, 1, revision)?;
-        self.data
-            .stage_self_last_sync(now_ms())
-            .map_err(|_| SyncError::Persistence)?;
-        let (revision, generation) = push_with_retries(
-            &self.data(),
-            self.transport.as_ref(),
-            &self.path,
-            &keys,
-            revision,
-            None,
-            schema,
-        )
-        .await?;
+        let (revision, generation) = match mode {
+            JoinMode::Merge => {
+                let schema = self.data().merge_remote(&keys, &remote, 1, revision)?;
+                self.data
+                    .stage_self_last_sync(now_ms())
+                    .map_err(|_| SyncError::Persistence)?;
+                push_with_retries(
+                    &self.data(),
+                    self.transport.as_ref(),
+                    &self.path,
+                    &keys,
+                    revision,
+                    None,
+                    schema,
+                )
+                .await?
+            }
+            JoinMode::Restore => {
+                let decoded = self.data().decode_remote(&keys, &remote, 1, revision)?;
+                restore_with_retries(
+                    &self.data(),
+                    self.transport.as_ref(),
+                    &keys,
+                    revision,
+                    decoded,
+                )
+                .await?
+            }
+        };
         if let Err(error) = self.secret.store(root).await {
             return Err(if self.secret.delete().await.is_err() {
                 SyncError::CorruptLocalState

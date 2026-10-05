@@ -186,6 +186,42 @@ impl PreferenceStore {
         drop(data);
         Ok(self.get())
     }
+    /// Restore: preferences and roster become exactly the incoming ones; the legacy
+    /// browser import is closed so it cannot overwrite them.
+    pub fn replace(
+        &self,
+        preferences: PreferencesV2,
+        devices: Vec<DeviceRecord>,
+    ) -> Result<(), AppError> {
+        let mut data = self
+            .data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let next = PreferenceData {
+            version: 2,
+            imported: true,
+            preferences,
+            devices,
+        };
+        self.save_changed(&mut data, next)
+    }
+
+    /// Adds or refreshes only this device's roster record (and its last sync) in `snapshot`,
+    /// leaving every other record as given.
+    pub fn register_self(snapshot: &mut SyncSnapshot, identity: &DeviceIdentity, at_ms: u64) {
+        snapshot.devices = Self::ensure_self_record(&snapshot.devices, identity);
+        snapshot.devices.sort_by_key(|d| d.device_id);
+        let clock = snapshot_clock(snapshot).saturating_add(1);
+        let id = identity.id();
+        if let Some(record) = snapshot.devices.iter_mut().find(|d| d.device_id == id) {
+            record.last_sync = Some(Register {
+                clock,
+                operation_id: operation_id(),
+                value: at_ms,
+            });
+        }
+    }
+
     pub fn merge(
         &self,
         preferences: PreferencesV2,
@@ -302,7 +338,15 @@ impl PreferenceStore {
 }
 
 fn max_clock(data: &PreferenceData) -> u64 {
-    data.devices
+    registers_clock(&data.preferences, &data.devices)
+}
+
+fn snapshot_clock(snapshot: &SyncSnapshot) -> u64 {
+    registers_clock(&snapshot.preferences, &snapshot.devices)
+}
+
+fn registers_clock(preferences: &PreferencesV2, devices: &[DeviceRecord]) -> u64 {
+    devices
         .iter()
         .flat_map(|d| {
             [
@@ -313,8 +357,8 @@ fn max_clock(data: &PreferenceData) -> u64 {
         .max()
         .unwrap_or(0)
         .max(
-            data.preferences.theme.as_ref().map_or(0, |x| x.clock).max(
-                data.preferences
+            preferences.theme.as_ref().map_or(0, |x| x.clock).max(
+                preferences
                     .history_page_size
                     .as_ref()
                     .map_or(0, |x| x.clock),

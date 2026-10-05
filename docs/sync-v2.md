@@ -1,7 +1,7 @@
 # Sync v2 persistence and compatibility
 
 PR 1 implements the data and migration layer. Device identity, roster publication,
-new Sync status APIs, and the new dialog remain separate work.
+new Sync status APIs, and the dialog are documented below where they affect joining.
 
 ## Protocol
 
@@ -53,6 +53,11 @@ legacy browser migration/repair flags share the atomic Activity file save.
 Identical aggregates from separate installations receive different operation IDs.
 V2 never repairs/clamps Activity using an incomplete history projection.
 
+Committed `.json.bak` files from interrupted Windows replacements are recoverable
+on every platform, including after moving a profile to Linux. A backup migration
+receipt also blocks reimport if its committed destination is missing. Corrupt
+backups fail closed rather than becoming empty state.
+
 Preferences and preserved device records live in `preferences.json`. There is
 no local identity and no roster entry is created by PR 1. Theme localStorage is
 an early-render/Privacy cache; Rust registers are authoritative for app preferences.
@@ -89,6 +94,91 @@ durably sets floor 2 before pairing/config saves. This deliberately fails closed
 if an unanswered upgrade races with a later v1 write. Recovery/leave never exports
 these device-local receipts.
 
+## First join: Restore versus Merge
+
+`join_sync(recoveryKey, mode)` takes an explicit `mode` (`"restore"` or `"merge"`; Rust
+`JoinMode`). There is no default and no boolean: a missing or unknown mode is rejected
+before anything runs. After either join completes, the device is a normal participant
+and every later sync is the same CRDT sync. Recovery keys, credentials, the envelope
+and the snapshot format are unchanged.
+
+**Restore** (the UI default): the remote state wins for this device's pre-join state.
+**Merge**: CRDT union of the remote and the whole local state, previous deletions
+included. The 2026-10-05 incident shape (remote 5,752 History; local 3 additions and
+1,214 removals matching remote operations) gives 5,752 under Restore and 4,541 under
+Merge. Both are covered by `sync/join_mode_tests.rs`.
+
+### Merge
+
+Unchanged: GET, `merge_remote`, stage this device's last sync, `push_with_retries`.
+Additions, removals and Activity operations union, preferences resolve by register
+stamp, CAS retries merge the newer remote into local, and schema-downgrade checks apply.
+
+### Restore
+
+Restore replaces every synchronized domain (Seen, History and removals, Favorites and
+removals, Exploration, Activity and removals, preferences, device roster) and nothing
+else. Device identity, thumbnails, Sync credentials/config, schema floors and
+publication receipts are device-local and untouched.
+
+Sequence, in `engine::join_inner` and `cas::restore_with_retries`:
+
+1. GET the remote envelope.
+2. Authenticate, decrypt, decode, and apply the downgrade rules (`decode_remote`,
+   shared with Merge). Any failure returns here with local state unchanged.
+3. Build the upload from the remote snapshot plus this device's own roster record
+   and last-sync register (`restore_target`). No local store is read.
+4. PUT with `If-Match`, using the existing publication/schema-floor receipts.
+5. On 412, GET the latest remote and go back to step 2 with the same mode, up to
+   the same three attempts. Because step 3 never reads local stores, a retry cannot
+   become a Merge. A conflict after the last attempt returns `conflict`, local state
+   unchanged.
+6. After the server accepted the PUT, `PersistentState::replace_synchronized` writes
+   the uploaded snapshot through the existing `state-transaction.json` journal
+   (`replace: true`). Each store step is set-to-target, so a crash replays the journal
+   at the next start and finishes the replacement. Half-local, half-remote state is
+   never exported (`snapshot()` runs recovery first).
+7. Only then are the secret and `sync-config.json` saved, as in Merge. If pairing
+   fails, the device holds exactly the remote state plus its roster record and no
+   credentials; retrying either mode is safe, and no pre-join deletion can leak.
+
+This orders the replacement after the PUT rather than before it: a failed or refused
+publication leaves the old local state completely untouched, and the upload is by
+construction exactly what local will hold. Changes made on this device while the join
+request is in flight count as pre-join state and are replaced; the dialog is modal and
+disables the join controls while the operation runs, as for every Sync action.
+
+Device roster: the remote roster is kept as is. This device adds or refreshes only its
+own record (identity from `device-identity.json`, never a remote one) with a fresh
+last-sync register. Records that merely existed in the local roster from an old
+installation are not published under Restore; Merge keeps publishing them as before.
+
+### Nothing pre-join can come back after Restore
+
+- Every store file is rewritten with the target; the Seen append log
+  (`prntsc-seen.log`) is deleted, since startup replays it.
+- Legacy sources (`activity.json`, `history.json`, `favorites.json`,
+  `prntsc-explored.txt`) are only read while their versioned destination is missing.
+  All destinations already exist and carry receipts before a join is possible, so a
+  restart cannot re-import them.
+- The remaining legacy import paths are closed by the replacement itself: Activity's
+  `migrated` flag (browser counter migration), the `session-history` receipt (browser
+  session import) and the preferences `imported` flag (localStorage preferences).
+- Prepared "clear history" requests (`history-clear.json`) hold pre-join operation
+  IDs; they are voided so a later commit cannot publish those deletions.
+- Preferences become the remote values, including "unset" when the remote has none.
+- A v1 remote has no Activity operations, so Restore leaves Activity empty rather than
+  keeping a local import that the shared copy never had.
+
+### Local summary
+
+`get_sync_join_summary` returns aggregate counts only (History, Favorites, previous
+deletions across History/Favorites/Activity) and `meaningful`. A device has meaningful
+local synchronized state if anything other than its own roster record is present:
+Seen, History, Favorites, Exploration, Activity, any removal, or a set preference. A
+device with only deletions is not empty. When nothing is present, the UI skips the
+choice and runs Restore; if the summary cannot be read it shows both choices.
+
 ## Verification
 
 ```sh
@@ -110,3 +200,16 @@ The default suite keeps this external-server test ignored. Existing secure-stora
 and production-server integration tests keep their existing environment requirements.
 Downgrading to a v1-only client is unsupported after publishing v2; use a v2-capable
 fix for rollback. Exported image files are not included in snapshots.
+
+Debug builds can opt into numeric snapshot diagnostics with
+`RANDOM_FRAME_SYNC_DIAGNOSTICS=1`. Before upload, after remote decode and after
+merge report schema, lengths, collection counts, Activity projection and operation
+variant counts. Upload/decode lengths are measured; after-merge envelope length
+is the planned serialized size plus the fixed 52-byte overhead. No keys, tokens,
+identifiers, URLs or plaintext contents are logged; release builds exclude this
+instrumentation.
+
+The [October 5 incident investigation](sync-v2-incident-2026-10-05.md) records the
+exact History tombstone lineage, intact Activity, payload measurements, migration
+backup fix, regression coverage and deployment checks. The real-server tests now
+include a 5,752-view legacy import and three distinct pre-join discoveries.

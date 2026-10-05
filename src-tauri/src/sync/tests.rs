@@ -24,6 +24,11 @@ use tokio::{
     net::TcpListener,
 };
 
+#[path = "join_mode_tests.rs"]
+mod join_mode;
+#[path = "large_upgrade_tests.rs"]
+mod large_upgrade;
+
 #[derive(Clone, Default)]
 struct MemorySecret {
     value: Arc<Mutex<Option<[u8; 32]>>>,
@@ -346,7 +351,7 @@ async fn two_devices_converge_with_cas_collision_and_leave_keeps_seen(
     assert_eq!(b.create().await.err(), Some(SyncError::ServerError));
     assert!(!b_path.join("sync-config.json").exists());
     assert!(b_secret.load().await.is_err());
-    b.join(&created.recovery_key).await?;
+    b.join(&created.recovery_key, JoinMode::Merge).await?;
     for id in 1..=5 {
         assert!(b.seen.contains(id));
     }
@@ -431,7 +436,7 @@ async fn devices_converge_history_and_favorites() -> Result<(), Box<dyn std::err
         added_at: 2,
     })?;
     let created = a.create().await?;
-    b.join(&created.recovery_key).await?;
+    b.join(&created.recovery_key, JoinMode::Merge).await?;
     a.sync_now().await?;
     let a_ids = a_history
         .snapshot()
@@ -512,7 +517,7 @@ async fn exploration_syncs_with_seen_history_and_favorites(
         Some(&url),
         None,
     );
-    b.join(&key).await?;
+    b.join(&key, JoinMode::Merge).await?;
     b.sync_now().await?;
     a.sync_now().await?;
     assert!(a_state.seen.contains(300));
@@ -599,7 +604,7 @@ async fn clearing_history_preserves_seen_and_propagates_only_known_removals(
     assert_eq!(a_state.explored.counts(), (5, 3, 1, 1));
     let seen_before = a_state.seen.snapshot_with_generation().0;
     let key = a.create().await?.recovery_key;
-    b.join(&key).await?;
+    b.join(&key, JoinMode::Merge).await?;
     assert_eq!(b_state.explored.count(), 5);
     b_state.explored.mark(11, ExplorationOutcome::Rejected)?;
     b_state
@@ -823,23 +828,44 @@ async fn real_server_two_device_offline_and_startup_e2e() -> Result<(), Box<dyn 
     let server = start()?;
     ready().await?;
     let a_secret = MemorySecret::default();
-    let a = device(&root.join("a"), &url, a_secret.clone())?;
+    let a_path = root.join("a");
+    fs::create_dir_all(&a_path)?;
+    fs::write(
+        a_path.join("activity.json"),
+        include_bytes!("../persistence/tests/fixtures/activity-large-legacy.json"),
+    )?;
+    let a = device(&a_path, &url, a_secret.clone())?;
     let b = device(&root.join("b"), &url, MemorySecret::default())?;
     a.seen.insert(101)?;
     b.seen.insert(202)?;
+    for id in [700_001, 700_002, 700_003] {
+        b.data.discover(
+            id,
+            crate::persistence::ExplorationOutcome::Viewed,
+            1,
+            "2026-10-02",
+        )?;
+    }
+    assert_eq!(a.data.activity.viewed_total(), 5752);
+    assert_eq!(b.data.activity.viewed_total(), 3);
     let created = a.create().await?;
     assert!(created.local_pairing_error.is_none());
     assert_eq!(created.status.last_success_revision, Some(1));
     assert_eq!(
-        b.join(&created.recovery_key).await?.last_success_revision,
+        b.join(&created.recovery_key, JoinMode::Merge)
+            .await?
+            .last_success_revision,
         Some(2)
     );
     assert!(b.seen.contains(101));
+    assert_eq!(b.data.activity.viewed_total(), 5755);
     a.seen.insert(303)?;
     b.seen.insert(404)?;
     assert_eq!(a.sync_now().await?.last_success_revision, Some(3));
     assert_eq!(b.sync_now().await?.last_success_revision, Some(4));
     assert_eq!(a.sync_now().await?.last_success_revision, Some(5));
+    assert_eq!(a.data.activity.viewed_total(), 5755);
+    assert_eq!(b.data.activity.viewed_total(), 5755);
     for id in [101, 202, 303, 404] {
         assert!(a.seen.contains(id));
         assert!(b.seen.contains(id));
@@ -852,7 +878,7 @@ async fn real_server_two_device_offline_and_startup_e2e() -> Result<(), Box<dyn 
     assert_eq!(revision, 5);
     assert_eq!(
         snapshot::parse_snapshot(&keys.decrypt_snapshot(keys.sync_id(), &envelope)?)?.seen,
-        vec![101, 202, 303, 404]
+        vec![101, 202, 303, 404, 700_001, 700_002, 700_003]
     );
 
     drop(server);
@@ -867,6 +893,8 @@ async fn real_server_two_device_offline_and_startup_e2e() -> Result<(), Box<dyn 
     assert!(!a.status().await?.dirty);
     assert_eq!(b.sync_now().await?.last_success_revision, Some(7));
     assert_eq!(a.startup_sync().await?.last_success_revision, Some(8));
+    assert_eq!(a.data.activity.viewed_total(), 5755);
+    assert_eq!(b.data.activity.viewed_total(), 5755);
     for id in [101, 202, 303, 404, 505, 606] {
         assert!(a.seen.contains(id));
         assert!(b.seen.contains(id));
@@ -877,7 +905,7 @@ async fn real_server_two_device_offline_and_startup_e2e() -> Result<(), Box<dyn 
     assert_eq!(revision, 8);
     assert_eq!(
         snapshot::parse_snapshot(&keys.decrypt_snapshot(keys.sync_id(), &envelope)?)?.seen,
-        vec![101, 202, 303, 404, 505, 606]
+        vec![101, 202, 303, 404, 505, 606, 700_001, 700_002, 700_003]
     );
     drop(server);
     assert_eq!(a.startup_sync().await.err(), Some(SyncError::Offline));
@@ -940,7 +968,9 @@ async fn production_https_two_device_e2e() -> Result<(), Box<dyn std::error::Err
 
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     assert_eq!(
-        b.join(&created.recovery_key).await?.last_success_revision,
+        b.join(&created.recovery_key, JoinMode::Merge)
+            .await?
+            .last_success_revision,
         Some(2)
     );
     println!("join=2 B=[101,202]");
@@ -1085,20 +1115,20 @@ async fn partial_failures_preserve_recovery_and_local_union(
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .fail_next_update = true;
     assert_eq!(
-        b.join(&partial.recovery_key).await.err(),
+        b.join(&partial.recovery_key, JoinMode::Merge).await.err(),
         Some(SyncError::ServerError)
     );
     assert!(b.seen.contains(1));
     assert!(b.seen.contains(2));
     assert!(!b_path.join("sync-config.json").exists());
-    b.join(&partial.recovery_key).await?;
+    b.join(&partial.recovery_key, JoinMode::Merge).await?;
     let c_path = directory("partial-c");
     let c_secret = MemorySecret::default();
     c_secret.fail_store.store(true, Ordering::Relaxed);
     let c = device(&c_path, &url, c_secret.clone())?;
     c.seen.insert(3)?;
     assert_eq!(
-        c.join(&partial.recovery_key).await.err(),
+        c.join(&partial.recovery_key, JoinMode::Merge).await.err(),
         Some(SyncError::SecureStorage)
     );
     assert!(c.seen.contains(1));
@@ -1117,7 +1147,7 @@ async fn transport_and_pairing_reject_bad_inputs() -> Result<(), Box<dyn std::er
     let path = directory("bad");
     let engine = device(&path, &url, MemorySecret::default())?;
     assert_eq!(
-        engine.join("wrong").await.err(),
+        engine.join("wrong", JoinMode::Merge).await.err(),
         Some(SyncError::InvalidRecoveryKey)
     );
     let created = engine.create().await?;
@@ -1125,7 +1155,7 @@ async fn transport_and_pairing_reject_bad_inputs() -> Result<(), Box<dyn std::er
     let other = device(&other_path, &url, MemorySecret::default())?;
     assert_eq!(
         other
-            .join(&RootSecret::generate().recovery_key())
+            .join(&RootSecret::generate().recovery_key(), JoinMode::Merge)
             .await
             .err(),
         Some(SyncError::MissingChain)
@@ -1318,14 +1348,14 @@ async fn join_conflict_retries_do_not_persist_pairing_until_cas_succeeds(
         .conflicts_remaining = MAX_CAS_ATTEMPTS;
 
     assert_eq!(
-        b.join(&created.recovery_key).await.err(),
+        b.join(&created.recovery_key, JoinMode::Merge).await.err(),
         Some(SyncError::Conflict)
     );
     assert!(b.config()?.is_none());
     assert!(b_secret.load().await.is_err());
     assert!(b.seen.contains(1) && b.seen.contains(2));
 
-    let joined = b.join(&created.recovery_key).await?;
+    let joined = b.join(&created.recovery_key, JoinMode::Merge).await?;
     assert_eq!(joined.last_success_revision, Some(5));
     assert_eq!(
         b.config()?.and_then(|config| config.last_accepted_revision),
@@ -1387,7 +1417,8 @@ async fn v1_writer_cannot_overwrite_published_v2_after_cas_conflict(
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .v1_on_update = Some(old_envelope);
-    a.join(root.recovery_key().as_str()).await?;
+    a.join(root.recovery_key().as_str(), JoinMode::Merge)
+        .await?;
     assert!(a.seen.contains(99));
     let (revision, published) = transport
         .get(keys.sync_id(), &keys.client_auth_token())
@@ -1487,7 +1518,7 @@ async fn v1_upgrade_keeps_publication_floor_after_pairing_failure(
             .create(keys.sync_id(), &keys.client_auth_token(), v1.clone())
             .await?;
         assert!(matches!(
-            a.join(root.recovery_key().as_str()).await,
+            a.join(root.recovery_key().as_str(), JoinMode::Merge).await,
             Err(SyncError::SecureStorage | SyncError::Persistence)
         ));
         assert_eq!(a.data.schema_floor(keys.sync_id())?, 2);
@@ -1504,7 +1535,7 @@ async fn v1_upgrade_keeps_publication_floor_after_pairing_failure(
             state.envelope = v1;
         }
         assert!(matches!(
-            a.join(root.recovery_key().as_str()).await,
+            a.join(root.recovery_key().as_str(), JoinMode::Merge).await,
             Err(SyncError::SchemaDowngrade)
         ));
         task.abort();
@@ -1562,14 +1593,16 @@ async fn device_identity_stable_across_restart_and_rejoin() -> Result<(), Box<dy
         after_leave.status().await?.this_device_id,
         Some(first_id.clone())
     );
-    after_leave.join(&created.recovery_key).await?;
+    after_leave
+        .join(&created.recovery_key, JoinMode::Merge)
+        .await?;
     let rejoined_status = after_leave.status().await?;
     assert_eq!(rejoined_status.this_device_id, Some(first_id.clone()));
 
     // A fresh directory with the same recovery key gets a new identity.
     let fresh_path = directory("device-fresh");
     let fresh = device(&fresh_path, &url, MemorySecret::default())?;
-    fresh.join(&created.recovery_key).await?;
+    fresh.join(&created.recovery_key, JoinMode::Merge).await?;
     assert_ne!(fresh.status().await?.this_device_id, Some(first_id));
 
     task.abort();
@@ -1586,7 +1619,7 @@ async fn roster_converges_with_this_device_flag() -> Result<(), Box<dyn std::err
     let a = device(&a_path, &url, MemorySecret::default())?;
     let b = device(&b_path, &url, MemorySecret::default())?;
     let created = a.create().await?;
-    b.join(&created.recovery_key).await?;
+    b.join(&created.recovery_key, JoinMode::Merge).await?;
     a.sync_now().await?;
     b.sync_now().await?;
 
@@ -1702,6 +1735,15 @@ async fn unmodified_server_recovers_complete_v2_state_on_a_third_device(
     use crate::persistence::{ExplorationOutcome, UserPreferences};
     let url = std::env::var("RANDOM_FRAME_SYNC_E2E_URL")?;
     let paths = [directory("e2e-a"), directory("e2e-b"), directory("e2e-c")];
+    fs::create_dir_all(&paths[0])?;
+    fs::write(
+        paths[0].join("activity.json"),
+        include_bytes!("../persistence/tests/fixtures/activity-large-legacy.json"),
+    )?;
+    fs::write(
+        paths[0].join("prntsc-explored.txt"),
+        include_bytes!("../persistence/tests/fixtures/exploration-v1.txt"),
+    )?;
     let a = device(&paths[0], &url, MemorySecret::default())?;
     a.data.accept(
         &HistoryItem {
@@ -1710,7 +1752,7 @@ async fn unmodified_server_recovers_complete_v2_state_on_a_third_device(
             source_page_url: "https://prnt.sc/1".into(),
             viewed_at: 1,
         },
-        false,
+        true,
     )?;
     a.data.favorites.toggle(FavoriteItem {
         source: "prntsc".into(),
@@ -1725,19 +1767,25 @@ async fn unmodified_server_recovers_complete_v2_state_on_a_third_device(
         },
         false,
     )?;
+    assert_eq!(a.data.activity.viewed_total(), 5752);
     let key = a.create().await?.recovery_key;
     let b = device(&paths[1], &url, MemorySecret::default())?;
-    b.join(&key).await?;
+    for id in [700_001, 700_002, 700_003] {
+        b.data
+            .discover(id, ExplorationOutcome::Viewed, 1, "2026-10-02")?;
+    }
+    b.join(&key, JoinMode::Merge).await?;
+    assert_eq!(b.data.activity.viewed_total(), 5755);
     b.data
-        .discover(2, ExplorationOutcome::Rejected, 2, "2026-10-02")?;
+        .discover(800_000, ExplorationOutcome::Rejected, 2, "2026-10-02")?;
     b.sync_now().await?;
     a.sync_now().await?;
     let c = device(&paths[2], &url, MemorySecret::default())?;
-    c.join(&key).await?;
-    assert_eq!(a.data.snapshot()?.0, b.data.snapshot()?.0);
-    assert_eq!(b.data.snapshot()?.0, c.data.snapshot()?.0);
-    assert_eq!(c.data.activity.viewed_total(), 1);
-    assert_eq!(c.data.explored.counts(), (2, 1, 1, 0));
+    c.join(&key, JoinMode::Merge).await?;
+    assert_sync_data_equal(&a.data.snapshot()?.0, &b.data.snapshot()?.0);
+    assert_sync_data_equal(&b.data.snapshot()?.0, &c.data.snapshot()?.0);
+    assert_eq!(c.data.activity.viewed_total(), 5755);
+    assert_eq!(c.data.explored.counts(), (7, 4, 2, 1));
     assert_eq!(c.data.preferences.get().theme.as_deref(), Some("dark"));
     assert_eq!(
         c.data.history.frame_views()[0].day,
@@ -1746,5 +1794,389 @@ async fn unmodified_server_recovers_complete_v2_state_on_a_third_device(
     for path in paths {
         fs::remove_dir_all(path)?;
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn large_migrated_activity_survives_join_cas_restart_and_third_device(
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::persistence::{
+        ExplorationOutcome, FavoriteItem, HistoryItem, PersistentState, UserPreferences,
+    };
+    use crate::snapshot::DeviceMetadata;
+
+    let (url, server, task) = server().await?;
+    let a_path = directory("large-activity-a");
+    let b_path = directory("large-activity-b");
+    let c_path = directory("large-activity-c");
+    fs::create_dir_all(&a_path)?;
+    fs::write(
+        a_path.join("activity.json"),
+        include_bytes!("../persistence/tests/fixtures/activity-large-legacy.json"),
+    )?;
+    let a = device(&a_path, &url, MemorySecret::default())?;
+
+    // Seed the Windows-era navigation set in one merge. 1,214 removals leave
+    // 4,538 active rows; B contributes three new rows, for 4,541 at convergence.
+    let rows: Vec<_> = (0_u64..5752)
+        .map(|index| {
+            let operation_id = u128::from(index + 1).to_be_bytes();
+            let id = (20_000 + index).to_string();
+            snapshot::SyncRecord {
+                operation_id,
+                order_at: index + 1,
+                last_view: snapshot::ViewStamp::inferred(index + 1),
+                source: "prntsc".into(),
+                source_page_url: format!("https://prnt.sc/{id}"),
+                id,
+            }
+        })
+        .collect();
+    let removals: Vec<_> = rows.iter().take(1214).map(|row| row.operation_id).collect();
+    let seen_ids = rows
+        .iter()
+        .filter_map(|row| crate::sources::prntsc::item_id_value(&row.id).ok())
+        .collect::<Vec<_>>();
+    a.data.history.merge_sync_state((rows, vec![]))?;
+    a.data.seen.merge(seen_ids)?;
+    a.data
+        .discover(30_000, ExplorationOutcome::Rejected, 1, "2026-10-02")?;
+    a.data.favorites.toggle(FavoriteItem {
+        source: "prntsc".into(),
+        id: "20000".into(),
+        source_page_url: "https://prnt.sc/20000".into(),
+        added_at: 1,
+    })?;
+    a.data.preferences.set(
+        UserPreferences {
+            theme: Some("dark".into()),
+            history_page_size: Some(50),
+        },
+        false,
+    )?;
+    assert_eq!(a.data.activity.viewed_total(), 5752);
+    assert_eq!(a.data.history.snapshot().history.len(), 5752);
+    let recovery_key = a.create().await?.recovery_key;
+
+    let read_remote =
+        || -> Result<(snapshot::SyncSnapshot, usize, usize), Box<dyn std::error::Error>> {
+            let envelope = server
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .envelope
+                .clone();
+            let root = RootSecret::from_bytes(
+                &a.secret
+                    .value
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .ok_or("missing test secret")?,
+            )?;
+            let keys = root.derive();
+            let plaintext = keys.decrypt_snapshot(keys.sync_id(), &envelope)?;
+            let decoded = snapshot::decode_snapshot(&plaintext)?;
+            assert_eq!(decoded.original_schema_version, 2);
+            Ok((decoded.data, plaintext.len(), envelope.len()))
+        };
+    let (initial, initial_plaintext_bytes, initial_envelope_bytes) = read_remote()?;
+    assert_eq!(snapshot::activity_projection(&initial.activity)?.0, 5752);
+    assert_eq!(initial.activity.len(), 2);
+    assert_eq!(initial.history.len(), 5752);
+    assert_eq!(initial.history_removed.len(), 0);
+    assert!(initial_plaintext_bytes > 0);
+    assert!(initial_envelope_bytes > initial_plaintext_bytes);
+    let initial_diagnostics =
+        snapshot::diagnostics(&initial, 2, initial_plaintext_bytes, initial_envelope_bytes)?;
+    assert_eq!(initial_diagnostics.schema, 2);
+    assert_eq!(initial_diagnostics.viewed_total, 5752);
+    assert_eq!(initial_diagnostics.legacy_imports, 1);
+    assert_eq!(initial_diagnostics.viewed_discoveries, 0);
+    assert_eq!(initial_diagnostics.rejected_discoveries, 1);
+    assert_eq!(initial_diagnostics.history, 5752);
+    assert_eq!(initial_diagnostics.history_removed, 0);
+
+    let b_secret = MemorySecret::default();
+    let b = device(&b_path, &url, b_secret.clone())?;
+    // Windows' 1,214 removals are local before first GET, exercising reconciliation
+    // against Linux's full 5,752-row publication.
+    b.data.history.merge_sync_state((vec![], removals))?;
+    // These local views are staged before the first GET as well.
+    for (offset, id) in ["900001", "900002", "900003"].into_iter().enumerate() {
+        b.data.accept(
+            &HistoryItem {
+                source: "prntsc".into(),
+                id: id.into(),
+                source_page_url: format!("https://prnt.sc/{id}"),
+                viewed_at: 1_790_000_000_000 + u64::try_from(offset)?,
+            },
+            false,
+        )?;
+    }
+    // The remote rejects the first PUT after B has durably merged the GET. Restart
+    // B before retrying to prove the 5,752-view LegacyImport and its union survive.
+    server
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .fail_next_update = true;
+    assert_eq!(
+        b.join(&recovery_key, JoinMode::Merge).await.err(),
+        Some(SyncError::ServerError)
+    );
+    assert_eq!(b.data.activity.viewed_total(), 5755);
+    assert_eq!(read_remote()?.0.activity.len(), 2);
+    drop(b);
+    let b = device(&b_path, &url, b_secret)?;
+
+    // A CAS collision during the retry forces another GET/merge/PUT round.
+    server
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .conflicts_remaining = 1;
+    b.join(&recovery_key, JoinMode::Merge).await?;
+    b.data.preferences.set_device_metadata(DeviceMetadata {
+        display_name: "Regression client".into(),
+        platform: "windows".into(),
+    })?;
+    a.sync_now().await?;
+    b.sync_now().await?;
+
+    let read_final =
+        || -> Result<(snapshot::SyncSnapshot, usize, usize), Box<dyn std::error::Error>> {
+            let (data, plaintext_bytes, envelope_bytes) = read_remote()?;
+            let summary = snapshot::activity_projection(&data.activity)?;
+            assert_eq!(summary.0, 5755);
+            assert_eq!(data.activity.len(), 5);
+            assert_eq!(data.activity_removed.len(), 0);
+            assert_eq!(data.history.len(), 4541);
+            assert_eq!(data.history_removed.len(), 1214);
+            assert_eq!(data.favorites.len(), 1);
+            assert_eq!(data.seen.len(), 5755);
+            assert_eq!(data.exploration.len(), 4);
+            assert_eq!(
+                data.preferences.theme.as_ref().map(|x| x.value.as_str()),
+                Some("dark")
+            );
+            assert!(data
+                .devices
+                .iter()
+                .any(|x| x.metadata.value.platform == "windows"));
+            let reencoded = snapshot::serialize_snapshot(&data)?;
+            assert_eq!(reencoded.len(), plaintext_bytes);
+            assert!(envelope_bytes > plaintext_bytes);
+            assert!(envelope_bytes <= MAX_ENVELOPE);
+            let diagnostics = snapshot::diagnostics(&data, 2, plaintext_bytes, envelope_bytes)?;
+            assert_eq!(diagnostics.schema, 2);
+            assert_eq!(diagnostics.seen, 5755);
+            assert_eq!(diagnostics.history, 4541);
+            assert_eq!(diagnostics.history_removed, 1214);
+            assert_eq!(diagnostics.favorites, 1);
+            assert_eq!(diagnostics.exploration, 4);
+            assert_eq!(diagnostics.activity, 5);
+            assert_eq!(diagnostics.activity_removed, 0);
+            assert_eq!(diagnostics.viewed_total, 5755);
+            assert_eq!(diagnostics.legacy_imports, 1);
+            assert_eq!(diagnostics.viewed_discoveries, 3);
+            assert_eq!(diagnostics.rejected_discoveries, 1);
+            Ok((data, plaintext_bytes, envelope_bytes))
+        };
+    let (stable, plaintext_bytes, envelope_bytes) = read_final()?;
+    assert!(plaintext_bytes > 0);
+    assert!(envelope_bytes > plaintext_bytes);
+    assert_eq!(a.data.activity.viewed_total(), 5755);
+    assert_eq!(b.data.activity.viewed_total(), 5755);
+    assert_eq!(a.data.history.snapshot().history.len(), 4541);
+    assert_eq!(b.data.history.snapshot().history.len(), 4541);
+
+    let c = device(&c_path, &url, MemorySecret::default())?;
+    c.join(&recovery_key, JoinMode::Merge).await?;
+    assert_sync_data_equal(&read_final()?.0, &stable);
+    assert_eq!(c.data.activity.viewed_total(), 5755);
+    assert_eq!(c.data.history.snapshot().history.len(), 4541);
+    assert_eq!(c.data.history.sync_state().1.len(), 1214);
+    assert_eq!(c.data.favorites.snapshot().len(), 1);
+    assert_eq!(c.data.preferences.get().theme.as_deref(), Some("dark"));
+
+    // Explicit Activity tombstones reduce the Activity projection itself.
+    let state_dir = directory("activity-tombstone-only");
+    fs::create_dir_all(&state_dir)?;
+    fs::write(
+        state_dir.join("activity.json"),
+        include_bytes!("../persistence/tests/fixtures/activity-large-legacy.json"),
+    )?;
+    let local = PersistentState::new(&state_dir)?;
+    local.activity.clear()?;
+    let (snapshot, _) = local.snapshot()?;
+    assert_eq!(snapshot.activity.len(), 0);
+    assert_eq!(snapshot.activity_removed.len(), 1);
+    assert_eq!(local.activity.viewed_total(), 0);
+
+    task.abort();
+    fs::remove_dir_all(a_path)?;
+    fs::remove_dir_all(b_path)?;
+    fs::remove_dir_all(c_path)?;
+    fs::remove_dir_all(state_dir)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn v1_remote_without_activity_keeps_local_large_legacy_import(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (url, server, task) = server().await?;
+    let path = directory("large-activity-v1-remote");
+    fs::create_dir_all(&path)?;
+    fs::write(
+        path.join("activity.json"),
+        include_bytes!("../persistence/tests/fixtures/activity-large-legacy.json"),
+    )?;
+    let root = RootSecret::from_bytes(&(0_u8..32).collect::<Vec<_>>())?;
+    let keys = root.derive();
+    let transport = SyncTransport::new(&url)?;
+    transport
+        .create(
+            keys.sync_id(),
+            &keys.client_auth_token(),
+            include_bytes!("../persistence/tests/fixtures/envelope-v1.bin").to_vec(),
+        )
+        .await?;
+
+    let local = device(&path, &url, MemorySecret::default())?;
+    assert_eq!(local.data.activity.viewed_total(), 5752);
+    local
+        .join(root.recovery_key().as_str(), JoinMode::Merge)
+        .await?;
+    assert_eq!(local.data.activity.viewed_total(), 5752);
+
+    let envelope = server
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .envelope
+        .clone();
+    let plaintext = keys.decrypt_snapshot(keys.sync_id(), &envelope)?;
+    let decoded = snapshot::decode_snapshot(&plaintext)?;
+    assert_eq!(decoded.original_schema_version, 2);
+    assert_eq!(
+        snapshot::activity_projection(&decoded.data.activity)?.0,
+        5752
+    );
+    assert_eq!(decoded.data.activity.len(), 1);
+    assert_eq!(decoded.data.activity_removed.len(), 0);
+
+    task.abort();
+    fs::remove_dir_all(path)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn windows_published_tombstones_before_linux_import_converge_without_activity_loss(
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::persistence::{ExplorationOutcome, HistoryItem};
+    use crate::snapshot::DeviceMetadata;
+
+    let (url, server, task) = server().await?;
+    let windows_path = directory("large-activity-windows-first");
+    let linux_path = directory("large-activity-linux-second");
+    fs::create_dir_all(&linux_path)?;
+    fs::write(
+        linux_path.join("activity.json"),
+        include_bytes!("../persistence/tests/fixtures/activity-large-legacy.json"),
+    )?;
+    let windows = device(&windows_path, &url, MemorySecret::default())?;
+    let linux_secret = MemorySecret::default();
+    let linux = device(&linux_path, &url, linux_secret.clone())?;
+
+    // Match removals to Linux's future history operation IDs before the Linux
+    // installation joins. This models Windows Sync being published first.
+    let future_history_ids = (1_u64..=1214)
+        .map(|index| u128::from(index).to_be_bytes())
+        .collect::<Vec<_>>();
+    windows
+        .data
+        .history
+        .merge_sync_state((vec![], future_history_ids))?;
+    for (offset, id) in ["900001", "900002", "900003"].into_iter().enumerate() {
+        windows.data.accept(
+            &HistoryItem {
+                source: "prntsc".into(),
+                id: id.into(),
+                source_page_url: format!("https://prnt.sc/{id}"),
+                viewed_at: 1_790_000_000_000 + u64::try_from(offset)?,
+            },
+            false,
+        )?;
+    }
+    windows
+        .data
+        .preferences
+        .set_device_metadata(DeviceMetadata {
+            display_name: "Windows installation".into(),
+            platform: "windows".into(),
+        })?;
+    let recovery_key = windows.create().await?.recovery_key;
+    let (windows_snapshot, windows_generation) = windows.data.snapshot()?;
+    let windows_plaintext = snapshot::serialize_snapshot(&windows_snapshot)?;
+    let windows_diagnostics =
+        snapshot::diagnostics(&windows_snapshot, 2, windows_plaintext.len(), 0)?;
+    assert_eq!(windows_generation[4], 3);
+    assert_eq!(windows_diagnostics.history, 3);
+    assert_eq!(windows_diagnostics.history_removed, 1214);
+    assert_eq!(windows_diagnostics.viewed_total, 3);
+
+    let rows: Vec<_> = (0_u64..5752)
+        .map(|index| {
+            let id = (20_000 + index).to_string();
+            snapshot::SyncRecord {
+                operation_id: u128::from(index + 1).to_be_bytes(),
+                order_at: index + 1,
+                last_view: snapshot::ViewStamp::inferred(index + 1),
+                source: "prntsc".into(),
+                source_page_url: format!("https://prnt.sc/{id}"),
+                id,
+            }
+        })
+        .collect();
+    let seen_ids = rows
+        .iter()
+        .filter_map(|row| crate::sources::prntsc::item_id_value(&row.id).ok())
+        .collect::<Vec<_>>();
+    linux.data.history.merge_sync_state((rows, vec![]))?;
+    linux.data.seen.merge(seen_ids)?;
+    linux
+        .data
+        .discover(30_000, ExplorationOutcome::Rejected, 1, "2026-10-02")?;
+    assert_eq!(linux.data.activity.viewed_total(), 5752);
+
+    linux.join(&recovery_key, JoinMode::Merge).await?;
+    assert_eq!(linux.data.activity.viewed_total(), 5755);
+    assert_eq!(linux.data.history.snapshot().history.len(), 4541);
+    assert_eq!(linux.data.history.sync_state().1.len(), 1214);
+    windows.sync_now().await?;
+    linux.sync_now().await?;
+
+    let envelope = server
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .envelope
+        .clone();
+    let keys = linux.secret.load().await?.derive();
+    let plaintext = keys.decrypt_snapshot(keys.sync_id(), &envelope)?;
+    let decoded = snapshot::decode_snapshot(&plaintext)?;
+    let diagnostics = snapshot::diagnostics(
+        &decoded.data,
+        decoded.original_schema_version,
+        plaintext.len(),
+        envelope.len(),
+    )?;
+    assert_eq!(diagnostics.schema, 2);
+    assert_eq!(diagnostics.history, 4541);
+    assert_eq!(diagnostics.history_removed, 1214);
+    assert_eq!(diagnostics.viewed_total, 5755);
+    assert_eq!(diagnostics.legacy_imports, 1);
+    assert_eq!(diagnostics.viewed_discoveries, 3);
+    assert_eq!(diagnostics.rejected_discoveries, 1);
+    assert_eq!(diagnostics.activity_removed, 0);
+
+    task.abort();
+    fs::remove_dir_all(windows_path)?;
+    fs::remove_dir_all(linux_path)?;
     Ok(())
 }

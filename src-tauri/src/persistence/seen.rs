@@ -124,6 +124,37 @@ impl SeenStore {
         self.generation.load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    /// Restore: seen becomes exactly `incoming`; the append log is dropped so it cannot resurrect old IDs.
+    pub fn replace(&self, incoming: &[u64]) -> Result<(), AppError> {
+        if incoming
+            .iter()
+            .any(|id| *id > crate::sources::prntsc::LEGACY_MAX_VALUE)
+        {
+            return Err(AppError::invalid_input("Invalid legacy Prnt.sc seen ID"));
+        }
+        let mut ids = self
+            .ids
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let next: HashSet<u64> = incoming.iter().copied().collect();
+        if *ids == next {
+            return Ok(());
+        }
+        let mut sorted: Vec<_> = next.iter().copied().collect();
+        sorted.sort_unstable();
+        save_json(&self.path, &sorted)?;
+        match fs::remove_file(&self.log_path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(AppError::persistence(error)),
+        }
+        *ids = next;
+        drop(ids);
+        self.generation
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
+    }
+
     pub fn merge(&self, incoming: impl IntoIterator<Item = u64>) -> Result<usize, AppError> {
         let mut ids = self
             .ids

@@ -1,5 +1,11 @@
 //! Canonical, device-independent plaintext. The crypto envelope and credentials remain v1.
+#[cfg(any(test, debug_assertions))]
+mod diagnostics;
 mod merge;
+#[cfg(test)]
+pub use diagnostics::diagnostics;
+#[cfg(any(test, debug_assertions))]
+pub(crate) use diagnostics::{diagnostics_enabled, report_diagnostics, report_upload};
 #[allow(
     dead_code,
     reason = "frozen v1 codec is retained for compatibility and mixed-version tests"

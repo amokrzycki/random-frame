@@ -31,7 +31,11 @@ fn day_at(rfc3339: &str) -> Result<NaiveDate, AppError> {
 }
 
 mod activity;
+mod backup_recovery;
 mod device;
 mod history_favorites;
+mod incident;
+mod large_activity;
 mod migration;
+mod restore;
 mod seen_exploration;

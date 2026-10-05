@@ -14,7 +14,6 @@ pub(super) fn load_json<T: DeserializeOwned + Default>(path: &Path) -> Result<T,
                         fs::rename(temporary, path).map_err(AppError::persistence)?;
                         Ok(data)
                     } else {
-                        #[cfg(windows)]
                         if path.with_extension("json.bak").exists() {
                             return restore_json_backup(path);
                         }
@@ -25,7 +24,6 @@ pub(super) fn load_json<T: DeserializeOwned + Default>(path: &Path) -> Result<T,
                     }
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                    #[cfg(windows)]
                     if path.with_extension("json.bak").exists() {
                         return restore_json_backup(path);
                     }
@@ -38,7 +36,8 @@ pub(super) fn load_json<T: DeserializeOwned + Default>(path: &Path) -> Result<T,
     }
 }
 
-#[cfg(windows)]
+// A Windows interrupted replacement can be recovered after moving the profile
+// to another platform too. A committed backup must never become default state.
 fn restore_json_backup<T: DeserializeOwned>(path: &Path) -> Result<T, AppError> {
     let backup = path.with_extension("json.bak");
     let data = serde_json::from_slice(&fs::read(&backup).map_err(AppError::persistence)?)

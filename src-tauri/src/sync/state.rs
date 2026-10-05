@@ -44,6 +44,52 @@ impl SyncLocalConfig {
     }
 }
 
+/// How a device without Sync credentials adopts an existing Sync.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum JoinMode {
+    /// The remote state replaces this device's synchronized state; nothing local is published.
+    Restore,
+    /// Remote and local synchronized state are unioned, local deletions included.
+    Merge,
+}
+
+/// Aggregate counts of this device's pre-join synchronized state. Never carries identifiers.
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalSyncSummary {
+    pub history: usize,
+    pub history_removals: usize,
+    pub favorites: usize,
+    pub favorite_removals: usize,
+    pub activity_removals: usize,
+    pub meaningful: bool,
+}
+
+impl LocalSyncSummary {
+    pub(super) fn from_snapshot(s: &crate::snapshot::SyncSnapshot) -> Self {
+        // Meaningful = any synchronized content or deletion except the device roster, which a
+        // fresh install always has. A device with only deletions is NOT empty.
+        let meaningful = !(s.seen.is_empty()
+            && s.history.is_empty()
+            && s.history_removed.is_empty()
+            && s.favorites.is_empty()
+            && s.favorites_removed.is_empty()
+            && s.exploration.is_empty()
+            && s.activity.is_empty()
+            && s.activity_removed.is_empty()
+            && s.preferences == crate::snapshot::PreferencesV2::default());
+        Self {
+            history: s.history.len(),
+            history_removals: s.history_removed.len(),
+            favorites: s.favorites.len(),
+            favorite_removals: s.favorites_removed.len(),
+            activity_removals: s.activity_removed.len(),
+            meaningful,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SyncState {

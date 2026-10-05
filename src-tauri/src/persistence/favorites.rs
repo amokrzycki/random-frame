@@ -161,6 +161,37 @@ impl FavoriteStore {
         self.generation.load(Ordering::Relaxed)
     }
 
+    /// Restore: favorites become exactly `incoming`; local additions and removals are dropped.
+    pub fn replace_sync_state(&self, incoming: FavoriteSyncState) -> Result<(), AppError> {
+        let mut data = self
+            .data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut next = FavoriteData {
+            version: 3,
+            favorites: incoming
+                .0
+                .into_iter()
+                .map(|op| FavoriteOp {
+                    operation_id: op.operation_id,
+                    added_at: op.added_at,
+                    source: op.source,
+                    id: op.id,
+                    source_page_url: op.source_page_url,
+                })
+                .collect(),
+            removed: incoming.1,
+        };
+        next.normalize();
+        if *data != next {
+            save_json(&self.path, &next)?;
+            *data = next;
+            self.generation.fetch_add(1, Ordering::Relaxed);
+        }
+        drop(data);
+        Ok(())
+    }
+
     pub fn merge_sync_state(&self, incoming: FavoriteSyncState) -> Result<(), AppError> {
         let mut data = self
             .data

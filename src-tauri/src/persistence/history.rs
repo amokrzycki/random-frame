@@ -468,6 +468,40 @@ impl HistoryStore {
         self.generation.load(Ordering::Relaxed)
     }
 
+    /// Restore: history becomes exactly `incoming`; local operations, tombstones and legacy views are dropped.
+    pub fn replace_sync_state(&self, incoming: HistorySyncState) -> Result<(), AppError> {
+        let mut data = self
+            .data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut next = data.clone();
+        next.history_ops = incoming
+            .0
+            .into_iter()
+            .map(|op| HistoryOp {
+                operation_id: op.operation_id,
+                order_at: op.order_at,
+                viewed_at: op.last_view.at_ms,
+                day: op.last_view.day,
+                day_inferred: op.last_view.day_inferred,
+                source: op.source,
+                id: op.id,
+                source_page_url: op.source_page_url,
+            })
+            .collect();
+        next.removed_history_ops = incoming.1;
+        next.local_views.clear();
+        let selected = next.selected_key();
+        next.normalize(selected);
+        if *data != next {
+            self.save(&next)?;
+            *data = next;
+            self.generation.fetch_add(1, Ordering::Relaxed);
+        }
+        drop(data);
+        Ok(())
+    }
+
     pub fn merge_sync_state(&self, incoming: HistorySyncState) -> Result<(), AppError> {
         let mut data = self
             .data
