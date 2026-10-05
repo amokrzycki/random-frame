@@ -105,6 +105,30 @@ impl ExplorationStore {
                 .unwrap_or_else(std::sync::PoisonError::into_inner),
         )
     }
+    /// Restore: exploration becomes exactly `incoming`.
+    pub fn replace_sync_state(&self, incoming: Vec<ExplorationRecord>) -> Result<(), AppError> {
+        let mut ids = self
+            .ids
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let next: BTreeMap<_, _> = incoming
+            .into_iter()
+            .map(|x| ((x.source, x.id), x.evidence))
+            .collect();
+        if *ids != next {
+            save_json(
+                &self.path,
+                &ExplorationData {
+                    version: 2,
+                    records: records(&next),
+                },
+            )?;
+            *ids = next;
+            drop(ids);
+            self.generation.fetch_add(1, Ordering::Relaxed);
+        }
+        Ok(())
+    }
     pub fn merge_sync_state(&self, incoming: Vec<ExplorationRecord>) -> Result<(), AppError> {
         let mut ids = self
             .ids

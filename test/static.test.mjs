@@ -94,16 +94,13 @@ test("Sync dialog separates Start a new Sync from Connect this device and states
   assert.doesNotMatch(start, /recovery key to connect|sync-join/);
   assert.match(connect, /Connect this device/);
   assert.match(connect, /id="sync-show-join"/);
-  // The merge explanation is on screen before the key field and in the same section.
-  assert.ok(
-    connect
-      .replace(/<[^>]+>/g, " ")
-      .replace(/\s+/g, " ")
-      .indexOf(
-        "Your saved data on this device will be combined with your Sync. It won’t be replaced. Deletions already saved in that Sync will still apply.",
-      ) >= 0,
-  );
-  assert.ok(connect.indexOf("will be combined") < connect.indexOf('id="sync-join-form"'));
+  // The two ways to join are explained before the key form and in the same section.
+  const connectText = connect.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  assert.ok(connectText.includes("Enter your recovery key, then choose how this device should join your Sync."));
+  assert.ok(connectText.includes("Restore this device from Sync"));
+  assert.ok(connectText.includes("Merge this device with Sync"));
+  assert.ok(connect.indexOf("choose how this device should join") < connect.indexOf('id="sync-join-form"'));
+  assert.doesNotMatch(connectText, /It won’t be replaced/);
   assert.match(copy, /History and Favorites/);
   assert.match(copy, /Previously viewed and checked IDs/);
   assert.match(copy, /Activity &amp; Stats/);

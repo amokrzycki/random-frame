@@ -1,6 +1,6 @@
 use super::{errors::SyncError, state::Generation};
 use crate::{
-    persistence::PersistentState,
+    persistence::{PersistentState, PreferenceStore},
     snapshot,
     sync_crypto::{CryptoError, SyncKeys},
 };
@@ -16,13 +16,14 @@ impl SyncData<'_> {
         })?;
         Ok((bytes, generation))
     }
-    pub(super) fn merge_remote(
+    /// Authenticates, decodes and applies every downgrade rule. Touches no local state.
+    pub(super) fn decode_remote(
         &self,
         keys: &SyncKeys,
         envelope: &[u8],
         schema_floor: u32,
         revision: i64,
-    ) -> Result<u32, SyncError> {
+    ) -> Result<snapshot::DecodedSnapshot, SyncError> {
         let plaintext =
             keys.decrypt_snapshot(keys.sync_id(), envelope)
                 .map_err(|error| match error {
@@ -38,6 +39,14 @@ impl SyncData<'_> {
             _ => SyncError::InvalidRemoteData,
         })?;
         debug_assert_eq!(remote.needs_upgrade, remote.original_schema_version == 1);
+        #[cfg(any(test, debug_assertions))]
+        snapshot::report_diagnostics(
+            "after_remote_decode",
+            &remote.data,
+            remote.original_schema_version,
+            plaintext.len(),
+            envelope.len(),
+        );
         let schema_floor = schema_floor
             .max(
                 self.state
@@ -52,6 +61,60 @@ impl SyncData<'_> {
         if remote.original_schema_version < schema_floor {
             return Err(SyncError::SchemaDowngrade);
         }
+        Ok(remote)
+    }
+
+    /// Schema-aware Restore, not CRDT union. Represented domains are remote-authoritative,
+    /// including explicit empty values. Only unsupported content domains use captured local
+    /// v2 state. A stale local roster is never imported; identity registers only this device.
+    pub(super) fn restore_target(
+        &self,
+        remote: &snapshot::DecodedSnapshot,
+        local: &snapshot::SyncSnapshot,
+        at_ms: u64,
+    ) -> Result<snapshot::SyncSnapshot, SyncError> {
+        use snapshot::SyncDomain;
+        debug_assert!([
+            SyncDomain::Seen,
+            SyncDomain::History,
+            SyncDomain::HistoryRemovals,
+            SyncDomain::Favorites,
+            SyncDomain::FavoriteRemovals,
+        ]
+        .into_iter()
+        .all(|domain| remote.represents(domain)));
+        let mut target = remote.data.clone();
+        if !remote.represents(SyncDomain::Exploration) {
+            target.exploration.clone_from(&local.exploration);
+        }
+        if !remote.represents(SyncDomain::Activity) {
+            target.activity.clone_from(&local.activity);
+        }
+        if !remote.represents(SyncDomain::ActivityRemovals) {
+            target.activity_removed.clone_from(&local.activity_removed);
+        }
+        if !remote.represents(SyncDomain::Preferences) {
+            target.preferences.clone_from(&local.preferences);
+        }
+        if !remote.represents(SyncDomain::Devices) {
+            target.devices.clear();
+        }
+        PreferenceStore::register_self(&mut target, &self.state.identity, at_ms);
+        // Keep the existing persistence invariant: viewed evidence in retained History or
+        // Exploration implies Seen. This never copies the unrelated local Seen collection.
+        snapshot::reconcile_seen(&mut target);
+        snapshot::validate_snapshot(&target).map_err(|_| SyncError::InvalidRemoteData)?;
+        Ok(target)
+    }
+
+    pub(super) fn merge_remote(
+        &self,
+        keys: &SyncKeys,
+        envelope: &[u8],
+        schema_floor: u32,
+        revision: i64,
+    ) -> Result<u32, SyncError> {
+        let remote = self.decode_remote(keys, envelope, schema_floor, revision)?;
         self.state
             .merge_versioned(&remote.data, keys.sync_id(), remote.original_schema_version)
             .map_err(|error| {
@@ -61,6 +124,22 @@ impl SyncData<'_> {
                     SyncError::Persistence
                 }
             })?;
+        #[cfg(any(test, debug_assertions))]
+        if snapshot::diagnostics_enabled() {
+            // After merge there is no envelope yet. Its planned length is exactly
+            // the serialized length plus the frozen 52-byte envelope overhead.
+            if let Ok((merged, _)) = self.state.snapshot() {
+                if let Ok(bytes) = snapshot::serialize_snapshot(&merged) {
+                    snapshot::report_diagnostics(
+                        "after_merge",
+                        &merged,
+                        2,
+                        bytes.len(),
+                        bytes.len() + crate::sync_crypto::ENVELOPE_OVERHEAD,
+                    );
+                }
+            }
+        }
         Ok(remote.original_schema_version)
     }
 }

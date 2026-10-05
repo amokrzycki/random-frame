@@ -160,6 +160,27 @@ impl ActivityStore {
         drop(data);
         result
     }
+    /// Restore: Activity becomes exactly `incoming` and the legacy browser import is closed,
+    /// so a later `migrate` cannot add pre-join counters.
+    pub fn replace_sync_state(
+        &self,
+        operations: Vec<ActivityOperation>,
+        removed: Vec<[u8; 16]>,
+    ) -> Result<(), AppError> {
+        let mut data = self
+            .data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let next = ActivityData {
+            migrated: true,
+            operations,
+            removed,
+            ..data.clone()
+        };
+        let result = self.save_changed(&mut data, next);
+        drop(data);
+        result
+    }
     fn save_changed(&self, data: &mut ActivityData, next: ActivityData) -> Result<(), AppError> {
         if *data != next {
             save_json(&self.path, &next)?;

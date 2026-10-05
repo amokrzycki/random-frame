@@ -37,7 +37,23 @@ export interface CreateSyncResult {
 
 export const getSyncStatus = (): Promise<SyncStatus> => invoke("get_sync_status");
 export const createSync = (): Promise<CreateSyncResult> => invoke("create_sync");
-export const joinSync = (recoveryKey: string): Promise<SyncStatus> => invoke("join_sync", { recoveryKey });
+// Restore: this device takes the Sync's copy and publishes nothing of its own.
+// Merge: this device's synced data, deletions included, is combined with the Sync's.
+export type JoinMode = "restore" | "merge";
+
+// Counts only; the native side never sends identifiers.
+export interface LocalSyncSummary {
+  history: number;
+  historyRemovals: number;
+  favorites: number;
+  favoriteRemovals: number;
+  activityRemovals: number;
+  meaningful: boolean;
+}
+
+export const getSyncJoinSummary = (): Promise<LocalSyncSummary> => invoke("get_sync_join_summary");
+export const joinSync = (recoveryKey: string, mode: JoinMode): Promise<SyncStatus> =>
+  invoke("join_sync", { recoveryKey, mode });
 export const syncNow = (): Promise<SyncStatus> => invoke("sync_now");
 export const startupSync = (): Promise<SyncStatus> => invoke("startup_sync");
 export const leaveSync = (): Promise<SyncStatus> => invoke("leave_sync");

@@ -31,7 +31,7 @@ use std::{
     },
     time::Duration,
 };
-use sync::{CreateSyncResult, SyncEngine, SyncError, SyncStatus};
+use sync::{CreateSyncResult, JoinMode, LocalSyncSummary, SyncEngine, SyncError, SyncStatus};
 use tauri::{ipc::Response, Manager, State};
 
 struct PendingFrame {
@@ -608,11 +608,25 @@ async fn create_sync(state: State<'_, AppState>) -> Result<CreateSyncResult, Syn
 #[tauri::command]
 async fn join_sync(
     recovery_key: String,
+    mode: JoinMode,
     state: State<'_, AppState>,
 ) -> Result<SyncStatus, SyncError> {
     state.ensure_imports_ready()?;
     match &state.sync {
-        Some(sync) => sync.join(&recovery_key).await,
+        Some(sync) => sync.join(&recovery_key, mode).await,
+        None => Err(SyncError::UnsupportedPlatform),
+    }
+}
+
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command state extractors must be passed by value"
+)]
+fn get_sync_join_summary(state: State<'_, AppState>) -> Result<LocalSyncSummary, SyncError> {
+    state.ensure_imports_ready()?;
+    match &state.sync {
+        Some(sync) => sync.local_summary(),
         None => Err(SyncError::UnsupportedPlatform),
     }
 }
@@ -720,6 +734,8 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             create_sync,
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             join_sync,
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            get_sync_join_summary,
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             sync_now,
             #[cfg(any(target_os = "linux", target_os = "windows"))]

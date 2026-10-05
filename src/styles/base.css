@@ -141,7 +141,7 @@ button {
   outline-offset: 4px;
 }
 /* Native focus-visible also matches clicked text fields and some scripted focus moves. */
-:root:not([data-input="keyboard"]) :is(:focus-visible, .entry-consent, .sync-dialog__saved) {
+:root:not([data-input="keyboard"]) :is(:focus-visible, .entry-consent, .sync-dialog__saved, .sync-join__option) {
   outline-style: none !important;
 }
 ::selection {

@@ -5,9 +5,12 @@ import { syncControls } from "./stage.js";
 import {
   createSync,
   type DeviceSummary,
+  getSyncJoinSummary,
   getSyncRecoveryKey,
   getSyncStatus,
+  type JoinMode,
   joinSync,
+  type LocalSyncSummary,
   leaveSync,
   type SyncStatus,
   setSyncDeviceName,
@@ -87,6 +90,9 @@ function nameProblem(name: string): string | null {
   return null;
 }
 
+// What this device holds before joining; null until read, or when it could not be read.
+let joinSummary: LocalSyncSummary | null = null;
+let joinSummaryLoaded = false;
 let status: SyncStatus | null = null;
 let busy = false;
 let busyMessage = "";
@@ -95,6 +101,81 @@ let refreshAfterInitialize = false;
 let nameEdited = false;
 // What Try again repeats: the failed action, or the status check itself.
 let retryAction: (() => Promise<unknown>) | null = null;
+
+const count = new Intl.NumberFormat();
+const plural = (n: number, one: string, many: string): string => `${count.format(n)} ${n === 1 ? one : many}`;
+
+function totalDeletions(summary: LocalSyncSummary): number {
+  return summary.historyRemovals + summary.favoriteRemovals + summary.activityRemovals;
+}
+
+// Streamlining is allowed only when the native check says nothing synced is saved here.
+// A device that holds nothing but deletions is not empty.
+function joinIsStreamlined(): boolean {
+  return joinSummaryLoaded && joinSummary !== null && !joinSummary.meaningful;
+}
+
+// The one place a join mode is decided: the checked option, never a button label.
+function selectedJoinMode(): JoinMode | null {
+  if (joinIsStreamlined()) return "restore";
+  if (elements.syncJoinMerge.checked) return "merge";
+  if (elements.syncJoinRestore.checked) return "restore";
+  return null;
+}
+
+function renderJoin(): void {
+  const summary = joinSummary;
+  const streamlined = joinIsStreamlined();
+  elements.syncJoinFresh.hidden = !streamlined;
+  elements.syncJoinModes.hidden = streamlined;
+  const deletions = summary ? totalDeletions(summary) : 0;
+  // Aggregate counts only. Deletions are the signal worth stating; the rest is context.
+  const parts = summary
+    ? [
+        summary.history > 0 ? plural(summary.history, "history item", "history items") : "",
+        summary.favorites > 0 ? plural(summary.favorites, "favorite", "favorites") : "",
+        deletions > 0 ? plural(deletions, "previous deletion", "previous deletions") : "",
+      ].filter(Boolean)
+    : [];
+  elements.syncJoinLocal.hidden = !summary?.meaningful;
+  elements.syncJoinLocal.textContent = summary?.meaningful
+    ? parts.length
+      ? `This device currently has ${parts.join(", ")}.`
+      : "This device already has saved data of its own."
+    : "";
+  elements.syncJoinMergeDeletions.hidden = deletions === 0;
+  elements.syncJoinMergeDeletions.textContent =
+    deletions > 0
+      ? `This device has ${plural(deletions, "previous deletion", "previous deletions")} that will also be merged.`
+      : "";
+  const mode = selectedJoinMode();
+  elements.syncJoin.textContent =
+    mode === "merge" ? "Merge this device" : mode === "restore" ? "Restore this device" : "Connect this device";
+}
+
+async function loadJoinSummary(): Promise<void> {
+  joinSummary = null;
+  joinSummaryLoaded = false;
+  renderJoin();
+  try {
+    joinSummary = await getSyncJoinSummary();
+  } catch {
+    // Unknown is not empty: keep both choices and show no counts.
+    joinSummary = null;
+  }
+  joinSummaryLoaded = true;
+  renderJoin();
+  render();
+}
+
+function resetJoin(): void {
+  elements.syncRecoveryInput.value = "";
+  elements.syncJoinRestore.checked = false;
+  elements.syncJoinMerge.checked = false;
+  joinSummary = null;
+  joinSummaryLoaded = false;
+  renderJoin();
+}
 
 function showError(message: string, retry: (() => Promise<unknown>) | null = null): void {
   retryAction = retry;
@@ -234,7 +315,8 @@ function render(): void {
   elements.syncShowKey.disabled = busy || !supported;
   elements.syncNameInput.disabled = busy || !supported;
   elements.syncEnable.disabled = busy || !supported || !status;
-  elements.syncJoin.disabled = busy || !supported || !status;
+  elements.syncJoin.disabled = busy || !supported || !status || !joinSummaryLoaded || selectedJoinMode() === null;
+  for (const option of [elements.syncJoinRestore, elements.syncJoinMerge]) option.disabled = busy;
   elements.syncLeave.disabled = busy || !supported || status?.state === "syncing";
   elements.syncLeaveConfirmButton.disabled = busy;
   elements.syncClose.disabled = busy || (gated && !elements.syncKeySaved.checked);
@@ -296,6 +378,15 @@ async function operate(message: string, action: () => Promise<SyncStatus | undef
     try {
       result = await action();
     } catch (error) {
+      // Restore can replace local stores before credential or config saves fail.
+      if (!state.loading) {
+        try {
+          await refreshPersistedView();
+          syncControls();
+        } catch {
+          // Keep the action's original error and retry; a pending journal may still block reads.
+        }
+      }
       showError(safeError(error), notRetryable.has(category(error) ?? "") ? null : () => operate(message, action));
       await refresh();
       return false;
@@ -410,7 +501,7 @@ export function bindSyncDialogEvents(): void {
   elements.syncKeySaved.addEventListener("change", render);
   elements.syncDialog.addEventListener("close", () => {
     hideKey();
-    elements.syncRecoveryInput.value = "";
+    resetJoin();
     elements.syncJoinForm.hidden = true;
     delete elements.syncDialog.dataset.joining;
     elements.syncLeaveConfirm.hidden = true;
@@ -426,11 +517,17 @@ export function bindSyncDialogEvents(): void {
     elements.syncJoinForm.hidden = false;
     elements.syncDialog.dataset.joining = "true";
     elements.syncRecoveryInput.focus();
+    void loadJoinSummary();
   });
+  for (const option of [elements.syncJoinRestore, elements.syncJoinMerge])
+    option.addEventListener("change", () => {
+      renderJoin();
+      render();
+    });
   elements.syncJoinCancel.addEventListener("click", () => {
     elements.syncJoinForm.hidden = true;
     delete elements.syncDialog.dataset.joining;
-    elements.syncRecoveryInput.value = "";
+    resetJoin();
     clearError();
     elements.syncShowJoin.focus();
   });
@@ -458,9 +555,17 @@ export function bindSyncDialogEvents(): void {
   });
   elements.syncJoinForm.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const joined = await operate("Connecting this device…", async () => {
-      const result = await joinSync(elements.syncRecoveryInput.value.trim());
-      elements.syncRecoveryInput.value = "";
+    const mode = selectedJoinMode();
+    if (busy || !joinSummaryLoaded) return;
+    if (!mode) {
+      showError("Choose how this device should join your Sync.");
+      elements.syncJoinRestore.focus();
+      return;
+    }
+    // Fixed at submit, so Try again repeats exactly this choice.
+    const joined = await operate(mode === "restore" ? "Restoring this device…" : "Merging this device…", async () => {
+      const result = await joinSync(elements.syncRecoveryInput.value.trim(), mode);
+      resetJoin();
       elements.syncJoinForm.hidden = true;
       delete elements.syncDialog.dataset.joining;
       return result;

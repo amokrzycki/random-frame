@@ -593,7 +593,80 @@
 #sync-join-form .sync-dialog__actions {
   margin-top: 4px;
 }
-/* Entering a key is the whole task: the other choice and the scope step aside, the merge note stays. */
+.sync-join {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  margin: 12px 0 0;
+  padding: 0;
+  border: 0;
+}
+.sync-join legend {
+  margin-bottom: 8px;
+  padding: 0;
+  font-size: 13px;
+  font-weight: 650;
+}
+.sync-join__fresh {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+.sync-join .sync-dialog__meta {
+  margin: 0 0 2px;
+}
+/* A choice card: the radio sits in the gutter, the title and every consequence line stack beside it. */
+.sync-join__option {
+  display: grid;
+  grid-template-columns: 19px minmax(0, 1fr);
+  gap: 4px 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  background: var(--paper);
+  cursor: pointer;
+  transition: border-color 120ms var(--ease-out);
+}
+.sync-join__option:hover {
+  border-color: var(--muted);
+}
+.sync-join__option > input {
+  grid-row: 1 / span 4;
+  width: 19px;
+  height: 19px;
+  margin: 1px 0 0;
+  accent-color: var(--blue);
+  cursor: pointer;
+}
+.sync-join__option > :not(input) {
+  grid-column: 2;
+}
+.sync-join__option--primary {
+  border-color: var(--blue);
+}
+.sync-join__option:has(input:checked) {
+  border-color: var(--ink);
+}
+.sync-join__option--primary:has(input:checked) {
+  border-color: var(--blue);
+  box-shadow: inset 0 0 0 1px var(--blue);
+}
+.sync-join__option:has(input:focus-visible) {
+  outline: 3px solid var(--blue);
+  outline-offset: 3px;
+}
+.sync-join__title {
+  font-weight: 650;
+}
+.sync-join__copy {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.sync-join__copy--strong {
+  color: var(--ink);
+}
+/* Entering a key is the whole task: the other choice and the scope step aside, the join note stays. */
 .sync-dialog[data-joining] :is(#sync-start, #sync-connect-actions, #sync-scope) {
   display: none;
 }

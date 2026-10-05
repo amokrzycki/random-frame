@@ -1,0 +1,47 @@
+{
+  "days": {
+    "2026-09-22": {
+      "rejected": 321,
+      "viewed": 323
+    },
+    "2026-09-23": {
+      "rejected": 391,
+      "viewed": 354
+    },
+    "2026-09-24": {
+      "rejected": 229,
+      "viewed": 229
+    },
+    "2026-09-26": {
+      "rejected": 82,
+      "viewed": 57
+    },
+    "2026-09-28": {
+      "rejected": 149,
+      "viewed": 141
+    },
+    "2026-09-29": {
+      "rejected": 758,
+      "viewed": 643
+    },
+    "2026-09-30": {
+      "rejected": 1123,
+      "viewed": 1059
+    },
+    "2026-10-01": {
+      "rejected": 1197,
+      "viewed": 1081
+    },
+    "2026-10-02": {
+      "rejected": 1962,
+      "viewed": 1811
+    },
+    "2026-10-03": {
+      "rejected": 43,
+      "viewed": 54
+    }
+  },
+  "migrated": false,
+  "revisit_views_repaired": true,
+  "viewed_total": 5752
+}

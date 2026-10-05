@@ -413,8 +413,7 @@
             <section class="sync-dialog__choice" aria-labelledby="sync-connect-title">
               <h3 id="sync-connect-title">Connect this device</h3>
               <p class="sync-dialog__copy" id="sync-connect-note">
-                Already use Sync on another device? Connect with its recovery key. Your saved data on this device will
-                be combined with your Sync. It won’t be replaced. Deletions already saved in that Sync will still apply.
+                Enter your recovery key, then choose how this device should join your Sync.
               </p>
               <div class="sync-dialog__actions" id="sync-connect-actions">
                 <button class="sync-dialog__button" id="sync-show-join" type="button">Connect this device</button>
@@ -430,8 +429,49 @@
                   spellcheck="false"
                   aria-describedby="sync-connect-note"
                   required>
+                <p class="sync-join__fresh" id="sync-join-fresh" hidden>
+                  Nothing is saved on this device yet, so it will take on the copy already in Sync.
+                </p>
+                <fieldset class="sync-join" id="sync-join-modes" aria-describedby="sync-join-local">
+                  <legend>How should this device join?</legend>
+                  <p class="sync-dialog__meta" id="sync-join-local" hidden></p>
+                  <label class="sync-join__option sync-join__option--primary" for="sync-join-restore">
+                    <input
+                      id="sync-join-restore"
+                      type="radio"
+                      name="sync-join-mode"
+                      value="restore"
+                      aria-describedby="sync-join-restore-about sync-join-restore-effect">
+                    <span class="sync-join__title">Restore this device from Sync</span>
+                    <span class="sync-join__copy" id="sync-join-restore-about">
+                      Replace this device’s synced data with the copy already in Sync. Best for a new installation or
+                      another computer.
+                    </span>
+                    <span class="sync-join__copy" id="sync-join-restore-effect">
+                      Local history, favorites and their previous deletions will not be added to Sync. If your Sync was
+                      saved by an older app, data it could not save is kept from this device.
+                    </span>
+                  </label>
+                  <label class="sync-join__option" for="sync-join-merge">
+                    <input
+                      id="sync-join-merge"
+                      type="radio"
+                      name="sync-join-mode"
+                      value="merge"
+                      aria-describedby="sync-join-merge-about sync-join-merge-effect sync-join-merge-deletions">
+                    <span class="sync-join__title">Merge this device with Sync</span>
+                    <span class="sync-join__copy" id="sync-join-merge-about">
+                      Combine this device’s existing synced data with the copy already in Sync.
+                    </span>
+                    <span class="sync-join__copy" id="sync-join-merge-effect">
+                      Previous deletions on this device are included. They may remove items that still exist on your
+                      other devices.
+                    </span>
+                    <span class="sync-join__copy sync-join__copy--strong" id="sync-join-merge-deletions" hidden></span>
+                  </label>
+                </fieldset>
                 <div class="sync-dialog__actions">
-                  <button class="primary-action" id="sync-join" type="submit">Connect</button>
+                  <button class="primary-action" id="sync-join" type="submit">Restore this device</button>
                   <button class="sync-dialog__button" id="sync-join-cancel" type="button">Cancel</button>
                 </div>
               </form>

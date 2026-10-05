@@ -74,7 +74,7 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
     async invoke(command, args) {
       if (command === "complete_state_imports") return null;
       if (command === "get_user_preferences" || command === "set_user_preferences")
-        return { theme: null, historyPageSize: null };
+        return { theme: null, historyPageSize: 10 };
       if (command === "import_session_history") return window.__TAURI_INTERNALS__.invoke("get_history");
       calls.push({ command, args });
       if (command === "load_thumbnail_cache" || command === "save_thumbnail_cache") return native.invoke(command, args);

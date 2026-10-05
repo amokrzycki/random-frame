@@ -29,6 +29,9 @@ struct Transaction {
     session_import: bool,
     #[serde(default)]
     accepted_schema: Option<(String, u32)>,
+    /// Restore: `effects` replace the synchronized stores instead of merging into them.
+    #[serde(default)]
+    replace: bool,
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -191,32 +194,40 @@ impl PersistentState {
             // This adds startup latency for large datasets, but ensures crash safety:
             // a corrupted transaction file cannot partially apply and leave inconsistent state.
             // Bounded by the 64MB upload limit; acceptable tradeoff for durability guarantees.
-            snapshot::merge_snapshots(&self.snapshot_unlocked()?, &pending.effects)
-                .map_err(AppError::persistence)?;
+            if pending.replace {
+                snapshot::validate_snapshot(&pending.effects).map_err(AppError::persistence)?;
+            } else {
+                snapshot::merge_snapshots(&self.snapshot_unlocked()?, &pending.effects)
+                    .map_err(AppError::persistence)?;
+            }
             self.apply(&pending)?;
             save_json(&self.path, &Option::<Transaction>::None)?;
         }
         Ok(())
     }
     fn apply(&self, tx: &Transaction) -> Result<(), AppError> {
-        self.seen.merge(tx.effects.seen.iter().copied())?;
-        self.history.merge_sync_state((
-            tx.effects.history.clone(),
-            tx.effects.history_removed.clone(),
-        ))?;
-        self.favorites.merge_sync_state((
-            tx.effects.favorites.clone(),
-            tx.effects.favorites_removed.clone(),
-        ))?;
-        self.explored
-            .merge_sync_state(tx.effects.exploration.clone())?;
-        self.activity.merge_sync_state(
-            tx.effects.activity.clone(),
-            tx.effects.activity_removed.clone(),
-            tx.close_legacy_import,
-        )?;
-        self.preferences
-            .merge(tx.effects.preferences.clone(), tx.effects.devices.clone())?;
+        if tx.replace {
+            self.apply_replace(&tx.effects)?;
+        } else {
+            self.seen.merge(tx.effects.seen.iter().copied())?;
+            self.history.merge_sync_state((
+                tx.effects.history.clone(),
+                tx.effects.history_removed.clone(),
+            ))?;
+            self.favorites.merge_sync_state((
+                tx.effects.favorites.clone(),
+                tx.effects.favorites_removed.clone(),
+            ))?;
+            self.explored
+                .merge_sync_state(tx.effects.exploration.clone())?;
+            self.activity.merge_sync_state(
+                tx.effects.activity.clone(),
+                tx.effects.activity_removed.clone(),
+                tx.close_legacy_import,
+            )?;
+            self.preferences
+                .merge(tx.effects.preferences.clone(), tx.effects.devices.clone())?;
+        }
         if tx.session_import {
             super::migration::receipt(
                 self.path
@@ -232,6 +243,66 @@ impl PersistentState {
             save_json(&self.schema_path, &floors)?;
         }
         Ok(())
+    }
+    /// Every step is a set-to-target, so replaying a journaled Restore after a crash is idempotent.
+    fn apply_replace(&self, target: &SyncSnapshot) -> Result<(), AppError> {
+        self.seen.replace(&target.seen)?;
+        self.history
+            .replace_sync_state((target.history.clone(), target.history_removed.clone()))?;
+        self.favorites
+            .replace_sync_state((target.favorites.clone(), target.favorites_removed.clone()))?;
+        self.explored
+            .replace_sync_state(target.exploration.clone())?;
+        self.activity
+            .replace_sync_state(target.activity.clone(), target.activity_removed.clone())?;
+        self.preferences
+            .replace(target.preferences.clone(), target.devices.clone())?;
+        // A prepared "clear history" holds pre-join operation IDs; committing it later would
+        // publish those deletions.
+        let mut clears: Clears = load_json(&self.clear_path)?;
+        let mut changed = false;
+        for request in clears.requests.values_mut() {
+            changed |= request.take().is_some();
+        }
+        if changed {
+            save_json(&self.clear_path, &clears)?;
+        }
+        Ok(())
+    }
+    /// Restore: makes `target` the whole synchronized state through the journal. Device
+    /// identity, thumbnails and Sync credentials are not part of it and stay untouched.
+    pub fn replace_synchronized(&self, target: &SyncSnapshot) -> Result<Generation, AppError> {
+        self.read(|| {
+            snapshot::validate_snapshot(target).map_err(AppError::persistence)?;
+            let tx = Transaction {
+                version: 1,
+                id: operation_id(),
+                effects: target.clone(),
+                close_legacy_import: true,
+                // The browser session import is pre-join local history as well.
+                session_import: true,
+                accepted_schema: None,
+                replace: true,
+            };
+            save_json(&self.path, &Some(&tx))?;
+            self.apply(&tx)?;
+            save_json(&self.path, &Option::<Transaction>::None)?;
+            Ok(self.generation())
+        })
+    }
+    /// Test hook: a Restore that crashed right after its journal became durable.
+    #[cfg(test)]
+    pub fn journal_replace_only(&self, target: &SyncSnapshot) -> Result<(), AppError> {
+        let tx = Transaction {
+            version: 1,
+            id: operation_id(),
+            effects: target.clone(),
+            close_legacy_import: true,
+            session_import: true,
+            accepted_schema: None,
+            replace: true,
+        };
+        save_json(&self.path, &Some(&tx))
     }
     fn transact(&self, effects: &SyncSnapshot, close_legacy_import: bool) -> Result<(), AppError> {
         self.transact_import(effects, close_legacy_import, false)
@@ -269,6 +340,7 @@ impl PersistentState {
             close_legacy_import,
             session_import,
             accepted_schema,
+            replace: false,
         };
         // No upload-size check here: oversized local state must remain durable and recoverable.
         save_json(&self.path, &Some(&tx))?;

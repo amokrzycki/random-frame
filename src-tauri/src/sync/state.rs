@@ -44,6 +44,45 @@ impl SyncLocalConfig {
     }
 }
 
+/// How a device without Sync credentials adopts an existing Sync.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum JoinMode {
+    /// Remote wins in represented domains; unsupported domains migrate from durable local v2 state.
+    Restore,
+    /// Remote and local synchronized state are unioned, local deletions included.
+    Merge,
+}
+
+/// Aggregate counts of this device's pre-join synchronized state. Never carries identifiers.
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalSyncSummary {
+    pub history: usize,
+    pub history_removals: usize,
+    pub favorites: usize,
+    pub favorite_removals: usize,
+    pub activity_removals: usize,
+    pub meaningful: bool,
+}
+
+impl LocalSyncSummary {
+    pub(super) fn from_snapshot(
+        s: &crate::snapshot::SyncSnapshot,
+        this_device: crate::snapshot::OperationId,
+    ) -> Self {
+        let meaningful = s.has_meaningful_synchronized_state(this_device);
+        Self {
+            history: s.history.len(),
+            history_removals: s.history_removed.len(),
+            favorites: s.favorites.len(),
+            favorite_removals: s.favorites_removed.len(),
+            activity_removals: s.activity_removed.len(),
+            meaningful,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SyncState {

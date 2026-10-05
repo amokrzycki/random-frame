@@ -27,7 +27,9 @@ pub(super) fn source_path(
         let receipts_path = directory.join("state-migration.json");
         let recoverable_receipts = std::fs::read(receipts_path.with_extension("json.tmp"))
             .is_ok_and(|bytes| serde_json::from_slice::<Receipts>(&bytes).is_ok());
-        if (receipts_path.exists() || recoverable_receipts)
+        if (receipts_path.exists()
+            || recoverable_receipts
+            || receipts_path.with_extension("json.bak").exists())
             && has_receipt(directory, destination.trim_end_matches(".json"))?
         {
             return Err(AppError::persistence(
