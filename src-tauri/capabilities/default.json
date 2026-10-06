@@ -3,6 +3,7 @@
   "identifier": "default",
   "description": "enables the default permissions",
   "windows": ["main"],
+  "platforms": ["linux", "windows", "macOS"],
   "permissions": [
     "core:default",
     "core:window:allow-close",
@@ -12,6 +13,7 @@
     "dialog:allow-save",
     "fs:allow-write-file",
     "clipboard-manager:allow-write-image",
+    "clipboard-manager:allow-write-text",
     "opener:default",
     "updater:default",
     "process:allow-restart"

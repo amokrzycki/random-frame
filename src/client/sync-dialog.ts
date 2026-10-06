@@ -1,4 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { closeDialog, onDialogClosed, openDialog } from "./dialogs.js";
 import { elements } from "./elements.js";
 import { syncControls } from "./stage.js";
@@ -546,7 +547,7 @@ export function bindSyncDialogEvents(): void {
   });
   elements.syncCopyKey.addEventListener("click", async () => {
     try {
-      await navigator.clipboard.writeText(elements.syncRecoveryKey.textContent);
+      await writeText(elements.syncRecoveryKey.textContent);
       toast.success("Recovery key copied");
     } catch {
       document.getSelection?.()?.selectAllChildren(elements.syncRecoveryKey);

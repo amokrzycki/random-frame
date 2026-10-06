@@ -1,11 +1,21 @@
 //! Root secret only. All keyring calls run off the UI thread.
+//!
+//! Desktop uses the OS keyring. Android keeps the secret in a private `SharedPreferences` file,
+//! encrypted with an AES-GCM key that never leaves Android Keystore.
 
 use crate::sync_crypto::RootSecret;
+#[cfg(not(target_os = "android"))]
+use keyring::{Entry, Error as KeyringError};
+#[cfg(target_os = "android")]
+use keyring_core::{Entry, Error as KeyringError};
 use std::fmt;
 use zeroize::Zeroizing;
 
 const SERVICE: &str = "dev.randomframe.desktop.sync.v1";
 const USER: &str = "root-secret";
+/// Backed by `shared_prefs/keyring-random-frame-sync.xml`, which is excluded from backups.
+#[cfg(target_os = "android")]
+const ANDROID_STORE: &str = "random-frame-sync";
 
 pub struct SecureStorage {
     service: String,
@@ -54,7 +64,7 @@ impl SecureStorage {
         let user = self.user.clone();
         tauri::async_runtime::spawn_blocking(move || {
             match entry(&service, &user)?.delete_credential() {
-                Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+                Ok(()) | Err(KeyringError::NoEntry) => Ok(()),
                 Err(error) => Err(map_error(&error)),
             }
         })
@@ -84,10 +94,35 @@ impl SecretStore for SecureStorage {
     }
 }
 
-fn entry(service: &str, user: &str) -> Result<keyring::Entry, StorageError> {
-    keyring::Entry::new(service, user).map_err(|error| map_error(&error))
+#[cfg(not(target_os = "android"))]
+fn entry(service: &str, user: &str) -> Result<Entry, StorageError> {
+    Entry::new(service, user).map_err(|error| map_error(&error))
 }
 
+#[cfg(target_os = "android")]
+fn entry(service: &str, user: &str) -> Result<Entry, StorageError> {
+    use keyring_core::api::CredentialStoreApi;
+    let configuration = std::collections::HashMap::from([("name", ANDROID_STORE)]);
+    android_native_keyring_store::Store::new_with_configuration(&configuration)
+        .and_then(|store| store.build(service, user, None))
+        .map_err(|error| map_error(&error))
+}
+
+#[cfg(target_os = "android")]
+use map_android_error as map_error;
+
+#[cfg(any(target_os = "android", test))]
+fn map_android_error(error: &keyring_core::Error) -> StorageError {
+    use keyring_core::Error;
+    match error {
+        Error::NoEntry => StorageError::Missing,
+        Error::BadDataFormat(..) | Error::BadEncoding(_) => StorageError::Corrupt,
+        Error::PlatformFailure(_) | Error::BadStoreFormat(_) => StorageError::Unavailable,
+        _ => StorageError::AccessDenied,
+    }
+}
+
+#[cfg(not(target_os = "android"))]
 fn map_error(error: &keyring::Error) -> StorageError {
     match error {
         keyring::Error::NoEntry => StorageError::Missing,
@@ -131,6 +166,30 @@ mod tests {
         assert!(!StorageError::Unavailable
             .to_string()
             .contains("private backend detail"));
+    }
+
+    #[test]
+    fn android_store_errors_never_look_like_a_missing_secret() {
+        use keyring_core::Error;
+        let detail = || Box::new(std::io::Error::other("private backend detail"));
+        assert_eq!(map_android_error(&Error::NoEntry), StorageError::Missing);
+        // A Keystore key that no longer decrypts the stored value must not read as "never paired".
+        assert_eq!(
+            map_android_error(&Error::BadDataFormat(vec![1], detail())),
+            StorageError::Corrupt
+        );
+        assert_eq!(
+            map_android_error(&Error::BadEncoding(vec![1])),
+            StorageError::Corrupt
+        );
+        assert_eq!(
+            map_android_error(&Error::PlatformFailure(detail())),
+            StorageError::Unavailable
+        );
+        assert_eq!(
+            map_android_error(&Error::NoStorageAccess(detail())),
+            StorageError::AccessDenied
+        );
     }
 
     #[tokio::test]

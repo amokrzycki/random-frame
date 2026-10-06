@@ -4,6 +4,7 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { describeError } from "./errors.js";
+import { getPlatformCapabilities } from "./platform.js";
 import { toast } from "./toast.js";
 
 function imageExtension(mimeType: string): string {
@@ -28,11 +29,16 @@ export async function saveImage(id: string, blob: Blob): Promise<boolean> {
     });
     if (!path) return false;
     await writeFile(path, new Uint8Array(await blob.arrayBuffer()));
-    toast.success("Saved image", {
-      label: "Show in folder",
-      run: () =>
-        void revealItemInDir(path).catch(() => toast.error(`The folder could not be opened. The image is at ${path}`)),
-    });
+    // On Android the picker returns a content URI, which has no folder to show.
+    if (getPlatformCapabilities().platform === "android") toast.success("Saved image");
+    else
+      toast.success("Saved image", {
+        label: "Show in folder",
+        run: () =>
+          void revealItemInDir(path).catch(() =>
+            toast.error(`The folder could not be opened. The image is at ${path}`),
+          ),
+      });
     return true;
   } catch (error) {
     toast.error(describeError(error, "The image could not be saved. Try again.").message);

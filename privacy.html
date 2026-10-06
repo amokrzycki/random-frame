@@ -29,7 +29,7 @@
 
   <body class="app-shell">
     <header class="titlebar">
-      <div class="titlebar__drag-region" data-tauri-drag-region>
+      <div class="titlebar__drag-region" id="titlebar-drag-region" data-tauri-drag-region>
         <div class="brand">
           <svg viewBox="0 0 28 28" aria-hidden="true">
             <path d="M4.5 8.5V4.5h4M19.5 4.5h4v4M23.5 19.5v4h-4M8.5 23.5h-4v-4" />
@@ -60,7 +60,7 @@
           </svg>
         </button>
       </div>
-      <div class="window-controls">
+      <div class="window-controls" id="window-controls">
         <button
           class="window-control"
           id="window-minimize"
@@ -97,10 +97,10 @@
       <article class="privacy-page">
         <header>
           <h1>Privacy policy</h1>
-          <p>Last updated: September 30, 2026</p>
+          <p>Last updated: October 6, 2026</p>
         </header>
 
-        <p>This policy explains how the Random Frame desktop application handles data.</p>
+        <p>This policy explains how the Random Frame application for Windows, Linux, and Android handles data.</p>
 
         <h2>1. Data collection</h2>
 
@@ -133,9 +133,15 @@
           <li>Prnt.sc IDs checked (including ones with no image),</li>
           <li>
             if you enable Sync: a pairing ID, a random device ID, the name you give this device, and the time of the
-            last sync on this device, and your recovery key in your system’s secure storage.
+            last sync on this device, and your recovery key in your system’s secure storage. On Android, the key is
+            encrypted with a key held by Android Keystore.
           </li>
         </ul>
+
+        <p>
+          On Android, this data is left out of device backups and transfers to a new phone, so uninstalling the app
+          deletes it. Sync is the way to keep it across devices.
+        </p>
 
         <p>
           If you enable Sync, Seen IDs, history, favorites, Prnt.sc IDs checked, Activity Stats, and preferences (theme
@@ -160,13 +166,17 @@
           your Sync. You can show it again from the Sync dialog.
         </p>
 
-        <p>With Sync on, the app contacts the Sync server when it starts and whenever you choose Sync now.</p>
+        <p>
+          With Sync on, the app contacts the Sync server when it starts and whenever you choose Sync now. On Android, it
+          also syncs when you return to the app at least 15 minutes after the last sync.
+        </p>
 
         <h2>4. External services</h2>
 
         <p>
-          The app checks GitHub for updates when it starts. GitHub may receive connection information such as your IP
-          address and request details. Checking does not send your history, favorites, or Seen IDs.
+          The Windows and Linux app checks GitHub for updates when it starts. GitHub may receive connection information
+          such as your IP address and request details. Checking does not send your history, favorites, or Seen IDs. The
+          Android app does not check for updates.
         </p>
 
         <p>
@@ -208,7 +218,6 @@
     </div>
     <script type="module" src="{{THEME_JS}}"></script>
     <script type="module" src="{{TOOLTIP_JS}}"></script>
-    <script type="module" src="{{WINDOW_CONTROLS_JS}}"></script>
     <script type="module" src="{{PRIVACY_JS}}"></script>
   </body>
 </html>

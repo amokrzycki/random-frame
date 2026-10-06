@@ -169,3 +169,50 @@
     opacity: 0.7;
   }
 }
+
+/* Touch screens without a keyboard: no key hints to press, and every control is a 48px target. */
+@media (hover: none) and (pointer: coarse) {
+  :root {
+    --titlebar-height: 48px;
+  }
+
+  .titlebar-tool {
+    width: 48px;
+  }
+
+  .draw-button,
+  .frame-id {
+    min-height: 48px;
+  }
+
+  .nav-button {
+    min-width: 48px;
+  }
+
+  .info-icon {
+    width: 48px;
+    height: 48px;
+  }
+
+  .tools-menu__item {
+    min-height: 48px;
+  }
+
+  .theme-picker button,
+  .theme-picker__indicator {
+    height: 44px;
+  }
+
+  .tools-menu__meta a {
+    display: inline-block;
+    padding-block: 10px;
+  }
+
+  .empty-hint,
+  .loading-hint,
+  .draw-button__key,
+  .tools-menu__item kbd,
+  #shortcuts-button {
+    display: none;
+  }
+}

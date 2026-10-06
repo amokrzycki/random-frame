@@ -549,7 +549,7 @@
     <div class="dialog-backdrop" id="dialog-backdrop" hidden></div>
 
     <header class="titlebar">
-      <div class="titlebar__drag-region" data-tauri-drag-region>
+      <div class="titlebar__drag-region" id="titlebar-drag-region" data-tauri-drag-region>
         <div class="brand">
           <svg viewBox="0 0 28 28" aria-hidden="true">
             <path d="M4.5 8.5V4.5h4M19.5 4.5h4v4M23.5 19.5v4h-4M8.5 23.5h-4v-4" />
@@ -632,7 +632,7 @@
           </p>
         </div>
       </div>
-      <div class="window-controls">
+      <div class="window-controls" id="window-controls">
         <button
           class="window-control"
           id="window-minimize"
@@ -890,7 +890,6 @@
       <div class="toast-region toast-region--error" aria-live="assertive"></div>
     </div>
     <script type="module" src="{{THEME_JS}}"></script>
-    <script type="module" src="{{WINDOW_CONTROLS_JS}}"></script>
     <script type="module" src="{{APP_JS}}"></script>
   </body>
 </html>

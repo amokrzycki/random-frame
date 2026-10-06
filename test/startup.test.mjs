@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { FakeDocument, FakeStorage, ids } from "./dom-fakes.mjs";
+import { FakeDocument, FakeStorage, ids, testCapabilities } from "./dom-fakes.mjs";
 
 const unpairedStatus = {
   supported: true,
@@ -39,6 +39,7 @@ test("a failed startup load says so and Try again re-runs the load", async (t) =
   const invocations = [];
   window.__TAURI_INTERNALS__ = {
     async invoke(command) {
+      if (command === "get_platform_capabilities") return testCapabilities;
       if (command === "complete_state_imports") return null;
       if (command === "get_user_preferences" || command === "set_user_preferences")
         return { theme: null, historyPageSize: null };

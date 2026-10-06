@@ -92,7 +92,7 @@ pub(super) async fn push_with_retries(
                 if let Some(config) = config.as_mut() {
                     if config
                         .last_accepted_revision
-                        .map_or(true, |floor| latest > floor)
+                        .is_none_or(|floor| latest > floor)
                     {
                         config.last_accepted_revision = Some(latest);
                         save_config(path, config)?;

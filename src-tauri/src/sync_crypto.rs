@@ -229,7 +229,9 @@ fn hex_encode(bytes: &[u8]) -> String {
 fn hex_decode(input: &str) -> Option<Vec<u8>> {
     input
         .as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| {
             let pair = std::str::from_utf8(pair).ok()?;
             if !pair

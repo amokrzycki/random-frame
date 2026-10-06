@@ -159,6 +159,15 @@ export class FakeStorage {
   }
 }
 
+// Native capabilities for desktop flows; window controls have their own test.
+export const testCapabilities = {
+  platform: "linux",
+  sync: true,
+  desktopWindowControls: false,
+  updater: true,
+  imageClipboard: true,
+};
+
 export const ids = [
   "image",
   "image-zoom",

@@ -30,6 +30,8 @@ test("privacy mailto click opens the email app without copying", async (t) => {
   window.__TAURI_INTERNALS__ = {
     metadata: { currentWindow: { label: "main" } },
     async invoke(command, args) {
+      if (command === "get_platform_capabilities")
+        return { platform: "linux", sync: true, desktopWindowControls: false, updater: true, imageClipboard: true };
       if (command === "complete_state_imports") return null;
       if (command === "get_user_preferences" || command === "set_user_preferences")
         return { theme: null, historyPageSize: null };

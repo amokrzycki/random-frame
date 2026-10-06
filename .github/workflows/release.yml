@@ -15,7 +15,38 @@ permissions:
   contents: write
 
 jobs:
+  # Pins every job to the commit the tag points at, also when the workflow is started by hand.
+  resolve:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      sha: ${{ steps.tag.outputs.sha }}
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Resolve tag
+        id: tag
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          sha=$(git rev-parse --verify "refs/tags/$TAG^{commit}")
+          version=$(git show "$sha:package.json" | jq -r .version)
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::Tag $TAG does not match package.json version $version at $sha"
+            exit 1
+          fi
+          {
+            echo "tag=$TAG"
+            echo "sha=$sha"
+            echo "version=$version"
+          } >> "$GITHUB_OUTPUT"
+
   build:
+    needs: resolve
     strategy:
       fail-fast: false
       matrix:
@@ -33,15 +64,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
 
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: npm
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.99.0
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -169,7 +204,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ inputs.tag || github.ref_name }}
+          tagName: ${{ needs.resolve.outputs.tag }}
           generateReleaseNotes: true
           releaseName: "Random Frame __VERSION__"
           releaseDraft: true
@@ -217,15 +252,242 @@ jobs:
 
           echo "AppImage verification passed: No conflicting display-stack libraries found."
 
-  # Every build leg uploads into one draft; publish only once all legs succeeded,
-  # so a failed platform never leaves a partial public release or update feed.
-  publish:
-    needs: build
-    runs-on: ubuntu-latest
+  # Builds and verifies the signed APK, but never touches the release: publish attaches it only after
+  # the physical-device test of this exact artifact.
+  android-build:
+    needs: resolve
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+
     steps:
-      - name: Publish release
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/android-setup
+
+      - name: Check the Sync endpoint
+        env:
+          RANDOM_FRAME_SYNC_BASE_URL: ${{ secrets.RANDOM_FRAME_SYNC_BASE_URL }}
+        run: |
+          case "$RANDOM_FRAME_SYNC_BASE_URL" in
+            https://?*) ;;
+            *)
+              echo "::error::RANDOM_FRAME_SYNC_BASE_URL must be set to an https:// URL"
+              exit 1
+              ;;
+          esac
+
+      # Android installs an update only over a lower versionCode. Tauri derives it from the version.
+      - name: Check the version code grows
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          TAG: ${{ inputs.tag || github.ref_name }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          code() {
+            IFS=. read -r major minor patch <<<"${1#v}"
+            echo $((major * 1000000 + minor * 1000 + patch))
+          }
+          # Plain assignments, so a failing gh call stops the step instead of skipping releases.
+          tags=$(gh release list --exclude-drafts --limit 100 --json tagName -q '.[].tagName')
+          previous=""
+          for tag in $tags; do
+            assets=$(gh release view "$tag" --json assets -q '.assets[].name')
+            if grep -q -- '-android-arm64\.apk$' <<<"$assets"; then
+              previous=$tag
+              break
+            fi
+          done
+          if [ -z "$previous" ]; then
+            echo "First public Android release: there is no earlier version code to compare."
+          elif (($(code "$previous") >= $(code "v$VERSION"))); then
+            echo "::error::versionCode $(code "v$VERSION") does not grow past $previous ($(code "$previous"))"
+            exit 1
+          fi
+
+      - name: Prepare signing key
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ] || [ -z "$ANDROID_KEYSTORE_PASSWORD" ] || [ -z "$ANDROID_KEY_ALIAS" ]; then
+            echo "::error::Android signing secrets are missing"
+            exit 1
+          fi
+          base64 -d <<<"$ANDROID_KEYSTORE_BASE64" > "$RUNNER_TEMP/release.jks"
+          printf 'password=%s\nkeyAlias=%s\nstoreFile=%s\n' \
+            "$ANDROID_KEYSTORE_PASSWORD" "$ANDROID_KEY_ALIAS" "$RUNNER_TEMP/release.jks" \
+            > src-tauri/gen/android/keystore.properties
+
+      - name: Build signed ARM64 APK
+        env:
+          RANDOM_FRAME_SYNC_BASE_URL: ${{ secrets.RANDOM_FRAME_SYNC_BASE_URL }}
+        run: npx tauri android build --target aarch64 --apk --ci
+
+      - name: Remove signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks" src-tauri/gen/android/keystore.properties
+
+      - name: Verify, name and hash the APK
+        env:
+          EXPECTED_CERT: ${{ vars.ANDROID_CERT_SHA256 }}
+          RUN_ID: ${{ github.run_id }}
+          SHA: ${{ needs.resolve.outputs.sha }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          if [ -z "$EXPECTED_CERT" ]; then
+            echo "::error::Set the ANDROID_CERT_SHA256 variable to the release certificate's SHA-256"
+            exit 1
+          fi
+          shopt -s nullglob
+          apks=(src-tauri/gen/android/app/build/outputs/apk/*/release/*.apk)
+          if [ ${#apks[@]} -ne 1 ]; then
+            echo "::error::Expected exactly one release APK, found ${#apks[@]}"
+            exit 1
+          fi
+          cert=$(.github/tools/check-android-apk.sh "${apks[0]}" release arm64-v8a)
+          if [ "$cert" != "$EXPECTED_CERT" ]; then
+            echo "::error::APK is signed with $cert, expected $EXPECTED_CERT"
+            exit 1
+          fi
+          apk="Random-Frame-v$VERSION-android-arm64.apk"
+          mkdir -p android-release
+          cp "${apks[0]}" "android-release/$apk"
+          cd android-release
+          sha256sum "$apk" > "$apk.sha256"
+          jq -n \
+            --arg release_run_id "$RUN_ID" \
+            --arg commit_sha "$SHA" \
+            --arg version "$VERSION" \
+            --arg apk "$apk" \
+            --arg apk_sha256 "$(cut -d' ' -f1 "$apk.sha256")" \
+            --arg certificate_sha256 "$cert" \
+            '$ARGS.named' > android-release.json
+          cat android-release.json
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: android-release-${{ needs.resolve.outputs.sha }}
+          path: android-release/
+          if-no-files-found: error
+          retention-days: 30
+
+  # A release APK cannot run on an x86_64 emulator, so this builds a debug APK of the same commit.
+  android-smoke:
+    needs: resolve
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/android-setup
+
+      - uses: ./.github/actions/android-smoke
+
+  # Every build leg uploads into one draft; publish only once all legs succeeded and a reviewer
+  # approved the android-release-verified environment after testing this run's APK on a phone
+  # The job waits for that approval before any step runs.
+  publish:
+    needs: [resolve, build, android-build, android-smoke]
+    runs-on: ubuntu-24.04
+    environment: android-release-verified
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.resolve.outputs.tag }}
+      SHA: ${{ needs.resolve.outputs.sha }}
+      APK: Random-Frame-v${{ needs.resolve.outputs.version }}-android-arm64.apk
+    steps:
+      # GitHub creates a missing environment without protection, which would skip the phone test.
+      - name: Check the approval gate
+        run: |
+          reviewers=$(gh api "repos/$GH_REPO/environments/android-release-verified" \
+            -q '[.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length')
+          if [ "${reviewers:-0}" -lt 1 ]; then
+            echo "::error::Environment android-release-verified must require reviewers"
+            exit 1
+          fi
+
+      - name: Download the tested APK
+        uses: actions/download-artifact@v5
+        with:
+          name: android-release-${{ needs.resolve.outputs.sha }}
+          path: android-release
+
+      - name: Verify the APK belongs to this run
+        env:
+          EXPECTED_CERT: ${{ vars.ANDROID_CERT_SHA256 }}
+          RUN_ID: ${{ github.run_id }}
+        working-directory: android-release
+        run: |
+          jq -e --arg run "$RUN_ID" --arg sha "$SHA" --arg apk "$APK" \
+            '.release_run_id == $run and .commit_sha == $sha and .apk == $apk' android-release.json
+          sha256sum -c "$APK.sha256"
+          [ "$(sha256sum "$APK" | cut -d' ' -f1)" = "$(jq -r .apk_sha256 android-release.json)" ]
+          build_tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          certs=$("$build_tools/apksigner" verify --print-certs "$APK")
+          cert=$(grep -m1 'Signer #1 certificate SHA-256 digest' <<<"$certs" | awk '{print $NF}')
+          if [ -z "$EXPECTED_CERT" ] || [ "$cert" != "$EXPECTED_CERT" ]; then
+            echo "::error::APK certificate $cert does not match ANDROID_CERT_SHA256"
+            exit 1
+          fi
+          echo "Publishing APK $(jq -r .apk_sha256 android-release.json) from run $RUN_ID, commit $SHA"
+
+      - name: Check the draft release
+        run: |
+          if [ "$(gh release view "$TAG" --json isDraft -q .isDraft)" != true ]; then
+            echo "::error::Release $TAG is missing or no longer a draft"
+            exit 1
+          fi
+          if [ "$(gh api "repos/$GH_REPO/commits/$TAG" -q .sha)" != "$SHA" ]; then
+            echo "::error::Tag $TAG no longer points at $SHA"
+            exit 1
+          fi
+
+      # Safe to rerun: an identical asset is kept, a different one stops the job instead of replacing it.
+      - name: Attach the APK
+        run: |
+          assets=$(gh release view "$TAG" --json assets -q '.assets[].name')
+          for file in "$APK" "$APK.sha256"; do
+            if grep -qxF "$file" <<<"$assets"; then
+              gh release download "$TAG" -p "$file" -D existing --clobber
+              if ! cmp -s "android-release/$file" "existing/$file"; then
+                echo "::error::$file is already on the draft with different content"
+                exit 1
+              fi
+            else
+              gh release upload "$TAG" "android-release/$file"
+            fi
+          done
+
+      - name: Check every asset
+        run: |
+          gh release download "$TAG" -p "$APK" -p "$APK.sha256" -D uploaded --clobber
+          (cd uploaded && sha256sum -c "$APK.sha256")
+          [ "$(sha256sum < uploaded/"$APK")" = "$(sha256sum < android-release/"$APK")" ]
+          names=$(gh release view "$TAG" --json assets -q '.assets[].name')
+          for pattern in '\.deb$' '\.AppImage$' '\.AppImage\.sig$' '-setup\.exe$' '-setup\.exe\.sig$' \
+            '\.msi$' '\.msi\.sig$' '^latest\.json$' "^$APK\$" "^$APK\.sha256\$"; do
+            if ! grep -qE -- "$pattern" <<<"$names"; then
+              echo "::error::The draft has no asset matching $pattern"
+              exit 1
+            fi
+          done
+
+      - name: Publish release
         run: gh release edit "$TAG" --draft=false

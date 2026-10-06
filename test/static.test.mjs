@@ -21,7 +21,8 @@ test("builds static Tauri assets with the package version", async () => {
   );
   assert.match(index, /src="app\.js"/);
   assert.match(index, /<section\s[^>]*id="changelog-body"[^>]*tabindex="0"[^>]*aria-label="Release notes"/);
-  assert.match(index, /src="window-controls\.js"/);
+  // Window controls start from the bootstrap once the platform is known, never as their own page script.
+  assert.doesNotMatch(index + privacy, /window-controls\.js/);
   assert.match(index, /href="privacy\.html">Privacy<\/a>/);
   assert.match(privacy, /<h1>Privacy policy<\/h1>/);
   assert.match(privacy, /src="privacy\.js"/);
@@ -71,7 +72,7 @@ test("window controls are Tab stops and the enlarged view starts on Close", asyn
 
 test("distilled menus keep Save beside Favorite and Clear in the History footer", async () => {
   const html = await readFile(new URL("../dist/index.html", import.meta.url), "utf8");
-  const more = html.split('id="tools-menu"')[1].split('<div class="window-controls">')[0];
+  const more = html.split('id="tools-menu"')[1].split('id="window-controls"')[0];
   const frame = html.split('id="frame-menu"')[1].split('id="favorite-button"')[0];
   const history = html.split('id="history-dialog"')[1].split('id="stats-dialog"')[0];
   assert.match(more, /id="stats-button"/);
@@ -140,4 +141,31 @@ test("no copy still says Stats or IDs checked stay on one device", async () => {
       name,
     );
   }
+});
+
+test("Android keeps its own identity and gets no desktop-only permissions", async () => {
+  const read = async (path) => JSON.parse(await readFile(new URL(path, import.meta.url), "utf8"));
+  const android = await read("../src-tauri/tauri.android.conf.json");
+  const base = await read("../src-tauri/tauri.conf.json");
+  assert.equal(android.identifier, "dev.randomframe.android");
+  assert.equal(base.identifier, "dev.randomframe.desktop");
+  assert.equal(base.bundle.android.debugApplicationIdSuffix, ".debug");
+  assert.equal(android.bundle.createUpdaterArtifacts, false);
+  // The version code is derived from package.json by Tauri; a fixed one would stop upgrades.
+  assert.equal(android.bundle.android.versionCode, undefined);
+  assert.equal(base.bundle.android.versionCode, undefined);
+  assert.equal(android.version, undefined);
+
+  const desktop = await read("../src-tauri/capabilities/default.json");
+  const mobile = await read("../src-tauri/capabilities/android.json");
+  assert.deepEqual(mobile.platforms, ["android"]);
+  assert.equal(desktop.platforms.includes("android"), false);
+  assert.deepEqual(
+    mobile.permissions.filter((permission) =>
+      /^(updater|process|core:window|clipboard-manager:allow-write-image)/.test(permission),
+    ),
+    [],
+  );
+  for (const capability of [desktop, mobile])
+    assert.ok(capability.permissions.includes("clipboard-manager:allow-write-text"));
 });

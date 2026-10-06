@@ -65,20 +65,16 @@ impl AppState {
         let seen = Arc::clone(&data.seen);
         let favorites = Arc::clone(&data.favorites);
         reconcile_seen(&seen, &history, &explored)?;
-        let sync = if cfg!(any(target_os = "linux", target_os = "windows")) {
-            Some(SyncEngine::new(
-                data_directory,
-                Arc::clone(&data),
-                SecureStorage::default(),
-                std::env::var("RANDOM_FRAME_SYNC_BASE_URL")
-                    .ok()
-                    .as_deref()
-                    .or(option_env!("RANDOM_FRAME_SYNC_BASE_URL")),
-                app_handle,
-            ))
-        } else {
-            None
-        };
+        let sync = Some(SyncEngine::new(
+            data_directory,
+            Arc::clone(&data),
+            SecureStorage::default(),
+            std::env::var("RANDOM_FRAME_SYNC_BASE_URL")
+                .ok()
+                .as_deref()
+                .or(option_env!("RANDOM_FRAME_SYNC_BASE_URL")),
+            app_handle,
+        ));
         Ok(Self {
             prntsc: Prntsc::new(Arc::clone(&data))?,
             data,
@@ -95,7 +91,6 @@ impl AppState {
         })
     }
 
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
     fn ensure_imports_ready(&self) -> Result<(), SyncError> {
         if self.imports_ready.load(Ordering::Acquire) {
             Ok(())
@@ -681,20 +676,70 @@ async fn get_sync_recovery_key(state: State<'_, AppState>) -> Result<String, Syn
     }
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "Each flag is an independent platform feature read by the frontend"
+)]
+struct PlatformCapabilities {
+    platform: &'static str,
+    sync: bool,
+    desktop_window_controls: bool,
+    updater: bool,
+    image_clipboard: bool,
+}
+
+#[tauri::command]
+fn get_platform_capabilities() -> PlatformCapabilities {
+    PlatformCapabilities {
+        platform: std::env::consts::OS,
+        sync: true,
+        desktop_window_controls: cfg!(desktop),
+        updater: cfg!(desktop),
+        image_clipboard: cfg!(desktop),
+    }
+}
+
+/// Finishes the activity, as the system Back does from the first screen. Tauri's own exit kills the
+/// process instead, and its `plugin:app|exit` is not exposed to the frontend.
+#[cfg(target_os = "android")]
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command extractors must be passed by value"
+)]
+fn exit_app(webview: tauri::Webview) -> tauri::Result<()> {
+    webview.with_webview(|platform| {
+        platform.jni_handle().exec(|env, activity, _webview| {
+            let _ = env.call_method(activity, "finish", "()V", &[]);
+        });
+    })
+}
+
+#[cfg(mobile)]
+#[tauri::mobile_entry_point]
+fn mobile_main() {
+    // Android has no caller to report to; a failed start ends with the activity.
+    let _ = run();
+}
+
 /// Starts the application.
 ///
 /// # Errors
 ///
 /// Returns an error when the HTTP client or Tauri runtime cannot be initialized.
 pub fn run() -> Result<(), Box<dyn Error>> {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_opener::init());
+    #[cfg(desktop)]
+    let builder = builder
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build());
+    builder
         .setup(|app| {
             let data_directory = app.path().app_data_dir()?;
             let handle = app.handle().clone();
@@ -703,6 +748,9 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            get_platform_capabilities,
+            #[cfg(target_os = "android")]
+            exit_app,
             get_random_frame,
             get_frame_by_id,
             get_frame_image,
@@ -728,23 +776,14 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             get_exploration_stats,
             get_viewing_activity,
             migrate_viewing_stats,
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
             get_sync_status,
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
             create_sync,
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
             join_sync,
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
             get_sync_join_summary,
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
             sync_now,
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
             startup_sync,
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
             leave_sync,
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
             set_sync_device_name,
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
             get_sync_recovery_key
         ])
         .run(tauri::generate_context!())?;
@@ -773,6 +812,21 @@ mod tests {
         let no_new_frame = AppError::new(ErrorKind::NoNewFrame, "No new frame");
         assert_eq!(retry_decision(0, &no_new_frame), RetryDecision::RetryNow);
         assert_eq!(retry_decision(19, &no_new_frame), RetryDecision::Abort);
+    }
+
+    #[test]
+    fn desktop_capabilities_keep_desktop_features() -> Result<(), serde_json::Error> {
+        assert_eq!(
+            serde_json::to_value(get_platform_capabilities())?,
+            serde_json::json!({
+                "platform": std::env::consts::OS,
+                "sync": true,
+                "desktopWindowControls": true,
+                "updater": true,
+                "imageClipboard": true,
+            })
+        );
+        Ok(())
     }
 
     pub(super) fn test_state_directory(name: &str) -> std::path::PathBuf {
@@ -974,7 +1028,7 @@ mod tests {
     }
 }
 
-#[cfg(all(test, any(target_os = "linux", target_os = "windows")))]
+#[cfg(test)]
 mod startup_guard_tests {
     use super::*;
     #[test]

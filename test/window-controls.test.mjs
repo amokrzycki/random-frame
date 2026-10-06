@@ -80,7 +80,9 @@ test("window controls follow native maximized state and invoke native actions", 
     else delete globalThis.window;
   });
 
-  await import(`../dist/test-client/window-controls.js?test=${Date.now()}`);
+  const { initializeWindowControls } = await import(`../dist/test-client/window-controls.js?test=${Date.now()}`);
+  assert.deepEqual(commands, [], "importing the module must not touch the window");
+  initializeWindowControls(true);
   await flush();
 
   const get = (id) => elements.get(`#${id}`);

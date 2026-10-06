@@ -36,9 +36,15 @@ pub struct PreferenceStore {
     generation: AtomicU64,
     identity: Option<Arc<DeviceIdentity>>,
 }
-#[allow(clippy::significant_drop_tightening)]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "Keep the preference lock through the read-modify-save transaction"
+)]
 impl PreferenceStore {
-    #[allow(dead_code)]
+    #[allow(
+        dead_code,
+        reason = "Standalone stores can be loaded without a device identity"
+    )]
     pub fn new(directory: &Path) -> Result<Self, AppError> {
         Self::load(directory, None)
     }
@@ -151,7 +157,7 @@ impl PreferenceStore {
                     .preferences
                     .theme
                     .as_ref()
-                    .map_or(true, |x| x.value != value)
+                    .is_none_or(|x| x.value != value)
             {
                 next.preferences.theme = Some(Register {
                     clock,
@@ -166,7 +172,7 @@ impl PreferenceStore {
                     .preferences
                     .history_page_size
                     .as_ref()
-                    .map_or(true, |x| x.value != value)
+                    .is_none_or(|x| x.value != value)
             {
                 next.preferences.history_page_size = Some(Register {
                     clock,
