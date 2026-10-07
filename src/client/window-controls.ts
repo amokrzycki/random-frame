@@ -8,11 +8,13 @@ function element<T extends Element>(selector: string): T {
 
 /** Binds the custom titlebar buttons on desktop, and removes them where the OS owns the window. */
 export function initializeWindowControls(enabled: boolean): void {
+  const controls = document.querySelector<HTMLElement>("#window-controls");
   if (!enabled) {
-    document.querySelector("#window-controls")?.remove();
+    controls?.remove();
     document.querySelector("#titlebar-drag-region")?.removeAttribute("data-tauri-drag-region");
     return;
   }
+  if (controls) controls.hidden = false;
   const appWindow = getCurrentWindow();
   const minimize = element<HTMLButtonElement>("#window-minimize");
   const maximize = element<HTMLButtonElement>("#window-maximize");

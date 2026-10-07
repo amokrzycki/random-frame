@@ -114,6 +114,12 @@ try {
   adb("shell", "am", "force-stop", pkg);
   await launch();
   check((await evaluate("document.querySelector('#entry-dialog').open")) === false, "consent survives a restart");
+  check(
+    (await evaluate(
+      "document.documentElement.dataset.platform === 'android' && getComputedStyle(document.querySelector('.viewer')).visibility === 'visible' && getComputedStyle(document.querySelector('#draw-button')).visibility === 'visible'",
+    )) === true,
+    "cold start shows the Android viewer and Draw before opening a menu",
+  );
   await evaluate("document.querySelector('#tools-menu').showPopover(); true");
   adb("shell", "input", "keyevent", "KEYCODE_BACK");
   await sleep(1000);

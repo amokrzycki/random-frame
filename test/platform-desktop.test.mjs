@@ -8,4 +8,6 @@ test("desktop keeps window controls, the update check, and Sync", async (t) => {
   assert.ok(invocations.includes("plugin:updater|check"));
   assert.ok(invocations.includes("startup_sync"));
   assert.deepEqual(removed, []);
+  assert.equal(document.documentElement.getAttribute("data-platform"), "linux");
+  assert.equal(document.querySelector("#window-controls").hidden, false);
 });

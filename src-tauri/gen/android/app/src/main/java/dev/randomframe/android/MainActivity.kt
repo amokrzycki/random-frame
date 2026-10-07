@@ -5,14 +5,11 @@ import android.view.View
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import io.crates.keyring.Keyring
 
 class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
-    // random_frame_lib is loaded by now; Sync's secret store needs the context before first use.
-    Keyring.initializeNdkContext(applicationContext)
     // Keep the page inside the status bar, navigation bar, cutout and keyboard. The WebView then sizes
     // itself to the usable area, so the page needs no safe-area CSS and focused fields stay above the IME.
     ViewCompat.setOnApplyWindowInsetsListener(findViewById<View>(android.R.id.content)) { view, insets ->

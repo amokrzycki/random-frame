@@ -14,7 +14,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",
-    "@tauri-apps/cli": "2.11.4",
+    "@tauri-apps/cli": "2.12.1",
     "esbuild": "0.28.2",
     "typescript": "7.0.2"
   },
@@ -22,7 +22,7 @@
     "esbuild@0.28.2": true
   },
   "dependencies": {
-    "@tauri-apps/api": "2.11.1",
+    "@tauri-apps/api": "2.12.1",
     "@tauri-apps/plugin-clipboard-manager": "2.3.3",
     "@tauri-apps/plugin-dialog": "2.7.3",
     "@tauri-apps/plugin-fs": "2.5.2",

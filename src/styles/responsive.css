@@ -170,6 +170,150 @@
   }
 }
 
+/* A phone keeps metadata and thumb actions below an unobstructed image. */
+:root[data-platform="android"] {
+  --titlebar-height: 48px;
+
+  .titlebar-tool,
+  .info-icon {
+    width: 48px;
+  }
+
+  .info-icon {
+    height: 48px;
+  }
+
+  .frame-id,
+  .tools-menu__item {
+    min-height: 48px;
+  }
+
+  .empty-hint,
+  .loading-hint,
+  .draw-button__key,
+  .tools-menu__item kbd,
+  #shortcuts-button {
+    display: none;
+  }
+
+  .app-shell main:has(.viewer) {
+    padding: 0;
+  }
+
+  .viewer {
+    grid-template-rows: minmax(0, 1fr) 120px;
+  }
+
+  .stage {
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .stage::before {
+    display: none;
+  }
+
+  #image,
+  .image-ghost {
+    max-width: calc(100% - 16px);
+    max-height: calc(100% - 16px);
+  }
+
+  .info-line {
+    position: relative;
+    padding: 0 16px 8px;
+    display: block;
+  }
+
+  .info-line__frame {
+    display: grid;
+    grid-template-columns: 48px 48px minmax(0, 1fr);
+    grid-template-rows: 48px 64px;
+    gap: 0 8px;
+    align-items: center;
+  }
+
+  .frame-metadata {
+    grid-column: 1 / -1;
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+    padding-inline: 40px;
+  }
+
+  .frame-id {
+    flex: 0 1 auto;
+    padding-inline: 8px;
+    border: 0;
+  }
+
+  .frame-id:active {
+    transform: none;
+  }
+
+  .frame-count {
+    margin-left: auto;
+    font-size: 12px;
+  }
+
+  .viewer-navigation {
+    inset: auto 8px 72px;
+    height: 48px;
+    z-index: 4;
+  }
+
+  .nav-button {
+    width: 48px;
+    height: 48px;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .nav-button.previous {
+    left: 0;
+  }
+
+  .nav-button.next {
+    right: 0;
+  }
+
+  .info-line:has(.info-line__frame:not([hidden]))::before {
+    content: "";
+    position: absolute;
+    inset: 48px 16px auto;
+    border-top: 1px solid var(--line);
+  }
+
+  .draw-button {
+    position: absolute;
+    right: 16px;
+    bottom: 16px;
+    width: calc(100% - 144px);
+    height: 48px;
+    min-width: 0;
+    margin: 0;
+    padding-inline: 16px;
+    justify-content: center;
+    box-shadow: none;
+  }
+
+  .info-line:has(.info-line__frame[hidden]) .draw-button {
+    left: 16px;
+    width: auto;
+  }
+
+  .notice-rail {
+    right: 16px;
+    bottom: 136px;
+    max-width: calc(100vw - 32px);
+  }
+
+  .toast {
+    max-width: calc(100vw - 32px);
+  }
+}
+
 /* Touch screens without a keyboard: no key hints to press, and every control is a 48px target. */
 @media (hover: none) and (pointer: coarse) {
   :root {

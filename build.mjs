@@ -10,6 +10,12 @@ async function copyHtml() {
   await Promise.all(
     ["index.html", "privacy.html"].map(async (name) => {
       const html = (await readFile(name, "utf8"))
+        .replace(
+          '<html lang="en">',
+          process.env.TAURI_ENV_PLATFORM?.startsWith("android")
+            ? '<html lang="en" data-platform="android">'
+            : '<html lang="en">',
+        )
         .replace("{{VERSION}}", version)
         .replace("{{STYLES_CSS}}", "styles.css")
         .replace("{{THEME_JS}}", "theme.js")

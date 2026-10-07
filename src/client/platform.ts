@@ -18,6 +18,7 @@ export async function initializePlatform(): Promise<PlatformCapabilities> {
   if (typeof value?.platform !== "string" || flags.some((flag) => typeof value[flag] !== "boolean"))
     throw new Error("Invalid platform capabilities");
   capabilities = value;
+  document.documentElement?.setAttribute("data-platform", value.platform);
   return value;
 }
 

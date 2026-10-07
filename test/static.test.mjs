@@ -23,6 +23,12 @@ test("builds static Tauri assets with the package version", async () => {
   assert.match(index, /<section\s[^>]*id="changelog-body"[^>]*tabindex="0"[^>]*aria-label="Release notes"/);
   // Window controls start from the bootstrap once the platform is known, never as their own page script.
   assert.doesNotMatch(index + privacy, /window-controls\.js/);
+  for (const html of [index, privacy]) assert.match(html, /<div[^>]*id="window-controls"[^>]*hidden/);
+  for (const html of [index, privacy]) {
+    if (process.env.TAURI_ENV_PLATFORM?.startsWith("android")) assert.match(html, /<html[^>]*data-platform="android"/);
+    else assert.doesNotMatch(html, /<html[^>]*data-platform=/);
+  }
+  assert.doesNotMatch(styles, /:root:not\(\[data-platform\]\)/);
   assert.match(index, /href="privacy\.html">Privacy<\/a>/);
   assert.match(privacy, /<h1>Privacy policy<\/h1>/);
   assert.match(privacy, /src="privacy\.js"/);

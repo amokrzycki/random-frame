@@ -20,6 +20,7 @@ test("Android retries a failed capability check, then starts Sync without any de
   for (let i = 0; i < 4; i++) await flush();
   assert.equal(get("error-state").hidden, true);
   assert.deepEqual(platform.getPlatformCapabilities(), android);
+  assert.equal(document.documentElement.getAttribute("data-platform"), "android");
   assert.ok(invocations.includes("get_history"));
   assert.ok(invocations.includes("startup_sync"));
   assert.deepEqual(
