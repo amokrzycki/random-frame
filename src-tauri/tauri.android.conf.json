@@ -1,0 +1,17 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "identifier": "dev.randomframe.android",
+  "app": {
+    "windows": [
+      {
+        "title": "Random Frame"
+      }
+    ]
+  },
+  "bundle": {
+    "createUpdaterArtifacts": false,
+    "android": {
+      "minSdkVersion": 24
+    }
+  }
+}

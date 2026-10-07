@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { FakeDocument, FakeStorage, fakeThumbnailCache, ids } from "./dom-fakes.mjs";
+import { FakeDocument, FakeStorage, fakeThumbnailCache, ids, testCapabilities } from "./dom-fakes.mjs";
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -72,6 +72,7 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
   });
   window.__TAURI_INTERNALS__ = {
     async invoke(command, args) {
+      if (command === "get_platform_capabilities") return testCapabilities;
       if (command === "complete_state_imports") return null;
       if (command === "get_user_preferences" || command === "set_user_preferences")
         return { theme: null, historyPageSize: 10 };

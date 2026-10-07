@@ -549,7 +549,7 @@
     <div class="dialog-backdrop" id="dialog-backdrop" hidden></div>
 
     <header class="titlebar">
-      <div class="titlebar__drag-region" data-tauri-drag-region>
+      <div class="titlebar__drag-region" id="titlebar-drag-region" data-tauri-drag-region>
         <div class="brand">
           <svg viewBox="0 0 28 28" aria-hidden="true">
             <path d="M4.5 8.5V4.5h4M19.5 4.5h4v4M23.5 19.5v4h-4M8.5 23.5h-4v-4" />
@@ -632,7 +632,7 @@
           </p>
         </div>
       </div>
-      <div class="window-controls">
+      <div class="window-controls" id="window-controls" hidden>
         <button
           class="window-control"
           id="window-minimize"
@@ -702,7 +702,9 @@
               alt="">
             <img class="image-ghost" id="image-ghost" alt="" aria-hidden="true" hidden>
           </button>
+        </div>
 
+        <div class="viewer-navigation">
           <button
             class="nav-button previous"
             id="previous-button"
@@ -723,24 +725,26 @@
 
         <div class="info-line">
           <div class="info-line__frame" id="info-actions" role="toolbar" aria-label="Frame actions" hidden>
-            <button
-              class="frame-id"
-              id="frame-menu-button"
-              type="button"
-              popovertarget="frame-menu"
-              aria-haspopup="menu"
-              aria-label="Frame options"
-              data-tip="Frame options">
-              <span class="frame-id__caption" id="image-id"
-                ><span class="frame-id__host">prnt.sc/</span><span id="image-id-value">———</span></span
+            <div class="frame-metadata">
+              <button
+                class="frame-id"
+                id="frame-menu-button"
+                type="button"
+                popovertarget="frame-menu"
+                aria-haspopup="menu"
+                aria-label="Frame options"
+                data-tip="Frame options">
+                <span class="frame-id__caption" id="image-id"
+                  ><span class="frame-id__host">prnt.sc/</span><span id="image-id-value">———</span></span
+                >
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg>
+              </button>
+              <span class="frame-count" id="frame-count"
+                ><span class="sr-only">Frame </span><span id="frame-count-current">0</span
+                ><span aria-hidden="true"> / </span><span class="sr-only"> of </span
+                ><span id="frame-count-total">0</span></span
               >
-              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg>
-            </button>
-            <span class="frame-count" id="frame-count"
-              ><span class="sr-only">Frame </span><span id="frame-count-current">0</span
-              ><span aria-hidden="true"> / </span><span class="sr-only"> of </span
-              ><span id="frame-count-total">0</span></span
-            >
+            </div>
             <div class="tools-menu frame-menu" id="frame-menu" role="menu" aria-label="Frame options" popover>
               <button
                 class="tools-menu__item position__readout"
@@ -890,7 +894,6 @@
       <div class="toast-region toast-region--error" aria-live="assertive"></div>
     </div>
     <script type="module" src="{{THEME_JS}}"></script>
-    <script type="module" src="{{WINDOW_CONTROLS_JS}}"></script>
     <script type="module" src="{{APP_JS}}"></script>
   </body>
 </html>

@@ -36,7 +36,9 @@ function showFavoriteTip(): void {
       state.loading ||
       elements.main.inert ||
       getViewState() !== "image" ||
-      document.querySelector(".toast")
+      document.querySelector(".toast") ||
+      // The tip names a key; a touch screen has none to press.
+      globalThis.matchMedia?.("(hover: none) and (pointer: coarse)").matches
     )
       return;
     localStorage.setItem(favoriteTipKey, "shown");

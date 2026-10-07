@@ -6,7 +6,7 @@ authors = ["Adrian Mokrzycki"]
 license = "MIT"
 repository = "https://github.com/amokrzycki/random-frame"
 edition = "2021"
-rust-version = "1.77.2"
+rust-version = "1.90"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -28,15 +28,21 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
-tauri = { version = "2.11.3", features = [] }
+tauri = { version = "2.12.0", features = [] }
 tauri-plugin-clipboard-manager = "2.3.3"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-opener = "2.5.5"
-tauri-plugin-process = "2"
-tauri-plugin-updater = "2"
 tokio = { version = "1", features = ["time", "sync"] }
 zeroize = "1"
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-process = "2"
+tauri-plugin-updater = "2"
+
+[target.'cfg(target_os = "android")'.dependencies]
+android-native-keyring-store = "=1.0.0"
+keyring-core = "=1.0.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "=3.6.2", default-features = false, features = ["async-secret-service", "crypto-rust", "tokio"] }
@@ -45,6 +51,7 @@ keyring = { version = "=3.6.2", default-features = false, features = ["async-sec
 keyring = { version = "=3.6.2", default-features = false, features = ["windows-native"] }
 
 [dev-dependencies]
+keyring-core = "=1.0.0"
 tokio = { version = "1", features = ["macros", "rt", "test-util", "net", "io-util"] }
 
 [lints.rust]

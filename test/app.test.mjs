@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { FakeDocument, FakeStorage, ids } from "./dom-fakes.mjs";
+import { FakeDocument, FakeStorage, ids, testCapabilities } from "./dom-fakes.mjs";
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const keydown = (target, key) => {
@@ -52,6 +52,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   });
   window.__TAURI_INTERNALS__ = {
     async invoke(command, args, options) {
+      if (command === "get_platform_capabilities") return testCapabilities;
       if (command === "complete_state_imports") {
         invocations.push({ command, args });
         return null;
@@ -549,6 +550,7 @@ test("migrates the legacy localStorage counter once on startup and clears it", a
   const invocations = [];
   window.__TAURI_INTERNALS__ = {
     async invoke(command, args) {
+      if (command === "get_platform_capabilities") return testCapabilities;
       if (command === "complete_state_imports") return null;
       if (command === "get_user_preferences" || command === "set_user_preferences")
         return { theme: null, historyPageSize: null };

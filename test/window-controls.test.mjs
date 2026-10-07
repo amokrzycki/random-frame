@@ -30,6 +30,7 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
 test("window controls follow native maximized state and invoke native actions", async (t) => {
   const elements = new Map(
     [
+      "window-controls",
       "window-minimize",
       "window-maximize",
       "window-close",
@@ -39,6 +40,7 @@ test("window controls follow native maximized state and invoke native actions", 
     ].map((id) => [`#${id}`, new FakeElement()]),
   );
   const document = { querySelector: (selector) => elements.get(selector) ?? null };
+  elements.get("#window-controls").hidden = true;
   const window = new EventTarget();
   const callbacks = new Map();
   const commands = [];
@@ -80,7 +82,10 @@ test("window controls follow native maximized state and invoke native actions", 
     else delete globalThis.window;
   });
 
-  await import(`../dist/test-client/window-controls.js?test=${Date.now()}`);
+  const { initializeWindowControls } = await import(`../dist/test-client/window-controls.js?test=${Date.now()}`);
+  assert.deepEqual(commands, [], "importing the module must not touch the window");
+  initializeWindowControls(true);
+  assert.equal(elements.get("#window-controls").hidden, false);
   await flush();
 
   const get = (id) => elements.get(`#${id}`);

@@ -11,7 +11,7 @@ import {
   parsePageSize,
   savePageSize,
 } from "../dist/test-client/history-pagination.js";
-import { FakeDocument, FakeStorage, ids } from "./dom-fakes.mjs";
+import { FakeDocument, FakeStorage, ids, testCapabilities } from "./dom-fakes.mjs";
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -118,6 +118,7 @@ test("pages a long existing history without touching the stored records", async 
   Object.assign(globalThis, { document, localStorage, performance, sessionStorage: new FakeStorage(), window });
   window.__TAURI_INTERNALS__ = {
     async invoke(command, args) {
+      if (command === "get_platform_capabilities") return testCapabilities;
       if (command === "complete_state_imports") return null;
       if (command === "get_user_preferences" || command === "set_user_preferences")
         return { theme: null, historyPageSize: null };

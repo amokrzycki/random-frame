@@ -1,10 +1,21 @@
 .viewer {
+  position: relative;
   width: 100%;
   height: 100%;
   max-width: none;
   margin-inline: auto;
   display: grid;
   grid-template-rows: minmax(0, 1fr) 56px;
+}
+
+.viewer-navigation {
+  position: absolute;
+  inset: 0 0 56px;
+  pointer-events: none;
+}
+
+.frame-metadata {
+  display: contents;
 }
 
 .stage {
@@ -386,6 +397,7 @@
 }
 
 .nav-button {
+  pointer-events: auto;
   position: absolute;
   top: 50%;
   z-index: 4;
@@ -746,6 +758,10 @@ a.tools-menu__item {
   margin: 5px 4px;
   border: 0;
   background: var(--line);
+}
+
+.tools-menu__rule:has(+ #copy-image-button[hidden]) {
+  display: none;
 }
 
 /* Source opens the page; the icon beside it copies the same address. */

@@ -1,5 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { bindAndroidNavigation, exitApp } from "./android-navigation.js";
 import { bindDialogChromeEvents, closeDialog, onDialogClosed, openDialog } from "./dialogs.js";
 import { elements } from "./elements.js";
 import { getFavorites } from "./favorites.js";
@@ -15,6 +16,7 @@ import {
   importSessionHistory,
   prepareHistoryClear,
 } from "./persistence.js";
+import { getPlatformCapabilities, initializePlatform } from "./platform.js";
 import { bindShortcutsEvents } from "./shortcuts.js";
 import { bindStageEvents, setState, showError, syncControls } from "./stage.js";
 import { bindStatsDialogEvents, migrateLegacyStats } from "./stats-dialog.js";
@@ -24,6 +26,7 @@ import { bindTooltipEvents } from "./tooltip.js";
 import { bindChangelogEvents, checkForUpdate, showPendingChangelog } from "./update.js";
 import { initializeUserPreferences, updateUserPreferences } from "./user-preferences.js";
 import { applyFavorites, applyHistory, state } from "./viewer-state.js";
+import { initializeWindowControls } from "./window-controls.js";
 
 const storageKey = "prntsc-gallery-history";
 const entryStorageKey = "random-frame-risk-accepted";
@@ -34,6 +37,15 @@ try {
 }
 
 let startupSyncStarted = false;
+let lastStartupSync = 0;
+// An Android app is resumed far more often than it is started, so returning to it syncs too.
+const FOREGROUND_SYNC_INTERVAL_MS = 15 * 60_000;
+
+function syncOnReturn(): void {
+  if (document.hidden || !startupSyncStarted || Date.now() - lastStartupSync < FOREGROUND_SYNC_INTERVAL_MS) return;
+  lastStartupSync = Date.now();
+  void runStartupSync();
+}
 let initializing = false;
 
 async function initialize(): Promise<void> {
@@ -77,8 +89,9 @@ async function initialize(): Promise<void> {
     await migrateLegacyStats();
     await initializeUserPreferences();
     await completeStateImports();
-    if (!startupSyncStarted) {
+    if (!startupSyncStarted && getPlatformCapabilities().sync) {
       startupSyncStarted = true;
+      lastStartupSync = Date.now();
       void runStartupSync();
     }
 
@@ -109,7 +122,15 @@ async function initialize(): Promise<void> {
 
 elements.leave.addEventListener("click", async () => {
   try {
-    await getCurrentWindow().close();
+    // Leave works even before the platform answers; only Android, once known, needs another way out.
+    let android = false;
+    try {
+      android = getPlatformCapabilities().platform === "android";
+    } catch {
+      // Not answered yet: closing the window is the desktop behavior.
+    }
+    if (android) await exitApp();
+    else await getCurrentWindow().close();
   } catch {
     elements.announcer.textContent = "Random Frame could not close the window.";
   }
@@ -255,10 +276,40 @@ elements.jumpForm.addEventListener("submit", () => {
   if (elements.jumpForm.hidden) elements.frameMenu.hidePopover?.();
 });
 
+let platformReady = false;
+
+// Nothing platform-specific starts until the native side says what this build supports.
+async function start(): Promise<void> {
+  if (!platformReady) {
+    state.historyLoadFailed = true;
+    let platform: Awaited<ReturnType<typeof initializePlatform>>;
+    try {
+      platform = await initializePlatform();
+    } catch (error) {
+      console.error(error);
+      showError(error, start, -1, {
+        title: "Random Frame couldn’t start.",
+        message: "Try again, and restart the app if it keeps failing.",
+      });
+      syncControls();
+      return;
+    }
+    platformReady = true;
+    initializeWindowControls(platform.desktopWindowControls);
+    if (platform.platform === "android") {
+      void bindAndroidNavigation();
+      document.addEventListener("visibilitychange", syncOnReturn);
+    }
+    elements.syncButton.hidden = !platform.sync;
+    elements.copyImage.hidden = !platform.imageClipboard;
+    void showPendingChangelog();
+    if (platform.updater) void checkForUpdate();
+  }
+  await initialize();
+}
+
 syncControls();
-void initialize();
-void showPendingChangelog();
-void checkForUpdate();
+void start();
 
 document.addEventListener("theme-choice", (event) => {
   const theme = (event as CustomEvent).detail as "system" | "light" | "dark";

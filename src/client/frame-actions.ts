@@ -1,3 +1,4 @@
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { closeDialog, onDialogClosed, openDialog } from "./dialogs.js";
 import { elements } from "./elements.js";
 import { describeError } from "./errors.js";
@@ -5,6 +6,7 @@ import { type FavoriteItem, toggleFavorite } from "./favorites.js";
 import { blobKey, blobs, ensureThumbnail, savedFrames } from "./frame-cache.js";
 import { goToPosition } from "./frame-loader.js";
 import { copyImage, saveImage } from "./image-actions.js";
+import { getPlatformCapabilities } from "./platform.js";
 import { getViewState, syncControls } from "./stage.js";
 import { toast } from "./toast.js";
 import { applyFavorites, isFavorite, navigationView, state } from "./viewer-state.js";
@@ -23,7 +25,7 @@ export async function saveCurrent(): Promise<void> {
 export async function copyCurrentImage(): Promise<void> {
   const current = state.history[state.index];
   const cached = current && blobs.get(blobKey(current.source, current.id));
-  if (!current || !cached) return;
+  if (!current || !cached || !getPlatformCapabilities().imageClipboard) return;
   await copyImage(cached.blob);
 }
 
@@ -75,7 +77,7 @@ async function restoreFavorite(item: FavoriteItem): Promise<void> {
 
 async function copySourceLink(): Promise<void> {
   try {
-    await navigator.clipboard.writeText(elements.source.href);
+    await writeText(elements.source.href);
     toast.success("Copied source link");
   } catch {
     elements.announcer.textContent = "Could not copy the source link";

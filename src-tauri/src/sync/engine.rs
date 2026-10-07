@@ -413,7 +413,7 @@ impl<S: SecretStore> SyncEngine<S> {
         config.highest_schema_version = config.highest_schema_version.max(schema);
         if config
             .last_accepted_revision
-            .map_or(true, |floor| revision > floor)
+            .is_none_or(|floor| revision > floor)
         {
             config.last_accepted_revision = Some(revision);
             self.save(&config)?;

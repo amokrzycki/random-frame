@@ -1,0 +1,6 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Base application theme. The window background shows behind the system bars, so it matches the page. -->
+    <style name="Theme.random_frame" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/paper</item>
+    </style>
+</resources>

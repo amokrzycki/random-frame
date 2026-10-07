@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { FakeDocument, FakeStorage, ids } from "./dom-fakes.mjs";
+import { FakeDocument, FakeStorage, ids, testCapabilities } from "./dom-fakes.mjs";
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const item = (id) => ({ source: "prntsc", id, sourcePageUrl: `https://prnt.sc/${id}`, viewedAt: 1 });
@@ -31,6 +31,7 @@ test("removes one frame from the grid or the frame menu, and Undo puts it back i
   const calls = [];
   window.__TAURI_INTERNALS__ = {
     async invoke(command, args) {
+      if (command === "get_platform_capabilities") return testCapabilities;
       if (command === "complete_state_imports") return null;
       if (command === "get_user_preferences" || command === "set_user_preferences")
         return { theme: null, historyPageSize: null };

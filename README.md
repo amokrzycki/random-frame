@@ -33,6 +33,8 @@ Images come from [prnt.sc](https://prnt.sc/). The Rust backend resolves each ran
 
 Installers for Linux (`.deb`, AppImage) and Windows (NSIS, MSI) are published on the [Releases](https://github.com/amokrzycki/random-frame/releases) page. Installed copies update themselves.
 
+The same release has an Android APK for 64-bit ARM phones (Android 7.0 or newer), `Random-Frame-v<version>-android-arm64.apk`, with its SHA-256 checksum next to it. Allow your browser or file manager to install apps, then open the APK. The Android app does not update itself: install a newer APK over the old one, without uninstalling first. Your history stays on the phone, but it is left out of Android backups, so uninstalling deletes it. Turn on Sync to keep it across devices.
+
 ## Development
 
 Requires Node.js (see `.nvmrc`), npm, Rust, and the [Tauri system dependencies](https://v2.tauri.app/start/prerequisites/).
@@ -50,6 +52,7 @@ Sync needs a server endpoint. Set `RANDOM_FRAME_SYNC_BASE_URL` to a validated HT
 | ------------------- | ------------------------------------- |
 | `npm run build`     | Typecheck and build the frontend      |
 | `npx tauri build`   | Build the desktop app and installers  |
+| `npx tauri android build --debug --target aarch64 --apk` | Build an Android APK (see [Tauri Android setup](https://v2.tauri.app/start/prerequisites/#android)) |
 | `npm test`          | Run the frontend tests                |
 | `npm run lint`      | Check formatting and code quality     |
 | `npm run typecheck` | Check TypeScript types                |
@@ -83,5 +86,3 @@ contact@amokrzycki.ovh
 ## License
 
 [MIT](LICENSE) © 2026 Adrian Mokrzycki ([amokrzycki](https://github.com/amokrzycki))
-
-Sync v2's binary format, local migration, clear/replay rules, and compatibility checks are documented in [docs/sync-v2.md](docs/sync-v2.md).

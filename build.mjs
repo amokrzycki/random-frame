@@ -10,11 +10,16 @@ async function copyHtml() {
   await Promise.all(
     ["index.html", "privacy.html"].map(async (name) => {
       const html = (await readFile(name, "utf8"))
+        .replace(
+          '<html lang="en">',
+          process.env.TAURI_ENV_PLATFORM?.startsWith("android")
+            ? '<html lang="en" data-platform="android">'
+            : '<html lang="en">',
+        )
         .replace("{{VERSION}}", version)
         .replace("{{STYLES_CSS}}", "styles.css")
         .replace("{{THEME_JS}}", "theme.js")
         .replace("{{TOOLTIP_JS}}", "tooltip-page.js")
-        .replace("{{WINDOW_CONTROLS_JS}}", "window-controls.js")
         .replace("{{APP_JS}}", "app.js")
         .replace("{{PRIVACY_JS}}", "privacy.js");
       await writeFile(`dist/${name}`, html);
@@ -40,7 +45,6 @@ const options = {
     styles: "styles.css",
     theme: "src/client/theme.ts",
     "tooltip-page": "src/client/tooltip-page.ts",
-    "window-controls": "src/client/window-controls.ts",
   },
   external: ["/assets/*"],
   format: "esm",

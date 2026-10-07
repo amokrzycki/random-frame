@@ -94,6 +94,24 @@ export function closeDialog(dialog: HTMLDialogElement): void {
   dialog.addEventListener("transitionend", onTransitionEnd);
 }
 
+/**
+ * Android Back closes what Escape would: the open menu, else the top dialog. A busy dialog or an
+ * unconfirmed recovery key still holds Back. Returns false when Back belongs to the system, including on
+ * the consent screen, which is only ever left by accepting or by leaving the app.
+ */
+export function dismissTopLayer(): boolean {
+  if (elements.entryDialog.open) return false;
+  const menu = [elements.toolsMenu, elements.frameMenu].find((item) => item.matches(":popover-open"));
+  if (menu) {
+    menu.hidePopover();
+    return true;
+  }
+  const dialog = dismissibleOpenDialog();
+  if (!dialog) return false;
+  closeDialog(dialog);
+  return true;
+}
+
 export function bindDialogChromeEvents(): void {
   elements.dialogBackdrop.addEventListener("click", () => {
     const dialog = dismissibleOpenDialog();

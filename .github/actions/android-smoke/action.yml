@@ -1,0 +1,38 @@
+name: Android emulator smoke test
+description: >
+  Builds an x86_64 debug APK of the checked-out commit against a local Sync mock and runs
+  .github/tools/android-smoke.mjs on a 16 KB page-size emulator. Run android-setup first.
+runs:
+  using: composite
+  steps:
+    - name: Build x86_64 debug APK
+      shell: bash
+      env:
+        RANDOM_FRAME_SYNC_BASE_URL: http://127.0.0.1:8787
+      run: npx tauri android build --debug --target x86_64 --apk --ci
+
+    - name: Enable KVM
+      shell: bash
+      run: |
+        echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+        sudo udevadm control --reload-rules
+        sudo udevadm trigger --name-match=kvm
+
+    - name: Start 16 KB emulator
+      shell: bash
+      run: |
+        image="system-images;android-35;google_apis_ps16k;x86_64"
+        yes 2>/dev/null | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+        "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" emulator platform-tools "$image" > /dev/null
+        echo no | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n smoke -k "$image" -d pixel_6 --force
+        nohup "$ANDROID_HOME/emulator/emulator" -avd smoke -no-window -no-audio -no-boot-anim -no-snapshot \
+          -gpu swiftshader_indirect > "$RUNNER_TEMP/emulator.log" 2>&1 &
+        adb="$ANDROID_HOME/platform-tools/adb"
+        timeout 600 "$adb" wait-for-device
+        timeout 600 bash -c "until [ \"\$('$adb' shell getprop sys.boot_completed | tr -d '\r')\" = 1 ]; do sleep 5; done"
+
+    - name: Smoke test
+      shell: bash
+      run: |
+        node .github/tools/android-smoke.mjs \
+          src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk --page-size 16384

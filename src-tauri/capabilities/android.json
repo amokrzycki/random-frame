@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "android",
+  "description": "Android has no window controls, updater, restart, or image clipboard",
+  "windows": ["main"],
+  "platforms": ["android"],
+  "permissions": [
+    "core:default",
+    "dialog:allow-save",
+    "fs:allow-write-file",
+    "clipboard-manager:allow-write-text",
+    "opener:default"
+  ]
+}

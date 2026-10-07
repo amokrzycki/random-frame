@@ -1,5 +1,8 @@
+import { onBackButtonPress } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { initializePlatform } from "./platform.js";
 import { toast } from "./toast.js";
+import { initializeWindowControls } from "./window-controls.js";
 
 export async function handleMailtoClick(event: MouseEvent, href: string): Promise<void> {
   event.preventDefault();
@@ -20,4 +23,12 @@ export function initializePrivacy(): void {
 
 if (typeof document !== "undefined") {
   initializePrivacy();
+  // Without an answer the page keeps its controls unbound rather than guessing the platform.
+  void initializePlatform()
+    .then((platform) => {
+      initializeWindowControls(platform.desktopWindowControls);
+      // Replacing the page keeps Back from stepping into a stale Privacy entry later.
+      if (platform.platform === "android") return onBackButtonPress(() => location.replace("index.html"));
+    })
+    .catch(() => undefined);
 }

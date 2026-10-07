@@ -256,7 +256,7 @@ pub fn validate_day(day: &str) -> Result<(), SnapshotError> {
     if day.len() != 10
         || NaiveDate::parse_from_str(day, "%Y-%m-%d")
             .ok()
-            .map_or(true, |d| d.format("%Y-%m-%d").to_string() != day)
+            .is_none_or(|d| d.format("%Y-%m-%d").to_string() != day)
     {
         return Err(SnapshotError::InvalidValue);
     }
@@ -421,7 +421,7 @@ impl Writer {
             .0
             .len()
             .checked_add(bytes.len())
-            .map_or(true, |n| n > MAX_PLAINTEXT)
+            .is_none_or(|n| n > MAX_PLAINTEXT)
         {
             return Err(SnapshotError::PayloadTooLarge);
         }

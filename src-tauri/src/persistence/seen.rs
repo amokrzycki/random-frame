@@ -39,19 +39,19 @@ impl SeenStore {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
             Err(error) => return Err(AppError::persistence(error)),
         };
-        let mut records = log.chunks_exact(8);
-        for record in &mut records {
-            let id = u64::from_le_bytes(record.try_into().map_err(AppError::persistence)?);
+        let (records, remainder) = log.as_chunks::<8>();
+        for record in records {
+            let id = u64::from_le_bytes(*record);
             if id > crate::sources::prntsc::LEGACY_MAX_VALUE {
                 return Err(AppError::persistence("Invalid legacy Prnt.sc seen ID"));
             }
             ids.insert(id);
         }
-        if !records.remainder().is_empty() {
+        if !remainder.is_empty() {
             OpenOptions::new()
                 .write(true)
                 .open(&log_path)
-                .and_then(|file| file.set_len((log.len() - records.remainder().len()) as u64))
+                .and_then(|file| file.set_len((log.len() - remainder.len()) as u64))
                 .map_err(AppError::persistence)?;
         }
         Ok(Self {

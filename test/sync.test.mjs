@@ -87,17 +87,8 @@ function resetBackend() {
 before(async () => {
   Object.defineProperty(globalThis, "document", { configurable: true, value: document });
   Object.defineProperty(globalThis, "localStorage", { configurable: true, value: localStorage });
-  Object.defineProperty(globalThis, "navigator", {
-    configurable: true,
-    value: {
-      clipboard: {
-        writeText: async (text) => {
-          if (clipboard.fails) throw new Error("denied");
-          clipboard.copied.push(text);
-        },
-      },
-    },
-  });
+  // The WebView clipboard is not used: on Android it needs a user gesture the IPC round trip loses.
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: {} });
   // The fake DOM does not read the markup's hidden attributes.
   for (const id of [
     "sync-join-form",
@@ -126,6 +117,11 @@ before(async () => {
         if (command === "import_session_history") return { history: backend.history, index: -1 };
         calls.push({ command, args });
         if (command === "plugin:event|listen") return 1;
+        if (command === "plugin:clipboard-manager|write_text") {
+          if (clipboard.fails) throw new Error("denied");
+          clipboard.copied.push(args.text);
+          return null;
+        }
         if (command === "get_sync_status") {
           if (backend.statusFails) throw { category: "timeout" };
           return structuredClone(backend.current);

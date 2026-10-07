@@ -1,0 +1,38 @@
+name: Android toolchain
+description: Set up Node, JDK, Rust Android targets, SDK and NDK, then install frontend dependencies.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v6
+      with:
+        node-version-file: .nvmrc
+        cache: npm
+
+    - uses: actions/setup-java@v5
+      with:
+        distribution: temurin
+        java-version: 17
+
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: 1.99.0
+        components: clippy
+        targets: aarch64-linux-android, x86_64-linux-android
+
+    - uses: swatinem/rust-cache@v2
+      with:
+        workspaces: "./src-tauri -> target"
+        key: android
+
+    - name: Install Android SDK packages
+      shell: bash
+      run: |
+        sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+        # yes ends on SIGPIPE once sdkmanager exits; pipefail would fail the step for that.
+        yes 2>/dev/null | "$sdkmanager" --licenses > /dev/null || true
+        "$sdkmanager" "platforms;android-36" "build-tools;35.0.0" "ndk;28.2.13676358" > /dev/null
+        echo "NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+
+    - name: Install frontend dependencies
+      shell: bash
+      run: npm ci
