@@ -48,13 +48,48 @@ const server = createServer((request, response) => {
 });
 await new Promise((resolve) => server.listen(8787, "127.0.0.1", resolve));
 
-const running = () => adb("shell", "pidof", pkg) !== "";
+const running = () => {
+  try {
+    return adb("shell", "pidof", pkg) !== "";
+  } catch {
+    return false;
+  }
+};
 const resumed = () =>
   /topResumedActivity=.*dev\.randomframe\.android\.debug\//.test(adb("shell", "dumpsys", "activity", "activities"));
 async function launch() {
-  adb("shell", "am", "start", "-W", "-n", `${pkg}/dev.randomframe.android.MainActivity`);
-  for (let i = 0; i < 30 && !running(); i++) await sleep(500);
-  await sleep(4000);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    adb("shell", "am", "start", "-W", "-n", `${pkg}/dev.randomframe.android.MainActivity`);
+    for (let i = 0; i < 20 && !running(); i++) await sleep(500);
+    if (running()) {
+      await sleep(4000);
+      if (running()) return;
+    }
+    if (attempt < 2) await sleep(2000);
+  }
+
+  let diagnostics = "";
+  try {
+    diagnostics += `\nActivity state:\n${adb("shell", "dumpsys", "activity", "activities")}`;
+  } catch {}
+  try {
+    diagnostics += `\nRecent logcat:\n${adb("logcat", "-d", "-t", "200")}`;
+  } catch {}
+  throw new Error(`Smoke failed: app did not stay running after launch${diagnostics}`);
+}
+
+async function installApk() {
+  let lastError;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      adb("install", "-r", apk);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt < 4) await sleep(2000);
+    }
+  }
+  throw lastError;
 }
 
 // Evaluates an expression in the app's WebView through its DevTools socket (debug builds only).
@@ -62,9 +97,22 @@ async function evaluate(expression) {
   const pid = adb("shell", "pidof", pkg);
   adb("forward", "--remove-all");
   adb("forward", "tcp:9229", `localabstract:webview_devtools_remote_${pid}`);
-  const pages = await (await fetch("http://127.0.0.1:9229/json")).json();
-  const socket = new WebSocket(pages.find((page) => page.type === "page").webSocketDebuggerUrl);
-  await new Promise((resolve) => socket.addEventListener("open", resolve, { once: true }));
+  let page;
+  for (let attempt = 0; attempt < 20 && !page; attempt++) {
+    try {
+      const pages = await (await fetch("http://127.0.0.1:9229/json")).json();
+      page = pages.find((candidate) => candidate.type === "page");
+    } catch {
+      // The process can start before its WebView DevTools socket is ready.
+    }
+    if (!page) await sleep(250);
+  }
+  if (!page) throw new Error("Smoke failed: WebView DevTools page is unavailable");
+  const socket = new WebSocket(page.webSocketDebuggerUrl);
+  await new Promise((resolve, reject) => {
+    socket.addEventListener("open", resolve, { once: true });
+    socket.addEventListener("error", reject, { once: true });
+  });
   socket.send(
     JSON.stringify({
       id: 1,
@@ -86,7 +134,7 @@ try {
   const actualPageSize = adb("shell", "getconf", "PAGE_SIZE");
   if (pageSizeFlag === "--page-size") check(actualPageSize === pageSize, `device page size is ${pageSize}`);
   adb("reverse", "tcp:8787", "tcp:8787");
-  adb("install", "-r", apk);
+  await installApk();
   adb("shell", "pm", "clear", pkg);
 
   await launch();
