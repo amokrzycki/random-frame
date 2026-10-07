@@ -63,6 +63,20 @@ async function launch() {
   await sleep(4000);
 }
 
+async function installApk() {
+  let lastError;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      await installApk();
+      return;
+    } catch (error) {
+      lastError = error;
+      await sleep(2000);
+    }
+  }
+  throw lastError;
+}
+
 // Evaluates an expression in the app's WebView through its DevTools socket (debug builds only).
 async function evaluate(expression) {
   const pid = adb("shell", "pidof", pkg);
