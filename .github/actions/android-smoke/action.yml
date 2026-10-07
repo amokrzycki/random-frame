@@ -51,7 +51,8 @@ runs:
           fi
 
           if [ "$("$adb" get-state 2>/dev/null || true)" = "device" ] &&
-             [ "$("$adb" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; then
+             [ "$("$adb" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] &&
+             "$adb" shell pm path android > /dev/null 2>&1; then
             booted=true
             break
           fi
