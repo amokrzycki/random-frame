@@ -58,9 +58,24 @@ const running = () => {
 const resumed = () =>
   /topResumedActivity=.*dev\.randomframe\.android\.debug\//.test(adb("shell", "dumpsys", "activity", "activities"));
 async function launch() {
-  adb("shell", "am", "start", "-W", "-n", `${pkg}/dev.randomframe.android.MainActivity`);
-  for (let i = 0; i < 30 && !running(); i++) await sleep(500);
-  await sleep(4000);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    adb("shell", "am", "start", "-W", "-n", `${pkg}/dev.randomframe.android.MainActivity`);
+    for (let i = 0; i < 20 && !running(); i++) await sleep(500);
+    if (running()) {
+      await sleep(4000);
+      if (running()) return;
+    }
+    if (attempt < 2) await sleep(2000);
+  }
+
+  let diagnostics = "";
+  try {
+    diagnostics += `\nActivity state:\n${adb("shell", "dumpsys", "activity", "activities")}`;
+  } catch {}
+  try {
+    diagnostics += `\nRecent logcat:\n${adb("logcat", "-d", "-t", "200")}`;
+  } catch {}
+  throw new Error(`Smoke failed: app did not stay running after launch${diagnostics}`);
 }
 
 async function installApk() {
