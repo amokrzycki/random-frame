@@ -48,7 +48,13 @@ const server = createServer((request, response) => {
 });
 await new Promise((resolve) => server.listen(8787, "127.0.0.1", resolve));
 
-const running = () => adb("shell", "pidof", pkg) !== "";
+const running = () => {
+  try {
+    return adb("shell", "pidof", pkg) !== "";
+  } catch {
+    return false;
+  }
+};
 const resumed = () =>
   /topResumedActivity=.*dev\.randomframe\.android\.debug\//.test(adb("shell", "dumpsys", "activity", "activities"));
 async function launch() {
