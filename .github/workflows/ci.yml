@@ -87,7 +87,7 @@ jobs:
 
   # Main only: the app starts, handles Back and keeps its Sync secret on a 16 KB page-size emulator.
   android-smoke:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.head_ref == 'fix/android-smoke-emulator'
     runs-on: ubuntu-24.04
 
     steps:
