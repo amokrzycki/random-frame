@@ -68,9 +68,22 @@ async function evaluate(expression) {
   const pid = adb("shell", "pidof", pkg);
   adb("forward", "--remove-all");
   adb("forward", "tcp:9229", `localabstract:webview_devtools_remote_${pid}`);
-  const pages = await (await fetch("http://127.0.0.1:9229/json")).json();
-  const socket = new WebSocket(pages.find((page) => page.type === "page").webSocketDebuggerUrl);
-  await new Promise((resolve) => socket.addEventListener("open", resolve, { once: true }));
+  let page;
+  for (let attempt = 0; attempt < 20 && !page; attempt++) {
+    try {
+      const pages = await (await fetch("http://127.0.0.1:9229/json")).json();
+      page = pages.find((candidate) => candidate.type === "page");
+    } catch {
+      // The process can start before its WebView DevTools socket is ready.
+    }
+    if (!page) await sleep(250);
+  }
+  if (!page) throw new Error("Smoke failed: WebView DevTools page is unavailable");
+  const socket = new WebSocket(page.webSocketDebuggerUrl);
+  await new Promise((resolve, reject) => {
+    socket.addEventListener("open", resolve, { once: true });
+    socket.addEventListener("error", reject, { once: true });
+  });
   socket.send(
     JSON.stringify({
       id: 1,
