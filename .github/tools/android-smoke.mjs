@@ -67,11 +67,11 @@ async function installApk() {
   let lastError;
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
-      await installApk();
+      adb("install", "-r", apk);
       return;
     } catch (error) {
       lastError = error;
-      await sleep(2000);
+      if (attempt < 4) await sleep(2000);
     }
   }
   throw lastError;
@@ -119,7 +119,7 @@ try {
   const actualPageSize = adb("shell", "getconf", "PAGE_SIZE");
   if (pageSizeFlag === "--page-size") check(actualPageSize === pageSize, `device page size is ${pageSize}`);
   adb("reverse", "tcp:8787", "tcp:8787");
-  adb("install", "-r", apk);
+  await installApk();
   adb("shell", "pm", "clear", pkg);
 
   await launch();
