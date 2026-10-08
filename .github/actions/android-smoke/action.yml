@@ -35,8 +35,10 @@ runs:
         echo no | "$avdmanager" create avd -n smoke -k "$image" -d pixel_6 --force
 
         "$adb" start-server > /dev/null
+        # The 16 KB Google APIs image needs more than the Pixel 6 profile's 2 GB during first boot.
+        # Otherwise Android's low-memory killer can terminate even the foreground app.
         nohup "$emulator" -avd smoke -no-window -no-audio -no-boot-anim -no-snapshot \
-          -gpu swiftshader_indirect > "$log" 2>&1 &
+          -memory 4096 -gpu swiftshader_indirect > "$log" 2>&1 &
         emulator_pid=$!
 
         deadline=$((SECONDS + 600))

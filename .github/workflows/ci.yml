@@ -85,9 +85,8 @@ jobs:
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$bin/aarch64-linux-android24-clang"
           cargo clippy --locked --manifest-path src-tauri/Cargo.toml --target aarch64-linux-android --lib -- -D warnings
 
-  # Main only: the app starts, handles Back and keeps its Sync secret on a 16 KB page-size emulator.
+  # Every PR and main: launch, Back and Sync persistence on a 16 KB page-size emulator.
   android-smoke:
-    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
 
     steps:
