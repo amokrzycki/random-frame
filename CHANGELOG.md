@@ -1,5 +1,41 @@
 # Random Frame release notes
 
+## 0.7.0
+
+### Random Frame on Android
+
+- Random Frame now runs on Android phones with a 64-bit ARM processor (Android 7.0 or newer). Download the APK from the release page, allow your browser or file manager to install apps, then open the file.
+- The Android app doesn’t update itself. Install a newer APK over the old one; you don’t need to uninstall first.
+- Your history stays on the phone, but it’s left out of Android backups, so uninstalling deletes it. Turn on Sync to keep it across devices.
+- Android Back closes an open menu or dialog first, then cancels a pending draw, and only then leaves the app.
+- Saving an image on Android confirms the save without a Show in folder button, because the file picker doesn’t give a folder to open.
+- The layout is polished for phone-sized and touch screens. Tooltips no longer pop up when you tap.
+
+### A Sync dialog that shows where things stand
+
+- The status line says what’s happening in plain words: Sync is off, Sync completed, Sync couldn’t connect, or Sync needs attention. Errors say whether anything was changed.
+- The dialog shows when this device last synced and lists what Sync covers.
+- The Devices list shows devices from past syncs, with their names and when each one joined and last synced. It doesn’t show which devices are online.
+- Name this device from the Sync dialog.
+- Show the recovery key again whenever you need it. Before, it could only be shown once.
+- Leave Sync is now Disconnect this device. Your data on this device and on the server stays as it is.
+
+### Choose how a device joins
+
+- When you connect with a recovery key, pick Restore or Merge. Restore replaces this device’s synced data with the copy in Sync. Merge combines both, including previous deletions on this device, which may remove items your other devices still have.
+- If this device already has data, you choose the mode yourself. A device with no saved data takes the copy in Sync automatically.
+
+### More is synced now
+
+- Sync now includes Activity Stats, IDs checked, your theme, and your history page size, along with history, favorites, and Seen IDs. Stats and IDs checked used to stay on each device.
+- When you clear history, linked devices remove it, and their stats, the next time they sync. Favorites and Seen IDs stay. Changes made while a device was offline may appear later.
+- On Android, Sync also runs when you return to the app, if the last sync was at least 15 minutes ago.
+- The privacy policy covers Android and the newer Sync data, including the device list.
+
+### Small fixes
+
+- A history clear is saved before Undo is offered, so a clear interrupted by a restart finishes on the next launch.
+
 ## 0.6.6
 
 ### A new loading screen
