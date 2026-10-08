@@ -52,7 +52,8 @@ const processId = () => {
   try {
     return adb("shell", "pidof", pkg);
   } catch (error) {
-    if (error.status === 1) return ""; // pidof reports no matching process with exit status 1.
+    // pidof reports no match with status 1 and no output; adb transport errors can also exit 1.
+    if (error.status === 1 && !error.stdout?.toString().trim() && !error.stderr?.toString().trim()) return "";
     throw error;
   }
 };

@@ -30,7 +30,7 @@ childProcess.execFileSync = (_path, args) => {
   }
   if (command === 'shell pidof dev.randomframe.android.debug') {
     if (${JSON.stringify(mode)} === 'dead') throw Object.assign(new Error('no process'), { status: 1 });
-    if (${JSON.stringify(mode)} === 'transport') throw Object.assign(new Error('device offline'), { status: 255 });
+    if (${JSON.stringify(mode)} === 'transport') throw Object.assign(new Error('device offline'), { status: 1, stderr: 'error: device offline' });
     return ${JSON.stringify(mode)} === 'background' || ++probes === 1 ? '123' : '456';
   }
   if (command === 'shell pm list packages -U dev.randomframe.android.debug') return 'package:dev.randomframe.android.debug uid:10207';
