@@ -59,7 +59,7 @@ const resumed = () =>
   /topResumedActivity=.*dev\.randomframe\.android\.debug\//.test(adb("shell", "dumpsys", "activity", "activities"));
 async function launch() {
   for (let attempt = 0; attempt < 3; attempt++) {
-    adb("shell", "am", "start", "-W", "-n", `${pkg}/dev.randomframe.android.MainActivity`);
+    process.stdout.write(`${adb("shell", "am", "start", "-W", "-n", `${pkg}/dev.randomframe.android.MainActivity`)}\n`);
     for (let i = 0; i < 20 && !running(); i++) await sleep(500);
     if (running()) {
       await sleep(4000);
@@ -70,11 +70,34 @@ async function launch() {
 
   let diagnostics = "";
   try {
-    diagnostics += `\nActivity state:\n${adb("shell", "dumpsys", "activity", "activities")}`;
-  } catch {}
+    diagnostics += `\nActivity state:\n${adb("shell", "dumpsys", "activity", "activities")
+      .split("\n")
+      .filter((line) => line.includes(pkg) || /ResumedActivity|mFocusedApp/.test(line))
+      .join("\n")}`;
+  } catch (error) {
+    diagnostics += `\nActivity diagnostics unavailable: ${error.message}`;
+  }
   try {
-    diagnostics += `\nRecent logcat:\n${adb("logcat", "-d", "-t", "200")}`;
-  } catch {}
+    diagnostics += `\nProcess exit history:\n${adb("shell", "dumpsys", "activity", "exit-info", pkg)}`;
+    diagnostics += `\nMemory state:\n${adb("shell", "cat", "/proc/meminfo")}`;
+  } catch (error) {
+    diagnostics += `\nProcess diagnostics unavailable: ${error.message}`;
+  }
+  try {
+    diagnostics += `\nCrash logcat:\n${adb("logcat", "-d", "-b", "crash", "-t", "200")}`;
+    diagnostics += `\nLaunch and memory logcat:\n${adb(
+      "logcat",
+      "-d",
+      "-t",
+      "200",
+      "ActivityManager:I",
+      "ActivityTaskManager:I",
+      "lowmemorykiller:I",
+      "*:S",
+    )}`;
+  } catch (error) {
+    diagnostics += `\nLogcat diagnostics unavailable: ${error.message}`;
+  }
   throw new Error(`Smoke failed: app did not stay running after launch${diagnostics}`);
 }
 
