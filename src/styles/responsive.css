@@ -172,7 +172,20 @@
 
 /* A phone keeps metadata and thumb actions below an unobstructed image. */
 :root[data-platform="android"] {
-  --titlebar-height: 48px;
+  --titlebar-height: 56px;
+  --mobile-gutter: 16px;
+  --touch-target: 48px;
+  --type-dialog-title: 24px;
+  --type-entry-title: 28px;
+
+  .brand {
+    font-size: 14px;
+  }
+
+  .masthead-tools {
+    gap: 8px;
+    padding-right: 8px;
+  }
 
   .titlebar-tool,
   .info-icon {
@@ -243,7 +256,7 @@
   }
 
   .frame-id {
-    flex: 0 1 auto;
+    flex: 1 1 auto;
     padding-inline: 8px;
     border: 0;
   }
@@ -311,6 +324,505 @@
 
   .toast {
     max-width: calc(100vw - 32px);
+  }
+
+  /* Native MainActivity applies system-bar, cutout and IME insets to the WebView.
+     These dialogs fill that usable viewport; adding CSS safe-area padding would count it twice. */
+  .dialog-backdrop {
+    top: 0;
+  }
+
+  .history-dialog {
+    width: min(100%, 760px);
+    height: 100dvh;
+    max-height: none;
+    border-radius: 0;
+    box-shadow: none;
+    transform: none;
+  }
+
+  .history-dialog .history-dialog__content {
+    height: 100%;
+    max-height: none;
+    min-height: 0;
+  }
+
+  #history-dialog .history-dialog__content {
+    height: 100%;
+  }
+
+  .history-dialog .history-dialog__header {
+    padding: 8px var(--mobile-gutter);
+    gap: 8px;
+    grid-template-columns: minmax(0, 1fr) var(--touch-target);
+  }
+
+  .changelog-dialog .history-dialog__header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    min-height: 64px;
+  }
+
+  #history-dialog .history-dialog__header {
+    padding: 8px var(--mobile-gutter) 0;
+    grid-template-columns: minmax(0, 1fr) var(--touch-target);
+    gap: 0 8px;
+  }
+
+  .history-filter {
+    width: 100%;
+    gap: 8px;
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .history-dialog__actions {
+    display: contents;
+  }
+
+  #history-dialog .history-close {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .history-filter__option {
+    flex: 1;
+    border: 0;
+    color: var(--muted);
+    background: transparent;
+    font-size: 14px;
+  }
+
+  .history-filter__option + .history-filter__option,
+  .history-filter__option:first-child {
+    border-radius: 0;
+    margin: 0;
+  }
+
+  .history-filter__option[aria-selected="true"] {
+    color: var(--ink);
+    background: transparent;
+    box-shadow: inset 0 -2px var(--blue);
+  }
+
+  .history-dialog .history-dialog__body,
+  .stats-dialog__body,
+  .shortcuts {
+    padding: 16px var(--mobile-gutter) 24px;
+    overscroll-behavior: contain;
+    scroll-padding-block: 16px;
+    overflow-wrap: anywhere;
+  }
+
+  #history-dialog .history-dialog__body {
+    padding: 16px var(--mobile-gutter);
+  }
+
+  .history-grid {
+    grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+    gap: 12px;
+  }
+
+  .history-tile__remove {
+    top: 0;
+    left: 0;
+    width: var(--touch-target);
+    height: var(--touch-target);
+    background: transparent;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .history-tile__remove::before {
+    content: "";
+    position: absolute;
+    inset: 12px;
+    border-radius: var(--radius-compact);
+    background: var(--stage);
+  }
+
+  .history-tile__remove svg {
+    position: relative;
+    width: 14px;
+  }
+
+  .history-tile__remove:hover {
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .history-footer {
+    padding: 8px var(--mobile-gutter);
+    max-height: 45dvh;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+
+  .history-clear-group {
+    padding-bottom: 0;
+  }
+
+  .history-clear-group > .history-clear {
+    justify-self: end;
+  }
+
+  .history-clear-group:not([data-armed]) > .history-clear {
+    border-color: transparent;
+  }
+
+  .history-clear-group:not([data-armed]) > #history-clear-button {
+    color: var(--muted);
+    font-weight: 400;
+    background: transparent;
+  }
+
+  .history-clear-group:not([data-armed]) > #history-clear-button:hover:not(:disabled) {
+    color: var(--ink);
+  }
+
+  .history-clear-group[data-armed] {
+    row-gap: 8px;
+    padding-bottom: 8px;
+  }
+
+  .history-pager {
+    min-height: 0;
+    padding-top: 8px;
+    gap: 8px;
+  }
+
+  .history-pager__summary,
+  .history-pager__nav {
+    width: 100%;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .history-pager__range {
+    white-space: normal;
+    line-height: 1.4;
+  }
+
+  .history-pager__jump input {
+    width: 5ch;
+    min-width: var(--touch-target);
+  }
+
+  .history-empty {
+    padding: 24px 0;
+  }
+
+  .history-empty p {
+    font-size: 24px;
+  }
+
+  .stats-headline {
+    padding-top: 0;
+  }
+
+  .stats-tally {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px 16px;
+  }
+
+  .stats-tally__item + .stats-tally__item {
+    padding-left: 0;
+    border: 0;
+  }
+
+  .stats-tally__item:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .stats-tally dd {
+    font-size: 32px;
+  }
+
+  .stats-tally__item:first-child dd {
+    font-size: 44px;
+  }
+
+  .ledger__row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 16px;
+    padding-block: 12px;
+  }
+
+  .ledger__counts {
+    text-align: right;
+  }
+
+  .ledger__strip {
+    grid-column: 1 / -1;
+    gap: 8px;
+  }
+
+  .ledger__strip:empty {
+    display: none;
+  }
+
+  .ledger__thumb {
+    height: var(--touch-target);
+    width: 64px;
+  }
+
+  .dialog-foot,
+  .changelog-footer {
+    flex: 0 0 auto;
+    padding: 12px var(--mobile-gutter);
+    line-height: 1.5;
+  }
+
+  .sync-dialog__body {
+    font-size: 15px;
+  }
+
+  .sync-dialog__body > :not(:first-child),
+  .sync-dialog__devices,
+  .sync-dialog__actions {
+    margin-top: 24px;
+  }
+
+  .sync-dialog__body h3,
+  .sync-dialog__name label,
+  #sync-join-form label,
+  .sync-join legend {
+    font-size: 14px;
+  }
+
+  .sync-dialog__body h3 {
+    margin-bottom: 8px;
+  }
+
+  .sync-dialog__scope ul {
+    display: grid;
+    gap: 4px;
+  }
+
+  .sync-dialog__scope p,
+  .sync-dialog__detail,
+  .sync-join__copy {
+    font-size: 14px;
+  }
+
+  .sync-dialog__name-row,
+  .sync-dialog__actions {
+    gap: 8px;
+  }
+
+  .sync-dialog__actions > button {
+    flex: 1 1 100%;
+    justify-content: center;
+    text-align: center;
+  }
+
+  #sync-leave {
+    margin-top: 16px;
+    border-color: transparent;
+    border-top-color: var(--line);
+    border-radius: 0;
+  }
+
+  .sync-dialog__saved {
+    min-height: var(--touch-target);
+    align-items: center;
+    padding-block: 8px;
+  }
+
+  .entry-dialog {
+    max-height: calc(100dvh - 32px);
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+
+  .entry-dialog__content {
+    padding: 24px;
+  }
+
+  .entry-dialog__mark {
+    margin-bottom: 24px;
+  }
+
+  .entry-dialog__copy {
+    font-size: 15px;
+  }
+
+  .entry-consent {
+    margin-block: 24px;
+    padding: 16px;
+    font-size: 14px;
+  }
+
+  .entry-dialog__actions .primary-action {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .lightbox-dialog {
+    top: 0;
+    height: 100dvh;
+    grid-template-rows: auto minmax(0, 1fr) 64px;
+  }
+
+  .lightbox-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px var(--mobile-gutter);
+  }
+
+  .lightbox-caption {
+    flex: 1 1 100%;
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1.4;
+    word-spacing: normal;
+    color: var(--stage-muted);
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
+
+  .lightbox-tools {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .lightbox-view {
+    padding: 8px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .lightbox-view:not(.is-zoomed) img {
+    max-width: 100%;
+    max-height: 100%;
+  }
+
+  .lightbox-step {
+    top: auto;
+    bottom: 8px;
+    transform: none;
+  }
+
+  .lightbox-step:active:not([aria-disabled="true"]) {
+    transform: scale(0.97);
+  }
+
+  :is(
+      .history-close,
+      .history-filter__option,
+      .history-clear,
+      .history-pager__step,
+      .history-pager__select select,
+      .history-pager__jump input,
+      .sync-dialog__button,
+      #sync-name-input,
+      #sync-recovery-input,
+      .ledger__more,
+      .stats-retry,
+      .lightbox-control,
+      .lightbox-step,
+      .theme-picker button,
+      .theme-picker__indicator,
+      .tools-menu__aside,
+      .position__form,
+      .position__form input,
+      .text-action,
+      .leave-action,
+      .toast__action,
+      .masthead-action,
+      .privacy-page a
+    ) {
+    min-height: var(--touch-target);
+  }
+
+  :is(.history-close, .history-pager__step, .lightbox-control, .lightbox-step, .tools-menu__aside) {
+    min-width: var(--touch-target);
+  }
+
+  .tools-menu {
+    max-width: calc(100vw - 32px);
+    max-height: calc(100dvh - var(--titlebar-height) - 16px);
+    overflow-y: auto;
+    font-size: 14px;
+  }
+
+  .tools-menu__item {
+    font-size: 14px;
+  }
+
+  .tools-menu__split {
+    gap: 8px;
+  }
+
+  .position__form {
+    height: auto;
+    gap: 8px;
+  }
+
+  .position__form input {
+    font-size: 16px;
+  }
+
+  .theme-picker button,
+  .theme-picker__indicator {
+    height: var(--touch-target);
+  }
+
+  .empty-state,
+  .error-state {
+    width: calc(100% - 48px);
+  }
+
+  .error-state p,
+  #loading-message {
+    font-size: 14px;
+  }
+
+  .error-actions {
+    gap: 8px 24px;
+  }
+
+  .text-action,
+  .leave-action {
+    min-width: var(--touch-target);
+  }
+
+  .text-action {
+    padding-inline: 8px;
+  }
+
+  .app-shell .privacy-main {
+    padding: 24px var(--mobile-gutter) 40px;
+  }
+
+  .privacy-page h2 {
+    margin-top: 32px;
+  }
+}
+
+@media (max-height: 480px) {
+  :root[data-platform="android"] .lightbox-toolbar {
+    padding-block: 8px;
+  }
+
+  @media (min-width: 600px) {
+    :root[data-platform="android"] {
+      .lightbox-caption {
+        flex: 1 1 0;
+      }
+
+      .lightbox-tools {
+        width: auto;
+      }
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-platform="android"] .lightbox-step:active:not([aria-disabled="true"]) {
+    transform: none;
   }
 }
 

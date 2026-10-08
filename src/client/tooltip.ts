@@ -35,6 +35,7 @@ const tipTarget = (node: EventTarget | null): HTMLElement | null =>
 
 export function bindTooltipEvents(): void {
   document.addEventListener("pointerover", (event) => {
+    if (event.pointerType === "touch") return;
     const target = tipTarget(event.target);
     if (target && target !== current) show(target);
   });

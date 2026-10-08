@@ -187,7 +187,7 @@ function renderHistoryPage(scroll = elements.historyBody.scrollTop): void {
   elements.historyEmpty.hidden = Boolean(entries.length);
   elements.historyEmptyTitle.textContent = favoritesView ? "No favorites yet." : "No frames drawn yet.";
   elements.historyEmptyDetail.textContent = favoritesView
-    ? "Press F on a frame to keep it here."
+    ? "Star a frame to keep it here."
     : "Draw a frame to begin your history.";
 
   // Below the smallest page size neither paging nor the size choice changes anything.
