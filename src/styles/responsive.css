@@ -357,10 +357,20 @@
     grid-template-columns: minmax(0, 1fr) var(--touch-target);
   }
 
+  .changelog-dialog .history-dialog__header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    min-height: 64px;
+  }
+
+  #history-dialog .history-dialog__header {
+    padding: 8px var(--mobile-gutter) 0;
+    grid-template-columns: minmax(0, 1fr) var(--touch-target);
+    gap: 0 8px;
+  }
+
   .history-filter {
     width: 100%;
     gap: 8px;
-    padding-bottom: 0;
     grid-column: 1 / -1;
     grid-row: 2;
   }
@@ -377,8 +387,6 @@
   .history-filter__option {
     flex: 1;
     border: 0;
-    border-radius: 0;
-    margin: 0;
     color: var(--muted);
     background: transparent;
     font-size: 14px;
@@ -459,6 +467,16 @@
 
   .history-clear-group:not([data-armed]) > .history-clear {
     border-color: transparent;
+  }
+
+  .history-clear-group:not([data-armed]) > #history-clear-button {
+    color: var(--muted);
+    font-weight: 400;
+    background: transparent;
+  }
+
+  .history-clear-group:not([data-armed]) > #history-clear-button:hover:not(:disabled) {
+    color: var(--ink);
   }
 
   .history-clear-group[data-armed] {
@@ -554,11 +572,6 @@
     line-height: 1.5;
   }
 
-  .changelog-dialog .history-dialog__header {
-    grid-template-columns: minmax(0, 1fr) auto;
-    min-height: 64px;
-  }
-
   .sync-dialog__body {
     font-size: 15px;
   }
@@ -647,7 +660,7 @@
   .lightbox-dialog {
     top: 0;
     height: 100dvh;
-    grid-template-rows: 96px minmax(0, 1fr) 64px;
+    grid-template-rows: auto minmax(0, 1fr) 64px;
   }
 
   .lightbox-toolbar {
@@ -659,10 +672,15 @@
 
   .lightbox-caption {
     flex: 1 1 100%;
-    font-size: 12px;
-    white-space: nowrap;
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1.4;
+    word-spacing: normal;
+    color: var(--stage-muted);
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
     overflow: hidden;
-    text-overflow: ellipsis;
   }
 
   .lightbox-tools {
@@ -672,11 +690,13 @@
 
   .lightbox-view {
     padding: 8px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
   }
 
-  .lightbox-view img {
-    max-width: calc(100vw - 16px);
-    max-height: calc(100dvh - 176px);
+  .lightbox-view:not(.is-zoomed) img {
+    max-width: 100%;
+    max-height: 100%;
   }
 
   .lightbox-step {
@@ -780,11 +800,23 @@
   .privacy-page h2 {
     margin-top: 32px;
   }
+}
 
-  #history-dialog .history-dialog__header {
-    padding: 8px var(--mobile-gutter) 0;
-    grid-template-columns: minmax(0, 1fr) var(--touch-target);
-    gap: 0 8px;
+@media (max-height: 480px) {
+  :root[data-platform="android"] .lightbox-toolbar {
+    padding-block: 8px;
+  }
+
+  @media (min-width: 600px) {
+    :root[data-platform="android"] {
+      .lightbox-caption {
+        flex: 1 1 0;
+      }
+
+      .lightbox-tools {
+        width: auto;
+      }
+    }
   }
 }
 
