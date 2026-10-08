@@ -48,24 +48,40 @@ const server = createServer((request, response) => {
 });
 await new Promise((resolve) => server.listen(8787, "127.0.0.1", resolve));
 
-const running = () => {
+const processId = () => {
   try {
-    return adb("shell", "pidof", pkg) !== "";
-  } catch {
-    return false;
+    return adb("shell", "pidof", pkg);
+  } catch (error) {
+    if (error.status === 1) return ""; // pidof reports no matching process with exit status 1.
+    throw error;
   }
 };
+const running = () => processId() !== "";
 const resumed = () =>
   /topResumedActivity=.*dev\.randomframe\.android\.debug\//.test(adb("shell", "dumpsys", "activity", "activities"));
 async function launch() {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    process.stdout.write(`${adb("shell", "am", "start", "-W", "-n", `${pkg}/dev.randomframe.android.MainActivity`)}\n`);
-    for (let i = 0; i < 20 && !running(); i++) await sleep(500);
-    if (running()) {
-      await sleep(4000);
-      if (running()) return;
+  let failure;
+  try {
+    // Back can return to the launcher before Tauri finishes destroying its process. Android's -S
+    // stops that old process before starting, so this cannot relaunch an activity already exiting.
+    const result = adb("shell", "am", "start", "-S", "-W", "-n", `${pkg}/dev.randomframe.android.MainActivity`);
+    process.stdout.write(`${result}\n`);
+    if (!/^Status: ok$/m.test(result)) throw new Error("activity launch did not succeed");
+    const pid = processId();
+    if (!pid) throw new Error("app did not stay running after launch");
+    // Observe the same process throughout the existing four-second liveness window, not only at
+    // its endpoints: Android can kill and recreate a foreground process under memory pressure.
+    for (let i = 0; i < 8; i++) {
+      await sleep(500);
+      const current = processId();
+      if (!current) throw new Error("app did not stay running after launch");
+      if (current !== pid) throw new Error(`app process changed after launch (${pid} -> ${current})`);
     }
-    if (attempt < 2) await sleep(2000);
+    if (!resumed()) throw new Error("app did not reach the foreground after launch");
+    process.stdout.write(`ok - app process ${pid} stayed running in the foreground\n`);
+    return;
+  } catch (error) {
+    failure = error.message;
   }
 
   let diagnostics = "";
@@ -84,6 +100,8 @@ async function launch() {
     diagnostics += `\nProcess diagnostics unavailable: ${error.message}`;
   }
   try {
+    const uid = adb("shell", "pm", "list", "packages", "-U", pkg).match(/\buid:(\d+)/)?.[1];
+    if (uid) diagnostics += `\nApp logcat:\n${adb("logcat", "-d", "--uid", uid, "-t", "200")}`;
     diagnostics += `\nCrash logcat:\n${adb("logcat", "-d", "-b", "crash", "-t", "200")}`;
     diagnostics += `\nLaunch and memory logcat:\n${adb(
       "logcat",
@@ -98,7 +116,7 @@ async function launch() {
   } catch (error) {
     diagnostics += `\nLogcat diagnostics unavailable: ${error.message}`;
   }
-  throw new Error(`Smoke failed: app did not stay running after launch${diagnostics}`);
+  throw new Error(`Smoke failed: ${failure}${diagnostics}`);
 }
 
 async function installApk() {
