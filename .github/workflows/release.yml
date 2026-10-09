@@ -121,28 +121,6 @@ jobs:
       # - https://github.com/tauri-apps/tauri/pull/15662
       # Older bundled display-stack libraries can conflict with newer host Mesa/Wayland stacks.
       # Temporary workaround: remove once official `bundle.linux.appimage.excludeLibraries` is available.
-      - name: Patch linuxdeploy GTK plugin to exclude display-stack libraries
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          mkdir -p ~/.cache/tauri
-          PLUGIN_URL="https://raw.githubusercontent.com/tauri-apps/linuxdeploy-plugin-gtk/b5eb8d05b4c0ed40107fe2158c5d8527f94568ef/linuxdeploy-plugin-gtk.sh"
-          EXPECTED_SHA256="cb379f9b0733e9ad9f8bd78f8c2fa038aef2478523bb7d4c8e64ff6a1ea3501a"
-          PLUGIN_PATH="$HOME/.cache/tauri/linuxdeploy-plugin-gtk.sh"
-
-          curl -fsSL "$PLUGIN_URL" -o "$PLUGIN_PATH"
-          echo "${EXPECTED_SHA256}  ${PLUGIN_PATH}" | sha256sum --check --strict -
-          chmod +x "$PLUGIN_PATH"
-
-          cat << 'EOF' >> "$PLUGIN_PATH"
-
-          # Upstream workaround: Remove display-stack libraries so host system libraries are used
-          rm -f "$APPDIR"/usr/lib*/libwayland-*.so*
-          rm -f "$APPDIR"/usr/lib*/libxkbcommon*.so*
-          rm -f "$APPDIR"/usr/lib*/libxcb-*.so*
-          rm -f "$APPDIR"/usr/lib*/libXau.so*
-          rm -f "$APPDIR"/usr/lib*/libXdmcp.so*
-          EOF
-
       # Wraps Tauri build to ensure AppImage verification occurs BEFORE tauri-action can upload any assets
       - name: Setup Tauri build wrapper with pre-upload verification
         if: matrix.platform == 'ubuntu-22.04'
@@ -152,6 +130,9 @@ jobs:
           cat << 'EOF' > "$HOME/.local/bin/tauri-build-wrapper"
           #!/usr/bin/env bash
           set -euo pipefail
+
+          # Tauri rewrites cached plugins; exclude dependencies in every linuxdeploy invocation instead.
+          export LINUXDEPLOY_EXCLUDED_LIBRARIES='libwayland-*.so*;libxkbcommon*.so*;libxcb-*.so*;libXau.so*;libXdmcp.so*'
 
           # 1. Run the actual Tauri build with all passed arguments
           npx tauri "$@"
