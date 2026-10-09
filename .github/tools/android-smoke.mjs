@@ -136,20 +136,50 @@ async function installApk() {
 
 // Evaluates an expression in the app's WebView through its DevTools socket (debug builds only).
 async function evaluate(expression) {
-  const pid = adb("shell", "pidof", pkg);
+  const pid = processId();
+  if (!pid) throw new Error("Smoke failed: app is not running before DevTools discovery");
   adb("forward", "--remove-all");
   adb("forward", "tcp:9229", `localabstract:webview_devtools_remote_${pid}`);
+  const deadline = Date.now() + 30000;
   let page;
-  for (let attempt = 0; attempt < 20 && !page; attempt++) {
-    try {
-      const pages = await (await fetch("http://127.0.0.1:9229/json")).json();
-      page = pages.find((candidate) => candidate.type === "page");
-    } catch {
-      // The process can start before its WebView DevTools socket is ready.
+  let discoveryError;
+  let failure;
+  // A foreground activity can precede WebView readiness, especially after a cold relaunch on CI.
+  while (Date.now() < deadline && !page) {
+    const current = processId();
+    if (current !== pid) {
+      failure = `app process changed (${pid} -> ${current || "exited"}) during DevTools discovery`;
+      break;
     }
-    if (!page) await sleep(250);
+    try {
+      const pages = await (
+        await fetch("http://127.0.0.1:9229/json", {
+          signal: AbortSignal.timeout(Math.max(1, Math.min(1000, deadline - Date.now()))),
+        })
+      ).json();
+      page = pages.find((candidate) => candidate.type === "page");
+      discoveryError = `DevTools targets: ${JSON.stringify(pages)}`;
+    } catch (error) {
+      discoveryError = `${error.message}${error.cause ? `: ${error.cause.message}` : ""}`;
+    }
+    if (!page) await sleep(Math.min(250, Math.max(0, deadline - Date.now())));
   }
-  if (!page) throw new Error("Smoke failed: WebView DevTools page is unavailable");
+  if (!page) {
+    let diagnostics = "";
+    for (const args of [
+      ["shell", "dumpsys", "activity", "exit-info", pkg],
+      ["logcat", "-d", "--pid", pid, "-t", "200"],
+    ]) {
+      try {
+        diagnostics += `\n${args.join(" ")}:\n${adb(...args)}`;
+      } catch (error) {
+        diagnostics += `\nDiagnostics unavailable: ${error.message}`;
+      }
+    }
+    throw new Error(
+      `Smoke failed: ${failure ?? "WebView DevTools page is unavailable after 30 seconds"}${discoveryError ? `: ${discoveryError}` : ""}${diagnostics}`,
+    );
+  }
   const socket = new WebSocket(page.webSocketDebuggerUrl);
   await new Promise((resolve, reject) => {
     socket.addEventListener("open", resolve, { once: true });
