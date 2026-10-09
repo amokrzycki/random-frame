@@ -16,7 +16,7 @@ expected_abis=$(printf '%s\n' "$@" | sort | tr '\n' ' ')
 build_tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
 readelf=$(find "$NDK_HOME/toolchains/llvm/prebuilt" -name llvm-readelf | head -1)
 fail() {
-  echo "::error::$*"
+  echo "::error::$*" >&2
   exit 1
 }
 [ -x "$build_tools/aapt2" ] && [ -x "$readelf" ] || fail "Android build-tools or NDK llvm-readelf not found"
