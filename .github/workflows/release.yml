@@ -120,7 +120,6 @@ jobs:
       # - https://github.com/tauri-apps/tauri/issues/15976
       # - https://github.com/tauri-apps/tauri/pull/15662
       # Older bundled display-stack libraries can conflict with newer host Mesa/Wayland stacks.
-      # Temporary workaround: remove once official `bundle.linux.appimage.excludeLibraries` is available.
       # Wraps Tauri build to ensure AppImage verification occurs BEFORE tauri-action can upload any assets
       - name: Setup Tauri build wrapper with pre-upload verification
         if: matrix.platform == 'ubuntu-22.04'
