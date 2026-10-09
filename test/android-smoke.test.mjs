@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 
 function smokeFailure(t, mode) {
   const directory = mkdtempSync(join(tmpdir(), "android-smoke-test-"));
@@ -46,7 +47,7 @@ syncBuiltinESMExports();`,
   );
   const result = spawnSync(
     process.execPath,
-    ["--import", preload, ".github/tools/android-smoke.mjs", "test.apk", "--page-size", "16384"],
+    ["--import", pathToFileURL(preload).href, ".github/tools/android-smoke.mjs", "test.apk", "--page-size", "16384"],
     { encoding: "utf8", timeout: 5000 },
   );
   assert.equal(result.error, undefined);
