@@ -16,7 +16,7 @@ expected_abis=$(printf '%s\n' "$@" | sort | tr '\n' ' ')
 build_tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
 readelf=$(find "$NDK_HOME/toolchains/llvm/prebuilt" -name llvm-readelf | head -1)
 fail() {
-  echo "::error::$*"
+  echo "::error::$*" >&2
   exit 1
 }
 [ -x "$build_tools/aapt2" ] && [ -x "$readelf" ] || fail "Android build-tools or NDK llvm-readelf not found"
@@ -64,8 +64,9 @@ done <<<"$libraries"
 
 if [ "$mode" = release ]; then
   certs=$("$build_tools/apksigner" verify --verbose --print-certs "$apk") || fail "signature does not verify"
-  grep -q 'Signer #1 certificate SHA-256 digest' <<<"$certs" || fail "no signing certificate"
+  cert=$(awk '/^(Signer |V[0-9.]+ Signer).* certificate SHA-256 digest:/ { print $NF }' <<<"$certs" | sort -u)
+  [ -n "$cert" ] || fail "no signing certificate"
   grep -qi 'CN=Android Debug' <<<"$certs" && fail "signed with a debug key"
-  grep -m1 'Signer #1 certificate SHA-256 digest' <<<"$certs" | awk '{print $NF}'
+  printf '%s\n' "$cert"
 fi
 echo "APK checks passed: $package $version ($version_code), ABIs $abis" >&2
