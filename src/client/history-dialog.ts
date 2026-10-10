@@ -14,7 +14,6 @@ import {
 import { goTo, loadById } from "./frame-loader.js";
 import { historyPage, PAGE_SIZES, pageOf, parsePageSize, savePageSize } from "./history-pagination.js";
 import {
-  cancelHistoryClear,
   commitHistoryClear,
   type HistoryItem,
   prepareHistoryClear,
@@ -22,7 +21,7 @@ import {
   restoreHistoryItem,
   type ViewStamp,
 } from "./persistence.js";
-import { getViewState, setState, syncControls } from "./stage.js";
+import { setState, syncControls } from "./stage.js";
 import { toast } from "./toast.js";
 import { updateUserPreferences } from "./user-preferences.js";
 import { applyFavorites, applyHistory, isFavorite, state } from "./viewer-state.js";
@@ -251,6 +250,7 @@ function renderHistoryPage(scroll = elements.historyBody.scrollTop): void {
     button.setAttribute("aria-describedby", time.id);
     button.append(image, label, time);
     button.addEventListener("click", () => {
+      if (state.loading) return;
       state.navigationMode = favorite ? "favourites" : "history";
       state.historyTab = state.navigationMode;
       syncControls();
@@ -291,6 +291,7 @@ function showCurrentPage(): void {
 }
 
 function showFilter(next: HistoryDialogTab): void {
+  if (state.loading) return;
   if (filter === next) {
     renderHistoryPage();
     return;
@@ -379,11 +380,14 @@ export async function removeFromHistory(index: number): Promise<void> {
   const frame = state.history[index];
   if (!frame || state.loading || removing) return;
   removing = true;
+  state.loading = true;
+  syncControls();
   const wasShown = index === state.index;
   const position = gridEntries().findIndex((entry) => entry.index === index) - state.pageIndex * state.pageSize;
   try {
     const { snapshot, orderAt, lastView } = await removeHistoryItem(frame.source, frame.id);
     applyHistoryKeepingShown(snapshot, wasShown ? undefined : state.history[state.index]);
+    state.loading = false;
     if (wasShown && !state.history.length) {
       elements.image.src = "";
       elements.image.alt = "";
@@ -397,12 +401,14 @@ export async function removeFromHistory(index: number): Promise<void> {
     } else if (!state.history.length) elements.draw.focus();
     toast.info("Removed from history", {
       label: "Undo",
-      run: () => void undoRemoval(frame, orderAt, lastView, wasShown ? { landed } : undefined),
+      run: () => undoRemoval(frame, orderAt, lastView, wasShown ? { landed } : undefined),
     });
   } catch (error) {
     toast.error(describeError(error, "That frame could not be removed. Try again.").message);
   } finally {
     removing = false;
+    state.loading = false;
+    syncControls();
   }
 }
 
@@ -412,92 +418,101 @@ async function undoRemoval(
   orderAt: number,
   lastView: ViewStamp,
   shownBefore?: { landed: HistoryItem | undefined },
-): Promise<void> {
-  // goTo ignores calls while a frame loads, so restoring now would leave the frame off the stage.
-  if (shownBefore && state.loading) {
-    toast.error("A frame is loading. Try Undo again in a moment.");
-    return;
+): Promise<boolean> {
+  if (state.loading || removing) {
+    toast.error("A frame is loading. Undo is still available when it finishes.");
+    return false;
   }
+  state.loading = true;
+  syncControls();
   try {
     const shown = state.history[state.index];
     const snapshot = await restoreHistoryItem(frame, orderAt, lastView);
     applyHistoryKeepingShown(snapshot, shown);
+    state.loading = false;
     syncControls();
-    if (elements.historyDialog.open) renderHistoryPage();
+    if (elements.historyDialog.open) {
+      renderHistoryPage();
+      const position = gridEntries().findIndex((item) => item.source === frame.source && item.id === frame.id);
+      focusTile(position - state.pageIndex * state.pageSize);
+    }
     if (shownBefore && (shown ? sameFrame(shown, shownBefore.landed) : !shownBefore.landed))
       await goTo(snapshot.history.findIndex((item) => sameFrame(item, frame)));
+    return true;
   } catch (error) {
-    toast.error(describeError(error, "That frame could not be restored. Try again.").message);
+    toast.error(describeError(error, "That frame could not be restored. Undo is still available; try again.").message);
+    return false;
+  } finally {
+    state.loading = false;
+    syncControls();
   }
 }
 
-// Two-phase clear with Undo: prepare() freezes the operation set, then user can cancel (Undo)
-// or let it auto-commit. This ensures crash safety and prevents partial clears. The control flow
-// looks complex because we handle errors in both paths and retry on failure, but the pattern is:
-// 1. Snapshot the current state
-// 2. Prepare a durable clear request (gets a request ID)
-// 3. Optimistically clear the UI
-// 4. Either cancel (Undo) or commit (timeout) the request
+// Review never touches durable data. Only the explicit completion prepares the existing crash-safe clear.
+let cancelClearReview: (() => void) | undefined;
 async function clearSavedHistory(): Promise<void> {
   if (state.loading) return;
-  const previousHistory = [...state.history];
-  const previousIndex = state.index;
-  const previousView = getViewState();
+  const reviewedAt = Date.now();
   state.loading = true;
   syncControls();
-  let requestId: string;
-  try {
-    requestId = await prepareHistoryClear();
-  } catch (error) {
+  elements.historyClearGroup.setAttribute("data-armed", "");
+  let requestId: string | undefined;
+  const cancel = (): void => {
+    review.dismiss();
+    cancelClearReview = undefined;
     state.loading = false;
+    elements.historyClearGroup.removeAttribute("data-armed");
     syncControls();
-    toast.error(describeError(error, "History could not be cleared. Try again.").message);
-    return;
-  }
-  state.history.length = 0;
-  state.index = -1;
-  setState("empty");
-  syncControls();
-  state.historyReturnFocus = elements.draw;
-  closeDialog(elements.historyDialog);
-  const finishClear = async (): Promise<void> => {
-    releaseAllBlobs();
-    await clearThumbnails(state.favorites);
-    elements.image.src = "";
-    elements.image.alt = "";
-    state.loading = false;
-    syncControls();
+    elements.historyClear.focus();
+    elements.announcer.textContent = "Clear canceled. History and Stats are unchanged.";
   };
-  const restoreView = (): void => {
-    state.history.splice(0, state.history.length, ...previousHistory);
-    state.index = previousIndex;
-    setState(previousView);
-    state.loading = false;
-    syncControls();
+  const finish = async (): Promise<boolean> => {
+    if (Date.now() - reviewedAt < ARM_DELAY_MS) return false;
+    // Once completion starts, closing cannot abandon a durable transaction.
+    cancelClearReview = undefined;
+    elements.historyDialog.dataset.busy = "true";
+    review.confirm("Clear confirmed. Finish clearing will complete it; if it fails, retry here or restart.");
+    try {
+      requestId ??= await prepareHistoryClear();
+      await commitHistoryClear(requestId);
+      state.history.length = 0;
+      state.index = -1;
+      releaseAllBlobs();
+      await clearThumbnails(state.favorites);
+      elements.image.src = "";
+      elements.image.alt = "";
+      setState("empty");
+      state.loading = false;
+      syncControls();
+      elements.historyClearGroup.removeAttribute("data-armed");
+      delete elements.historyDialog.dataset.busy;
+      state.historyReturnFocus = elements.draw;
+      closeDialog(elements.historyDialog);
+      elements.announcer.textContent = "History and Stats cleared. Favorites, Seen IDs and IDs checked are kept.";
+      return true;
+    } catch (error) {
+      // Retry the frozen request; restart finishes an already confirmed durable clear.
+      toast.error(
+        `${describeError(error, "Clearing could not finish.").message} Choose Finish clearing to retry, or restart.`,
+      );
+      return false;
+    }
   };
-  const restore = (): void => {
-    void cancelHistoryClear(requestId).then(restoreView, (error: unknown) => {
-      toast.error(describeError(error, "Undo could not be saved. Retry Undo or restart to finish clearing.").message, {
-        label: "Retry Undo",
-        run: restore,
-      });
-    });
-  };
-  const commit = (): void => {
-    void commitHistoryClear(requestId).then(
-      async () => {
-        await finishClear();
+  const review = toast.review(
+    "Clear pending. History and Stats stay until you finish.",
+    {
+      label: "Undo",
+      run: () => {
+        if (!cancelClearReview) return false;
+        cancel();
+        return true;
       },
-      (error: unknown) => {
-        // Keep drawing paused: the durable transaction will be recovered on retry or restart.
-        toast.error(
-          describeError(error, "History could not be cleared. Retry or restart to finish clearing.").message,
-          { label: "Retry", run: commit },
-        );
-      },
-    );
-  };
-  toast.info("History cleared. Drawing paused while Undo is available.", { label: "Undo", run: restore }, commit);
+    },
+    { label: "Finish clearing", run: finish },
+  );
+  cancelClearReview = cancel;
+  elements.announcer.textContent =
+    "Clear pending. Choose Undo to keep History and Stats, or Finish clearing to remove them.";
 }
 
 async function clearSavedFavorites(): Promise<void> {
@@ -511,22 +526,25 @@ async function clearSavedFavorites(): Promise<void> {
     // The favorites filter now hides its clear action; keep focus inside the dialog.
     elements.historyClose.focus();
     if (!previous.length) return toast.success("Favorites cleared");
-    toast.info("Favorites cleared", { label: "Undo", run: () => void restoreFavorites(previous) });
+    toast.info("Favorites cleared", { label: "Undo", run: () => restoreFavorites(previous) });
   } catch (error) {
     toast.error(describeError(error, "Favorites could not be cleared. Try again.").message);
   }
 }
 
 // Re-stars each frame with its original date, so the list keeps its order. Stops at the first failure.
-async function restoreFavorites(items: FavoriteItem[]): Promise<void> {
+async function restoreFavorites(items: FavoriteItem[]): Promise<boolean> {
   try {
     for (const item of items) if (!isFavorite(item)) applyFavorites(await toggleFavorite(item));
   } catch (error) {
-    toast.error(describeError(error, "Favorites could not be restored. Try again.").message);
+    toast.error(describeError(error, "Favorites could not be restored. Undo is still available; try again.").message);
+    return false;
   }
   syncControls();
   if (elements.historyDialog.open) renderHistoryPage();
   for (const item of state.favorites) void ensureThumbnail(item).catch(() => false);
+  elements.historyClose.focus();
+  return true;
 }
 
 // Confirmation stays explicit for pointer, keyboard, and assistive-technology activation.
@@ -610,12 +628,7 @@ export function bindHistoryDialogEvents(): void {
     },
     { capture: true },
   );
-  const resetHistoryConfirmation = bindClearConfirmation(
-    elements.historyClear,
-    elements.historyClearGroup,
-    clearSavedHistory,
-    () => `${plural(state.history.length, "frame")} and streak`,
-  );
+  elements.historyClear.addEventListener("click", () => void clearSavedHistory());
   const resetFavoritesConfirmation = bindClearConfirmation(
     elements.historyClearFavorites,
     elements.historyClearFavoritesGroup,
@@ -623,12 +636,10 @@ export function bindHistoryDialogEvents(): void {
     () => plural(state.favorites.length, "favorite"),
   );
   elements.historyFilterAll.addEventListener("click", () => {
-    resetHistoryConfirmation();
     resetFavoritesConfirmation();
     showFilter("history");
   });
   elements.historyFilterFavorites.addEventListener("click", () => {
-    resetHistoryConfirmation();
     resetFavoritesConfirmation();
     showFilter("favourites");
   });
@@ -688,6 +699,7 @@ export function bindHistoryDialogEvents(): void {
     (tiles[current + delta]?.children[0] as HTMLElement | undefined)?.focus();
   });
   elements.historyDialog.addEventListener("close", () => {
+    cancelClearReview?.();
     stopThumbnailWork();
     if (saveTimer) saveThumbnails();
     // Main is inert until onDialogClosed, and focus() on an inert element is ignored.

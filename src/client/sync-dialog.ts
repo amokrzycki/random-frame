@@ -95,6 +95,8 @@ function nameProblem(name: string): string | null {
 let joinSummary: LocalSyncSummary | null = null;
 let joinSummaryLoaded = false;
 let status: SyncStatus | null = null;
+let checking = false;
+let statusCheckFailed = false;
 let busy = false;
 let busyMessage = "";
 let opener: HTMLElement | null = null;
@@ -167,6 +169,7 @@ async function loadJoinSummary(): Promise<void> {
   joinSummaryLoaded = true;
   renderJoin();
   render();
+  if (document.activeElement === elements.syncJoinTitle && joinIsStreamlined()) elements.syncRecoveryInput.focus();
 }
 
 function resetJoin(): void {
@@ -252,6 +255,7 @@ function renderDevices(next: SyncStatus): void {
 // Only problems flag the titlebar: a quiet icon means Sync is fine or not in use.
 function setStatus(next: SyncStatus): void {
   status = next;
+  statusCheckFailed = false;
   renderDevices(next);
   const attention = next.paired && (next.state === "error" || next.state === "offline" || next.lastErrorCategory);
   if (attention) elements.toolsMenuButton.dataset.sync = "attention";
@@ -283,21 +287,33 @@ function statusDetail(value: SyncStatus): string {
 }
 
 function render(): void {
+  elements.syncJoinActions.hidden = elements.syncJoinForm.hidden;
   const paired = status?.paired ?? false;
   const supported = status?.supported ?? true;
   const showingKey = Boolean(elements.syncRecoveryKey.textContent);
   const gated = showingKey && Boolean(elements.syncRecovery.dataset.gated);
   const confirming = !elements.syncLeaveConfirm.hidden;
   // While the key shows, nothing on the status lines is news: the key and its checkbox are the whole task.
-  const headline = busy ? busyMessage : status ? statusHeadline(status) : "Checking Sync status…";
+  const headline = busy
+    ? busyMessage
+    : checking
+      ? "Checking Sync status…"
+      : statusCheckFailed
+        ? "Could not check Sync status"
+        : !elements.syncError.hidden
+          ? "Sync needs attention"
+          : status
+            ? statusHeadline(status)
+            : "Checking Sync status…";
   const detail = !busy && status && elements.syncError.hidden ? statusDetail(status) : "";
   elements.syncStatus.hidden = showingKey;
   elements.syncStatus.textContent = headline;
-  elements.syncStatus.dataset.state = busy
-    ? "syncing"
-    : status?.lastErrorCategory
-      ? "error"
-      : (status?.state ?? "unpaired");
+  elements.syncStatus.dataset.state =
+    busy || checking
+      ? "syncing"
+      : statusCheckFailed || !elements.syncError.hidden || status?.lastErrorCategory
+        ? "error"
+        : (status?.state ?? "unpaired");
   elements.syncStatusDetail.hidden = showingKey || !detail;
   elements.syncStatusDetail.textContent = detail;
   elements.syncLastSynced.hidden = showingKey || !paired || !supported;
@@ -340,13 +356,24 @@ function hideKey(): void {
 }
 
 async function refresh(): Promise<void> {
+  if (checking) return;
+  checking = true;
+  render();
   try {
     setStatus(await getSyncStatus());
     if (retryAction === refresh) clearError();
     if (elements.syncDialog.open) render();
   } catch (error) {
+    statusCheckFailed = true;
     // An action's own error is worth more than a failed follow-up check.
-    if (elements.syncDialog.open && elements.syncError.hidden) showError(safeError(error), refresh);
+    if (elements.syncDialog.open && elements.syncError.hidden)
+      showError(
+        `Current Sync status could not be verified. ${safeError(error)}`,
+        notRetryable.has(category(error) ?? "") ? null : refresh,
+      );
+  } finally {
+    checking = false;
+    render();
   }
 }
 
@@ -456,6 +483,14 @@ async function renameDevice(): Promise<void> {
 }
 
 export function bindSyncDialogEvents(): void {
+  window.addEventListener?.("resize", () => {
+    if (
+      elements.syncDialog.open &&
+      !elements.syncJoinForm.hidden &&
+      document.activeElement === elements.syncRecoveryInput
+    )
+      elements.syncRecoveryInput.scrollIntoView({ block: "nearest" });
+  });
   if (
     (window as unknown as { __TAURI_INTERNALS__?: { transformCallback?: unknown } }).__TAURI_INTERNALS__
       ?.transformCallback
@@ -511,14 +546,16 @@ export function bindSyncDialogEvents(): void {
     nameEdited = false;
     if (status) renderDevices(status);
     clearError();
+    render();
     onDialogClosed();
     (opener ?? elements.syncButton).focus?.();
   });
   elements.syncShowJoin.addEventListener("click", () => {
     elements.syncJoinForm.hidden = false;
     elements.syncDialog.dataset.joining = "true";
-    elements.syncRecoveryInput.focus();
+    elements.syncJoinTitle.focus();
     void loadJoinSummary();
+    render();
   });
   for (const option of [elements.syncJoinRestore, elements.syncJoinMerge])
     option.addEventListener("change", () => {
@@ -530,6 +567,7 @@ export function bindSyncDialogEvents(): void {
     delete elements.syncDialog.dataset.joining;
     resetJoin();
     clearError();
+    render();
     elements.syncShowJoin.focus();
   });
   elements.syncEnable.addEventListener("click", async () => {

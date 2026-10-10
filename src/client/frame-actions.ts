@@ -51,7 +51,7 @@ export async function toggleCurrentFavorite(): Promise<void> {
       toast.success("Added to favorites");
       void ensureThumbnail(current).catch(() => false);
     } else {
-      toast.info("Removed from favorites", { label: "Undo", run: () => void restoreFavorite(previous) });
+      toast.info("Removed from favorites", { label: "Undo", run: () => restoreFavorite(previous) });
     }
   } catch (error) {
     toast.error(describeError(error, "Favorites could not be updated. Try again.").message);
@@ -61,15 +61,18 @@ export async function toggleCurrentFavorite(): Promise<void> {
 }
 
 // Undo toggles the removed favorite back on with its original date, so it keeps its place in the list.
-async function restoreFavorite(item: FavoriteItem): Promise<void> {
-  if (favoritePending || isFavorite(item)) return;
+async function restoreFavorite(item: FavoriteItem): Promise<boolean> {
+  if (favoritePending) return false;
+  if (isFavorite(item)) return true;
   favoritePending = true;
   try {
     applyFavorites(await toggleFavorite(item));
     syncControls();
     void ensureThumbnail(item).catch(() => false);
+    return true;
   } catch (error) {
     toast.error(describeError(error, "Favorites could not be updated. Try again.").message);
+    return false;
   } finally {
     favoritePending = false;
   }
@@ -84,7 +87,15 @@ async function copySourceLink(): Promise<void> {
   }
 }
 
+const pointers = new Map<number, { x: number; y: number; startX: number; startY: number }>();
+let suppressImageClick = false;
+let imageTap = false;
+let touchTap = false;
+let lastTap = { at: 0, x: 0, y: 0 };
+
 function showLightboxFrame(): void {
+  pointers.clear();
+  suppressImageClick = false;
   const current = state.history[state.index];
   if (!current) return;
   elements.lightboxImage.src = elements.image.src;
@@ -102,18 +113,26 @@ let fitWidth = 0;
 function setLightboxZoom(next: number, anchorX?: number, anchorY?: number): void {
   const view = elements.lightboxView;
   const img = elements.lightboxImage;
-  next = Math.min(MAX_ZOOM, Math.max(1, next));
-  if (zoom === 1) fitWidth = img.getBoundingClientRect().width;
+  if (zoom === 1) fitWidth = img.clientWidth || img.getBoundingClientRect().width;
+  const actual = fitWidth && img.naturalWidth ? img.naturalWidth / fitWidth : 1;
+  next = Math.min(Math.max(MAX_ZOOM, actual), Math.max(1, next));
   const before = img.getBoundingClientRect();
   zoom = next;
   const zoomed = zoom > 1;
   view.classList.toggle("is-zoomed", zoomed);
   img.style.width = zoomed ? `${fitWidth * zoom}px` : "";
   elements.lightboxZoom.setAttribute("aria-pressed", String(zoomed));
-  elements.lightboxZoom.textContent = zoomed ? "Fit" : "1:1";
+  elements.lightboxZoom.textContent = zoomed ? "Fit" : actual > 1 ? "1:1" : "2×";
+  const scale = fitWidth && img.naturalWidth ? (fitWidth * zoom) / img.naturalWidth : 1;
+  elements.lightboxZoom.setAttribute(
+    "aria-label",
+    `${zoomed ? "Fit to window" : actual > 1 ? "Zoom to actual size" : "Enlarge image to 2×"}. Current scale: ${Math.round(scale * 100)}%.`,
+  );
   elements.lightboxZoom.dataset.tip = zoomed
-    ? "Fit to window. Ctrl+scroll zooms, Shift+arrows pan"
-    : "Actual size. Ctrl+scroll zooms, Shift+arrows pan";
+    ? `Fit to window. Current scale: ${Math.round(scale * 100)}%. Ctrl+scroll or pinch to zoom, drag or Shift+arrows to pan`
+    : `${actual > 1 ? "Actual size" : "Enlarge to 2×"}. Ctrl+scroll or pinch to zoom, drag or Shift+arrows to pan`;
+  elements.lightboxZoomOut.disabled = zoom === 1;
+  elements.lightboxZoomIn.disabled = zoom === Math.max(MAX_ZOOM, actual);
   if (!zoomed) return;
   const after = img.getBoundingClientRect();
   if (anchorX === undefined || anchorY === undefined || !before.width) {
@@ -133,9 +152,9 @@ function toggleLightboxZoom(): void {
     setLightboxZoom(1);
     return;
   }
-  const fit = elements.lightboxImage.getBoundingClientRect().width;
+  const fit = elements.lightboxImage.clientWidth || elements.lightboxImage.getBoundingClientRect().width;
   const actual = fit ? elements.lightboxImage.naturalWidth / fit : 1;
-  setLightboxZoom(actual > 1.05 ? actual : 2);
+  setLightboxZoom(actual > 1 ? actual : 2);
 }
 
 async function stepLightbox(offset: -1 | 1): Promise<void> {
@@ -153,6 +172,7 @@ function openLightbox(): void {
   if (elements.imageZoom.hidden || !elements.image.src) return;
   showLightboxFrame();
   openDialog(elements.lightboxDialog, "dark");
+  setLightboxZoom(1);
 }
 
 const PAN_STEP = 120;
@@ -172,8 +192,21 @@ export function bindFrameActionEvents(): void {
   elements.lightboxClose.addEventListener("click", () => closeDialog(elements.lightboxDialog));
   elements.lightboxFavorite.addEventListener("click", () => void toggleCurrentFavorite());
   elements.lightboxSave.addEventListener("click", () => void saveCurrent());
+  elements.lightboxImage.addEventListener("load", () => {
+    if (zoom === 1) setLightboxZoom(1);
+  });
   elements.lightboxZoom.addEventListener("click", toggleLightboxZoom);
-  elements.lightboxImage.addEventListener("click", toggleLightboxZoom);
+  const tapImage = (event: MouseEvent): void => {
+    if (suppressImageClick || event.detail > 1) return;
+    const at = Date.now();
+    if (touchTap && at - lastTap.at < 300 && Math.hypot(event.clientX - lastTap.x, event.clientY - lastTap.y) < 24)
+      return;
+    lastTap = { at, x: event.clientX, y: event.clientY };
+    toggleLightboxZoom();
+  };
+  elements.lightboxImage.addEventListener("click", tapImage);
+  elements.lightboxZoomIn.addEventListener("click", () => setLightboxZoom(zoom * 1.25));
+  elements.lightboxZoomOut.addEventListener("click", () => setLightboxZoom(zoom / 1.25));
   elements.lightboxView.addEventListener(
     "wheel",
     (event) => {
@@ -209,36 +242,85 @@ export function bindFrameActionEvents(): void {
     event.stopPropagation();
     void (key === "s" ? saveCurrent() : toggleCurrentFavorite());
   });
-  let pointer: { id: number; x: number; y: number; left: number; top: number } | null = null;
+  const pair = (): { x: number; y: number; distance: number } | undefined => {
+    const [a, b] = [...pointers.values()];
+    return a && b ? { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, distance: Math.hypot(a.x - b.x, a.y - b.y) } : undefined;
+  };
   elements.lightboxView.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0 || !elements.lightboxView.classList.contains("is-zoomed")) return;
-    pointer = {
-      id: event.pointerId,
-      x: event.clientX,
-      y: event.clientY,
-      left: elements.lightboxView.scrollLeft,
-      top: elements.lightboxView.scrollTop,
-    };
+    if ((event.button !== 0 && event.pointerType !== "touch") || pointers.size >= 2) return;
+    if (!pointers.size) {
+      suppressImageClick = false;
+      imageTap = event.target === elements.lightboxImage;
+      touchTap = event.pointerType === "touch";
+    }
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY });
+    if (pointers.size === 2) suppressImageClick = true;
     elements.lightboxView.setPointerCapture(event.pointerId);
   });
   elements.lightboxView.addEventListener("pointermove", (event) => {
-    if (!pointer || event.pointerId !== pointer.id) return;
-    const dx = event.clientX - pointer.x;
-    const dy = event.clientY - pointer.y;
-    elements.lightboxView.scrollLeft = pointer.left - dx;
-    elements.lightboxView.scrollTop = pointer.top - dy;
+    const previous = pointers.get(event.pointerId);
+    if (!previous) return;
+    const before = pair();
+    const dx = event.clientX - previous.x;
+    const dy = event.clientY - previous.y;
+    pointers.set(event.pointerId, { ...previous, x: event.clientX, y: event.clientY });
+    if (Math.hypot(event.clientX - previous.startX, event.clientY - previous.startY) > 3) suppressImageClick = true;
+    const after = pair();
+    if (before && after) {
+      event.preventDefault();
+      if (before.distance > 0) setLightboxZoom((zoom * after.distance) / before.distance, before.x, before.y);
+      elements.lightboxView.scrollLeft -= after.x - before.x;
+      elements.lightboxView.scrollTop -= after.y - before.y;
+    } else if (zoom > 1) {
+      event.preventDefault();
+      elements.lightboxView.scrollLeft -= dx;
+      elements.lightboxView.scrollTop -= dy;
+    }
   });
   elements.lightboxView.addEventListener("pointerup", (event) => {
-    if (!pointer || event.pointerId !== pointer.id) return;
-    pointer = null;
+    pointers.delete(event.pointerId);
   });
-  elements.lightboxView.addEventListener("pointercancel", () => {
-    pointer = null;
+  for (const type of ["pointercancel", "lostpointercapture"] as const) {
+    elements.lightboxView.addEventListener(type, (event) => {
+      if (!pointers.has(event.pointerId)) return;
+      suppressImageClick = true;
+      pointers.delete(event.pointerId);
+    });
+  }
+  // Pointer capture targets the viewport's click; a stationary image tap keeps its existing toggle.
+  elements.lightboxView.addEventListener("click", (event) => {
+    if (event.target === elements.lightboxView && imageTap) tapImage(event);
+  });
+  window.addEventListener("resize", () => {
+    if (!elements.lightboxDialog.open) return;
+    pointers.clear();
+    suppressImageClick = true;
+    const view = elements.lightboxView;
+    const img = elements.lightboxImage;
+    const before = img.getBoundingClientRect();
+    const rect = view.getBoundingClientRect();
+    const x = rect.left + view.clientWidth / 2;
+    const y = rect.top + view.clientHeight / 2;
+    const fx = before.width ? Math.max(0, Math.min(1, (x - before.left) / before.width)) : 0.5;
+    const fy = before.height ? Math.max(0, Math.min(1, (y - before.top) / before.height)) : 0.5;
+    const width = fitWidth * zoom;
+    const fitted = zoom === 1;
+    zoom = 1;
+    view.classList.toggle("is-zoomed", false);
+    img.style.width = "";
+    fitWidth = img.clientWidth || img.getBoundingClientRect().width;
+    setLightboxZoom(fitted || !fitWidth ? 1 : width / fitWidth);
+    if (zoom > 1) {
+      const after = img.getBoundingClientRect();
+      view.scrollLeft += after.left + fx * after.width - x;
+      view.scrollTop += after.top + fy * after.height - y;
+    }
   });
   elements.lightboxDialog.addEventListener("click", (event) => {
     if (event.target === elements.lightboxDialog) closeDialog(elements.lightboxDialog);
   });
   elements.lightboxDialog.addEventListener("close", () => {
+    pointers.clear();
     onDialogClosed();
     (getViewState() === "image" ? elements.imageZoom : elements.retry.hidden ? elements.draw : elements.retry).focus();
   });

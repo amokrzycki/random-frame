@@ -92,6 +92,7 @@
 /* History holds one height across tabs, page sizes and empty states. */
 #history-dialog .history-dialog__content {
   height: min(82dvh, 760px);
+  overflow-y: auto;
 }
 
 .history-dialog__header {
@@ -641,13 +642,7 @@
 .sync-join__option > :not(input) {
   grid-column: 2;
 }
-.sync-join__option--primary {
-  border-color: var(--blue);
-}
 .sync-join__option:has(input:checked) {
-  border-color: var(--ink);
-}
-.sync-join__option--primary:has(input:checked) {
   border-color: var(--blue);
   box-shadow: inset 0 0 0 1px var(--blue);
 }
@@ -1128,6 +1123,7 @@
   overflow: auto;
   padding: 24px 70px;
   overscroll-behavior: contain;
+  touch-action: none;
 }
 
 .lightbox-view img {
@@ -1783,4 +1779,47 @@
   background: var(--paper-deep);
   box-shadow: inset 0 0 0 1px var(--line);
   opacity: 1;
+}
+
+/* Compare join modes before entering the key; actions stay outside the scrolling content. */
+.sync-dialog[data-joining] .sync-dialog__summary {
+  display: none;
+}
+.sync-join-actions {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 16px 24px;
+  border-top: 1px solid var(--line);
+  background: var(--paper-deep);
+}
+.sync-join__compatibility {
+  grid-column: 1 / -1;
+}
+@media (min-width: 600px) {
+  .sync-join {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+  .sync-join > .sync-dialog__meta {
+    grid-column: 1 / -1;
+  }
+}
+
+.sync-dialog[data-joining] {
+  width: min(720px, calc(100% - 32px));
+}
+.sync-join__copy {
+  font-weight: 400;
+}
+:root[data-platform="android"] .sync-dialog[data-joining] {
+  width: min(100%, 760px);
+}
+
+:root[data-platform="android"] .sync-dialog .sync-join-actions {
+  margin-top: 0;
+  padding: 12px var(--mobile-gutter);
+}
+:root[data-platform="android"] .sync-dialog .sync-join-actions > button {
+  flex: 1 1 auto;
+  min-width: 0;
 }

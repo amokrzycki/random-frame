@@ -42,7 +42,6 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   let failNextDraw = false;
   let brokenNextImage = false;
   let failStats = false;
-  let failNextCancelClear = false;
   let failNextCommitClear = false;
   const invocations = [];
   let persisted = { history: [], index: -1 };
@@ -88,13 +87,6 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
         return structuredClone(persisted);
       }
       if (command === "prepare_history_clear") return "clear-request-1";
-      if (command === "cancel_history_clear") {
-        if (failNextCancelClear) {
-          failNextCancelClear = false;
-          throw new Error("Could not save cancellation");
-        }
-        return null;
-      }
       if (command === "commit_history_clear") {
         if (failNextCommitClear) {
           failNextCommitClear = false;
@@ -435,100 +427,62 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   await flush();
   assert.match(get("image").alt, /new3/);
 
-  // Clearing requires an explicit second activation with a visible confirmation label.
+  // Review is persistent and harmless; completion is an explicit second activation.
   const clearButton = get("history-clear-button");
   const clears = () => invocations.filter(({ command }) => command === "commit_history_clear").length;
+  const prepares = () => invocations.filter(({ command }) => command === "prepare_history_clear").length;
+  const historyDialog = get("history-dialog");
+  const action = (label) =>
+    historyDialog.children
+      .flatMap((region) => region.children)
+      .flatMap((notice) => notice.children)
+      .findLast((button) => button.textContent === label);
   get("history-tool-button").click();
+  const beforeClear = structuredClone(persisted);
   clearButton.click();
   await flush();
+  assert.equal(prepares(), 0);
   assert.equal(clears(), 0);
-  assert.equal(clearButton.textContent, "Clear · 5 frames and streak");
-  // A click inside the arm delay cannot confirm what it just armed.
-  clearButton.click();
-  await flush();
-  toastExpiry();
-  assert.equal(clears(), 0);
-  assert.equal(get("frame-count-total").textContent, "5");
-  await new Promise((resolve) => setTimeout(resolve, 520));
-  clearButton.click();
   assert.equal(get("draw-button").getAttribute("aria-disabled"), "true");
-  assert.equal(get("draw-button").getAttribute("data-invite"), null);
+  assert.equal(get("frame-count-total").textContent, "5");
+  action("Finish clearing").click();
   await flush();
-  toastExpiry();
-  await flush();
-  assert.deepEqual(persisted, { history: [], index: -1 });
-  assert.equal(get("frame-count-total").textContent, "0");
-  // With history gone, focus lands on the next step rather than the History button.
-  assert.equal(document.activeElement, get("draw-button"));
-  assert.equal(get("source-link").getAttribute("href"), null);
-  assert.equal(clearButton.disabled, true);
-  get("draw-button").click();
-  await flush();
-  await flush();
-  assert.equal(clearButton.disabled, false);
-  const afterDraw = historyWrites();
-  get("next-id-button").click();
-  await flush();
-  await flush();
-  assert.equal(historyWrites(), afterDraw + 1);
-  const { loadById } = await import("../dist/test-client/frame-loader.js");
-  await loadById("abc123");
-  assert.equal(historyWrites(), afterDraw + 2);
-  get("previous-button").click();
-  await flush();
-  assert.equal(historyWrites(), afterDraw + 2);
-  // The same confirmation works with bare assistive-technology activations.
-  clearButton.click();
-  await flush();
-  assert.equal(clears(), 1);
-  assert.match(get("announcer").textContent, /^Activate again to clear history & stats: \d+ frames? and streak$/);
-  await new Promise((resolve) => setTimeout(resolve, 520));
-  clearButton.click();
-  await flush();
-  toastExpiry();
-  await flush();
-  assert.equal(clears(), 2);
-
-  // A failed durable clear or cancellation keeps drawing paused and retries the same request.
-  get("draw-button").click();
-  await flush();
-  await flush();
-  const beforeUndo = structuredClone(persisted);
-  get("history-tool-button").click();
-  clearButton.click();
-  await new Promise((resolve) => setTimeout(resolve, 520));
-  clearButton.click();
-  await flush();
-  failNextCancelClear = true;
+  assert.equal(clears(), 0, "double activation cannot confirm review immediately");
+  toastExpiry?.();
+  assert.deepEqual(persisted, beforeClear, "toast expiry cannot delete data");
   keydown(document, "z");
   await flush();
-  assert.equal(get("draw-button").getAttribute("aria-disabled"), "true");
-  const retryAction = () =>
-    document.body.children.filter((element) => element.className === "toast-region toast-region--error").at(-1)
-      .children[0].children[0];
-  assert.equal(retryAction().textContent, "Retry Undo");
-  retryAction().click();
   await flush();
-  assert.deepEqual(persisted, beforeUndo);
+  assert.equal(prepares(), 0, "Undo before completion requires no durable transaction");
   assert.equal(get("draw-button").getAttribute("aria-disabled"), "false");
-  const cancellations = invocations.filter(({ command }) => command === "cancel_history_clear");
-  assert.equal(cancellations.length, 2);
-  assert.deepEqual(cancellations[0].args, cancellations[1].args);
+  clearButton.click();
+  get("history-close-button").click();
+  assert.deepEqual(persisted, beforeClear);
+  assert.equal(get("draw-button").getAttribute("aria-disabled"), "false", "closing safely cancels review");
 
   get("history-tool-button").click();
   clearButton.click();
   await new Promise((resolve) => setTimeout(resolve, 520));
-  clearButton.click();
-  await flush();
   failNextCommitClear = true;
-  toastExpiry();
+  action("Finish clearing").click();
   await flush();
-  assert.equal(retryAction().textContent, "Retry");
+  await flush();
+  assert.equal(clears(), 1);
   assert.equal(get("draw-button").getAttribute("aria-disabled"), "true");
-  retryAction().click();
+  assert.equal(historyDialog.dataset.busy, "true");
+  assert.equal(action("Undo").hidden, true, "confirmed clearing no longer offers cancellation");
+  keydown(document, "z");
+  await flush();
+  assert.equal(get("draw-button").getAttribute("aria-disabled"), "true", "confirmed transaction cannot be abandoned");
+  action("Finish clearing").click();
   await flush();
   await flush();
+  assert.equal(prepares(), 1, "retry preserves the frozen operation set");
+  assert.equal(clears(), 2);
   assert.deepEqual(persisted, { history: [], index: -1 });
+  assert.equal(get("frame-count-total").textContent, "0");
+  assert.equal(document.activeElement, get("draw-button"));
+  assert.equal(get("source-link").getAttribute("href"), null);
   assert.equal(get("draw-button").getAttribute("aria-disabled"), "false");
   const commits = invocations.filter(({ command }) => command === "commit_history_clear");
   assert.deepEqual(commits.at(-1).args, commits.at(-2).args);

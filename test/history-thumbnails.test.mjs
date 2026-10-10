@@ -34,9 +34,7 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
   localStorage.setItem("random-frame-history-page-size", "10");
   localStorage.setItem("prntsc-gallery-thumbnails", JSON.stringify({ "prntsc:id10": "data:image/jpeg;base64,AA==" }));
   const window = new EventTarget();
-  let toastExpiry;
-  window.setTimeout = (callback) => {
-    toastExpiry = callback;
+  window.setTimeout = () => {
     return 0;
   };
   Object.assign(globalThis, {
@@ -169,9 +167,12 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
   const clear = get("history-clear-button");
   clear.click();
   await new Promise((resolve) => setTimeout(resolve, 520));
-  clear.click();
+  const finish = get("history-dialog")
+    .children.flatMap((region) => region.children)
+    .flatMap((notice) => notice.children)
+    .find((button) => button.textContent === "Finish clearing");
+  finish.click();
   await flush();
-  toastExpiry();
   await flush();
   const stored = native.stored();
   assert.deepEqual(Object.keys(stored).sort(), ["prntsc:id1", "prntsc:id10", "prntsc:id11"]);

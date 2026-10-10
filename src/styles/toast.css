@@ -114,3 +114,33 @@
   line-height: 1.35;
   pointer-events: none;
 }
+
+/* Dialog feedback uses the paper surface and occupies space in the active focus scope. */
+.dialog-notices {
+  flex: 0 0 auto;
+  padding: 0 24px 12px;
+}
+.dialog-notices:empty {
+  display: none;
+}
+.dialog-notices .toast {
+  width: 100%;
+  max-width: none;
+  flex-wrap: wrap;
+  color: var(--ink);
+  background: var(--paper-deep);
+  box-shadow: none;
+}
+.dialog-notices .toast + .toast {
+  margin-top: 8px;
+}
+.dialog-notices .toast::before {
+  display: none;
+}
+.dialog-notices .toast__action {
+  min-height: 44px;
+  color: inherit;
+}
+.dialog-notices .toast__action[aria-disabled="true"] {
+  opacity: 0.65;
+}

@@ -1,4 +1,5 @@
 import { elements } from "./elements.js";
+import { setToastScope } from "./toast.js";
 
 // showModal() would also inert the titlebar's drag region and window controls, and would silence the live
 // region outside the dialog. Keep those available and inert the rest ourselves: the app's content, the
@@ -13,6 +14,20 @@ export const dialogs = [
   elements.changelogDialog,
 ];
 
+const opened: HTMLDialogElement[] = [];
+const returnFocus = new WeakMap<HTMLDialogElement, HTMLElement>();
+const variants = new WeakMap<HTMLDialogElement, "dark" | undefined>();
+
+export function refreshDialogBoundary(): void {
+  const active = activeDialog();
+  for (const dialog of dialogs) {
+    dialog.inert = Boolean(active && dialog.open && dialog !== active);
+    // Desktop shell controls remain available outside the dialog; mobile has a fully modal boundary.
+    if (dialog === active && !document.querySelector("#window-controls")) dialog.setAttribute("aria-modal", "true");
+    else dialog.removeAttribute("aria-modal");
+  }
+}
+
 export function setBackgroundInert(inert: boolean): void {
   elements.main.inert = inert;
   elements.mastheadTools.inert = inert;
@@ -20,6 +35,11 @@ export function setBackgroundInert(inert: boolean): void {
 }
 
 export function openDialog(dialog: HTMLDialogElement, variant?: "dark"): void {
+  if (dialog.open) return;
+  if (document.activeElement) returnFocus.set(dialog, document.activeElement as HTMLElement);
+  opened.push(dialog);
+  variants.set(dialog, variant);
+  dialog.style.zIndex = String(40 + opened.length);
   setBackgroundInert(true);
   if (variant) elements.dialogBackdrop.dataset.variant = variant;
   else delete elements.dialogBackdrop.dataset.variant;
@@ -27,13 +47,27 @@ export function openDialog(dialog: HTMLDialogElement, variant?: "dark"): void {
   void elements.dialogBackdrop.offsetWidth;
   elements.dialogBackdrop.dataset.open = "";
   dialog.show();
+  refreshDialogBoundary();
+  setToastScope(dialog);
   focusInDialog(dialog);
 }
 
 export function onDialogClosed(): void {
+  const closed = opened.filter((dialog) => !dialog.open);
+  for (const dialog of closed) opened.splice(opened.indexOf(dialog), 1);
   const open = activeDialog();
+  refreshDialogBoundary();
+  setToastScope(open);
   if (open) {
-    focusInDialog(open);
+    const variant = variants.get(open);
+    if (variant) elements.dialogBackdrop.dataset.variant = variant;
+    else delete elements.dialogBackdrop.dataset.variant;
+    const target = closed.at(-1) && returnFocus.get(closed.at(-1) as HTMLDialogElement);
+    queueMicrotask(() => {
+      if (activeDialog() !== open) return;
+      if (target && open.contains(target) && !target.matches?.(":disabled")) target.focus();
+      else focusInDialog(open);
+    });
     return;
   }
   setBackgroundInert(false);
@@ -44,19 +78,22 @@ export function onDialogClosed(): void {
 
 // The entry dialog can only be dismissed by accepting; it never closes on backdrop click or Escape.
 function dismissibleOpenDialog(): HTMLDialogElement | undefined {
-  return [...dialogs].reverse().find((dialog) => dialog.open && dialog !== elements.entryDialog);
+  const dialog = activeDialog();
+  return dialog === elements.entryDialog ? undefined : dialog;
 }
 
 const focusableSelector = 'a[href], button, input, select, textarea, summary, [tabindex]:not([tabindex="-1"])';
 
 function activeDialog(): HTMLDialogElement | undefined {
-  return [...dialogs].reverse().find((dialog) => dialog.open);
+  return [...opened].reverse().find((dialog) => dialog.open) ?? [...dialogs].reverse().find((dialog) => dialog.open);
 }
 
 function focusableIn(dialog: HTMLDialogElement): HTMLElement[] {
-  return [...dialog.querySelectorAll<HTMLElement>(focusableSelector)].filter(
-    (item) => !item.matches(':disabled, [tabindex="-1"]') && item.getClientRects().length > 0,
-  );
+  const shell = document.querySelector<HTMLElement>("#window-controls");
+  return [
+    ...dialog.querySelectorAll<HTMLElement>(focusableSelector),
+    ...(shell?.querySelectorAll<HTMLElement>(focusableSelector) ?? []),
+  ].filter((item) => !item.matches(':disabled, [tabindex="-1"]') && item.getClientRects().length > 0);
 }
 
 function focusInDialog(dialog: HTMLDialogElement): void {
@@ -126,7 +163,8 @@ export function bindDialogChromeEvents(): void {
       const first = items[0] ?? dialog;
       const last = items.at(-1) ?? dialog;
       if (
-        !dialog.contains(document.activeElement) ||
+        (!dialog.contains(document.activeElement) &&
+          !document.querySelector("#window-controls")?.contains(document.activeElement)) ||
         (event.shiftKey ? document.activeElement === first : document.activeElement === last)
       ) {
         event.preventDefault();
@@ -141,6 +179,11 @@ export function bindDialogChromeEvents(): void {
 
   document.addEventListener("focusin", (event) => {
     const dialog = activeDialog();
-    if (dialog && !dialog.contains(event.target as Node)) focusInDialog(dialog);
+    if (
+      dialog &&
+      !dialog.contains(event.target as Node) &&
+      !document.querySelector("#window-controls")?.contains(event.target as Node)
+    )
+      focusInDialog(dialog);
   });
 }
