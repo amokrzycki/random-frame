@@ -2,7 +2,7 @@ use crate::error::AppError;
 use serde::{de::DeserializeOwned, Serialize};
 use std::{fs, io::Write, path::Path};
 
-/// Reads a JSON store, recovering a `.json.tmp` left by a save interrupted before its rename.
+/// Reads canonical JSON first, then a valid `.json.tmp`, then a committed `.json.bak`.
 pub(super) fn load_json<T: DeserializeOwned + Default>(path: &Path) -> Result<T, AppError> {
     match fs::read(path) {
         Ok(bytes) => serde_json::from_slice(&bytes).map_err(AppError::persistence),
@@ -11,7 +11,7 @@ pub(super) fn load_json<T: DeserializeOwned + Default>(path: &Path) -> Result<T,
             match fs::read(&temporary) {
                 Ok(bytes) => {
                     if let Ok(data) = serde_json::from_slice(&bytes) {
-                        fs::rename(temporary, path).map_err(AppError::persistence)?;
+                        promote_json(&temporary, path)?;
                         Ok(data)
                     } else {
                         if path.with_extension("json.bak").exists() {
@@ -42,8 +42,27 @@ fn restore_json_backup<T: DeserializeOwned>(path: &Path) -> Result<T, AppError> 
     let backup = path.with_extension("json.bak");
     let data = serde_json::from_slice(&fs::read(&backup).map_err(AppError::persistence)?)
         .map_err(AppError::persistence)?;
-    fs::rename(backup, path).map_err(AppError::persistence)?;
+    promote_json(&backup, path)?;
     Ok(data)
+}
+
+/// Promote only an already validated candidate; never unlink the destination first.
+pub(crate) fn promote_json(candidate: &Path, path: &Path) -> Result<(), AppError> {
+    fs::rename(candidate, path).map_err(AppError::persistence)?;
+    sync_parent(path)
+}
+
+/// Match the writer's existing platform-specific directory durability guarantees.
+pub(crate) fn sync_parent(path: &Path) -> Result<(), AppError> {
+    #[cfg(unix)]
+    if let Some(parent) = path.parent() {
+        fs::File::open(parent)
+            .and_then(|file| file.sync_all())
+            .map_err(AppError::persistence)?;
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
 }
 
 /// Writes a `.json.tmp` sibling and renames it over the store, so a crash never leaves a torn file.
@@ -76,12 +95,5 @@ pub(crate) fn save_json<T: Serialize>(path: &Path, data: &T) -> Result<(), AppEr
         let _ = fs::remove_file(backup);
         return Ok(());
     }
-    fs::rename(&temporary, path).map_err(AppError::persistence)?;
-    #[cfg(unix)]
-    if let Some(parent) = path.parent() {
-        fs::File::open(parent)
-            .and_then(|file| file.sync_all())
-            .map_err(AppError::persistence)?;
-    }
-    Ok(())
+    promote_json(&temporary, path)
 }

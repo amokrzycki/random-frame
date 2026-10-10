@@ -10,7 +10,7 @@ use super::{
 #[cfg(test)]
 use crate::persistence::{HistoryStore, SeenStore};
 use crate::{
-    persistence::PersistentState,
+    persistence::{sync_parent, PersistentState},
     secure_storage::{SecretStore, StorageError},
     sync_crypto::{RootSecret, SyncKeys},
     sync_transport::SyncTransport,
@@ -455,15 +455,23 @@ impl<S: SecretStore> SyncEngine<S> {
             .operation
             .try_lock()
             .map_err(|_| SyncError::AlreadySyncing)?;
+        // Remove recovery siblings first so a crash cannot resurrect removed canonical state.
+        for path in [
+            self.path.with_extension("json.tmp"),
+            self.path.with_extension("json.bak"),
+            self.path.clone(),
+        ] {
+            match fs::remove_file(path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(_) => return Err(SyncError::Persistence),
+            }
+        }
+        sync_parent(&self.path).map_err(|_| SyncError::Persistence)?;
         self.secret
             .delete()
             .await
             .map_err(|_| SyncError::SecureStorage)?;
-        match fs::remove_file(&self.path) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(_) => return Err(SyncError::Persistence),
-        }
         *self
             .uploaded_generation
             .lock()
