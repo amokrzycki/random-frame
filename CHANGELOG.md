@@ -1,5 +1,13 @@
 # Random Frame release notes
 
+## 0.7.2
+
+### Small fixes
+
+- History and favorites now update after Sync even if a frame is loading, without overwriting newer edits.
+- Sync can recover its connection settings from a valid backup after an interrupted save.
+- Disconnect this device now clears leftover Sync settings so they do not block reconnecting after a restart.
+
 ## 0.7.1
 
 ### Clearing history is reviewed first
