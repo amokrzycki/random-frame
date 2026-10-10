@@ -1,5 +1,5 @@
 use super::errors::SyncError;
-use crate::persistence::save_json;
+use crate::persistence::{promote_json, save_json};
 use serde::{Deserialize, Serialize};
 use std::{fs, path::Path};
 
@@ -148,28 +148,65 @@ pub struct CreateSyncResult {
 }
 
 pub(super) fn load_config(path: &Path) -> Result<Option<SyncLocalConfig>, SyncError> {
-    let bytes = match fs::read(path) {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            let temporary = path.with_extension("json.tmp");
-            match fs::read(&temporary) {
-                Ok(bytes) => {
-                    fs::rename(temporary, path).map_err(|_| SyncError::Persistence)?;
-                    bytes
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-                Err(_) => return Err(SyncError::Persistence),
-            }
+    if let Some(bytes) = read_config_file(path)? {
+        return decode_config(&bytes).map(Some);
+    }
+    let temporary_path = path.with_extension("json.tmp");
+    let backup_path = path.with_extension("json.bak");
+    let backup = read_config_file(&backup_path)?
+        .as_deref()
+        .map(decode_config)
+        .transpose()?;
+    let temporary = read_config_file(&temporary_path)?;
+    let (candidate, config) = if let Some(bytes) = temporary {
+        if bytes.len() > 1024 {
+            return Err(SyncError::CorruptLocalState);
         }
-        Err(_) => return Err(SyncError::Persistence),
+        match serde_json::from_slice::<SyncLocalConfig>(&bytes) {
+            Ok(config) => {
+                config.validate()?;
+                // A replacement cannot change pairing or lower a committed security floor.
+                if backup.as_ref().is_some_and(|previous| {
+                    previous.sync_id != config.sync_id
+                        || previous.last_accepted_revision > config.last_accepted_revision
+                        || previous.highest_schema_version > config.highest_schema_version
+                }) {
+                    return Err(SyncError::CorruptLocalState);
+                }
+                (temporary_path, config)
+            }
+            // A torn write has no accepted metadata; recover the last committed config.
+            Err(error) if error.is_syntax() || error.is_eof() => {
+                let config = backup.ok_or(SyncError::CorruptLocalState)?;
+                (backup_path, config)
+            }
+            Err(_) => return Err(SyncError::CorruptLocalState),
+        }
+    } else if let Some(config) = backup {
+        (backup_path, config)
+    } else {
+        return Ok(None);
     };
+    promote_json(&candidate, path).map_err(|_| SyncError::Persistence)?;
+    Ok(Some(config))
+}
+
+fn read_config_file(path: &Path) -> Result<Option<Vec<u8>>, SyncError> {
+    match fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(_) => Err(SyncError::Persistence),
+    }
+}
+
+fn decode_config(bytes: &[u8]) -> Result<SyncLocalConfig, SyncError> {
     if bytes.len() > 1024 {
         return Err(SyncError::CorruptLocalState);
     }
     let config: SyncLocalConfig =
-        serde_json::from_slice(&bytes).map_err(|_| SyncError::CorruptLocalState)?;
+        serde_json::from_slice(bytes).map_err(|_| SyncError::CorruptLocalState)?;
     config.validate()?;
-    Ok(Some(config))
+    Ok(config)
 }
 
 pub(super) fn save_config(path: &Path, config: &SyncLocalConfig) -> Result<(), SyncError> {

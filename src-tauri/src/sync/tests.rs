@@ -24,6 +24,8 @@ use tokio::{
     net::TcpListener,
 };
 
+#[path = "config_recovery_tests.rs"]
+mod config_recovery;
 #[path = "join_mode_tests.rs"]
 mod join_mode;
 #[path = "large_upgrade_tests.rs"]
@@ -33,6 +35,7 @@ mod large_upgrade;
 struct MemorySecret {
     value: Arc<Mutex<Option<[u8; 32]>>>,
     fail_store: Arc<AtomicBool>,
+    fail_delete: Arc<AtomicBool>,
 }
 
 impl SecretStore for MemorySecret {
@@ -55,6 +58,9 @@ impl SecretStore for MemorySecret {
         RootSecret::from_bytes(&value).map_err(|_| StorageError::Corrupt)
     }
     async fn delete(&self) -> Result<(), StorageError> {
+        if self.fail_delete.load(Ordering::Relaxed) {
+            return Err(StorageError::Unavailable);
+        }
         *self
             .value
             .lock()
