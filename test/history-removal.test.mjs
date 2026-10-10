@@ -31,6 +31,8 @@ test("removes one frame from the grid or the frame menu, and Undo puts it back i
   const calls = [];
   let finishDraw;
   let finishRestore;
+  let removalGate;
+  let restoreEntered;
   let failRestore = false;
   window.__TAURI_INTERNALS__ = {
     async invoke(command, args) {
@@ -47,6 +49,11 @@ test("removes one frame from the grid or the frame menu, and Undo puts it back i
         return structuredClone(history);
       }
       if (command === "remove_history_item") {
+        if (removalGate) {
+          removalGate.entered.resolve();
+          await removalGate.released.promise;
+          removalGate = undefined;
+        }
         const orderAt = history.history.findIndex(({ id }) => id === args.id);
         history.history.splice(orderAt, 1);
         history.index = -1;
@@ -72,6 +79,7 @@ test("removes one frame from the grid or the frame menu, and Undo puts it back i
         if (finishRestore === null)
           await new Promise((resolve) => {
             finishRestore = resolve;
+            restoreEntered?.resolve();
           });
         history.history.splice(args.orderAt, 0, args.item);
         return structuredClone(history);
@@ -197,4 +205,31 @@ test("removes one frame from the grid or the frame menu, and Undo puts it back i
     4,
     "concurrent Undo is ignored",
   );
+
+  // A pending projection must wait through removal's intermediate idle state and landing navigation.
+  const viewer = await import("../dist/test-client/viewer-state.js");
+  const historyDialog = await import("../dist/test-client/history-dialog.js");
+  removalGate = { entered: Promise.withResolvers(), released: Promise.withResolvers() };
+  const removal = historyDialog.removeFromHistory(viewer.state.index);
+  await removalGate.entered.promise;
+  const removalRefresh = viewer.refreshPersistedView();
+  removalGate.released.resolve();
+  await removal;
+  await removalRefresh;
+  assert.match(get("image").alt, /ddd444/);
+  assert.equal(viewer.state.history[viewer.state.index].id, "ddd444");
+  assert.equal(get("source-link").href, "https://prnt.sc/ddd444");
+
+  // Undo also resumes only after its follow-up navigation selects the restored shown frame.
+  finishRestore = null;
+  restoreEntered = Promise.withResolvers();
+  undo();
+  await restoreEntered.promise;
+  const undoRefresh = viewer.refreshPersistedView();
+  finishRestore();
+  await undoRefresh;
+  await flush();
+  assert.match(get("image").alt, /eee555/);
+  assert.equal(viewer.state.history[viewer.state.index].id, "eee555");
+  assert.equal(get("source-link").href, "https://prnt.sc/eee555");
 });

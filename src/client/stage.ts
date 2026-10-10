@@ -4,7 +4,7 @@ import { blobKey, blobs, cacheThumbnail, savedFrames } from "./frame-cache.js";
 import { pickLoadingMessage } from "./loading-copy.js";
 import { adjacentPrntscId, nextHistoryIndex } from "./navigation.js";
 import { toast } from "./toast.js";
-import { isFavorite, navigationView, state } from "./viewer-state.js";
+import { isFavorite, navigationView, setViewerLoading, state } from "./viewer-state.js";
 
 type ViewState = "empty" | "loading" | "error" | "image";
 
@@ -168,7 +168,7 @@ export async function settleLoader(): Promise<void> {
 }
 
 export function startLoading(): void {
-  state.loading = true;
+  setViewerLoading(true);
   state.focusBeforeLoading = document.activeElement;
 }
 
@@ -179,7 +179,7 @@ function focusLost(): boolean {
 // Loading hides or disables the control that started it, which drops focus to <body>. Hand it back,
 // or to the stage's own control when that one is gone (the start button, say), unless the visitor moved on.
 export function finishLoading(): void {
-  state.loading = false;
+  setViewerLoading(false);
   delete elements.loading.dataset.cancelable;
   syncControls();
   const target = state.focusBeforeLoading as HTMLElement | null;
@@ -375,6 +375,7 @@ export function swapImage(url: string, id: string): void {
 }
 
 export function bindStageEvents(): void {
+  document.addEventListener("persisted-view-refreshed", syncControls);
   reducedMotion?.addEventListener("change", animateFocusFrame);
   document.addEventListener("visibilitychange", () => {
     for (const animation of focusAnimations) {

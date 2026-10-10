@@ -2,7 +2,6 @@ import { listen } from "@tauri-apps/api/event";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { closeDialog, onDialogClosed, openDialog } from "./dialogs.js";
 import { elements } from "./elements.js";
-import { syncControls } from "./stage.js";
 import {
   createSync,
   type DeviceSummary,
@@ -19,7 +18,7 @@ import {
   syncNow,
 } from "./sync-api.js";
 import { toast } from "./toast.js";
-import { refreshPersistedView, state } from "./viewer-state.js";
+import { refreshPersistedView } from "./viewer-state.js";
 
 const OFFLINE = "You’re offline. Try again when you’re back online.";
 const OLDER_DATA = "The Sync server returned older data than this device has already seen, so it was not applied.";
@@ -100,7 +99,6 @@ let statusCheckFailed = false;
 let busy = false;
 let busyMessage = "";
 let opener: HTMLElement | null = null;
-let refreshAfterInitialize = false;
 let nameEdited = false;
 // What Try again repeats: the failed action, or the status check itself.
 let retryAction: (() => Promise<unknown>) | null = null;
@@ -385,7 +383,6 @@ async function refresh(): Promise<void> {
 async function refreshView(): Promise<boolean> {
   try {
     await refreshPersistedView();
-    syncControls();
     if (retryAction === refreshView) clearError();
     render();
     return true;
@@ -412,13 +409,10 @@ async function operate(message: string, action: () => Promise<SyncStatus | undef
       result = await action();
     } catch (error) {
       // Restore can replace local stores before credential or config saves fail.
-      if (!state.loading) {
-        try {
-          await refreshPersistedView();
-          syncControls();
-        } catch {
-          // Keep the action's original error and retry; a pending journal may still block reads.
-        }
+      try {
+        await refreshPersistedView();
+      } catch {
+        // Keep the action's original error and retry; a pending journal may still block reads.
       }
       showError(safeError(error), notRetryable.has(category(error) ?? "") ? null : () => operate(message, action));
       await refresh();
@@ -426,7 +420,7 @@ async function operate(message: string, action: () => Promise<SyncStatus | undef
     }
     if (result) {
       setStatus(result);
-      if (!state.loading && !(await refreshView())) return false;
+      if (!(await refreshView())) return false;
     }
     await refresh();
     render();
@@ -444,13 +438,9 @@ function focusWhenSettled(target: HTMLElement): void {
 }
 
 async function onSyncStateChanged(): Promise<void> {
-  // Our own actions reload the views themselves once they finish.
-  const own = busy;
   await refresh();
-  if (own || state.loading) return;
   try {
     await refreshPersistedView();
-    syncControls();
   } catch {
     // The next open or sync reads the saved data again.
   }
@@ -659,22 +649,11 @@ export function bindSyncDialogEvents(): void {
 export async function runStartupSync(): Promise<void> {
   try {
     setStatus(await startupSync());
-    if (state.loading) refreshAfterInitialize = true;
-    else {
-      await refreshPersistedView();
-      syncControls();
-    }
+    await refreshPersistedView();
   } catch {
     // Rust keeps the typed error in SyncStatus; read it for the titlebar flag. An unpaired device needs no notice.
     await refresh();
     return;
   }
   if (elements.syncDialog.open) await refresh();
-}
-
-export async function refreshAfterStartup(): Promise<void> {
-  if (!refreshAfterInitialize) return;
-  refreshAfterInitialize = false;
-  await refreshPersistedView();
-  syncControls();
 }
