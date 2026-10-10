@@ -1,5 +1,47 @@
 # Random Frame release notes
 
+## 0.7.1
+
+### Clearing history is reviewed first
+
+- The clear button now opens a review with Undo and Finish clearing. Nothing is removed until you choose Finish clearing.
+- Closing History or restarting the app before you finish cancels the review, and your history stays as it was.
+- If finishing a clear fails, the message says so, and Finish clearing tries again.
+
+### Zoom in the enlarged view
+
+- Zoom in and out with the zoom buttons, Ctrl+scroll, or a trackpad pinch. On touch screens, pinch with two fingers and drag to pan.
+- Zoom can reach actual size even for very large images.
+- The spot under your pointer or pinch stays in place as you zoom, and the zoom level holds when you resize the window.
+
+### Sync join options come first
+
+- When you connect a device, Restore and Merge appear above the recovery key field, so you can compare them before you paste the key.
+- The Connect this device button stays at the bottom of the dialog.
+- The note about data saved by an older app now applies to Restore.
+- If Sync can’t check its status, the dialog says so and offers Retry. The last sync time and device list from before stay on screen.
+
+### Feedback stays where you’re working
+
+- Messages from actions inside a dialog appear in that dialog.
+- If Undo fails, the message says so and Undo stays available to try again.
+- If an action fails, a message says it couldn’t be completed.
+- Closing a dialog you opened from another dialog returns focus to the control you used.
+
+### Android and desktop
+
+- If the window gets shorter while you type a recovery key, the field scrolls into view.
+- On desktop, the window controls can be reached with Tab while a dialog is open.
+
+### Clearer source ID menu
+
+- The menu now groups the ID actions under “Explore nearby Prnt.sc IDs”, and the items read “Try previous source ID” and “Try next source ID”.
+
+### Small fixes
+
+- The History dialog scrolls on short windows instead of cutting off its content.
+- Clicking a history frame or switching tabs while a frame is loading does nothing until the frame finishes.
+
 ## 0.7.0
 
 ### Random Frame on Android
