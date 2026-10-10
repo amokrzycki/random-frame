@@ -24,7 +24,7 @@ import {
 import { setState, syncControls } from "./stage.js";
 import { toast } from "./toast.js";
 import { updateUserPreferences } from "./user-preferences.js";
-import { applyFavorites, applyHistory, isFavorite, state } from "./viewer-state.js";
+import { applyFavorites, applyHistory, isFavorite, setViewerLoading, state } from "./viewer-state.js";
 
 type HistoryDialogTab = "history" | "favourites";
 export const pendingHistoryClearKey = "random-frame-history-clear-pending";
@@ -380,14 +380,14 @@ export async function removeFromHistory(index: number): Promise<void> {
   const frame = state.history[index];
   if (!frame || state.loading || removing) return;
   removing = true;
-  state.loading = true;
+  setViewerLoading(true);
   syncControls();
   const wasShown = index === state.index;
   const position = gridEntries().findIndex((entry) => entry.index === index) - state.pageIndex * state.pageSize;
   try {
     const { snapshot, orderAt, lastView } = await removeHistoryItem(frame.source, frame.id);
     applyHistoryKeepingShown(snapshot, wasShown ? undefined : state.history[state.index]);
-    state.loading = false;
+    setViewerLoading(false);
     if (wasShown && !state.history.length) {
       elements.image.src = "";
       elements.image.alt = "";
@@ -407,7 +407,7 @@ export async function removeFromHistory(index: number): Promise<void> {
     toast.error(describeError(error, "That frame could not be removed. Try again.").message);
   } finally {
     removing = false;
-    state.loading = false;
+    setViewerLoading(false);
     syncControls();
   }
 }
@@ -423,13 +423,13 @@ async function undoRemoval(
     toast.error("A frame is loading. Undo is still available when it finishes.");
     return false;
   }
-  state.loading = true;
+  setViewerLoading(true);
   syncControls();
   try {
     const shown = state.history[state.index];
     const snapshot = await restoreHistoryItem(frame, orderAt, lastView);
     applyHistoryKeepingShown(snapshot, shown);
-    state.loading = false;
+    setViewerLoading(false);
     syncControls();
     if (elements.historyDialog.open) {
       renderHistoryPage();
@@ -443,7 +443,7 @@ async function undoRemoval(
     toast.error(describeError(error, "That frame could not be restored. Undo is still available; try again.").message);
     return false;
   } finally {
-    state.loading = false;
+    setViewerLoading(false);
     syncControls();
   }
 }
@@ -461,14 +461,13 @@ async function finishClearing(reviewedAt: number, review: ReturnType<typeof toas
   try {
     clearRequestId ??= await prepareHistoryClear();
     await commitHistoryClear(clearRequestId);
-    state.history.length = 0;
-    state.index = -1;
+    applyHistory({ history: [], index: -1 });
     releaseAllBlobs();
     await clearThumbnails(state.favorites);
     elements.image.src = "";
     elements.image.alt = "";
     setState("empty");
-    state.loading = false;
+    setViewerLoading(false);
     syncControls();
     elements.historyClearGroup.removeAttribute("data-armed");
     delete elements.historyDialog.dataset.busy;
@@ -488,14 +487,14 @@ async function finishClearing(reviewedAt: number, review: ReturnType<typeof toas
 async function clearSavedHistory(): Promise<void> {
   if (state.loading) return;
   const reviewedAt = Date.now();
-  state.loading = true;
+  setViewerLoading(true);
   syncControls();
   elements.historyClearGroup.setAttribute("data-armed", "");
   clearRequestId = undefined;
   const cancel = (): void => {
     review.dismiss();
     cancelClearReview = undefined;
-    state.loading = false;
+    setViewerLoading(false);
     elements.historyClearGroup.removeAttribute("data-armed");
     syncControls();
     elements.historyClear.focus();

@@ -175,6 +175,8 @@ before(async () => {
   stateModule.state.loading = false;
   sync = await import("../dist/test-client/sync-dialog.js");
   const stats = await import("../dist/test-client/stats-dialog.js");
+  const stage = await import("../dist/test-client/stage.js");
+  stage.bindStageEvents();
   sync.bindSyncDialogEvents();
   stats.bindStatsDialogEvents();
 });
@@ -865,6 +867,7 @@ test("a failed join preserves either explicit choice for retry, then success res
 });
 
 test("Restore reloads replaced views when final local pairing fails", async () => {
+  const stage = await import("../dist/test-client/stage.js");
   for (const category of ["secure_storage", "persistence"]) {
     const oldItem = { source: "prntsc", id: "oldlocal", sourcePageUrl: "https://prnt.sc/oldlocal", viewedAt: 1 };
     stateModule.applyHistory({ history: [oldItem], index: 0 });
@@ -878,7 +881,11 @@ test("Restore reloads replaced views when final local pairing fails", async () =
       backend.favorites = [];
     };
     backend.fail = { command: "join_sync", error: { category } };
+    stage.startLoading();
     submit("sync-join-form");
+    await flush();
+    assert.equal(stateModule.state.history[0].id, "oldlocal");
+    stage.finishLoading();
     await flush();
     assert.deepEqual(stateModule.state.history, []);
     assert.deepEqual(stateModule.state.favorites, []);

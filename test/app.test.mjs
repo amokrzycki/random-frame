@@ -45,10 +45,25 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   let failNextCommitClear = false;
   const invocations = [];
   let persisted = { history: [], index: -1 };
+  const syncStatus = {
+    supported: true,
+    paired: false,
+    state: "unpaired",
+    lastSuccessAt: null,
+    lastSuccessRevision: null,
+    dirty: true,
+    lastErrorCategory: null,
+    snapshotSchemaVersion: 1,
+    thisDeviceId: null,
+    devices: [],
+  };
   let finishStartupSync;
   const startupSync = new Promise((resolve) => {
     finishStartupSync = resolve;
   });
+  const startupRestoreEntered = Promise.withResolvers();
+  const startupRestoreReleased = Promise.withResolvers();
+  let restoringStartup = true;
   window.__TAURI_INTERNALS__ = {
     async invoke(command, args, options) {
       if (command === "get_platform_capabilities") return testCapabilities;
@@ -68,8 +83,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
       invocations.push({ command, args, options });
       if (command === "get_history") return structuredClone(persisted);
       if (command === "startup_sync") return startupSync;
-      if (command === "get_sync_status")
-        return { paired: false, state: "unpaired", lastSuccessRevision: null, dirty: true, lastErrorCategory: null };
+      if (command === "get_sync_status") return syncStatus;
       if (command === "get_favorites") return [];
       if (command === "record_history_item") {
         let itemIndex = persisted.history.findIndex(
@@ -117,6 +131,11 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
         return { id, source: "prntsc", sourcePageUrl: `https://prnt.sc/${id}`, mimeType: "image/jpeg" };
       }
       if (command === "get_frame_by_id") {
+        if (restoringStartup) {
+          restoringStartup = false;
+          startupRestoreEntered.resolve();
+          await startupRestoreReleased.promise;
+        }
         return {
           id: args.id,
           source: "prntsc",
@@ -144,6 +163,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   await import(`../dist/test-client/app.js?test=${Date.now()}`);
   const get = (id) => document.querySelector(`#${id}`);
   const historyWrites = () => invocations.filter(({ command }) => command === "record_history_item").length;
+  await startupRestoreEntered.promise;
   await flush();
   await flush();
   await flush();
@@ -167,18 +187,18 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
     invocations.findIndex(({ command }) => command === "startup_sync") <
       invocations.findIndex(({ command }) => command === "get_frame_by_id"),
   );
-  assert.match(get("image").alt, /saved2/);
   assert.deepEqual(
     invocations.find(({ command }) => command === "import_session_history").args.items.map((item) => item.id),
     ["saved1", "saved2"],
   );
-  finishStartupSync({
-    paired: false,
-    state: "unpaired",
-    lastSuccessRevision: null,
-    dirty: true,
-    lastErrorCategory: null,
-  });
+  finishStartupSync(syncStatus);
+  await flush();
+  assert.equal(invocations.filter(({ command }) => command === "get_history").length, 1);
+  startupRestoreReleased.resolve();
+  await flush();
+  await flush();
+  assert.match(get("image").alt, /saved2/);
+  assert.equal(invocations.filter(({ command }) => command === "get_history").length, 2);
 
   get("history-tool-button").click();
   assert.equal(get("history-dialog").open, true);
@@ -440,7 +460,9 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
       .findLast((button) => button.textContent === label);
   get("history-tool-button").click();
   const beforeClear = structuredClone(persisted);
+  const viewer = await import("../dist/test-client/viewer-state.js");
   clearButton.click();
+  const canceledClearRefresh = viewer.refreshPersistedView();
   await flush();
   assert.equal(prepares(), 0);
   assert.equal(clears(), 0);
@@ -452,6 +474,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   toastExpiry?.();
   assert.deepEqual(persisted, beforeClear, "toast expiry cannot delete data");
   keydown(document, "z");
+  await canceledClearRefresh;
   await flush();
   await flush();
   assert.equal(prepares(), 0, "Undo before completion requires no durable transaction");
@@ -463,6 +486,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
 
   get("history-tool-button").click();
   clearButton.click();
+  const completedClearRefresh = viewer.refreshPersistedView();
   await new Promise((resolve) => setTimeout(resolve, 520));
   failNextCommitClear = true;
   action("Finish clearing").click();
@@ -479,6 +503,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   await flush();
   await flush();
   assert.equal(prepares(), 1, "retry preserves the frozen operation set");
+  await completedClearRefresh;
   assert.equal(clears(), 2);
   assert.deepEqual(persisted, { history: [], index: -1 });
   assert.equal(get("frame-count-total").textContent, "0");

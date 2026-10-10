@@ -20,12 +20,12 @@ import { getPlatformCapabilities, initializePlatform } from "./platform.js";
 import { bindShortcutsEvents } from "./shortcuts.js";
 import { bindStageEvents, setState, showError, syncControls } from "./stage.js";
 import { bindStatsDialogEvents, migrateLegacyStats } from "./stats-dialog.js";
-import { bindSyncDialogEvents, refreshAfterStartup, runStartupSync } from "./sync-dialog.js";
+import { bindSyncDialogEvents, runStartupSync } from "./sync-dialog.js";
 import { toast } from "./toast.js";
 import { bindTooltipEvents } from "./tooltip.js";
 import { bindChangelogEvents, checkForUpdate, showPendingChangelog } from "./update.js";
 import { initializeUserPreferences, updateUserPreferences } from "./user-preferences.js";
-import { applyFavorites, applyHistory, state } from "./viewer-state.js";
+import { applyFavorites, applyHistory, setViewerLoading, state } from "./viewer-state.js";
 import { initializeWindowControls } from "./window-controls.js";
 
 const storageKey = "prntsc-gallery-history";
@@ -52,7 +52,7 @@ async function initialize(): Promise<void> {
   // Try again re-enters here; a double click must not run two loads, and Sync starts once.
   if (initializing) return;
   initializing = true;
-  state.loading = true;
+  setViewerLoading(true);
   syncControls();
   try {
     let pendingHistoryClear = false;
@@ -96,7 +96,7 @@ async function initialize(): Promise<void> {
     }
 
     applyHistory({ ...snapshot, index: -1 });
-    state.loading = false;
+    setViewerLoading(false);
     syncControls();
     // The stage starts blank, so a restored frame never flashes the first-draw prompt on launch.
     if (snapshot.index >= 0) await goTo(snapshot.index);
@@ -104,12 +104,12 @@ async function initialize(): Promise<void> {
       setState("empty");
       if (!elements.entryDialog.open) elements.draw.focus();
     }
-    await refreshAfterStartup();
+    await setViewerLoading(false);
     syncControls();
   } catch (error) {
     console.error(error);
     state.historyLoadFailed = true;
-    state.loading = false;
+    setViewerLoading(false);
     showError(error, initialize, -1, {
       title: "Your history couldn’t be loaded.",
       message: "Random Frame could not read its saved data. Try again, and restart the app if it keeps failing.",
