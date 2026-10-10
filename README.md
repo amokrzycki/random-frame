@@ -1,19 +1,20 @@
 # Random Frame
 
-A minimalist desktop gallery for random public images, shown one at a time. Built with Tauri 2, a plain HTML/CSS/TypeScript interface, and a Rust backend.
+A minimalist gallery of random public images for Windows, Linux and Android, shown one at a time. Built with Tauri 2, a plain HTML/CSS/TypeScript interface, and a Rust backend.
 
-Images come from [prnt.sc](https://prnt.sc/). The Rust backend resolves each random six-character identifier and fetches the image, since the source blocks cross-origin framing.
+Images come from [prnt.sc](https://prnt.sc/). The Rust backend resolves variable-length lowercase alphanumeric identifiers in Prnt.sc’s legacy base-36 range and fetches the image, since the source blocks cross-origin framing.
 
 ## Features
 
-- Draw a random image, or step to the previous or next adjacent Prnt.sc identifier
-- Local browsing history with pagination, jump-to-frame, and two-step clear
+- Draw a random image, revisit frames in History, or explore neighboring Prnt.sc source IDs
+- Local browsing history and Favorites with pagination, jump-to-frame, and retryable Undo
+- Clear History & Stats through an untimed review: Undo keeps the data; Finish clearing commits it. Closing or restarting before choosing Finish cancels the review.
 - Exploration and daily viewing statistics
-- Save the image, copy it to the clipboard, copy the source link, or open the source page
-- Enlarged image view
+- Save images and open or copy source links; copy images to the clipboard on supported desktop platforms
+- Enlarged image inspection with actual-size, button and wheel zoom, plus touch pinch and pan
 - Light and dark themes
-- Custom title bar and window controls
-- Automatic updates from GitHub Releases
+- Custom desktop title bar and window controls; Android Back closes the active surface
+- Automatic desktop updates from GitHub Releases; Android updates by installing a newer APK
 - Optional Sync of history, favorites, Seen IDs, exploration progress, Activity Stats, and preferences between devices, using a recovery key
 
 ### Keyboard shortcuts

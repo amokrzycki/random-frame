@@ -1037,3 +1037,10 @@ a.tools-menu__item {
 .text-action:active:not([aria-disabled="true"]) {
   transform: scale(0.97);
 }
+
+.tools-menu__group {
+  margin: 8px 11px 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}

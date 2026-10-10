@@ -29,6 +29,9 @@ test("removes one frame from the grid or the frame menu, and Undo puts it back i
 
   const history = { history: ["aaa111", "bbb222", "ccc333", "ddd444"].map(item), index: 1 };
   const calls = [];
+  let finishDraw;
+  let finishRestore;
+  let failRestore = false;
   window.__TAURI_INTERNALS__ = {
     async invoke(command, args) {
       if (command === "get_platform_capabilities") return testCapabilities;
@@ -53,7 +56,23 @@ test("removes one frame from the grid or the frame menu, and Undo puts it back i
           lastView: { at_ms: 1, day: "2026-10-02", day_inferred: true },
         };
       }
+      if (command === "get_random_frame") {
+        await new Promise((resolve) => {
+          finishDraw = resolve;
+        });
+        return { ...item("eee555"), mimeType: "image/png" };
+      }
+      if (command === "record_history_item") {
+        history.history.push(args.item);
+        history.index = history.history.length - 1;
+        return structuredClone(history);
+      }
       if (command === "restore_history_item") {
+        if (failRestore) throw new Error("Restore failed");
+        if (finishRestore === null)
+          await new Promise((resolve) => {
+            finishRestore = resolve;
+          });
         history.history.splice(args.orderAt, 0, args.item);
         return structuredClone(history);
       }
@@ -142,4 +161,40 @@ test("removes one frame from the grid or the frame menu, and Undo puts it back i
   assert.match(get("image").alt, /bbb222/);
   assert.equal(get("frame-count-current").textContent, "2");
   assert.equal(history.history.length, 4);
+  // Undo during Draw must retain recovery and preserve the newly drawn frame on retry.
+  get("remove-frame-button").click();
+  for (let i = 0; i < 3; i++) await flush();
+  get("draw-button").click();
+  undo();
+  await flush();
+  assert.equal(history.history.length, 3);
+  finishDraw();
+  for (let i = 0; i < 4; i++) await flush();
+  assert.match(get("image").alt, /eee555/);
+  failRestore = true;
+  undo();
+  await flush();
+  await flush();
+  assert.equal(history.history.length, 4);
+  failRestore = false;
+  finishRestore = null;
+  undo();
+  await flush();
+  get("draw-button").click();
+  undo();
+  await flush();
+  assert.equal(
+    calls.filter(({ command }) => command === "get_random_frame").length,
+    1,
+    "Draw is blocked while restoration writes",
+  );
+  finishRestore();
+  for (let i = 0; i < 4; i++) await flush();
+  assert.equal(history.history.length, 5);
+  assert.match(get("image").alt, /eee555/, "recovery preserves the frame reached since removal");
+  assert.equal(
+    calls.filter(({ command }) => command === "restore_history_item").length,
+    4,
+    "concurrent Undo is ignored",
+  );
 });

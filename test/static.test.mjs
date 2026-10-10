@@ -103,10 +103,12 @@ test("Sync dialog separates Start a new Sync from Connect this device and states
   assert.match(connect, /id="sync-show-join"/);
   // The two ways to join are explained before the key form and in the same section.
   const connectText = connect.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-  assert.ok(connectText.includes("Enter your recovery key, then choose how this device should join your Sync."));
+  assert.ok(connectText.includes("Compare Restore and Merge, then enter your recovery key below."));
   assert.ok(connectText.includes("Restore this device from Sync"));
   assert.ok(connectText.includes("Merge this device with Sync"));
-  assert.ok(connect.indexOf("choose how this device should join") < connect.indexOf('id="sync-join-form"'));
+  assert.ok(connect.indexOf("Compare Restore and Merge") < connect.indexOf('id="sync-join-form"'));
+  assert.ok(connect.indexOf('id="sync-join-modes"') < connect.indexOf('id="sync-recovery-input"'));
+  assert.match(dialog, /id="sync-join"[^>]*form="sync-join-form"/);
   assert.doesNotMatch(connectText, /It won’t be replaced/);
   assert.match(copy, /History and Favorites/);
   assert.match(copy, /Previously viewed and checked IDs/);

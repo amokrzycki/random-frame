@@ -53,6 +53,7 @@ const originals = new Map(names.map((name) => [name, Object.getOwnPropertyDescri
 const get = (id) => document.querySelector(`#${id}`);
 const clipboard = { copied: [], fails: false };
 const listeners = [];
+const windowEvents = new EventTarget();
 let backend;
 let calls;
 let sync;
@@ -105,6 +106,7 @@ before(async () => {
   resetBackend();
   globalThis.window = {
     setTimeout: () => 0,
+    addEventListener: windowEvents.addEventListener.bind(windowEvents),
     __TAURI_INTERNALS__: {
       transformCallback: (callback) => {
         listeners.push(callback);
@@ -175,7 +177,6 @@ before(async () => {
   const stats = await import("../dist/test-client/stats-dialog.js");
   sync.bindSyncDialogEvents();
   stats.bindStatsDialogEvents();
-  await sync.runStartupSync();
 });
 
 after(() => {
@@ -202,6 +203,52 @@ const rowTexts = (row) => row.children.map((child) => child.textContent);
 const submit = (id) => get(id).dispatchEvent(new Event("submit", { cancelable: true }));
 const syncCalls = (command) => calls.filter((call) => call.command === command);
 
+test("an initial failed status read ends checking and offers retry without inventing Sync history", async () => {
+  backend.statusFails = true;
+  await open();
+  assert.equal(text("sync-status"), "Could not check Sync status");
+  assert.equal(get("sync-last-synced").hidden, true);
+  assert.equal(get("sync-retry").hidden, false);
+  assert.equal(get("sync-status").dataset.state, "error");
+  backend.statusFails = false;
+  get("sync-retry").click();
+  await flush();
+  assert.equal(text("sync-status"), "Sync is off");
+});
+
+test("failed status checks replace current success while retaining reliable history and retry", async () => {
+  await open(paired);
+  const last = text("sync-last-synced");
+  const devices = get("sync-devices").children;
+  backend.statusFails = true;
+  get("sync-button").click();
+  await flush();
+  assert.equal(text("sync-status"), "Could not check Sync status");
+  assert.equal(text("sync-last-synced"), last);
+  assert.deepEqual(get("sync-devices").children, devices);
+  assert.equal(get("sync-retry").hidden, false);
+  assert.equal(get("sync-status").dataset.state, "error");
+  backend.statusFails = false;
+  get("sync-retry").click();
+  await flush();
+  assert.equal(text("sync-status"), "Sync completed");
+});
+
+test("a shrinking join viewport keeps the already focused recovery key in its scroll region", async () => {
+  await open();
+  get("sync-show-join").click();
+  await flush();
+  const input = get("sync-recovery-input");
+  const scrolled = [];
+  input.scrollIntoView = (options) => scrolled.push(options);
+  input.focus();
+  windowEvents.dispatchEvent(new Event("resize"));
+  assert.deepEqual(scrolled, [{ block: "nearest" }]);
+  get("sync-join-cancel").click();
+  windowEvents.dispatchEvent(new Event("resize"));
+  assert.equal(scrolled.length, 1, "other controls do not jump on viewport changes");
+});
+
 test("create and connect are separate flows that call their own commands", async () => {
   await open(unpaired);
   assert.equal(get("sync-unpaired").hidden, false);
@@ -213,7 +260,7 @@ test("create and connect are separate flows that call their own commands", async
   // Connecting needs the explicit key form; nothing runs until it is submitted.
   get("sync-show-join").click();
   assert.equal(get("sync-join-form").hidden, false);
-  assert.equal(document.activeElement, get("sync-recovery-input"));
+  assert.equal(document.activeElement, get("sync-join-title"));
   assert.equal(syncCalls("create_sync").length + syncCalls("join_sync").length, 0);
   await flush();
   choose("restore");
@@ -593,6 +640,7 @@ test("a status failure is an error with a retry, never a status stuck on Checkin
   await flush();
   assert.equal(get("sync-error").hidden, false);
   assert.match(text("sync-error-message"), /took too long/);
+  assert.equal(text("sync-status"), "Could not check Sync status");
   assert.equal(get("sync-retry").hidden, false);
   backend.statusFails = false;
   get("sync-retry").click();
@@ -863,7 +911,7 @@ test("the options are native radios with labelled consequences for assistive tec
   const html = await readFile(new URL("../dist/index.html", import.meta.url), "utf8");
   const form = html.split('id="sync-join-form"')[1].split("</form>")[0];
   assert.match(form, /<fieldset[^>]*id="sync-join-modes"/);
-  assert.match(form, /<legend>How should this device join\?<\/legend>/);
+  assert.match(form, /<legend[^>]*>How should this device join\?<\/legend>/);
   for (const [option, value] of [
     ["sync-join-restore", "restore"],
     ["sync-join-merge", "merge"],
@@ -889,11 +937,11 @@ test("join copy is concrete, avoids vague promises, and keeps developer terms ou
   const form = html.split('id="sync-connect-title"')[1].split('id="sync-recovery"')[0];
   const copy = form.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
   for (const phrase of [
-    "Enter your recovery key, then choose how this device should join your Sync.",
+    "Compare Restore and Merge, then enter your recovery key below.",
     "Restore this device from Sync",
-    "Replace this device’s synced data with the copy already in Sync. Best for a new installation or another computer.",
+    "Replace this device’s synced data with the copy already in Sync.",
     "Local history, favorites and their previous deletions will not be added to Sync.",
-    "If your Sync was saved by an older app, data it could not save is kept from this device.",
+    "With Restore, if Sync was saved by an older app, data it could not save is kept from this device.",
     "Merge this device with Sync",
     "Combine this device’s existing synced data with the copy already in Sync.",
     "Previous deletions on this device are included. They may remove items that still exist on your other devices.",

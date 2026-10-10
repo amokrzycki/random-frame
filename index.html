@@ -234,11 +234,22 @@
           </button>
           <button
             class="lightbox-control"
+            id="lightbox-zoom-out"
+            type="button"
+            aria-label="Zoom out"
+            data-tip="Zoom out">
+            <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M4 9h10" /></svg>
+          </button>
+          <button class="lightbox-control" id="lightbox-zoom-in" type="button" aria-label="Zoom in" data-tip="Zoom in">
+            <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M4 9h10M9 4v10" /></svg>
+          </button>
+          <button
+            class="lightbox-control"
             id="lightbox-zoom-button"
             type="button"
             aria-pressed="false"
             aria-keyshortcuts="Shift+ArrowLeft Shift+ArrowRight Shift+ArrowUp Shift+ArrowDown"
-            data-tip="Zoom to actual size. Shift+arrows pan">
+            data-tip="Zoom in or pinch to inspect; drag to pan">
             1:1
           </button>
           <button
@@ -413,43 +424,31 @@
             <section class="sync-dialog__choice" aria-labelledby="sync-connect-title">
               <h3 id="sync-connect-title">Connect this device</h3>
               <p class="sync-dialog__copy" id="sync-connect-note">
-                Enter your recovery key, then choose how this device should join your Sync.
+                Compare Restore and Merge, then enter your recovery key below.
               </p>
               <div class="sync-dialog__actions" id="sync-connect-actions">
                 <button class="sync-dialog__button" id="sync-show-join" type="button">Connect this device</button>
               </div>
               <form id="sync-join-form" hidden>
-                <label for="sync-recovery-input">Recovery key</label>
-                <input
-                  id="sync-recovery-input"
-                  placeholder="Paste your recovery key"
-                  type="text"
-                  autocomplete="off"
-                  autocapitalize="off"
-                  spellcheck="false"
-                  aria-describedby="sync-connect-note"
-                  required>
                 <p class="sync-join__fresh" id="sync-join-fresh" hidden>
                   Nothing is saved on this device yet, so it will take on the copy already in Sync.
                 </p>
                 <fieldset class="sync-join" id="sync-join-modes" aria-describedby="sync-join-local">
-                  <legend>How should this device join?</legend>
+                  <legend id="sync-join-title" tabindex="-1">How should this device join?</legend>
                   <p class="sync-dialog__meta" id="sync-join-local" hidden></p>
-                  <label class="sync-join__option sync-join__option--primary" for="sync-join-restore">
+                  <label class="sync-join__option" for="sync-join-restore">
                     <input
                       id="sync-join-restore"
                       type="radio"
                       name="sync-join-mode"
                       value="restore"
-                      aria-describedby="sync-join-restore-about sync-join-restore-effect">
+                      aria-describedby="sync-join-restore-about sync-join-restore-effect sync-join-compatibility">
                     <span class="sync-join__title">Restore this device from Sync</span>
                     <span class="sync-join__copy" id="sync-join-restore-about">
-                      Replace this device’s synced data with the copy already in Sync. Best for a new installation or
-                      another computer.
+                      Replace this device’s synced data with the copy already in Sync.
                     </span>
                     <span class="sync-join__copy" id="sync-join-restore-effect">
-                      Local history, favorites and their previous deletions will not be added to Sync. If your Sync was
-                      saved by an older app, data it could not save is kept from this device.
+                      Local history, favorites and their previous deletions will not be added to Sync.
                     </span>
                   </label>
                   <label class="sync-join__option" for="sync-join-merge">
@@ -469,11 +468,20 @@
                     </span>
                     <span class="sync-join__copy sync-join__copy--strong" id="sync-join-merge-deletions" hidden></span>
                   </label>
+                  <p class="sync-dialog__meta sync-join__compatibility" id="sync-join-compatibility">
+                    With Restore, if Sync was saved by an older app, data it could not save is kept from this device.
+                  </p>
                 </fieldset>
-                <div class="sync-dialog__actions">
-                  <button class="primary-action" id="sync-join" type="submit">Restore this device</button>
-                  <button class="sync-dialog__button" id="sync-join-cancel" type="button">Cancel</button>
-                </div>
+                <label for="sync-recovery-input">Recovery key</label>
+                <input
+                  id="sync-recovery-input"
+                  placeholder="Paste your recovery key"
+                  type="text"
+                  autocomplete="off"
+                  autocapitalize="off"
+                  spellcheck="false"
+                  aria-describedby="sync-connect-note"
+                  required>
               </form>
             </section>
           </div>
@@ -543,6 +551,10 @@
             </div>
           </div>
         </div>
+        <footer class="sync-dialog__actions sync-join-actions" id="sync-join-actions" hidden>
+          <button class="primary-action" id="sync-join" type="submit" form="sync-join-form">Connect this device</button>
+          <button class="sync-dialog__button" id="sync-join-cancel" type="button">Cancel</button>
+        </footer>
       </div>
     </dialog>
 
@@ -772,6 +784,7 @@
                 <span id="jump-total" aria-hidden="true">0</span>
               </form>
               <hr class="tools-menu__rule">
+              <p class="tools-menu__group" role="presentation">Explore nearby Prnt.sc IDs</p>
               <button
                 class="tools-menu__item"
                 id="previous-id-button"
@@ -781,7 +794,7 @@
                 aria-description="Prnt.sc IDs follow source order, independently of the frames in your history."
                 disabled>
                 <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m10.5 5-4 4 4 4" /></svg>
-                Adjacent ID before
+                Try previous source ID
               </button>
               <button
                 class="tools-menu__item"
@@ -792,7 +805,7 @@
                 aria-description="Prnt.sc IDs follow source order, independently of the frames in your history."
                 disabled>
                 <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m7.5 5 4 4-4 4" /></svg>
-                Adjacent ID after
+                Try next source ID
               </button>
               <hr class="tools-menu__rule">
               <div class="tools-menu__split" role="none">

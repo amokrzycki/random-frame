@@ -1,7 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { bindAndroidNavigation, exitApp } from "./android-navigation.js";
-import { bindDialogChromeEvents, closeDialog, onDialogClosed, openDialog } from "./dialogs.js";
+import { bindDialogChromeEvents, closeDialog, onDialogClosed, openDialog, refreshDialogBoundary } from "./dialogs.js";
 import { elements } from "./elements.js";
 import { getFavorites } from "./favorites.js";
 import { bindFrameActionEvents } from "./frame-actions.js";
@@ -296,6 +296,7 @@ async function start(): Promise<void> {
     }
     platformReady = true;
     initializeWindowControls(platform.desktopWindowControls);
+    refreshDialogBoundary();
     if (platform.platform === "android") {
       void bindAndroidNavigation();
       document.addEventListener("visibilitychange", syncOnReturn);
