@@ -286,6 +286,26 @@ function statusDetail(value: SyncStatus): string {
   return value.state === "offline" ? OFFLINE : "";
 }
 
+function computeHeadline(
+  busy: boolean,
+  checking: boolean,
+  statusCheckFailed: boolean,
+  status: SyncStatus | null,
+): string {
+  if (busy) return busyMessage;
+  if (checking) return "Checking Sync status…";
+  if (statusCheckFailed) return "Could not check Sync status";
+  if (!elements.syncError.hidden) return "Sync needs attention";
+  if (status) return statusHeadline(status);
+  return "Checking Sync status…";
+}
+
+function computeState(busy: boolean, checking: boolean, statusCheckFailed: boolean, status: SyncStatus | null): string {
+  if (busy || checking) return "syncing";
+  if (statusCheckFailed || !elements.syncError.hidden || status?.lastErrorCategory) return "error";
+  return status?.state ?? "unpaired";
+}
+
 function render(): void {
   elements.syncJoinActions.hidden = elements.syncJoinForm.hidden;
   const paired = status?.paired ?? false;
@@ -294,26 +314,11 @@ function render(): void {
   const gated = showingKey && Boolean(elements.syncRecovery.dataset.gated);
   const confirming = !elements.syncLeaveConfirm.hidden;
   // While the key shows, nothing on the status lines is news: the key and its checkbox are the whole task.
-  const headline = busy
-    ? busyMessage
-    : checking
-      ? "Checking Sync status…"
-      : statusCheckFailed
-        ? "Could not check Sync status"
-        : !elements.syncError.hidden
-          ? "Sync needs attention"
-          : status
-            ? statusHeadline(status)
-            : "Checking Sync status…";
+  const headline = computeHeadline(busy, checking, statusCheckFailed, status);
   const detail = !busy && status && elements.syncError.hidden ? statusDetail(status) : "";
   elements.syncStatus.hidden = showingKey;
   elements.syncStatus.textContent = headline;
-  elements.syncStatus.dataset.state =
-    busy || checking
-      ? "syncing"
-      : statusCheckFailed || !elements.syncError.hidden || status?.lastErrorCategory
-        ? "error"
-        : (status?.state ?? "unpaired");
+  elements.syncStatus.dataset.state = computeState(busy, checking, statusCheckFailed, status);
   elements.syncStatusDetail.hidden = showingKey || !detail;
   elements.syncStatusDetail.textContent = detail;
   elements.syncLastSynced.hidden = showingKey || !paired || !supported;
@@ -483,7 +488,7 @@ async function renameDevice(): Promise<void> {
 }
 
 export function bindSyncDialogEvents(): void {
-  window.addEventListener?.("resize", () => {
+  window.addEventListener("resize", () => {
     if (
       elements.syncDialog.open &&
       !elements.syncJoinForm.hidden &&

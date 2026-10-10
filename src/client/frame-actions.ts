@@ -87,15 +87,19 @@ async function copySourceLink(): Promise<void> {
   }
 }
 
-const pointers = new Map<number, { x: number; y: number; startX: number; startY: number }>();
-let suppressImageClick = false;
-let imageTap = false;
-let touchTap = false;
-let lastTap = { at: 0, x: 0, y: 0 };
+// ponytail: gesture state consolidated into single object for reset simplicity
+const gesture = {
+  pointers: new Map<number, { x: number; y: number; startX: number; startY: number }>(),
+  suppressClick: false,
+  imageTap: false,
+  touchTap: false,
+  lastTap: { at: 0, x: 0, y: 0 },
+};
 
 function showLightboxFrame(): void {
-  pointers.clear();
-  suppressImageClick = false;
+  gesture.pointers.clear();
+  gesture.suppressClick = false;
+  gesture.touchTap = false;
   const current = state.history[state.index];
   if (!current) return;
   elements.lightboxImage.src = elements.image.src;
@@ -114,7 +118,8 @@ function setLightboxZoom(next: number, anchorX?: number, anchorY?: number): void
   const view = elements.lightboxView;
   const img = elements.lightboxImage;
   if (zoom === 1) fitWidth = img.clientWidth || img.getBoundingClientRect().width;
-  const actual = fitWidth && img.naturalWidth ? img.naturalWidth / fitWidth : 1;
+  const fitToNatural = fitWidth && img.naturalWidth ? fitWidth / img.naturalWidth : 1;
+  const actual = 1 / fitToNatural;
   next = Math.min(Math.max(MAX_ZOOM, actual), Math.max(1, next));
   const before = img.getBoundingClientRect();
   zoom = next;
@@ -123,7 +128,7 @@ function setLightboxZoom(next: number, anchorX?: number, anchorY?: number): void
   img.style.width = zoomed ? `${fitWidth * zoom}px` : "";
   elements.lightboxZoom.setAttribute("aria-pressed", String(zoomed));
   elements.lightboxZoom.textContent = zoomed ? "Fit" : actual > 1 ? "1:1" : "2×";
-  const scale = fitWidth && img.naturalWidth ? (fitWidth * zoom) / img.naturalWidth : 1;
+  const scale = fitToNatural * zoom;
   elements.lightboxZoom.setAttribute(
     "aria-label",
     `${zoomed ? "Fit to window" : actual > 1 ? "Zoom to actual size" : "Enlarge image to 2×"}. Current scale: ${Math.round(scale * 100)}%.`,
@@ -197,11 +202,15 @@ export function bindFrameActionEvents(): void {
   });
   elements.lightboxZoom.addEventListener("click", toggleLightboxZoom);
   const tapImage = (event: MouseEvent): void => {
-    if (suppressImageClick || event.detail > 1) return;
+    if (gesture.suppressClick || event.detail > 1) return;
     const at = Date.now();
-    if (touchTap && at - lastTap.at < 300 && Math.hypot(event.clientX - lastTap.x, event.clientY - lastTap.y) < 24)
+    if (
+      gesture.touchTap &&
+      at - gesture.lastTap.at < 300 &&
+      Math.hypot(event.clientX - gesture.lastTap.x, event.clientY - gesture.lastTap.y) < 24
+    )
       return;
-    lastTap = { at, x: event.clientX, y: event.clientY };
+    gesture.lastTap = { at, x: event.clientX, y: event.clientY };
     toggleLightboxZoom();
   };
   elements.lightboxImage.addEventListener("click", tapImage);
@@ -243,28 +252,35 @@ export function bindFrameActionEvents(): void {
     void (key === "s" ? saveCurrent() : toggleCurrentFavorite());
   });
   const pair = (): { x: number; y: number; distance: number } | undefined => {
-    const [a, b] = [...pointers.values()];
+    const [a, b] = [...gesture.pointers.values()];
     return a && b ? { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, distance: Math.hypot(a.x - b.x, a.y - b.y) } : undefined;
   };
   elements.lightboxView.addEventListener("pointerdown", (event) => {
-    if ((event.button !== 0 && event.pointerType !== "touch") || pointers.size >= 2) return;
-    if (!pointers.size) {
-      suppressImageClick = false;
-      imageTap = event.target === elements.lightboxImage;
-      touchTap = event.pointerType === "touch";
+    if ((event.button !== 0 && event.pointerType !== "touch") || gesture.pointers.size >= 2) return;
+    // Prevent default on touch to avoid browser mouse event synthesis and scrolling interference
+    if (event.pointerType === "touch") event.preventDefault();
+    if (!gesture.pointers.size) {
+      gesture.suppressClick = false;
+      gesture.imageTap = event.target === elements.lightboxImage;
+      gesture.touchTap = event.pointerType === "touch";
     }
-    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY });
-    if (pointers.size === 2) suppressImageClick = true;
+    gesture.pointers.set(event.pointerId, {
+      x: event.clientX,
+      y: event.clientY,
+      startX: event.clientX,
+      startY: event.clientY,
+    });
+    if (gesture.pointers.size === 2) gesture.suppressClick = true;
     elements.lightboxView.setPointerCapture(event.pointerId);
   });
   elements.lightboxView.addEventListener("pointermove", (event) => {
-    const previous = pointers.get(event.pointerId);
+    const previous = gesture.pointers.get(event.pointerId);
     if (!previous) return;
     const before = pair();
     const dx = event.clientX - previous.x;
     const dy = event.clientY - previous.y;
-    pointers.set(event.pointerId, { ...previous, x: event.clientX, y: event.clientY });
-    if (Math.hypot(event.clientX - previous.startX, event.clientY - previous.startY) > 3) suppressImageClick = true;
+    gesture.pointers.set(event.pointerId, { ...previous, x: event.clientX, y: event.clientY });
+    if (Math.hypot(event.clientX - previous.startX, event.clientY - previous.startY) > 3) gesture.suppressClick = true;
     const after = pair();
     if (before && after) {
       event.preventDefault();
@@ -278,23 +294,23 @@ export function bindFrameActionEvents(): void {
     }
   });
   elements.lightboxView.addEventListener("pointerup", (event) => {
-    pointers.delete(event.pointerId);
+    gesture.pointers.delete(event.pointerId);
   });
   for (const type of ["pointercancel", "lostpointercapture"] as const) {
     elements.lightboxView.addEventListener(type, (event) => {
-      if (!pointers.has(event.pointerId)) return;
-      suppressImageClick = true;
-      pointers.delete(event.pointerId);
+      if (!gesture.pointers.has(event.pointerId)) return;
+      gesture.suppressClick = true;
+      gesture.pointers.delete(event.pointerId);
     });
   }
   // Pointer capture targets the viewport's click; a stationary image tap keeps its existing toggle.
   elements.lightboxView.addEventListener("click", (event) => {
-    if (event.target === elements.lightboxView && imageTap) tapImage(event);
+    if (event.target === elements.lightboxView && gesture.imageTap) tapImage(event);
   });
   window.addEventListener("resize", () => {
     if (!elements.lightboxDialog.open) return;
-    pointers.clear();
-    suppressImageClick = true;
+    gesture.pointers.clear();
+    gesture.suppressClick = true;
     const view = elements.lightboxView;
     const img = elements.lightboxImage;
     const before = img.getBoundingClientRect();
@@ -320,7 +336,7 @@ export function bindFrameActionEvents(): void {
     if (event.target === elements.lightboxDialog) closeDialog(elements.lightboxDialog);
   });
   elements.lightboxDialog.addEventListener("close", () => {
-    pointers.clear();
+    gesture.pointers.clear();
     onDialogClosed();
     (getViewState() === "image" ? elements.imageZoom : elements.retry.hidden ? elements.draw : elements.retry).focus();
   });

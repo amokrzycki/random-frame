@@ -17,13 +17,15 @@ export const dialogs = [
 const opened: HTMLDialogElement[] = [];
 const returnFocus = new WeakMap<HTMLDialogElement, HTMLElement>();
 const variants = new WeakMap<HTMLDialogElement, "dark" | undefined>();
+const shellControls = (): HTMLElement | null => document.querySelector("#window-controls");
 
 export function refreshDialogBoundary(): void {
   const active = activeDialog();
+  const shell = shellControls();
   for (const dialog of dialogs) {
     dialog.inert = Boolean(active && dialog.open && dialog !== active);
     // Desktop shell controls remain available outside the dialog; mobile has a fully modal boundary.
-    if (dialog === active && !document.querySelector("#window-controls")) dialog.setAttribute("aria-modal", "true");
+    if (dialog === active && !shell) dialog.setAttribute("aria-modal", "true");
     else dialog.removeAttribute("aria-modal");
   }
 }
@@ -89,7 +91,7 @@ function activeDialog(): HTMLDialogElement | undefined {
 }
 
 function focusableIn(dialog: HTMLDialogElement): HTMLElement[] {
-  const shell = document.querySelector<HTMLElement>("#window-controls");
+  const shell = shellControls();
   return [
     ...dialog.querySelectorAll<HTMLElement>(focusableSelector),
     ...(shell?.querySelectorAll<HTMLElement>(focusableSelector) ?? []),
@@ -163,8 +165,7 @@ export function bindDialogChromeEvents(): void {
       const first = items[0] ?? dialog;
       const last = items.at(-1) ?? dialog;
       if (
-        (!dialog.contains(document.activeElement) &&
-          !document.querySelector("#window-controls")?.contains(document.activeElement)) ||
+        (!dialog.contains(document.activeElement) && !shellControls()?.contains(document.activeElement)) ||
         (event.shiftKey ? document.activeElement === first : document.activeElement === last)
       ) {
         event.preventDefault();
@@ -179,11 +180,7 @@ export function bindDialogChromeEvents(): void {
 
   document.addEventListener("focusin", (event) => {
     const dialog = activeDialog();
-    if (
-      dialog &&
-      !dialog.contains(event.target as Node) &&
-      !document.querySelector("#window-controls")?.contains(event.target as Node)
-    )
+    if (dialog && !dialog.contains(event.target as Node) && !shellControls()?.contains(event.target as Node))
       focusInDialog(dialog);
   });
 }

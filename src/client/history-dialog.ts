@@ -450,13 +450,48 @@ async function undoRemoval(
 
 // Review never touches durable data. Only the explicit completion prepares the existing crash-safe clear.
 let cancelClearReview: (() => void) | undefined;
+let clearRequestId: string | undefined;
+
+async function finishClearing(reviewedAt: number, review: ReturnType<typeof toast.review>): Promise<boolean> {
+  if (Date.now() - reviewedAt < ARM_DELAY_MS) return false;
+  // Once completion starts, closing cannot abandon a durable transaction.
+  cancelClearReview = undefined;
+  elements.historyDialog.dataset.busy = "true";
+  review.confirm("Clear confirmed. Finish clearing will complete it; if it fails, retry here or restart.");
+  try {
+    clearRequestId ??= await prepareHistoryClear();
+    await commitHistoryClear(clearRequestId);
+    state.history.length = 0;
+    state.index = -1;
+    releaseAllBlobs();
+    await clearThumbnails(state.favorites);
+    elements.image.src = "";
+    elements.image.alt = "";
+    setState("empty");
+    state.loading = false;
+    syncControls();
+    elements.historyClearGroup.removeAttribute("data-armed");
+    delete elements.historyDialog.dataset.busy;
+    state.historyReturnFocus = elements.draw;
+    closeDialog(elements.historyDialog);
+    elements.announcer.textContent = "History and Stats cleared. Favorites, Seen IDs and IDs checked are kept.";
+    return true;
+  } catch (error) {
+    // Retry the frozen request; restart finishes an already confirmed durable clear.
+    toast.error(
+      `${describeError(error, "Clearing could not finish.").message} Choose Finish clearing to retry, or restart.`,
+    );
+    return false;
+  }
+}
+
 async function clearSavedHistory(): Promise<void> {
   if (state.loading) return;
   const reviewedAt = Date.now();
   state.loading = true;
   syncControls();
   elements.historyClearGroup.setAttribute("data-armed", "");
-  let requestId: string | undefined;
+  clearRequestId = undefined;
   const cancel = (): void => {
     review.dismiss();
     cancelClearReview = undefined;
@@ -465,38 +500,6 @@ async function clearSavedHistory(): Promise<void> {
     syncControls();
     elements.historyClear.focus();
     elements.announcer.textContent = "Clear canceled. History and Stats are unchanged.";
-  };
-  const finish = async (): Promise<boolean> => {
-    if (Date.now() - reviewedAt < ARM_DELAY_MS) return false;
-    // Once completion starts, closing cannot abandon a durable transaction.
-    cancelClearReview = undefined;
-    elements.historyDialog.dataset.busy = "true";
-    review.confirm("Clear confirmed. Finish clearing will complete it; if it fails, retry here or restart.");
-    try {
-      requestId ??= await prepareHistoryClear();
-      await commitHistoryClear(requestId);
-      state.history.length = 0;
-      state.index = -1;
-      releaseAllBlobs();
-      await clearThumbnails(state.favorites);
-      elements.image.src = "";
-      elements.image.alt = "";
-      setState("empty");
-      state.loading = false;
-      syncControls();
-      elements.historyClearGroup.removeAttribute("data-armed");
-      delete elements.historyDialog.dataset.busy;
-      state.historyReturnFocus = elements.draw;
-      closeDialog(elements.historyDialog);
-      elements.announcer.textContent = "History and Stats cleared. Favorites, Seen IDs and IDs checked are kept.";
-      return true;
-    } catch (error) {
-      // Retry the frozen request; restart finishes an already confirmed durable clear.
-      toast.error(
-        `${describeError(error, "Clearing could not finish.").message} Choose Finish clearing to retry, or restart.`,
-      );
-      return false;
-    }
   };
   const review = toast.review(
     "Clear pending. History and Stats stay until you finish.",
@@ -508,7 +511,7 @@ async function clearSavedHistory(): Promise<void> {
         return true;
       },
     },
-    { label: "Finish clearing", run: finish },
+    { label: "Finish clearing", run: () => finishClearing(reviewedAt, review) },
   );
   cancelClearReview = cancel;
   elements.announcer.textContent =

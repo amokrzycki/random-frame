@@ -70,6 +70,7 @@ export function setToastScope(dialog?: HTMLElement): void {
 }
 
 function show(message: string, tone: ToastTone, action?: ToastAction, completion?: ToastAction) {
+  // ponytail: "Undo" label is the recovery discriminator; rename the field if this ever needs to apply to non-Undo actions.
   const recovery = action?.label === "Undo";
   if (recovery) dismissRecovery?.();
   else replaceCurrent?.();
