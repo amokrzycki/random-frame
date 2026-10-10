@@ -49,19 +49,19 @@ fn restore_json_backup<T: DeserializeOwned>(path: &Path) -> Result<T, AppError> 
 /// Promote only an already validated candidate; never unlink the destination first.
 pub(crate) fn promote_json(candidate: &Path, path: &Path) -> Result<(), AppError> {
     fs::rename(candidate, path).map_err(AppError::persistence)?;
-    sync_parent(path)
+    #[cfg(unix)]
+    sync_parent(path)?;
+    Ok(())
 }
 
 /// Match the writer's existing platform-specific directory durability guarantees.
+#[cfg(unix)]
 pub(crate) fn sync_parent(path: &Path) -> Result<(), AppError> {
-    #[cfg(unix)]
     if let Some(parent) = path.parent() {
         fs::File::open(parent)
             .and_then(|file| file.sync_all())
             .map_err(AppError::persistence)?;
     }
-    #[cfg(not(unix))]
-    let _ = path;
     Ok(())
 }
 

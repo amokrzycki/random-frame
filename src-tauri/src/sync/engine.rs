@@ -7,10 +7,12 @@ use super::{
         LocalSyncSummary, SyncLocalConfig, SyncState, SyncStatus,
     },
 };
+#[cfg(unix)]
+use crate::persistence::sync_parent;
 #[cfg(test)]
 use crate::persistence::{HistoryStore, SeenStore};
 use crate::{
-    persistence::{sync_parent, PersistentState},
+    persistence::PersistentState,
     secure_storage::{SecretStore, StorageError},
     sync_crypto::{RootSecret, SyncKeys},
     sync_transport::SyncTransport,
@@ -467,6 +469,7 @@ impl<S: SecretStore> SyncEngine<S> {
                 Err(_) => return Err(SyncError::Persistence),
             }
         }
+        #[cfg(unix)]
         sync_parent(&self.path).map_err(|_| SyncError::Persistence)?;
         self.secret
             .delete()
