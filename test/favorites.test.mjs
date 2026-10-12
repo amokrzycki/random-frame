@@ -128,7 +128,7 @@ test("quick save, collection drafts, stable Apply retry, filtering, stale recove
   const star = get("favorite-button"),
     dialog = get("collections-dialog");
   assert.equal(star.getAttribute("aria-label"), "Save frame");
-  assert.equal(star.getAttribute("aria-pressed"), null);
+  assert.equal(star.getAttribute("aria-pressed"), "false");
   holdSave = true;
   star.click();
   star.click();

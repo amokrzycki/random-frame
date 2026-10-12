@@ -66,11 +66,15 @@ function setBusy(next: boolean): void {
 }
 function editorError(error: unknown): void {
   const stale = (error as { kind?: string })?.kind === "stale_saved_frame";
-  elements.collectionsError.textContent = stale
-    ? "This save changed while you were editing. Your choices are still here. Open the current save to begin a new edit."
-    : (error as { kind?: string })?.kind === "invalid-input"
-      ? `${(error as { message: string }).message} Your choices are still here.`
-      : describeError(error, "Changes could not be saved. Your choices are still here; try Apply again.").message;
+  let errorMessage: string;
+  if (stale) {
+    errorMessage = "This save changed while you were editing. Your choices are still here. Open the current save to begin a new edit.";
+  } else if ((error as { kind?: string })?.kind === "invalid-input") {
+    errorMessage = `${(error as { message: string }).message} Your choices are still here.`;
+  } else {
+    errorMessage = describeError(error, "Changes could not be saved. Your choices are still here; try Apply again.").message;
+  }
+  elements.collectionsError.textContent = errorMessage;
   elements.collectionsError.hidden = false;
   elements.collectionsReopen.hidden =
     !stale || !state.favorites.some((x) => x.source === draft?.item.source && x.id === draft.item.id);
@@ -250,10 +254,17 @@ let manageBusy = false;
 export function openCollectionManagement(mode: "create" | "rename" | "delete", collection?: SavedCollection): void {
   if (manageBusy || (mode !== "create" && !collection)) return;
   management = { mode, collection: collection && structuredClone(collection) };
-  elements.collectionManageTitle.textContent =
-    mode === "create" ? "New collection" : mode === "rename" ? "Rename collection" : "Delete collection?";
-  elements.collectionManageApply.textContent =
-    mode === "create" ? "Create collection" : mode === "rename" ? "Rename collection" : "Delete collection";
+  let titleText = "Delete collection?";
+  let applyText = "Delete collection";
+  if (mode === "create") {
+    titleText = "New collection";
+    applyText = "Create collection";
+  } else if (mode === "rename") {
+    titleText = "Rename collection";
+    applyText = "Rename collection";
+  }
+  elements.collectionManageTitle.textContent = titleText;
+  elements.collectionManageApply.textContent = applyText;
   elements.collectionManageApply.classList.toggle("sync-dialog__button--danger", mode === "delete");
   elements.collectionManageCopy.textContent = `Delete “${collection?.name}”? Its images stay in All saved and in their other collections.`;
   elements.collectionManageCopy.hidden = mode !== "delete";
@@ -262,7 +273,11 @@ export function openCollectionManagement(mode: "create" | "rename" | "delete", c
   elements.collectionManageName.removeAttribute("aria-invalid");
   elements.collectionManageError.hidden = true;
   openDialog(elements.collectionManageDialog);
-  (mode === "delete" ? elements.collectionManageCancel : elements.collectionManageName).focus();
+  if (mode === "delete") {
+    elements.collectionManageCancel.focus();
+  } else {
+    elements.collectionManageName.focus();
+  }
 }
 async function applyManagement(): Promise<void> {
   if (!management || manageBusy) return;
@@ -283,12 +298,14 @@ async function applyManagement(): Promise<void> {
   const name = elements.collectionManageName.value.trim();
   try {
     await mutateSavedLibrary(async () => {
-      const library =
-        mode === "create"
-          ? await createCollection(name)
-          : mode === "rename"
-            ? await renameCollection((collection as SavedCollection).collectionId, name)
-            : await deleteCollection((collection as SavedCollection).collectionId);
+      let library;
+      if (mode === "create") {
+        library = await createCollection(name);
+      } else if (mode === "rename") {
+        library = await renameCollection((collection as SavedCollection).collectionId, name);
+      } else {
+        library = await deleteCollection((collection as SavedCollection).collectionId);
+      }
       applySavedLibrary(library);
     });
     notifyLibrary();

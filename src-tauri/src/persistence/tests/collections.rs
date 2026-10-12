@@ -278,7 +278,13 @@ fn editor_observed_remove_survives_sync_and_unknown_adds_are_not_removed() -> Re
     store.save_frame(item("def456"), None)?;
     state.read(|| store.commit_editor(previous_edit.clone()))?;
     previous_edit.request_id = [6; 16];
-    let mut additional = store.sync_state().favorites[0].clone();
+    let mut additional = store
+        .sync_state()
+        .favorites
+        .iter()
+        .find(|x| x.source == "prntsc" && x.id == "abc123")
+        .expect("abc123 should exist")
+        .clone();
     additional.operation_id = [7; 16];
     state.merge(&SyncSnapshot {
         favorites: vec![additional],

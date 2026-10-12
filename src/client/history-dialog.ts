@@ -204,16 +204,19 @@ function renderHistoryPage(scroll = elements.historyBody.scrollTop): void {
   elements.historyGrid.replaceChildren();
   elements.historyGrid.hidden = !entries.length;
   elements.historyEmpty.hidden = Boolean(entries.length);
-  elements.historyEmptyTitle.textContent = !favoritesView
-    ? "No frames drawn yet."
-    : state.savedFilter === "all"
-      ? "No saved frames yet."
-      : "This collection is empty.";
-  elements.historyEmptyDetail.textContent = favoritesView
-    ? state.savedFilter === "all"
-      ? "Save a frame to keep it here."
-      : "Open a saved frame’s Collections form to add it here."
-    : "Draw a frame to begin your history.";
+  let emptyTitle = "Draw a frame to begin your history.";
+  let emptyDetail = "Draw a frame to begin your history.";
+  if (favoritesView) {
+    if (state.savedFilter === "all") {
+      emptyTitle = "No saved frames yet.";
+      emptyDetail = "Save a frame to keep it here.";
+    } else {
+      emptyTitle = "This collection is empty.";
+      emptyDetail = "Open a saved frame's Collections form to add it here.";
+    }
+  }
+  elements.historyEmptyTitle.textContent = emptyTitle;
+  elements.historyEmptyDetail.textContent = emptyDetail;
 
   // Below the smallest page size neither paging nor the size choice changes anything.
   if (entries.length <= PAGE_SIZES[0]) elements.historyPager.setAttribute("data-compact", "");
@@ -222,9 +225,12 @@ function renderHistoryPage(scroll = elements.historyBody.scrollTop): void {
   // Favorites count ranks; All keeps the original history frame numbers.
   const first = favoritesView ? view.start + 1 : entries.length - view.start;
   const last = favoritesView ? view.end : entries.length - view.end + 1;
-  elements.historyRange.textContent = entries.length
-    ? `${favoritesView ? "Saved frames" : "Frames"} ${first.toLocaleString("en-US")}–${last.toLocaleString("en-US")} of ${entries.length.toLocaleString("en-US")}`
-    : "";
+  let rangeText = "";
+  if (entries.length) {
+    const label = favoritesView ? "Saved frames" : "Frames";
+    rangeText = `${label} ${first.toLocaleString("en-US")}–${last.toLocaleString("en-US")} of ${entries.length.toLocaleString("en-US")}`;
+  }
+  elements.historyRange.textContent = rangeText;
   elements.historyPage.textContent = `of ${view.pages}`;
   elements.historyPageInput.value = String(view.page + 1);
   elements.historyPageInput.max = String(view.pages);

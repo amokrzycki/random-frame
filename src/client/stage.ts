@@ -214,7 +214,7 @@ export function syncControls(): void {
   const favorite = Boolean(current && isFavorite(current));
   const favoriteLabel = favorite ? "Saved frame, open collections" : "Save frame";
   elements.favoriteButton.disabled = state.loading || !current;
-  elements.favoriteButton.removeAttribute("aria-pressed");
+  elements.favoriteButton.setAttribute("aria-pressed", String(favorite));
   elements.favoriteButton.toggleAttribute("data-saved", favorite);
   elements.favoriteButton.toggleAttribute("aria-haspopup", favorite);
   if (favorite) elements.favoriteButton.setAttribute("aria-haspopup", "dialog");
@@ -223,7 +223,7 @@ export function syncControls(): void {
   elements.favoriteButton.setAttribute("aria-label", favoriteLabel);
   elements.favoriteButton.dataset.tip = `${favoriteLabel} (F)`;
   elements.lightboxFavorite.disabled = elements.favoriteButton.disabled;
-  elements.lightboxFavorite.removeAttribute("aria-pressed");
+  elements.lightboxFavorite.setAttribute("aria-pressed", String(favorite));
   elements.lightboxFavorite.toggleAttribute("data-saved", favorite);
   if (favorite) elements.lightboxFavorite.setAttribute("aria-haspopup", "dialog");
   else elements.lightboxFavorite.removeAttribute("aria-haspopup");
