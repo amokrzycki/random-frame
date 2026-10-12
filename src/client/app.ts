@@ -1,9 +1,10 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { bindAndroidNavigation, exitApp } from "./android-navigation.js";
+import { bindCollectionEvents } from "./collections-dialog.js";
 import { bindDialogChromeEvents, closeDialog, onDialogClosed, openDialog, refreshDialogBoundary } from "./dialogs.js";
 import { elements } from "./elements.js";
-import { getFavorites } from "./favorites.js";
+import { getSavedLibrary } from "./favorites.js";
 import { bindFrameActionEvents } from "./frame-actions.js";
 import { initializeThumbnailCache, persistThumbnails, releaseAllBlobs } from "./frame-cache.js";
 import { bindNavigationEvents, goTo } from "./frame-loader.js";
@@ -25,7 +26,7 @@ import { toast } from "./toast.js";
 import { bindTooltipEvents } from "./tooltip.js";
 import { bindChangelogEvents, checkForUpdate, showPendingChangelog } from "./update.js";
 import { initializeUserPreferences, updateUserPreferences } from "./user-preferences.js";
-import { applyFavorites, applyHistory, setViewerLoading, state } from "./viewer-state.js";
+import { applyHistory, applySavedLibrary, setViewerLoading, state } from "./viewer-state.js";
 import { initializeWindowControls } from "./window-controls.js";
 
 const storageKey = "prntsc-gallery-history";
@@ -70,9 +71,9 @@ async function initialize(): Promise<void> {
         // The already completed clear is safe to repeat on the next launch.
       }
     }
-    let [snapshot, favorites] = await Promise.all([getHistory(), getFavorites()]);
+    let [snapshot, favorites] = await Promise.all([getHistory(), getSavedLibrary()]);
     state.historyLoadFailed = false;
-    applyFavorites(favorites);
+    applySavedLibrary(favorites);
     await initializeThumbnailCache();
     await persistThumbnails();
     const legacy = historyFromStorage(sessionStorage.getItem(storageKey));
@@ -267,6 +268,7 @@ bindChangelogEvents();
 bindStageEvents();
 bindNavigationEvents();
 bindFrameActionEvents();
+bindCollectionEvents();
 bindHistoryDialogEvents();
 bindStatsDialogEvents();
 bindSyncDialogEvents();

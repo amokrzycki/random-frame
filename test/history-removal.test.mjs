@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { FakeDocument, FakeStorage, ids, testCapabilities } from "./dom-fakes.mjs";
+import { FakeDocument, FakeStorage, ids, libraryOf, testCapabilities } from "./dom-fakes.mjs";
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const item = (id) => ({ source: "prntsc", id, sourcePageUrl: `https://prnt.sc/${id}`, viewedAt: 1 });
@@ -43,7 +43,7 @@ test("removes one frame from the grid or the frame menu, and Undo puts it back i
       if (command === "import_session_history") return window.__TAURI_INTERNALS__.invoke("get_history");
       calls.push({ command, args });
       if (command === "get_history") return structuredClone(history);
-      if (command === "get_favorites") return [];
+      if (command === "get_saved_library") return libraryOf();
       if (command === "select_history_item") {
         history.index = args.index;
         return structuredClone(history);

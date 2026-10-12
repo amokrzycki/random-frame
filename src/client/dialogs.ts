@@ -7,6 +7,8 @@ import { setToastScope } from "./toast.js";
 export const dialogs = [
   elements.entryDialog,
   elements.historyDialog,
+  elements.collectionsDialog,
+  elements.collectionManageDialog,
   elements.statsDialog,
   elements.lightboxDialog,
   elements.shortcutsDialog,

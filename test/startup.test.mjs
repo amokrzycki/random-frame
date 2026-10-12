@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { FakeDocument, FakeStorage, ids, testCapabilities } from "./dom-fakes.mjs";
+import { FakeDocument, FakeStorage, ids, libraryOf, testCapabilities } from "./dom-fakes.mjs";
 
 const unpairedStatus = {
   supported: true,
@@ -49,7 +49,7 @@ test("a failed startup load says so and Try again re-runs the load", async (t) =
         if (failing) throw { kind: "persistence" };
         return { history: [], index: -1 };
       }
-      if (command === "get_favorites") return [];
+      if (command === "get_saved_library") return libraryOf();
       if (command === "startup_sync") return unpairedStatus;
       if (command === "get_sync_status") return unpairedStatus;
       return null;

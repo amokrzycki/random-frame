@@ -1,4 +1,4 @@
-import { FakeDocument, FakeStorage, ids } from "./dom-fakes.mjs";
+import { FakeDocument, FakeStorage, ids, libraryOf } from "./dom-fakes.mjs";
 
 export const flush = () => new Promise((resolve) => setImmediate(resolve));
 const unpairedStatus = {
@@ -80,7 +80,7 @@ export async function startApp(t, capabilities) {
       if (command === "get_user_preferences" || command === "set_user_preferences")
         return { theme: null, historyPageSize: null };
       if (command === "get_history" || command === "import_session_history") return { history: [], index: -1 };
-      if (command === "get_favorites") return [];
+      if (command === "get_saved_library") return libraryOf();
       if (command === "startup_sync" || command === "get_sync_status") return unpairedStatus;
       if (command === "load_thumbnail_cache") return [];
       return null;

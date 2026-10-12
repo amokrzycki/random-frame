@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { FakeDocument, FakeStorage, ids, testCapabilities } from "./dom-fakes.mjs";
+import { FakeDocument, FakeStorage, ids, libraryOf, testCapabilities } from "./dom-fakes.mjs";
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const keydown = (target, key) => {
@@ -84,7 +84,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
       if (command === "get_history") return structuredClone(persisted);
       if (command === "startup_sync") return startupSync;
       if (command === "get_sync_status") return syncStatus;
-      if (command === "get_favorites") return [];
+      if (command === "get_saved_library") return libraryOf();
       if (command === "record_history_item") {
         let itemIndex = persisted.history.findIndex(
           (item) => item.source === args.item.source && item.id === args.item.id,
@@ -236,7 +236,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(localStorage.getItem("random-frame-favorite-tip"), null);
   favoriteTip();
   assert.equal(localStorage.getItem("random-frame-favorite-tip"), "shown");
-  assert.match(document.body.children.flatMap((region) => region.children).at(-1).textContent, /press F to favorite/);
+  assert.match(document.body.children.flatMap((region) => region.children).at(-1).textContent, /press F to save/);
   assert.equal(get("frame-count-current").textContent, "4");
   assert.equal(get("image-id-value").textContent, "def456");
   assert.equal(get("draw-button").getAttribute("aria-busy"), "false");
@@ -537,7 +537,7 @@ test("migrates the legacy localStorage counter once on startup and clears it", a
       if (command === "import_session_history") return { history: [], index: -1 };
       invocations.push({ command, args });
       if (command === "get_history") return { history: [], index: -1 };
-      if (command === "get_favorites") return [];
+      if (command === "get_saved_library") return libraryOf();
       if (command === "migrate_viewing_stats") return null;
       throw new Error(`Unexpected command: ${command}`);
     },

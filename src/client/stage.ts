@@ -193,7 +193,7 @@ export function syncControls(): void {
   const current = state.history[state.index];
   const view = navigationView();
   const favoritesView = view.items !== state.history;
-  const entryName = favoritesView ? "favorite" : "frame";
+  const entryName = favoritesView ? "saved frame" : "frame";
   // At 0/0 the arrows have nowhere to go; the empty stage points at Draw instead.
   // The frame count beside the ID carries the position, so the newest frame drops Next instead of disabling it.
   elements.previous.hidden = !view.items.length;
@@ -212,13 +212,21 @@ export function syncControls(): void {
   elements.copyLink.disabled = state.loading || !current;
   elements.removeFrame.disabled = state.loading || !current;
   const favorite = Boolean(current && isFavorite(current));
-  const favoriteLabel = favorite ? "Remove from favorites" : "Add to favorites";
+  const favoriteLabel = favorite ? "Saved frame, open collections" : "Save frame";
   elements.favoriteButton.disabled = state.loading || !current;
-  elements.favoriteButton.setAttribute("aria-pressed", String(favorite));
+  elements.favoriteButton.removeAttribute("aria-pressed");
+  elements.favoriteButton.toggleAttribute("data-saved", favorite);
+  elements.favoriteButton.toggleAttribute("aria-haspopup", favorite);
+  if (favorite) elements.favoriteButton.setAttribute("aria-haspopup", "dialog");
+  elements.removeSaved.hidden = !favorite;
+  elements.removeSaved.disabled = state.loading;
   elements.favoriteButton.setAttribute("aria-label", favoriteLabel);
   elements.favoriteButton.dataset.tip = `${favoriteLabel} (F)`;
   elements.lightboxFavorite.disabled = elements.favoriteButton.disabled;
-  elements.lightboxFavorite.setAttribute("aria-pressed", String(favorite));
+  elements.lightboxFavorite.removeAttribute("aria-pressed");
+  elements.lightboxFavorite.toggleAttribute("data-saved", favorite);
+  if (favorite) elements.lightboxFavorite.setAttribute("aria-haspopup", "dialog");
+  else elements.lightboxFavorite.removeAttribute("aria-haspopup");
   elements.lightboxFavorite.setAttribute("aria-label", favoriteLabel);
   elements.lightboxFavorite.dataset.tip = `${favoriteLabel} (F)`;
   elements.previousId.disabled =
@@ -237,7 +245,7 @@ export function syncControls(): void {
   elements.frameCountTotal.textContent = String(view.items.length);
   elements.jumpTotal.textContent = String(view.items.length);
   elements.jumpInput.max = String(view.items.length);
-  elements.positionButton.textContent = favoritesView ? "Jump to favorite" : "Jump to frame";
+  elements.positionButton.textContent = favoritesView ? "Jump to saved frame" : "Jump to frame";
   elements.lightboxCaption.textContent = current ? `${current.id} · ${position} / ${view.items.length}` : "";
   elements.lightboxPrevious.setAttribute("aria-disabled", String(state.loading || view.index <= 0));
   elements.lightboxNext.setAttribute("aria-disabled", String(state.loading || view.index >= view.items.length - 1));

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { FakeDocument, FakeStorage, ids } from "./dom-fakes.mjs";
+import { FakeDocument, FakeStorage, ids, libraryOf } from "./dom-fakes.mjs";
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -49,7 +49,10 @@ test("history remembers each tab's page and scroll, uses entry dates, and keeps 
     viewedAt: Date.UTC(2026, 8, 30, 23, 5),
   }));
   state.index = 59;
-  state.favorites = state.history.slice(0, 30).map((item) => ({ ...item, addedAt: Date.UTC(2026, 9, 1, 1, 15) }));
+  state.library = libraryOf(
+    state.history.slice(0, 30).map((item) => ({ ...item, addedAt: Date.UTC(2026, 9, 1, 1, 15) })),
+  );
+  state.favorites = state.library.items;
   for (const item of state.history) thumbnails.set(`${item.source}:${item.id}`, "data:image/png;base64,AA==");
   bindHistoryDialogEvents();
   bindNavigationEvents();

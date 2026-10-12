@@ -100,12 +100,12 @@ fn favorite_toggle_adds_then_removes_and_survives_reload() -> Result<(), AppErro
     assert_eq!(reloaded.snapshot(), vec![item(126)]);
     // A save interrupted before its rename leaves only the .tmp file; it is recovered on load.
     fs::rename(
-        directory.join("favorites-v3.json"),
-        directory.join("favorites-v3.json.tmp"),
+        directory.join("favorites-v4.json"),
+        directory.join("favorites-v4.json.tmp"),
     )
     .map_err(AppError::persistence)?;
     assert_eq!(FavoriteStore::new(&directory)?.snapshot(), vec![item(126)]);
-    assert!(directory.join("favorites-v3.json").exists());
+    assert!(directory.join("favorites-v4.json").exists());
     reloaded.clear()?;
     assert_eq!(FavoriteStore::new(&directory)?.snapshot(), vec![]);
     fs::remove_dir_all(directory).map_err(AppError::persistence)
@@ -139,7 +139,7 @@ fn history_and_favorites_sync_merge_is_idempotent_and_preserves_removals() -> Re
     b_history.merge_sync_state(a_history.sync_state())?;
     b_favorites.merge_sync_state(a_favorites.sync_state())?;
     assert_eq!(b_history.sync_state().0.len(), 1);
-    assert_eq!(b_favorites.sync_state().0.len(), 1);
+    assert_eq!(b_favorites.sync_state().favorites.len(), 1);
     a_history.clear()?;
     a_favorites.clear()?;
     b_history.merge_sync_state(a_history.sync_state())?;
@@ -328,8 +328,8 @@ fn cleared_favorites_are_not_restored_by_a_later_merge() -> Result<(), AppError>
     let before_clear = b.sync_state();
     b.clear()?;
     b.merge_sync_state(before_clear)?;
-    assert_eq!(b.sync_state().0, vec![]);
-    assert_eq!(b.sync_state().1.len(), 1);
+    assert_eq!(b.sync_state().favorites, vec![]);
+    assert_eq!(b.sync_state().favorites_removed.len(), 1);
     fs::remove_dir_all(a_dir).map_err(AppError::persistence)?;
     fs::remove_dir_all(b_dir).map_err(AppError::persistence)
 }

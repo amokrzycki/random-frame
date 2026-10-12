@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type SyncState = "unpaired" | "idle" | "syncing" | "offline" | "error";
+export type SyncState = "unpaired" | "idle" | "syncing" | "offline" | "error" | "upgrade_required";
 
 export interface DeviceSummary {
   deviceId: string;
@@ -47,6 +47,10 @@ export interface LocalSyncSummary {
   historyRemovals: number;
   favorites: number;
   favoriteRemovals: number;
+  collections: number;
+  collectionRemovals: number;
+  memberships: number;
+  membershipRemovals: number;
   activityRemovals: number;
   meaningful: boolean;
 }
@@ -59,3 +63,6 @@ export const startupSync = (): Promise<SyncStatus> => invoke("startup_sync");
 export const leaveSync = (): Promise<SyncStatus> => invoke("leave_sync");
 export const setSyncDeviceName = (name: string): Promise<void> => invoke("set_sync_device_name", { name });
 export const getSyncRecoveryKey = (): Promise<string> => invoke("get_sync_recovery_key");
+
+export const approveSyncUpgrade = (recoveryKey?: string): Promise<void> =>
+  invoke("approve_sync_upgrade", { recoveryKey });

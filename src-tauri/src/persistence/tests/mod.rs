@@ -39,3 +39,5 @@ mod large_activity;
 mod migration;
 mod restore;
 mod seen_exploration;
+
+mod collections;

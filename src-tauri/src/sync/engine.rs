@@ -231,7 +231,7 @@ impl<S: SecretStore> SyncEngine<S> {
         #[cfg(any(test, debug_assertions))]
         crate::snapshot::report_upload(&snapshot, &envelope);
         self.data
-            .begin_publication(keys.sync_id(), 0)
+            .begin_publication(keys.sync_id(), 0, 3)
             .map_err(|_| SyncError::Persistence)?;
         let revision = self
             .transport()?
@@ -307,6 +307,25 @@ impl<S: SecretStore> SyncEngine<S> {
             &snapshot,
             self.data.identity.id(),
         ))
+    }
+
+    pub async fn approve_upgrade(&self, recovery_key: Option<&str>) -> Result<(), SyncError> {
+        let _guard = self
+            .operation
+            .try_lock()
+            .map_err(|_| SyncError::AlreadySyncing)?;
+        let sync_id = if let Some(key) = recovery_key {
+            RootSecret::from_recovery_key(key)
+                .map_err(|_| SyncError::InvalidRecoveryKey)?
+                .derive()
+                .sync_id()
+                .to_owned()
+        } else {
+            self.paired().await?.1.sync_id().to_owned()
+        };
+        self.data
+            .approve_sync_upgrade(&sync_id)
+            .map_err(|_| SyncError::Persistence)
     }
 
     pub async fn join(&self, recovery_key: &str, mode: JoinMode) -> Result<SyncStatus, SyncError> {
@@ -433,7 +452,7 @@ impl<S: SecretStore> SyncEngine<S> {
         .await?;
         // A failed local save after PUT is recoverable: next GET may be above the old floor.
         config.last_accepted_revision = Some(revision);
-        config.highest_schema_version = 2;
+        config.highest_schema_version = 3;
         config.last_success_at = Some(now_ms());
         self.save(&config)?;
         *self
@@ -502,6 +521,8 @@ impl<S: SecretStore> SyncEngine<S> {
         if let Err(error) = result {
             let state = if matches!(error, SyncError::Unpaired) {
                 SyncState::Unpaired
+            } else if matches!(error, SyncError::UpgradeRequired) {
+                SyncState::UpgradeRequired
             } else if matches!(
                 error,
                 SyncError::Offline

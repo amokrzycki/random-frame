@@ -1,15 +1,16 @@
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { openCollections, removeSavedWithUndo } from "./collections-dialog.js";
 import { closeDialog, onDialogClosed, openDialog } from "./dialogs.js";
 import { elements } from "./elements.js";
 import { describeError } from "./errors.js";
-import { type FavoriteItem, toggleFavorite } from "./favorites.js";
+import { saveFrame } from "./favorites.js";
 import { blobKey, blobs, ensureThumbnail, savedFrames } from "./frame-cache.js";
 import { goToPosition } from "./frame-loader.js";
 import { copyImage, saveImage } from "./image-actions.js";
 import { getPlatformCapabilities } from "./platform.js";
 import { getViewState, syncControls } from "./stage.js";
 import { toast } from "./toast.js";
-import { applyFavorites, isFavorite, navigationView, state } from "./viewer-state.js";
+import { applySavedLibrary, mutateSavedLibrary, navigationView, state } from "./viewer-state.js";
 
 export async function saveCurrent(): Promise<void> {
   const current = state.history[state.index];
@@ -36,43 +37,30 @@ export async function toggleCurrentFavorite(): Promise<void> {
   favoritePending = true;
   const previous = state.favorites.find((favorite) => favorite.source === current.source && favorite.id === current.id);
   try {
-    applyFavorites(
-      await toggleFavorite(
-        previous ?? {
+    if (previous) return openCollections(previous);
+    await mutateSavedLibrary(async () =>
+      applySavedLibrary(
+        await saveFrame({
           source: current.source,
           id: current.id,
           sourcePageUrl: current.sourcePageUrl,
           addedAt: Date.now(),
-        },
+        }),
       ),
     );
     syncControls();
-    if (!previous) {
-      toast.success("Added to favorites");
-      void ensureThumbnail(current).catch(() => false);
-    } else {
-      toast.info("Removed from favorites", { label: "Undo", run: () => restoreFavorite(previous) });
-    }
+    document.dispatchEvent(new CustomEvent("persisted-view-refreshed"));
+    toast.success("Frame saved", {
+      label: "Collections…",
+      run: () => {
+        const item = state.favorites.find((x) => x.source === current.source && x.id === current.id);
+        if (item) openCollections(item);
+        return true;
+      },
+    });
+    void ensureThumbnail(current).catch(() => false);
   } catch (error) {
-    toast.error(describeError(error, "Favorites could not be updated. Try again.").message);
-  } finally {
-    favoritePending = false;
-  }
-}
-
-// Undo toggles the removed favorite back on with its original date, so it keeps its place in the list.
-async function restoreFavorite(item: FavoriteItem): Promise<boolean> {
-  if (favoritePending) return false;
-  if (isFavorite(item)) return true;
-  favoritePending = true;
-  try {
-    applyFavorites(await toggleFavorite(item));
-    syncControls();
-    void ensureThumbnail(item).catch(() => false);
-    return true;
-  } catch (error) {
-    toast.error(describeError(error, "Favorites could not be updated. Try again.").message);
-    return false;
+    toast.error(describeError(error, "That frame could not be saved. Try again.").message);
   } finally {
     favoritePending = false;
   }
@@ -189,6 +177,11 @@ const PAN: Record<string, [number, number] | undefined> = {
 };
 
 export function bindFrameActionEvents(): void {
+  elements.removeSaved.addEventListener("click", () => {
+    const current = state.history[state.index];
+    const item = current && state.favorites.find((x) => x.source === current.source && x.id === current.id);
+    if (item) void removeSavedWithUndo(item);
+  });
   elements.favoriteButton.addEventListener("click", () => void toggleCurrentFavorite());
   elements.save.addEventListener("click", () => void saveCurrent());
   elements.copyImage.addEventListener("click", () => void copyCurrentImage());

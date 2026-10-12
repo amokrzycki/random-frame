@@ -33,6 +33,8 @@ async fn v1_upgrade_retains_large_activity_with_both_join_orders_and_cas_race(
         let a_secret = MemorySecret::default();
         let a = migrated_device(&paths[0], &url, a_secret.clone())?;
         let b = device(&paths[1], &url, MemorySecret::default())?;
+        a.data.approve_sync_upgrade(keys.sync_id())?;
+        b.data.approve_sync_upgrade(keys.sync_id())?;
         for id in [700_001, 700_002, 700_003] {
             b.data
                 .discover(id, ExplorationOutcome::Viewed, 1, "2026-10-02")?;

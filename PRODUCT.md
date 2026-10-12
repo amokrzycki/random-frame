@@ -24,7 +24,7 @@ Instead of an endless feed, Random Frame offers one deliberate draw at a time ac
 
 ## Operating Context
 
-The gallery is used as a focused desktop utility in a resizable window, primarily with keyboard and mouse. History can Sync across linked devices and can be cleared; known removals propagate through Sync, while new history created offline may appear later. Favorites and Seen IDs can Sync and survive History clearing. Local activity Stats (Frames drawn, Today, streak, and daily results) reset with History. Prnt.sc exploration progress is durable across History clearing and restarts, and Syncs with the rest. The Sync dialog states what Sync covers, that images saved to files are not backed up, when this device last synced, and which devices are known from past syncs; it never implies presence or removal of devices.
+The gallery is used as a focused desktop utility in a resizable window, primarily with keyboard and mouse. History can Sync across linked devices and can be cleared; known removals propagate through Sync, while new history created offline may appear later. Saved frames, their collection assignments, and Seen IDs can Sync and survive History clearing. Local activity Stats (Frames drawn, Today, streak, and daily results) reset with History. Prnt.sc exploration progress is durable across History clearing and restarts, and Syncs with the rest. The Sync dialog states what Sync covers, that images saved to files are not backed up, when this device last synced, and which devices are known from past syncs; it never implies presence or removal of devices.
 
 ## Capabilities and Constraints
 
@@ -33,9 +33,14 @@ The gallery is used as a focused desktop utility in a resizable window, primaril
 - Wikimedia Commons, Internet Archive, and other sources with accessible APIs remain candidates; provider choice, selection rules, attribution, moderation, and mixed-source behavior are open decisions for the next planning phase.
 - Prnt.sc blocks cross-origin framing, so the current app resolves and proxies its public image through the server.
 - Previous/next navigation and direct image download are required.
+- The star and `F` save an unsaved frame immediately without assigning a collection. For a saved frame they open Collections. A frame can belong to zero or many collections; deleting a collection or its last assignment keeps the global save. Global removal and Clear all saved offer Undo and keep history and downloaded files.
+- Existing favorites migrate once into a normal collection named Ulubione, which can be renamed or deleted. Saved frames retain source links and metadata, not permanent copies of upstream images.
+- Collections use Sync snapshot v3. Existing v1/v2 chains require explicit Upgrade Sync consent before joining or publishing; Later leaves changes waiting. Older apps stop syncing after the upgrade and retain their local data. New chains require collection-capable clients. The known-device list cannot confirm app versions.
 
 ## Vocabulary
 
+- **Saved frame:** A frame kept in the Saved library. Saving does not require a collection; a frame can belong to several collections or none.
+- **Collection:** A named way to organize saved frames. Removing a frame from a collection does not remove it from the Saved library.
 - **Draw / drawn:** the action and the stat. A frame is drawn; Stats count Frames drawn.
 - **Seen IDs:** the synced list of IDs of frames you have viewed, kept to skip repeats. Not a stat.
 - **IDs checked:** Prnt.sc exploration, including IDs with no image. Syncs and survives History clearing.
@@ -56,7 +61,7 @@ The supplied Chris Hannah implementation establishes the current Prnt.sc identif
 
 - The displayed media is always the focal point.
 - One clear action advances exploration; history stays effortless.
-- History, favorites, Seen IDs, exploration progress, Activity Stats, theme, and history page size can Sync. Clearing History & Stats removes known history and Activity operations; Seen, exploration progress, and favorites remain. Unknown offline changes can appear after sync.
+- History, saved frames and collections, Seen IDs, exploration progress, Activity Stats, theme, and history page size can Sync. Clearing History & Stats removes known history and Activity operations; saved frames, collections, Seen IDs, and exploration progress remain. Unknown offline changes can appear after Sync.
 - Every item keeps a clear link to its source.
 - Upstream failures are explained plainly and recover gracefully.
 

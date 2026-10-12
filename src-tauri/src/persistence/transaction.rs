@@ -46,11 +46,37 @@ struct Clears {
     legacy_request: Option<String>,
     requests: BTreeMap<String, Option<ClearRequest>>,
 }
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+enum Publication {
+    Versioned { revision: i64, schema: u32 },
+    Legacy(i64),
+}
+impl Publication {
+    fn revision(&self) -> i64 {
+        match self {
+            Self::Versioned { revision, .. } | Self::Legacy(revision) => *revision,
+        }
+    }
+    fn schema(&self) -> u32 {
+        match self {
+            Self::Versioned { schema, .. } => *schema,
+            Self::Legacy(_) => 2,
+        }
+    }
+    fn validate(&self) -> Result<(), AppError> {
+        if self.revision() < 0 || !(1..=3).contains(&self.schema()) {
+            return Err(AppError::persistence("Invalid publication metadata"));
+        }
+        Ok(())
+    }
+}
 pub struct PersistentState {
     path: PathBuf,
     clear_path: PathBuf,
     schema_path: PathBuf,
     publication_path: PathBuf,
+    upgrade_path: PathBuf,
     operation: Mutex<()>,
     pub seen: Arc<SeenStore>,
     pub history: Arc<HistoryStore>,
@@ -106,6 +132,7 @@ impl PersistentState {
             clear_path: directory.join("history-clear.json"),
             schema_path: directory.join("sync-schema-floor.json"),
             publication_path: directory.join("sync-publication.json"),
+            upgrade_path: directory.join("sync-upgrades.json"),
             operation: Mutex::new(()),
             seen,
             history,
@@ -183,7 +210,9 @@ impl PersistentState {
     }
     fn snapshot_unlocked(&self) -> Result<SyncSnapshot, AppError> {
         let (mut history, mut history_removed) = self.history.sync_state_with_generation().0;
-        let (mut favorites, mut favorites_removed) = self.favorites.sync_state_with_generation().0;
+        let saved = self.favorites.sync_state_with_generation().0;
+        let mut favorites = saved.favorites;
+        let mut favorites_removed = saved.favorites_removed;
         let (mut activity, mut activity_removed) = self.activity.sync_state();
         history.sort_by_key(|x| x.operation_id);
         history_removed.sort_unstable();
@@ -198,6 +227,10 @@ impl PersistentState {
             history_removed,
             favorites,
             favorites_removed,
+            collections: saved.collections,
+            collections_removed: saved.collections_removed,
+            memberships: saved.memberships,
+            memberships_removed: saved.memberships_removed,
             exploration: self.explored.sync_state(),
             activity,
             activity_removed,
@@ -209,9 +242,12 @@ impl PersistentState {
     }
     fn recover(&self) -> Result<(), AppError> {
         let pending: Option<Transaction> = load_json(&self.path)?;
-        if let Some(pending) = pending {
-            if pending.version != 1 {
+        if let Some(mut pending) = pending {
+            if ![1, 2].contains(&pending.version) {
                 return Err(AppError::persistence("Unsupported transaction schema"));
+            }
+            if pending.version == 1 {
+                snapshot::migrate_legacy_collections(&mut pending.effects);
             }
             // ponytail: recovery re-validates the entire snapshot before applying effects.
             // This adds startup latency for large datasets, but ensures crash safety:
@@ -237,10 +273,8 @@ impl PersistentState {
                 tx.effects.history.clone(),
                 tx.effects.history_removed.clone(),
             ))?;
-            self.favorites.merge_sync_state((
-                tx.effects.favorites.clone(),
-                tx.effects.favorites_removed.clone(),
-            ))?;
+            self.favorites
+                .merge_sync_state(super::FavoriteSyncState::from_snapshot(&tx.effects))?;
             self.explored
                 .merge_sync_state(tx.effects.exploration.clone())?;
             self.activity.merge_sync_state(
@@ -273,7 +307,7 @@ impl PersistentState {
         self.history
             .replace_sync_state((target.history.clone(), target.history_removed.clone()))?;
         self.favorites
-            .replace_sync_state((target.favorites.clone(), target.favorites_removed.clone()))?;
+            .replace_sync_state(super::FavoriteSyncState::from_snapshot(target))?;
         self.explored
             .replace_sync_state(target.exploration.clone())?;
         self.activity
@@ -298,7 +332,7 @@ impl PersistentState {
         self.read(|| {
             snapshot::validate_snapshot(target).map_err(AppError::persistence)?;
             let tx = Transaction {
-                version: 1,
+                version: 2,
                 id: operation_id(),
                 effects: target.clone(),
                 close_legacy_import: true,
@@ -317,7 +351,7 @@ impl PersistentState {
     #[cfg(test)]
     pub fn journal_replace_only(&self, target: &SyncSnapshot) -> Result<(), AppError> {
         let tx = Transaction {
-            version: 1,
+            version: 2,
             id: operation_id(),
             effects: target.clone(),
             close_legacy_import: true,
@@ -357,7 +391,7 @@ impl PersistentState {
             return Ok(());
         }
         let tx = Transaction {
-            version: 1,
+            version: 2,
             id: operation_id(),
             effects,
             close_legacy_import,
@@ -381,7 +415,7 @@ impl PersistentState {
     pub fn schema_floor(&self, sync_id: &str) -> Result<u32, AppError> {
         self.read(|| {
             let floors: BTreeMap<String, u32> = load_json(&self.schema_path)?;
-            if floors.values().any(|v| !(1..=2).contains(v)) {
+            if floors.values().any(|v| !(1..=3).contains(v)) {
                 return Err(AppError::persistence("Invalid schema floor"));
             }
             Ok(floors.get(sync_id).copied().unwrap_or(1))
@@ -389,22 +423,27 @@ impl PersistentState {
     }
     pub fn publication_floor(&self, sync_id: &str, revision: i64) -> Result<u32, AppError> {
         self.read(|| {
-            let pending: BTreeMap<String, i64> = load_json(&self.publication_path)?;
-            // An unanswered PUT may have succeeded. At its original revision, v1 can
-            // still be retried; a later revision must honor the attempted v2 publication.
-            Ok(
-                if pending.get(sync_id).is_some_and(|base| revision > *base) {
-                    2
-                } else {
-                    1
-                },
-            )
+            let pending: BTreeMap<String, Publication> = load_json(&self.publication_path)?;
+            for entry in pending.values() {
+                entry.validate()?;
+            }
+            Ok(pending
+                .get(sync_id)
+                .filter(|entry| revision > entry.revision())
+                .map_or(1, Publication::schema))
         })
     }
-    pub fn begin_publication(&self, sync_id: &str, revision: i64) -> Result<(), AppError> {
+    pub fn begin_publication(
+        &self,
+        sync_id: &str,
+        revision: i64,
+        schema: u32,
+    ) -> Result<(), AppError> {
         self.read(|| {
-            let mut pending: BTreeMap<String, i64> = load_json(&self.publication_path)?;
-            pending.insert(sync_id.into(), revision);
+            let mut pending: BTreeMap<String, Publication> = load_json(&self.publication_path)?;
+            let entry = Publication::Versioned { revision, schema };
+            entry.validate()?;
+            pending.insert(sync_id.into(), entry);
             save_json(&self.publication_path, &pending)
         })
     }
@@ -412,7 +451,7 @@ impl PersistentState {
         self.read(|| self.cancel_publication_unlocked(sync_id))
     }
     fn cancel_publication_unlocked(&self, sync_id: &str) -> Result<(), AppError> {
-        let mut pending: BTreeMap<String, i64> = load_json(&self.publication_path)?;
+        let mut pending: BTreeMap<String, Publication> = load_json(&self.publication_path)?;
         if pending.remove(sync_id).is_some() {
             save_json(&self.publication_path, &pending)?;
         }
@@ -421,9 +460,31 @@ impl PersistentState {
     pub fn complete_publication(&self, sync_id: &str) -> Result<(), AppError> {
         self.read(|| {
             let mut floors: BTreeMap<String, u32> = load_json(&self.schema_path)?;
-            floors.insert(sync_id.into(), 2);
+            let pending: BTreeMap<String, Publication> = load_json(&self.publication_path)?;
+            let entry = pending
+                .get(sync_id)
+                .ok_or_else(|| AppError::persistence("Missing publication metadata"))?;
+            entry.validate()?;
+            let floor = floors.entry(sync_id.into()).or_insert(1);
+            *floor = (*floor).max(entry.schema());
             save_json(&self.schema_path, &floors)?;
             self.cancel_publication_unlocked(sync_id)
+        })
+    }
+    pub fn approve_sync_upgrade(&self, sync_id: &str) -> Result<(), AppError> {
+        self.read(|| {
+            let mut upgrades: BTreeMap<String, u32> = load_json(&self.upgrade_path)?;
+            upgrades.insert(sync_id.into(), 3);
+            save_json(&self.upgrade_path, &upgrades)
+        })
+    }
+    pub fn sync_upgrade_approved(&self, sync_id: &str) -> Result<bool, AppError> {
+        self.read(|| {
+            let upgrades: BTreeMap<String, u32> = load_json(&self.upgrade_path)?;
+            if upgrades.values().any(|v| *v != 3) {
+                return Err(AppError::persistence("Invalid Sync upgrade consent"));
+            }
+            Ok(upgrades.get(sync_id) == Some(&3))
         })
     }
     pub fn merge_versioned(

@@ -31,7 +31,7 @@ function ledgerThumbnail(itemIndex: number): HTMLButtonElement | null {
   button.dataset.tip = item.id;
   const name = `Show frame ${itemIndex + 1}, ${item.id}`;
   const favorite = isFavorite(item);
-  button.setAttribute("aria-label", favorite ? `${name}, favorite` : name);
+  button.setAttribute("aria-label", favorite ? `${name}, saved` : name);
   if (itemIndex === state.index) button.setAttribute("aria-current", "true");
   if (favorite) button.dataset.favorite = "";
   image.src = src;

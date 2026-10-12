@@ -2,6 +2,8 @@
 #[cfg(any(test, debug_assertions))]
 mod diagnostics;
 mod merge;
+#[allow(dead_code, reason = "frozen v2 encoder supports compatibility tests")]
+pub(crate) mod v2;
 #[cfg(test)]
 pub use diagnostics::diagnostics;
 #[cfg(any(test, debug_assertions))]
@@ -67,6 +69,85 @@ pub struct FavoriteRecord {
     pub source: String,
     pub id: String,
     pub source_page_url: String,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct CollectionRecord {
+    pub collection_id: OperationId,
+    pub name: Register<String>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[allow(
+    clippy::struct_field_names,
+    reason = "wire format distinguishes three operation identities"
+)]
+pub struct MembershipRecord {
+    pub operation_id: OperationId,
+    pub collection_id: OperationId,
+    pub favorite_operation_id: OperationId,
+}
+
+pub(crate) fn hash_id(parts: &[&[u8]]) -> OperationId {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    for part in parts {
+        hash.update(part);
+    }
+    let digest = hash.finalize();
+    let mut id = [0; 16];
+    id.copy_from_slice(&digest[..16]);
+    id
+}
+pub(crate) fn validate_collection_name(name: &str) -> Result<(), SnapshotError> {
+    if name.trim().is_empty()
+        || name != name.trim()
+        || name.len() > 128
+        || name.chars().any(char::is_control)
+    {
+        return Err(SnapshotError::InvalidValue);
+    }
+    Ok(())
+}
+/// The complete migration record is device-independent, including its register stamp.
+pub(crate) fn migrate_legacy_collections(s: &mut SyncSnapshot) {
+    let collection_id = hash_id(&[b"rf/collections/legacy-favorites/v1"]);
+    if s.favorites.is_empty() {
+        return;
+    }
+    if !s.collections_removed.contains(&collection_id)
+        && !s
+            .collections
+            .iter()
+            .any(|c| c.collection_id == collection_id)
+    {
+        s.collections.push(CollectionRecord {
+            collection_id,
+            name: Register {
+                clock: 0,
+                operation_id: hash_id(&[b"rf/collections/legacy-favorites/name/v1"]),
+                value: "Ulubione".into(),
+            },
+        });
+    }
+    for favorite in &s.favorites {
+        if s.favorites_removed.contains(&favorite.operation_id) {
+            continue;
+        }
+        let operation_id = hash_id(&[
+            b"rf/collections/legacy-membership/v1",
+            &favorite.operation_id,
+        ]);
+        if !s.memberships_removed.contains(&operation_id)
+            && !s.memberships.iter().any(|m| m.operation_id == operation_id)
+        {
+            s.memberships.push(MembershipRecord {
+                operation_id,
+                collection_id,
+                favorite_operation_id: favorite.operation_id,
+            });
+        }
+    }
+    s.collections.sort_by_key(|c| c.collection_id);
+    s.memberships.sort_by_key(|m| m.operation_id);
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct ExplorationRecord {
@@ -152,6 +233,14 @@ pub struct SyncSnapshot {
     pub history_removed: Vec<OperationId>,
     pub favorites: Vec<FavoriteRecord>,
     pub favorites_removed: Vec<OperationId>,
+    #[serde(default)]
+    pub collections: Vec<CollectionRecord>,
+    #[serde(default)]
+    pub collections_removed: Vec<OperationId>,
+    #[serde(default)]
+    pub memberships: Vec<MembershipRecord>,
+    #[serde(default)]
+    pub memberships_removed: Vec<OperationId>,
     pub exploration: Vec<ExplorationRecord>,
     pub activity: Vec<ActivityOperation>,
     pub activity_removed: Vec<OperationId>,
@@ -167,6 +256,10 @@ impl SyncSnapshot {
             && self.history_removed.is_empty()
             && self.favorites.is_empty()
             && self.favorites_removed.is_empty()
+            && self.collections.is_empty()
+            && self.collections_removed.is_empty()
+            && self.memberships.is_empty()
+            && self.memberships_removed.is_empty()
             && self.exploration.is_empty()
             && self.activity.is_empty()
             && self.activity_removed.is_empty()
@@ -183,6 +276,10 @@ pub(crate) enum SyncDomain {
     HistoryRemovals,
     Favorites,
     FavoriteRemovals,
+    Collections,
+    CollectionRemovals,
+    Memberships,
+    MembershipRemovals,
     Exploration,
     Activity,
     ActivityRemovals,
@@ -206,7 +303,14 @@ impl DecodedSnapshot {
                     | SyncDomain::Favorites
                     | SyncDomain::FavoriteRemovals
             ),
-            2 => true,
+            2 => !matches!(
+                domain,
+                SyncDomain::Collections
+                    | SyncDomain::CollectionRemovals
+                    | SyncDomain::Memberships
+                    | SyncDomain::MembershipRemovals
+            ),
+            3 => true,
             // Unsupported schemas cannot reach Restore through decode_snapshot.
             _ => false,
         }
@@ -339,6 +443,13 @@ pub fn validate_snapshot(s: &SyncSnapshot) -> Result<(), SnapshotError> {
     sorted(s.history_removed.iter())?;
     sorted(s.favorites.iter().map(|x| x.operation_id))?;
     sorted(s.favorites_removed.iter())?;
+    sorted(s.collections.iter().map(|x| x.collection_id))?;
+    sorted(s.collections_removed.iter())?;
+    sorted(s.memberships.iter().map(|x| x.operation_id))?;
+    sorted(s.memberships_removed.iter())?;
+    for c in &s.collections {
+        validate_collection_name(&c.name.value)?;
+    }
     sorted(s.exploration.iter().map(|x| (&x.source, &x.id)))?;
     sorted(s.activity.iter().map(ActivityOperation::operation_id))?;
     sorted(s.activity_removed.iter())?;
@@ -349,6 +460,14 @@ pub fn validate_snapshot(s: &SyncSnapshot) -> Result<(), SnapshotError> {
         || s.favorites
             .iter()
             .any(|x| s.favorites_removed.binary_search(&x.operation_id).is_ok())
+        || s.collections.iter().any(|x| {
+            s.collections_removed
+                .binary_search(&x.collection_id)
+                .is_ok()
+        })
+        || s.memberships
+            .iter()
+            .any(|x| s.memberships_removed.binary_search(&x.operation_id).is_ok())
         || s.activity
             .iter()
             .any(|x| s.activity_removed.binary_search(&x.operation_id()).is_ok())
@@ -543,11 +662,15 @@ impl<'a> Reader<'a> {
     }
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "explicit ordered wire sections keep the binary format reviewable"
+)]
 pub fn serialize_snapshot(s: &SyncSnapshot) -> Result<Vec<u8>, SnapshotError> {
     validate_snapshot(s)?;
     let mut w = Writer(Vec::new());
     w.bytes(MAGIC)?;
-    w.u32(2)?;
+    w.u32(3)?;
     w.count(s.seen.len())?;
     for x in &s.seen {
         w.u64(*x)?;
@@ -636,6 +759,26 @@ pub fn serialize_snapshot(s: &SyncSnapshot) -> Result<Vec<u8>, SnapshotError> {
         w.u64(x.joined_at_ms)?;
         w.optional(x.last_sync.as_ref(), |w, v| w.u64(*v))?;
     }
+    w.count(s.collections.len())?;
+    for c in &s.collections {
+        w.bytes(&c.collection_id)?;
+        w.stamp(&c.name)?;
+        w.text(&c.name.value)?;
+    }
+    w.count(s.collections_removed.len())?;
+    for id in &s.collections_removed {
+        w.bytes(id)?;
+    }
+    w.count(s.memberships.len())?;
+    for m in &s.memberships {
+        w.bytes(&m.operation_id)?;
+        w.bytes(&m.collection_id)?;
+        w.bytes(&m.favorite_operation_id)?;
+    }
+    w.count(s.memberships_removed.len())?;
+    for id in &s.memberships_removed {
+        w.bytes(id)?;
+    }
     Ok(w.0)
 }
 pub fn parse_snapshot(bytes: &[u8]) -> Result<SyncSnapshot, SnapshotError> {
@@ -660,7 +803,13 @@ pub fn decode_snapshot(bytes: &[u8]) -> Result<DecodedSnapshot, SnapshotError> {
     if version == 1 {
         return decode_v1(bytes);
     }
-    if version != 2 {
+    if version == 2 {
+        let mut decoded = v2::decode_snapshot(bytes)?;
+        migrate_legacy_collections(&mut decoded.data);
+        decoded.needs_upgrade = true;
+        return Ok(decoded);
+    }
+    if version != 3 {
         return Err(SnapshotError::UnsupportedVersion(version));
     }
     let mut s = SyncSnapshot::default();
@@ -765,12 +914,35 @@ pub fn decode_snapshot(bytes: &[u8]) -> Result<DecodedSnapshot, SnapshotError> {
             last_sync: r.optional(Reader::u64)?,
         });
     }
+    for _ in 0..r.count(43)? {
+        s.collections.push(CollectionRecord {
+            collection_id: r.id()?,
+            name: Register {
+                clock: r.u64()?,
+                operation_id: r.id()?,
+                value: r.text()?,
+            },
+        });
+    }
+    for _ in 0..r.count(16)? {
+        s.collections_removed.push(r.id()?);
+    }
+    for _ in 0..r.count(48)? {
+        s.memberships.push(MembershipRecord {
+            operation_id: r.id()?,
+            collection_id: r.id()?,
+            favorite_operation_id: r.id()?,
+        });
+    }
+    for _ in 0..r.count(16)? {
+        s.memberships_removed.push(r.id()?);
+    }
     if r.pos != bytes.len() {
         return Err(SnapshotError::InvalidLength);
     }
     validate_snapshot(&s)?;
     Ok(DecodedSnapshot {
-        original_schema_version: 2,
+        original_schema_version: 3,
         data: s,
         needs_upgrade: false,
     })
@@ -781,7 +953,7 @@ fn decode_v1(bytes: &[u8]) -> Result<DecodedSnapshot, SnapshotError> {
         v1::SnapshotError::PayloadTooLarge => SnapshotError::PayloadTooLarge,
         _ => SnapshotError::InvalidLength,
     })?;
-    let s = SyncSnapshot {
+    let mut s = SyncSnapshot {
         seen: old.seen,
         history: old
             .history
@@ -810,6 +982,7 @@ fn decode_v1(bytes: &[u8]) -> Result<DecodedSnapshot, SnapshotError> {
         favorites_removed: old.favorites_removed,
         ..SyncSnapshot::default()
     };
+    migrate_legacy_collections(&mut s);
     validate_snapshot(&s)?;
     Ok(DecodedSnapshot {
         original_schema_version: 1,

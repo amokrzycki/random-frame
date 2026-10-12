@@ -77,7 +77,7 @@
                 role="tab"
                 aria-controls="history-body"
                 aria-selected="true">
-                All
+                History
               </button>
               <button
                 class="history-filter__option"
@@ -87,7 +87,7 @@
                 aria-controls="history-body"
                 aria-selected="false"
                 tabindex="-1">
-                Favorites
+                Saved
               </button>
             </div>
             <button class="history-close" id="history-close-button" type="button" aria-label="Close history" autofocus>
@@ -95,6 +95,25 @@
             </button>
           </div>
         </header>
+        <div class="saved-toolbar" id="saved-toolbar" hidden>
+          <div class="saved-toolbar__filter">
+            <label class="saved-toolbar__label" for="saved-filter">View</label
+            ><select id="saved-filter">
+              <option value="all">All saved</option>
+            </select>
+          </div>
+          <div class="saved-toolbar__actions">
+            <button class="sync-dialog__button" id="collection-create" type="button">New collection</button
+            ><button class="sync-dialog__button" id="collection-rename" type="button" hidden>Rename</button
+            ><button
+              class="sync-dialog__button sync-dialog__button--danger"
+              id="collection-delete"
+              type="button"
+              hidden>
+              Delete collection
+            </button>
+          </div>
+        </div>
         <div class="history-dialog__body" id="history-body" role="tabpanel" aria-labelledby="history-filter-all">
           <div class="history-grid" id="history-grid"></div>
           <div class="history-empty" id="history-empty" hidden>
@@ -108,8 +127,8 @@
               Clear history &amp; stats
             </button>
             <span class="history-clear-hint" id="history-clear-hint">
-              Clears history and Stats. Favorites and Seen IDs stay. Known history is removed from linked devices when
-              they Sync; new offline draws may appear later.
+              Clears history and Stats. Saved frames, collections and Seen IDs stay. Known history is removed from
+              linked devices when they Sync; new offline draws may appear later.
             </span>
           </div>
           <div class="history-clear-group" id="history-clear-favorites-group" hidden>
@@ -118,11 +137,11 @@
               id="history-clear-favorites-button"
               type="button"
               aria-describedby="history-clear-favorites-hint">
-              Clear favorites
+              Clear all saved
             </button>
             <span class="history-clear-hint" id="history-clear-favorites-hint">
-              Clears favorites on this device. After this device syncs, known favorites are removed from linked devices
-              when they sync. New favorites created on an offline device may appear later.
+              Removes all known saved frames and their assignments. Collections remain empty. History and downloaded
+              files stay. New offline saves may appear after Sync.
             </span>
           </div>
           <div class="history-pager" id="history-pager" hidden>
@@ -158,6 +177,90 @@
             </nav>
           </div>
         </footer>
+      </div>
+    </dialog>
+
+    <dialog class="history-dialog collections-dialog" id="collections-dialog" aria-labelledby="collections-title">
+      <div class="history-dialog__content">
+        <header class="history-dialog__header">
+          <h2 id="collections-title">Collections</h2>
+          <button class="history-close" id="collections-close" type="button" aria-label="Close collections">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
+          </button>
+        </header>
+        <form class="history-dialog__body collections-form" id="collections-form" novalidate>
+          <p class="collections-frame" id="collections-frame"></p>
+          <p class="collections-copy">
+            Choose where to keep this saved frame. With no collection selected, it stays in All saved.
+          </p>
+          <fieldset class="collections-choices" id="collections-choices">
+            <legend class="sr-only">Assign to collections</legend>
+          </fieldset>
+          <div class="collections-new">
+            <label class="collections-label" for="collections-name">New collection</label>
+            <div class="collections-row">
+              <input
+                id="collections-name"
+                type="text"
+                autocomplete="off"
+                aria-describedby="collections-name-hint collections-name-error"><button
+                class="sync-dialog__button collections-row__action"
+                id="collections-add"
+                type="button">
+                Add to choices
+              </button>
+            </div>
+            <p class="collections-hint" id="collections-name-hint">Created only when you Apply.</p>
+            <p class="collections-error" id="collections-name-error" role="alert" hidden></p>
+          </div>
+          <div class="collections-move" id="collections-move" hidden>
+            <label class="collections-label" for="collections-move-target">Move from this collection to</label>
+            <div class="collections-row">
+              <select id="collections-move-target"></select
+              ><button class="sync-dialog__button collections-row__action" id="collections-move-button" type="button">
+                Choose move
+              </button>
+            </div>
+            <p class="collections-hint">Other collections stay selected. Apply commits the move.</p>
+          </div>
+          <p class="collections-error" id="collections-error" role="alert" tabindex="-1" hidden></p>
+          <button class="sync-dialog__button" id="collections-reopen" type="button" hidden>Open current save</button>
+
+          <div class="collections-remove">
+            <button class="sync-dialog__button sync-dialog__button--danger" id="collections-remove" type="button">
+              Remove from all saved
+            </button>
+            <p class="collections-hint">Also removes collection assignments. History and downloaded files stay.</p>
+          </div>
+        </form>
+        <footer class="collections-actions">
+          <button class="sync-dialog__button" id="collections-cancel" type="button">Cancel</button
+          ><button class="primary-action" id="collections-apply" type="submit" form="collections-form">Apply</button>
+        </footer>
+      </div>
+    </dialog>
+    <dialog
+      class="history-dialog collections-dialog"
+      id="collection-manage-dialog"
+      aria-labelledby="collection-manage-title">
+      <div class="history-dialog__content">
+        <header class="history-dialog__header"><h2 id="collection-manage-title">New collection</h2></header>
+        <form class="history-dialog__body collections-form" id="collection-manage-form" novalidate>
+          <p class="collections-copy" id="collection-manage-copy" hidden></p>
+          <div id="collection-manage-field">
+            <label class="collections-label" for="collection-manage-name">Collection name</label>
+            <input
+              id="collection-manage-name"
+              type="text"
+              autocomplete="off"
+              aria-describedby="collection-manage-error">
+          </div>
+          <p class="collections-error" id="collection-manage-error" role="alert" tabindex="-1" hidden></p>
+          <div class="collections-actions">
+            <button class="sync-dialog__button" id="collection-manage-cancel" type="button" autofocus>Cancel</button
+            ><button class="sync-dialog__button" id="collection-manage-apply" type="submit">Create collection</button>
+          </div>
+        </form>
       </div>
     </dialog>
 
@@ -215,10 +318,9 @@
             class="lightbox-control lightbox-favorite"
             id="lightbox-favorite"
             type="button"
-            aria-label="Add to favorites"
+            aria-label="Save frame"
             aria-keyshortcuts="F"
-            aria-pressed="false"
-            data-tip="Add to favorites (F)">
+            data-tip="Save frame (F)">
             <svg viewBox="0 0 18 18" aria-hidden="true">
               <path d="M9 2.5l1.9 4 4.35.55-3.2 3 .82 4.3L9 12.25 5.13 14.35l.82-4.3-3.2-3 4.35-.55z" />
             </svg>
@@ -328,7 +430,7 @@
                 <dd><kbd>C</kbd></dd>
               </div>
               <div class="shortcuts__row">
-                <dt>Add or remove favorite</dt>
+                <dt>Save frame or open collections</dt>
                 <dd><kbd>F</kbd></dd>
               </div>
             </dl>
@@ -398,10 +500,24 @@
             <p id="sync-error-message"></p>
             <button class="sync-dialog__button" id="sync-retry" type="button" hidden>Try again</button>
           </div>
+          <section class="sync-dialog__choice" id="sync-upgrade" aria-labelledby="sync-upgrade-title" hidden>
+            <h3 id="sync-upgrade-title">Sync needs an upgrade</h3>
+            <p class="sync-dialog__copy">
+              Collections need a newer Sync format. Update your other devices to a version that supports collections.
+              After upgrading Sync, older apps will stop syncing; their local data will stay.
+            </p>
+            <p class="sync-dialog__copy">
+              The device list does not confirm which apps have been updated. Your local changes are waiting to sync.
+            </p>
+            <div class="sync-dialog__actions">
+              <button class="sync-dialog__button" id="sync-upgrade-later" type="button">Later</button
+              ><button class="primary-action" id="sync-upgrade-confirm" type="button">Upgrade Sync</button>
+            </div>
+          </section>
           <section class="sync-dialog__scope" id="sync-scope" aria-labelledby="sync-scope-title">
             <h3 id="sync-scope-title">What Sync covers</h3>
             <ul>
-              <li>History and Favorites</li>
+              <li>History, saved frames and collections</li>
               <li>Previously viewed and checked IDs</li>
               <li>Activity &amp; Stats</li>
               <li>Preferences: theme and history page size</li>
@@ -414,6 +530,7 @@
           <div id="sync-unpaired" hidden>
             <section class="sync-dialog__choice" id="sync-start" aria-labelledby="sync-start-title">
               <h3 id="sync-start-title">Start a new Sync</h3>
+              <p class="sync-dialog__copy">Other devices need a version of Random Frame that supports collections.</p>
               <p class="sync-dialog__copy">
                 For your first device. Creates a new Sync from the data on this device and gives you a recovery key.
               </p>
@@ -448,7 +565,7 @@
                       Replace this device’s synced data with the copy already in Sync.
                     </span>
                     <span class="sync-join__copy" id="sync-join-restore-effect">
-                      Local history, favorites and their previous deletions will not be added to Sync.
+                      Local history, saved frames, collections and their previous deletions will not be added to Sync.
                     </span>
                   </label>
                   <label class="sync-join__option" for="sync-join-merge">
@@ -852,6 +969,17 @@
               <hr class="tools-menu__rule">
               <button
                 class="tools-menu__item tools-menu__item--danger"
+                id="remove-saved-button"
+                type="button"
+                role="menuitem"
+                hidden>
+                <svg viewBox="0 0 18 18" aria-hidden="true">
+                  <path d="M3.5 5h11M7 5V3.5h4V5M5 5l.6 9h6.8L13 5M7.5 8v3.5M10.5 8v3.5" />
+                </svg>
+                Remove from all saved
+              </button>
+              <button
+                class="tools-menu__item tools-menu__item--danger"
                 id="remove-frame-button"
                 type="button"
                 role="menuitem"
@@ -866,10 +994,9 @@
               class="info-icon"
               id="favorite-button"
               type="button"
-              aria-label="Add to favorites"
+              aria-label="Save frame"
               aria-keyshortcuts="F"
-              aria-pressed="false"
-              data-tip="Add to favorites (F)"
+              data-tip="Save frame (F)"
               disabled>
               <svg viewBox="0 0 18 18" aria-hidden="true">
                 <path

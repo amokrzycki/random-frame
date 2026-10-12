@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { FakeDocument, FakeStorage, fakeThumbnailCache, ids, testCapabilities } from "./dom-fakes.mjs";
+import { FakeDocument, FakeStorage, fakeThumbnailCache, ids, libraryOf, testCapabilities } from "./dom-fakes.mjs";
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -78,7 +78,7 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
       calls.push({ command, args });
       if (command === "load_thumbnail_cache" || command === "save_thumbnail_cache") return native.invoke(command, args);
       if (command === "get_history") return structuredClone(history);
-      if (command === "get_favorites") return structuredClone(favorites);
+      if (command === "get_saved_library") return libraryOf(structuredClone(favorites));
       if (command === "prepare_history_clear") return "clear-request";
       if (command === "cancel_history_clear") return null;
       if (command === "commit_history_clear") {
@@ -147,8 +147,8 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
   assert.equal(get("history-grid").children[0].children[0].children[0].src, "data:image/jpeg;base64,AA==");
 
   // Sync imports domain data only; the missing local thumbnail uses the same fetch path.
-  const { applyFavorites, state } = await import("../dist/test-client/viewer-state.js");
-  applyFavorites([...state.favorites, item("id11")]);
+  const { applySavedLibrary, state } = await import("../dist/test-client/viewer-state.js");
+  applySavedLibrary(libraryOf([...state.favorites, item("id11")]));
   get("history-filter-favorites").click();
   for (let i = 0; i < 5; i++) await flush();
   assert.equal(fetchedIds().filter((id) => id === "id11").length, 1);
