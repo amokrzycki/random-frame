@@ -283,7 +283,7 @@ fn editor_observed_remove_survives_sync_and_unknown_adds_are_not_removed() -> Re
         .favorites
         .iter()
         .find(|x| x.source == "prntsc" && x.id == "abc123")
-        .expect("abc123 should exist")
+        .ok_or_else(|| AppError::invalid_input("abc123 should exist"))?
         .clone();
     additional.operation_id = [7; 16];
     state.merge(&SyncSnapshot {
