@@ -16,6 +16,7 @@ import {
   restoreSavedFrames,
   type SavedCollection,
   type SavedItem,
+  type SavedLibrary,
   type SavedMembership,
   type SavedUndo,
   savedFrameRef,
@@ -68,11 +69,15 @@ function editorError(error: unknown): void {
   const stale = (error as { kind?: string })?.kind === "stale_saved_frame";
   let errorMessage: string;
   if (stale) {
-    errorMessage = "This save changed while you were editing. Your choices are still here. Open the current save to begin a new edit.";
+    errorMessage =
+      "This save changed while you were editing. Your choices are still here. Open the current save to begin a new edit.";
   } else if ((error as { kind?: string })?.kind === "invalid-input") {
     errorMessage = `${(error as { message: string }).message} Your choices are still here.`;
   } else {
-    errorMessage = describeError(error, "Changes could not be saved. Your choices are still here; try Apply again.").message;
+    errorMessage = describeError(
+      error,
+      "Changes could not be saved. Your choices are still here; try Apply again.",
+    ).message;
   }
   elements.collectionsError.textContent = errorMessage;
   elements.collectionsError.hidden = false;
@@ -298,7 +303,7 @@ async function applyManagement(): Promise<void> {
   const name = elements.collectionManageName.value.trim();
   try {
     await mutateSavedLibrary(async () => {
-      let library;
+      let library: SavedLibrary;
       if (mode === "create") {
         library = await createCollection(name);
       } else if (mode === "rename") {
