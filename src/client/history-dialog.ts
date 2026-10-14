@@ -1,3 +1,4 @@
+import { bindCollectionActions, closeCollectionActions } from "./collection-actions.js";
 import { openCollectionManagement, openCollections, restoreSavedUndo } from "./collections-dialog.js";
 import { closeDialog, onDialogClosed, openDialog } from "./dialogs.js";
 import { elements } from "./elements.js";
@@ -196,7 +197,10 @@ function renderHistoryPage(scroll = elements.historyBody.scrollTop): void {
     "aria-labelledby",
     favoritesView ? "history-filter-favorites" : "history-filter-all",
   );
-  if (!favoritesView) closeSavedSwitcher(false);
+  if (!favoritesView) {
+    closeSavedSwitcher(false);
+    closeCollectionActions(false);
+  }
   elements.savedToolbar.hidden = !favoritesView;
   renderSavedFilter();
   elements.historyClear.hidden = favoritesView;
@@ -620,9 +624,18 @@ function renderSavedFilter(): void {
   if (!choices.some((c) => c.value === state.savedFilter)) state.savedFilter = "all";
   renderSavedSwitcher(choices, state.savedFilter);
   const collection = state.library.collections.find((c) => operationKey(c.collectionId) === state.savedFilter);
-  elements.collectionRename.hidden = elements.collectionDelete.hidden = !collection;
-  if ((focused === elements.collectionRename || focused === elements.collectionDelete) && !collection)
-    elements.savedFilter.focus();
+  elements.collectionActionsButton.hidden = elements.collectionActionsButton.disabled = !collection;
+  elements.collectionRename.disabled = elements.collectionDelete.disabled = !collection;
+  const label = collection
+    ? `Collection actions for ${labels.get(state.savedFilter) ?? collection.name}`
+    : "Collection actions";
+  elements.collectionActionsButton.setAttribute("aria-label", label);
+  elements.collectionActionsButton.dataset.tip = label;
+  if (!collection) {
+    closeCollectionActions(false);
+    if (focused === elements.collectionActionsButton || elements.collectionActionsMenu.contains(focused))
+      elements.savedFilter.focus();
+  }
 }
 
 // Confirmation stays explicit for pointer, keyboard, and assistive-technology activation.
@@ -685,7 +698,9 @@ function bindClearConfirmation(
 
 export function bindHistoryDialogEvents(): void {
   bindSavedSwitcher();
+  bindCollectionActions();
   elements.savedFilter.addEventListener("change", () => {
+    closeCollectionActions(false);
     state.savedFilter = elements.savedFilter.value;
     state.pageIndex = 0;
     renderHistoryPage(0);

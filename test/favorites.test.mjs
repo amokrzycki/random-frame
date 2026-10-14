@@ -182,8 +182,15 @@ test("quick save, collection drafts, stable Apply retry, filtering, stale recove
     get("saved-filter-menu").children.some((o) => o.dataset.value === "none"),
     true,
   );
+  assert.equal(get("collection-actions-button").hidden, true, "All saved has no collection actions");
+  assert.equal(get("collection-rename").disabled, true);
+  assert.equal(get("collection-delete").disabled, true);
+  get("saved-filter").value = "none";
+  get("saved-filter").dispatchEvent(new Event("change"));
+  assert.equal(get("collection-actions-button").hidden, true, "Without a collection cannot be managed");
   get("saved-filter").value = library.collections[1].collectionId.map((n) => n.toString(16).padStart(2, "0")).join("");
   get("saved-filter").dispatchEvent(new Event("change"));
+  assert.equal(get("collection-actions-button").hidden, false, "a selected collection exposes management");
   assert.equal(labels().length, 1);
   assert.equal(get("history-clear-favorites-button").hidden, true);
   get("history-close-button").click();

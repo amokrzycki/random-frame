@@ -7,9 +7,14 @@ test("pointer presses hide focus rings and keyboard navigation or shortcuts rest
   document.documentElement = { dataset: {} };
   document.body = { append: () => undefined };
   let tooltipShows = 0;
+  let popoverChanging = false;
+  let nestedShows = 0;
   document.createElement = () => ({
     setAttribute: () => undefined,
-    showPopover: () => tooltipShows++,
+    showPopover: () => {
+      tooltipShows++;
+      if (popoverChanging) nestedShows++;
+    },
     getBoundingClientRect: () => ({ width: 100, height: 20 }),
     style: {},
   });
@@ -28,6 +33,9 @@ test("pointer presses hide focus rings and keyboard navigation or shortcuts rest
   const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
   class Target {
     dataset = { tip: "History (H)" };
+    matches() {
+      return true;
+    }
     closest() {
       return this;
     }
@@ -51,8 +59,22 @@ test("pointer presses hide focus rings and keyboard navigation or shortcuts rest
     const event = new Event("pointerover");
     Object.defineProperties(event, { target: { value: target }, pointerType: { value: pointerType } });
     document.dispatchEvent(event);
+    await Promise.resolve();
     assert.equal(tooltipShows, pointerType === "touch" ? 0 : 1);
   }
+
+  document.dispatchEvent(new Event("focusout"));
+  const tab = new Event("keydown");
+  tab.key = "Tab";
+  document.dispatchEvent(tab);
+  popoverChanging = true;
+  const focus = new Event("focusin");
+  Object.defineProperty(focus, "target", { value: target });
+  document.dispatchEvent(focus);
+  popoverChanging = false;
+  await Promise.resolve();
+  assert.equal(nestedShows, 0, "focus restoration cannot open a tooltip inside a native popover operation");
+  assert.equal(tooltipShows, 2, "the tooltip still appears once the popover operation finishes");
 
   for (const key of ["Tab", "ArrowDown", "Enter", "h", "Escape"]) {
     document.dispatchEvent(new Event("pointerdown"));

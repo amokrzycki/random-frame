@@ -50,6 +50,8 @@ export const elements = {
   savedFilter: element<HTMLButtonElement>("#saved-filter"),
   savedFilterValue: element<HTMLElement>("#saved-filter-value"),
   savedFilterMenu: element<HTMLElement>("#saved-filter-menu"),
+  collectionActionsButton: element<HTMLButtonElement>("#collection-actions-button"),
+  collectionActionsMenu: element<HTMLElement>("#collection-actions-menu"),
   collectionCreate: element<HTMLButtonElement>("#collection-create"),
   collectionRename: element<HTMLButtonElement>("#collection-rename"),
   collectionDelete: element<HTMLButtonElement>("#collection-delete"),

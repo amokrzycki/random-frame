@@ -375,6 +375,8 @@ export const ids = [
   "saved-filter",
   "saved-filter-value",
   "saved-filter-menu",
+  "collection-actions-button",
+  "collection-actions-menu",
   "collection-create",
   "collection-rename",
   "collection-delete",

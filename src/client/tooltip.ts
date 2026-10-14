@@ -21,13 +21,17 @@ function show(target: HTMLElement): void {
     return;
   }
   current = target;
-  tip.textContent = text;
-  tip.showPopover?.();
-  const anchor = target.getBoundingClientRect();
-  const { width, height } = tip.getBoundingClientRect();
-  const below = anchor.bottom + 8 + height <= window.innerHeight;
-  tip.style.top = `${below ? anchor.bottom + 8 : anchor.top - 8 - height}px`;
-  tip.style.left = `${Math.max(8, Math.min(anchor.left + anchor.width / 2 - width / 2, window.innerWidth - width - 8))}px`;
+  // Native popovers can restore focus during their own top-layer operation.
+  queueMicrotask(() => {
+    if (current !== target) return;
+    tip.textContent = text;
+    tip.showPopover?.();
+    const anchor = target.getBoundingClientRect();
+    const { width, height } = tip.getBoundingClientRect();
+    const below = anchor.bottom + 8 + height <= window.innerHeight;
+    tip.style.top = `${below ? anchor.bottom + 8 : anchor.top - 8 - height}px`;
+    tip.style.left = `${Math.max(8, Math.min(anchor.left + anchor.width / 2 - width / 2, window.innerWidth - width - 8))}px`;
+  });
 }
 
 const tipTarget = (node: EventTarget | null): HTMLElement | null =>

@@ -101,6 +101,7 @@
   inset: auto;
   margin: 0;
   max-width: 260px;
+  overflow-wrap: anywhere;
   padding: 6px 10px;
   border: 0;
   border-radius: 8px;

@@ -1,3 +1,4 @@
+import { closeCollectionActions } from "./collection-actions.js";
 import { elements } from "./elements.js";
 import { closeSavedSwitcher } from "./saved-switcher.js";
 import { setToastScope } from "./toast.js";
@@ -150,7 +151,7 @@ export function closeDialog(dialog: HTMLDialogElement): void {
  */
 export function dismissTopLayer(): boolean {
   if (elements.entryDialog.open) return false;
-  if (closeSavedSwitcher()) return true;
+  if (closeCollectionActions() || closeSavedSwitcher()) return true;
   const menu = [elements.toolsMenu, elements.frameMenu].find((item) => item.matches(":popover-open"));
   if (menu) {
     menu.hidePopover();

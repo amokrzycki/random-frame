@@ -46,6 +46,7 @@ test("collection switcher keeps navigation distinct from selection and survives 
   });
   bindSavedSwitcher();
   renderSavedSwitcher(choices, "one");
+  assert.equal(trigger.dataset.tip, "Favourite", "the full collection name is available on keyboard focus too");
   trigger.focus();
   const key = (value, extra = {}) => {
     const event = new Event("keydown", { cancelable: true });

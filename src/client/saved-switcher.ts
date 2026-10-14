@@ -73,7 +73,7 @@ export function renderSavedSwitcher(next: SavedFilterChoice[], selected: string)
   elements.savedFilter.value = selected;
   const label = choices.find((choice) => choice.value === selected)?.label ?? "All saved";
   elements.savedFilterValue.textContent = label;
-  elements.savedFilter.title = label;
+  elements.savedFilter.dataset.tip = label;
   elements.savedFilter.setAttribute("aria-label", `View: ${label}`);
   elements.savedFilterMenu.replaceChildren();
   for (const [index, choice] of choices.entries()) {

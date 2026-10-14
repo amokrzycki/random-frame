@@ -118,18 +118,52 @@
               role="listbox"
               aria-label="Saved collections"
               popover></div>
+            <div class="saved-toolbar__management">
+              <button
+                class="collection-actions"
+                id="collection-actions-button"
+                type="button"
+                popovertarget="collection-actions-menu"
+                aria-haspopup="menu"
+                aria-expanded="false"
+                aria-controls="collection-actions-menu"
+                aria-label="Collection actions"
+                data-tip="Collection actions"
+                hidden>
+                Actions
+                <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m5 7 4 4 4-4" /></svg>
+              </button>
+              <div
+                class="saved-switcher__menu collection-actions-menu"
+                id="collection-actions-menu"
+                role="menu"
+                aria-label="Collection actions"
+                popover>
+                <button class="tools-menu__item" id="collection-rename" type="button" role="menuitem" tabindex="-1">
+                  <svg viewBox="0 0 18 18" aria-hidden="true">
+                    <path d="m11 3 4 4M3 15l1-4L12 3a1.4 1.4 0 0 1 2 0l1 1a1.4 1.4 0 0 1 0 2l-8 8-4 1Z" />
+                  </svg
+                  >Rename
+                </button>
+                <hr class="tools-menu__rule">
+                <button
+                  class="tools-menu__item tools-menu__item--danger"
+                  id="collection-delete"
+                  type="button"
+                  role="menuitem"
+                  tabindex="-1">
+                  <svg viewBox="0 0 18 18" aria-hidden="true">
+                    <path d="M3 5h12M7 5V3h4v2M5 5l1 10h6l1-10M8 8v4M10 8v4" />
+                  </svg
+                  >Delete collection
+                </button>
+              </div>
+            </div>
           </div>
-          <div class="saved-toolbar__actions">
-            <button class="sync-dialog__button" id="collection-create" type="button">New collection</button
-            ><button class="sync-dialog__button" id="collection-rename" type="button" hidden>Rename</button
-            ><button
-              class="sync-dialog__button sync-dialog__button--danger"
-              id="collection-delete"
-              type="button"
-              hidden>
-              Delete collection
-            </button>
-          </div>
+          <button class="collection-create" id="collection-create" type="button">
+            <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M9 4v10M4 9h10" /></svg>
+            New collection
+          </button>
         </div>
         <div class="history-dialog__body" id="history-body" role="tabpanel" aria-labelledby="history-filter-all">
           <div class="history-grid" id="history-grid"></div>
