@@ -158,6 +158,7 @@ pub fn merge_snapshots(a: &SyncSnapshot, b: &SyncSnapshot) -> Result<SyncSnapsho
     result
         .memberships
         .retain(|x| !memberships_removed.contains(&x.operation_id));
+    super::normalize_seeded_collection_name(&mut result);
     validate_snapshot(&result)?;
     Ok(result)
 }

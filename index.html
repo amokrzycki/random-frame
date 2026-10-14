@@ -97,10 +97,27 @@
         </header>
         <div class="saved-toolbar" id="saved-toolbar" hidden>
           <div class="saved-toolbar__filter">
-            <label class="saved-toolbar__label" for="saved-filter">View</label
-            ><select id="saved-filter">
-              <option value="all">All saved</option>
-            </select>
+            <button
+              class="saved-switcher"
+              id="saved-filter"
+              type="button"
+              role="combobox"
+              aria-label="View: All saved"
+              aria-haspopup="listbox"
+              aria-expanded="false"
+              aria-controls="saved-filter-menu">
+              <span class="saved-switcher__label">View</span>
+              <span class="saved-switcher__value" id="saved-filter-value">All saved</span>
+              <svg class="saved-switcher__chevron" viewBox="0 0 18 18" aria-hidden="true">
+                <path d="m5 7 4 4 4-4" />
+              </svg>
+            </button>
+            <div
+              class="saved-switcher__menu"
+              id="saved-filter-menu"
+              role="listbox"
+              aria-label="Saved collections"
+              popover></div>
           </div>
           <div class="saved-toolbar__actions">
             <button class="sync-dialog__button" id="collection-create" type="button">New collection</button
@@ -191,7 +208,7 @@
         <form class="history-dialog__body collections-form" id="collections-form" novalidate>
           <p class="collections-frame" id="collections-frame"></p>
           <p class="collections-copy">
-            Choose where to keep this saved frame. With no collection selected, it stays in All saved.
+            Assign this frame to any collections. Unchecking a collection removes only that assignment.
           </p>
           <fieldset class="collections-choices" id="collections-choices">
             <legend class="sr-only">Assign to collections</legend>
@@ -210,7 +227,9 @@
                 Add to choices
               </button>
             </div>
-            <p class="collections-hint" id="collections-name-hint">Created only when you Apply.</p>
+            <p class="collections-hint" id="collections-name-hint">
+              Created when you Apply. With no collection selected, the frame stays in All saved.
+            </p>
             <p class="collections-error" id="collections-name-error" role="alert" hidden></p>
           </div>
           <div class="collections-move" id="collections-move" hidden>

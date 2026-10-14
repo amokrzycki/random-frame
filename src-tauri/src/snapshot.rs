@@ -148,6 +148,30 @@ pub(crate) fn migrate_legacy_collections(s: &mut SyncSnapshot) {
     }
     s.collections.sort_by_key(|c| c.collection_id);
     s.memberships.sort_by_key(|m| m.operation_id);
+    normalize_seeded_collection_name(s);
+}
+
+/// Only the untouched Polish seed is renamed. A new deterministic register wins over
+/// old clients' seed without rewriting an immutable operation or a user's rename.
+pub(crate) fn normalize_seeded_collection_name(s: &mut SyncSnapshot) {
+    let collection_id = hash_id(&[b"rf/collections/legacy-favorites/v1"]);
+    let seed_operation = hash_id(&[b"rf/collections/legacy-favorites/name/v1"]);
+    for collection in &mut s.collections {
+        if collection.collection_id == collection_id
+            && collection.name.clock == 0
+            && collection.name.operation_id == seed_operation
+            && collection.name.value == "Ulubione"
+        {
+            collection.name = Register {
+                // Keep seed clock zero so every user rename (including an old
+                // client's first rename at clock one) wins. This hash sorts after
+                // the original seed ID; the ordering is pinned by regression tests.
+                clock: 0,
+                operation_id: hash_id(&[b"rf/collections/legacy-favorites/name/en/v1"]),
+                value: "Favourite".into(),
+            };
+        }
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct ExplorationRecord {
@@ -941,6 +965,7 @@ pub fn decode_snapshot(bytes: &[u8]) -> Result<DecodedSnapshot, SnapshotError> {
         return Err(SnapshotError::InvalidLength);
     }
     validate_snapshot(&s)?;
+    normalize_seeded_collection_name(&mut s);
     Ok(DecodedSnapshot {
         original_schema_version: 3,
         data: s,

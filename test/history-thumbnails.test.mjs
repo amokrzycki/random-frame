@@ -168,8 +168,7 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
   clear.click();
   await new Promise((resolve) => setTimeout(resolve, 520));
   const finish = get("history-dialog")
-    .children.flatMap((region) => region.children)
-    .flatMap((notice) => notice.children)
+    .querySelectorAll("button")
     .find((button) => button.textContent === "Finish clearing");
   finish.click();
   await flush();

@@ -452,12 +452,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   const clears = () => invocations.filter(({ command }) => command === "commit_history_clear").length;
   const prepares = () => invocations.filter(({ command }) => command === "prepare_history_clear").length;
   const historyDialog = get("history-dialog");
-  // ponytail: DOM path: dialog → dialog-notices regions → toast elements → buttons. Brittle if structure changes.
-  const action = (label) =>
-    historyDialog.children
-      .flatMap((region) => region.children)
-      .flatMap((notice) => notice.children)
-      .findLast((button) => button.textContent === label);
+  const action = (label) => historyDialog.querySelectorAll("button").findLast((button) => button.textContent === label);
   get("history-tool-button").click();
   const beforeClear = structuredClone(persisted);
   const viewer = await import("../dist/test-client/viewer-state.js");

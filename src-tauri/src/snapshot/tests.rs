@@ -428,7 +428,7 @@ fn frozen_v2_migration_and_v3_collection_sections_are_bounded_and_canonical(
     assert_eq!(decoded.data.favorites, old.favorites);
     assert_eq!(decoded.data.favorites_removed, old.favorites_removed);
     let converted = decoded.data;
-    assert_eq!(converted.collections[0].name.value, "Ulubione");
+    assert_eq!(converted.collections[0].name.value, "Favourite");
     assert_eq!(converted.collections[0].name.clock, 0);
     assert_eq!(converted.memberships[0].favorite_operation_id, [3; 16]);
     assert_eq!(parse_snapshot(&serialize_snapshot(&converted)?)?, converted);
@@ -451,5 +451,44 @@ fn frozen_v2_migration_and_v3_collection_sections_are_bounded_and_canonical(
     let mut forged = serialize_snapshot(&converted)?;
     forged.truncate(forged.len() - 4);
     assert!(decode_snapshot(&forged).is_err());
+    Ok(())
+}
+
+#[test]
+fn seeded_collection_english_name_converges_without_changing_user_names(
+) -> Result<(), SnapshotError> {
+    let seed_id = hash_id(&[b"rf/collections/legacy-favorites/v1"]);
+    let mut legacy = SyncSnapshot {
+        collections: vec![CollectionRecord {
+            collection_id: seed_id,
+            name: Register {
+                clock: 0,
+                operation_id: hash_id(&[b"rf/collections/legacy-favorites/name/v1"]),
+                value: "Ulubione".into(),
+            },
+        }],
+        ..SyncSnapshot::default()
+    };
+    let modern = parse_snapshot(&serialize_snapshot(&legacy)?)?;
+    assert_eq!(modern.collections[0].name.value, "Favourite");
+    assert_eq!(modern.collections[0].collection_id, seed_id);
+    assert!(modern.collections[0].name.stamp() > legacy.collections[0].name.stamp());
+    assert_eq!(merge_snapshots(&legacy, &modern)?, modern);
+    assert_eq!(merge_snapshots(&modern, &legacy)?, modern);
+    assert_eq!(merge_snapshots(&legacy, &legacy)?, modern);
+    for name in ["My favourites", "Ulubione", "Favourite"] {
+        legacy.collections[0].name = Register {
+            clock: 1,
+            operation_id: [0; 16],
+            value: name.into(),
+        };
+        assert_eq!(parse_snapshot(&serialize_snapshot(&legacy)?)?, legacy);
+        assert_eq!(merge_snapshots(&modern, &legacy)?, legacy);
+    }
+    // A user-created collection with the old spelling is not the seed.
+    legacy.collections[0].collection_id = [20; 16];
+    legacy.collections[0].name.clock = 0;
+    legacy.collections[0].name.value = "Ulubione".into();
+    assert_eq!(parse_snapshot(&serialize_snapshot(&legacy)?)?, legacy);
     Ok(())
 }

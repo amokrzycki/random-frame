@@ -23,15 +23,33 @@ class FakeElement extends EventTarget {
   }
 
   append(...children) {
-    this.children.push(...children);
+    for (const child of children) {
+      child.remove();
+      child.parentElement = this;
+      this.children.push(child);
+    }
   }
 
   remove() {
-    // Toasts leave the page when dismissed; nothing here inspects the removal.
+    if (this.parentElement) {
+      const index = this.parentElement.children.indexOf(this);
+      if (index >= 0) this.parentElement.children.splice(index, 1);
+      this.parentElement = undefined;
+    }
   }
 
   replaceChildren(...children) {
-    this.children = children;
+    for (const child of this.children) child.parentElement = undefined;
+    this.children = [];
+    this.append(...children);
+  }
+
+  get isConnected() {
+    return this.connectedOverride ?? (this.document.elements?.has(`#${this.id}`) || Boolean(this.parentElement));
+  }
+
+  set isConnected(value) {
+    this.connectedOverride = value;
   }
 
   setAttribute(name, value) {
@@ -149,6 +167,7 @@ export class FakeDocument extends EventTarget {
         /* Visual class changes are outside this DOM double. */
       },
     };
+    for (const [selector, element] of this.elements) element.id = selector.slice(1);
     this.body = new FakeElement(this);
     this.documentElement = new FakeElement(this);
     this.elements.get("#history-clear-button").textContent = "Clear history & stats";
@@ -354,6 +373,8 @@ export const ids = [
   "remove-saved-button",
   "saved-toolbar",
   "saved-filter",
+  "saved-filter-value",
+  "saved-filter-menu",
   "collection-create",
   "collection-rename",
   "collection-delete",

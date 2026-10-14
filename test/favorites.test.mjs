@@ -179,7 +179,7 @@ test("quick save, collection drafts, stable Apply retry, filtering, stale recove
   assert.equal(labels().length, 2);
   assert.match(labels()[0], /saved frame/);
   assert.equal(
-    get("saved-filter").children.some((o) => o.value === "none"),
+    get("saved-filter-menu").children.some((o) => o.dataset.value === "none"),
     true,
   );
   get("saved-filter").value = library.collections[1].collectionId.map((n) => n.toString(16).padStart(2, "0")).join("");
@@ -219,7 +219,7 @@ test("quick save, collection drafts, stable Apply retry, filtering, stale recove
   get("history-tool-button").click();
   get("history-filter-favorites").click();
   assert.equal(
-    get("saved-filter").children.some((o) => o.value === "none"),
+    get("saved-filter-menu").children.some((o) => o.dataset.value === "none"),
     false,
   );
   // A clear confirmation freezes its observed saves before Sync can add or replace them.

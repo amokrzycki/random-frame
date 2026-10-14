@@ -80,6 +80,7 @@ struct FavoriteData {
 impl FavoriteData {
     fn normalize(&mut self) -> Result<(), AppError> {
         let mut s = self.state.snapshot();
+        snapshot::normalize_seeded_collection_name(&mut s);
         s.favorites_removed.dedup();
         s.collections_removed.dedup();
         s.memberships_removed.dedup();

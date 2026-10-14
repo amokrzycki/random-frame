@@ -339,7 +339,7 @@ fn old_transaction_recovery_migrates_favorite_effects_after_v4_already_exists(
     assert_eq!(recovered.favorites.sync_state().favorites, vec![record]);
     assert_eq!(
         recovered.favorites.library().collections[0].name,
-        "Ulubione"
+        "Favourite"
     );
     assert_eq!(
         recovered.favorites.library().memberships[0].favorite_operation_id,
@@ -348,5 +348,47 @@ fn old_transaction_recovery_migrates_favorite_effects_after_v4_already_exists(
     let first = recovered.favorites.sync_state();
     drop(recovered);
     assert_eq!(PersistentState::new(&dir)?.favorites.sync_state(), first);
+    fs::remove_dir_all(dir).map_err(AppError::persistence)
+}
+
+#[test]
+fn existing_v4_seed_name_migrates_in_place_and_preserves_user_rename() -> Result<(), AppError> {
+    let dir = test_directory("collections-seeded-name");
+    let store = FavoriteStore::new(&dir)?;
+    store.save_frame(item("abc123"), None)?;
+    let mut legacy = store.sync_state().snapshot();
+    snapshot::migrate_legacy_collections(&mut legacy);
+    let id = legacy.collections[0].collection_id;
+    legacy.collections[0].name = Register {
+        clock: 0,
+        operation_id: snapshot::hash_id(&[b"rf/collections/legacy-favorites/name/v1"]),
+        value: "Ulubione".into(),
+    };
+    let mut file = serde_json::to_value(FavoriteSyncState::from_snapshot(&legacy))
+        .map_err(AppError::persistence)?;
+    file["version"] = serde_json::json!(4);
+    fs::write(
+        dir.join("favorites-v4.json"),
+        serde_json::to_vec(&file).map_err(AppError::persistence)?,
+    )
+    .map_err(AppError::persistence)?;
+    drop(store);
+    let store = FavoriteStore::new(&dir)?;
+    let migrated = store.sync_state();
+    assert_eq!(migrated.collections[0].collection_id, id);
+    assert_eq!(migrated.collections[0].name.value, "Favourite");
+    assert_eq!(migrated.favorites, legacy.favorites);
+    assert_eq!(migrated.memberships, legacy.memberships);
+    assert_eq!(FavoriteStore::new(&dir)?.sync_state(), migrated);
+    // An intentional old spelling remains a user name after restart and old-client Sync.
+    store.rename_collection(id, "Ulubione")?;
+    store.merge_sync_state(FavoriteSyncState::from_snapshot(&legacy))?;
+    assert_eq!(
+        FavoriteStore::new(&dir)?.library().collections[0].name,
+        "Ulubione"
+    );
+    store.delete_collection(id)?;
+    store.merge_sync_state(FavoriteSyncState::from_snapshot(&legacy))?;
+    assert!(FavoriteStore::new(&dir)?.library().collections.is_empty());
     fs::remove_dir_all(dir).map_err(AppError::persistence)
 }

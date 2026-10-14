@@ -201,7 +201,15 @@ async function applyEditor(): Promise<void> {
     notifyLibrary();
     setBusy(false);
     closeDialog(elements.collectionsDialog);
-    toast.success("Collections updated");
+    const added = editor.request.addToCollectionIds.length;
+    const removed = editor.request.removeMembershipOperationIds.length;
+    toast.success(
+      !editor.selected.size && removed
+        ? "Collection assignments removed. Frame stays in All saved."
+        : added || removed || editor.created.length
+          ? "Collection assignments updated"
+          : "Collection assignments unchanged",
+    );
   } catch (error) {
     if ((error as { kind?: string })?.kind === "stale_saved_frame") {
       try {
@@ -271,7 +279,7 @@ export function openCollectionManagement(mode: "create" | "rename" | "delete", c
   elements.collectionManageTitle.textContent = titleText;
   elements.collectionManageApply.textContent = applyText;
   elements.collectionManageApply.classList.toggle("sync-dialog__button--danger", mode === "delete");
-  elements.collectionManageCopy.textContent = `Delete “${collection?.name}”? Its images stay in All saved and in their other collections.`;
+  elements.collectionManageCopy.textContent = `Delete “${collection?.name}”? Its frames stay in All saved and in their other collections.`;
   elements.collectionManageCopy.hidden = mode !== "delete";
   elements.collectionManageField.hidden = mode === "delete";
   elements.collectionManageName.value = mode === "rename" ? (collection?.name ?? "") : "";
@@ -321,7 +329,7 @@ async function applyManagement(): Promise<void> {
         ? "Collection created"
         : mode === "rename"
           ? "Collection renamed"
-          : "Collection deleted. Images stay saved.",
+          : "Collection deleted. Frames stay in All saved.",
     );
   } catch (error) {
     elements.collectionManageError.textContent = describeError(

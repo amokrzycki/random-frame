@@ -23,6 +23,7 @@
 }
 
 .toast {
+  overflow-wrap: anywhere;
   width: max-content;
   max-width: min(480px, calc(100vw - 72px));
   min-height: 44px;
@@ -115,32 +116,59 @@
   pointer-events: none;
 }
 
-/* Dialog feedback uses the paper surface and occupies space in the active focus scope. */
-.dialog-notices {
-  flex: 0 0 auto;
-  padding: 0 24px 12px;
+/* Top-layer feedback stays in the active dialog's focus/a11y scope, outside
+   its transformed and overflow-clipped content. It never sizes the dialog. */
+.dialog-notice-layer {
+  position: fixed;
+  inset: auto 16px 16px auto;
+  margin: 0;
+  padding: 4px;
+  border: 0;
+  max-width: min(480px, calc(100vw - 32px));
+  max-height: min(30dvh, 240px);
+  overflow-y: auto;
+  background: transparent;
+  pointer-events: auto;
+  scrollbar-width: thin;
+}
+.dialog-notices,
+.toast-region {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+.dialog-notices + .dialog-notices:not(:empty) {
+  margin-top: 8px;
 }
 .dialog-notices:empty {
   display: none;
 }
-.dialog-notices .toast {
-  width: 100%;
-  max-width: none;
-  flex-wrap: wrap;
-  color: var(--ink);
-  background: var(--paper-deep);
-  box-shadow: none;
+.dialog-notice-layer .toast {
+  max-width: 100%;
 }
-.dialog-notices .toast + .toast {
-  margin-top: 8px;
+.toast__action {
+  flex-shrink: 0;
+  min-height: 32px;
 }
-.dialog-notices .toast::before {
-  display: none;
-}
-.dialog-notices .toast__action {
-  min-height: 44px;
-  color: inherit;
-}
-.dialog-notices .toast__action[aria-disabled="true"] {
+.toast__action[aria-disabled="true"] {
   opacity: 0.65;
+  cursor: wait;
+}
+@media (hover: none), (pointer: coarse) {
+  .toast__action {
+    min-height: 44px;
+  }
+}
+
+.notice-rail .toast-region {
+  max-height: min(40dvh, 240px);
+  overflow-y: auto;
+  padding: 4px;
+  scrollbar-width: thin;
+}
+@media (forced-colors: active) {
+  .collections-choices input {
+    appearance: auto;
+  }
 }

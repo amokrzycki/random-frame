@@ -133,7 +133,7 @@ a {
 button {
   font: inherit;
 }
-:where(a, button, input, select, textarea, summary, [tabindex]):focus {
+:where(a, button, input, select, textarea, summary, [tabindex]):focus:not(:focus-visible) {
   outline: 0;
 }
 :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {

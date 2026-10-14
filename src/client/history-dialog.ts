@@ -29,6 +29,7 @@ import {
   restoreHistoryItem,
   type ViewStamp,
 } from "./persistence.js";
+import { bindSavedSwitcher, closeSavedSwitcher, renderSavedSwitcher } from "./saved-switcher.js";
 import { setState, syncControls } from "./stage.js";
 import { toast } from "./toast.js";
 import { updateUserPreferences } from "./user-preferences.js";
@@ -195,6 +196,7 @@ function renderHistoryPage(scroll = elements.historyBody.scrollTop): void {
     "aria-labelledby",
     favoritesView ? "history-filter-favorites" : "history-filter-all",
   );
+  if (!favoritesView) closeSavedSwitcher(false);
   elements.savedToolbar.hidden = !favoritesView;
   renderSavedFilter();
   elements.historyClear.hidden = favoritesView;
@@ -212,7 +214,7 @@ function renderHistoryPage(scroll = elements.historyBody.scrollTop): void {
       emptyDetail = "Save a frame to keep it here.";
     } else {
       emptyTitle = "This collection is empty.";
-      emptyDetail = "Open a saved frame's Collections form to add it here.";
+      emptyDetail = "In All saved, use a frame’s collection button to add it here.";
     }
   }
   elements.historyEmptyTitle.textContent = emptyTitle;
@@ -296,8 +298,12 @@ function renderHistoryPage(scroll = elements.historyBody.scrollTop): void {
     if (favoritesView) {
       const organize = document.createElement("button");
       organize.type = "button";
-      organize.className = "sync-dialog__button history-tile__collections";
-      organize.textContent = "Collections…";
+      organize.dataset.frameId = id;
+      organize.dataset.frameSource = source;
+      organize.className = "history-tile__collections";
+      organize.dataset.tip = "Assign to collections";
+      organize.innerHTML =
+        '<svg viewBox="0 0 18 18" aria-hidden="true"><path d="M2.5 5.5h5l1.5-2h6.5v11h-13z" /><path d="M6 9h6M9 6v6" /></svg>';
       organize.setAttribute("aria-label", `Collections for ${id}`);
       organize.setAttribute("aria-haspopup", "dialog");
       organize.addEventListener("click", () => {
@@ -612,15 +618,7 @@ function renderSavedFilter(): void {
     })),
   ];
   if (!choices.some((c) => c.value === state.savedFilter)) state.savedFilter = "all";
-  elements.savedFilter.replaceChildren();
-  for (const choice of choices) {
-    const option = document.createElement("option");
-    option.value = choice.value;
-    option.textContent = choice.label;
-    elements.savedFilter.append(option);
-  }
-  elements.savedFilter.value = state.savedFilter;
-  elements.savedFilter.title = choices.find((c) => c.value === state.savedFilter)?.label ?? "All saved";
+  renderSavedSwitcher(choices, state.savedFilter);
   const collection = state.library.collections.find((c) => operationKey(c.collectionId) === state.savedFilter);
   elements.collectionRename.hidden = elements.collectionDelete.hidden = !collection;
   if ((focused === elements.collectionRename || focused === elements.collectionDelete) && !collection)
@@ -686,6 +684,7 @@ function bindClearConfirmation(
 }
 
 export function bindHistoryDialogEvents(): void {
+  bindSavedSwitcher();
   elements.savedFilter.addEventListener("change", () => {
     state.savedFilter = elements.savedFilter.value;
     state.pageIndex = 0;
