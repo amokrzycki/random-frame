@@ -117,7 +117,11 @@ function focusInDialog(dialog: HTMLDialogElement): void {
 
 export function closeDialog(dialog: HTMLDialogElement): void {
   if (dialog.dataset.busy) return;
-  if (dialog === elements.syncDialog && elements.syncRecovery.dataset.gated && !elements.syncKeySaved.checked) {
+  if (
+    dialog === elements.syncDialog &&
+    (elements.syncRecovery.dataset.recovering ||
+      (elements.syncRecovery.dataset.gated && !elements.syncKeySaved.checked))
+  ) {
     elements.announcer.textContent = "Save the recovery key and confirm it before closing.";
     return;
   }

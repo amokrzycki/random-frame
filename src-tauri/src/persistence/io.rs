@@ -3,7 +3,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::{fs, io::Write, path::Path};
 
 /// Reads canonical JSON first, then a valid `.json.tmp`, then a committed `.json.bak`.
-pub(super) fn load_json<T: DeserializeOwned + Default>(path: &Path) -> Result<T, AppError> {
+pub(crate) fn load_json<T: DeserializeOwned + Default>(path: &Path) -> Result<T, AppError> {
     match fs::read(path) {
         Ok(bytes) => serde_json::from_slice(&bytes).map_err(AppError::persistence),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {

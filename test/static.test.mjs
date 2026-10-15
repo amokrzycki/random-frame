@@ -104,10 +104,10 @@ test("Sync dialog separates Start a new Sync from Connect this device and states
   assert.match(connect, /id="sync-show-join"/);
   // The two ways to join are explained before the key form and in the same section.
   const connectText = connect.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-  assert.ok(connectText.includes("Compare Restore and Merge, then enter your recovery key below."));
+  assert.ok(connectText.includes("Generate a pairing request and send it to HEAD for approval."));
   assert.ok(connectText.includes("Restore this device from Sync"));
   assert.ok(connectText.includes("Merge this device with Sync"));
-  assert.ok(connect.indexOf("Compare Restore and Merge") < connect.indexOf('id="sync-join-form"'));
+  assert.ok(connect.indexOf("Generate a pairing request") < connect.indexOf('id="sync-join-form"'));
   assert.ok(connect.indexOf('id="sync-join-modes"') < connect.indexOf('id="sync-recovery-input"'));
   assert.match(dialog, /id="sync-join"[^>]*form="sync-join-form"/);
   assert.doesNotMatch(connectText, /It won’t be replaced/);
@@ -128,16 +128,13 @@ test("Sync dialog separates Start a new Sync from Connect this device and states
   assert.match(copy, /Sync now/);
   assert.match(
     copy,
-    /The data on this device and your Sync data on the server stay as they are\. To connect again, you’ll need your recovery key\./,
+    /The data on this device and your Sync data on the server stay as they are\. To connect again, you’ll need a new invitation for managed Sync, or your legacy recovery key\./,
   );
   const buttons = [...dialog.matchAll(/<button[^>]*>([\s\S]*?)<\/button>/g)].map((match) =>
     match[1].replace(/\s+/g, " ").trim(),
   );
   assert.ok(buttons.includes("Disconnect this device"));
-  assert.doesNotMatch(
-    copy,
-    /Leave Sync|Turn on Sync|Join existing Sync|cannot show it again|Remove device|Revoke|Online|Active now/,
-  );
+  assert.doesNotMatch(copy, /Leave Sync|Turn on Sync|Join existing Sync|cannot show it again|Online|Active now/);
 });
 
 test("no copy still says Stats or IDs checked stay on one device", async () => {

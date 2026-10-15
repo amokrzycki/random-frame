@@ -201,11 +201,13 @@ pub enum CryptoError {
     InvalidSnapshot,
     UnsupportedSnapshotVersion(u32),
     InvalidEnvelope,
+    BodyTooLarge,
 }
 
 impl fmt::Display for CryptoError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
+            Self::BodyTooLarge => "Encrypted sync data exceeds the transfer limit",
             Self::InvalidSecret => "Invalid stored sync secret",
             Self::InvalidRecoveryKey => "Invalid recovery key",
             Self::UnsupportedSnapshotVersion(_) => "Unsupported sync snapshot version",
@@ -499,5 +501,77 @@ mod frozen_snapshot_tests {
             include_bytes!("persistence/tests/fixtures/snapshot-v1.bin")
         );
         Ok(())
+    }
+}
+
+impl SyncKeys {
+    /// V2 header is also AAD; v1 derivation/envelope fixtures remain frozen.
+    pub fn encrypt_managed(
+        &self,
+        group: &str,
+        epoch: i64,
+        plaintext: &[u8],
+    ) -> Result<Vec<u8>, CryptoError> {
+        if plaintext.len() > MAX_ENVELOPE - 124 {
+            return Err(CryptoError::BodyTooLarge);
+        }
+        snapshot::parse_snapshot(plaintext).map_err(snapshot_error)?;
+        let mut header = self.managed_header(group, epoch)?;
+        let mut nonce = [0; 24];
+        OsRng.fill_bytes(&mut nonce);
+        header.extend_from_slice(&nonce);
+        let cipher = XChaCha20Poly1305::new_from_slice(self.encryption.as_ref())
+            .map_err(|_| CryptoError::InvalidEnvelope)?;
+        let ct = cipher
+            .encrypt(
+                XNonce::from_slice(&nonce),
+                Payload {
+                    msg: plaintext,
+                    aad: &header,
+                },
+            )
+            .map_err(|_| CryptoError::InvalidEnvelope)?;
+        if header.len() + ct.len() > MAX_ENVELOPE {
+            return Err(CryptoError::BodyTooLarge);
+        }
+        header.extend_from_slice(&ct);
+        Ok(header)
+    }
+    pub fn decrypt_managed(
+        &self,
+        group: &str,
+        epoch: i64,
+        envelope: &[u8],
+    ) -> Result<Zeroizing<Vec<u8>>, CryptoError> {
+        let header = self.managed_header(group, epoch)?;
+        if envelope.len() < 124 || envelope.len() > MAX_ENVELOPE || envelope[..84] != header {
+            return Err(CryptoError::InvalidEnvelope);
+        }
+        let cipher = XChaCha20Poly1305::new_from_slice(self.encryption.as_ref())
+            .map_err(|_| CryptoError::InvalidEnvelope)?;
+        let plaintext = Zeroizing::new(
+            cipher
+                .decrypt(
+                    XNonce::from_slice(&envelope[84..108]),
+                    Payload {
+                        msg: &envelope[108..],
+                        aad: &envelope[..108],
+                    },
+                )
+                .map_err(|_| CryptoError::InvalidEnvelope)?,
+        );
+        snapshot::parse_snapshot(&plaintext).map_err(snapshot_error)?;
+        Ok(plaintext)
+    }
+    fn managed_header(&self, group: &str, epoch: i64) -> Result<Vec<u8>, CryptoError> {
+        if !crate::sync_protocol::valid_hex(group, 32) || epoch < 1 {
+            return Err(CryptoError::InvalidEnvelope);
+        }
+        let mut h = ENVELOPE_MAGIC.to_vec();
+        h.extend_from_slice(&2_u32.to_le_bytes());
+        h.extend_from_slice(&hex::decode(group).map_err(|_| CryptoError::InvalidEnvelope)?);
+        h.extend_from_slice(&epoch.to_be_bytes());
+        h.extend_from_slice(&hex::decode(&self.sync_id).map_err(|_| CryptoError::InvalidEnvelope)?);
+        Ok(h)
     }
 }

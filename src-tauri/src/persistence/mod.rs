@@ -25,7 +25,7 @@ pub use favorites::{
 pub use history::{HistoryItem, HistorySnapshot, HistoryStore, HistorySyncState, RemovedFrame};
 #[cfg(unix)]
 pub(crate) use io::sync_parent;
-pub(crate) use io::{promote_json, save_json};
+pub(crate) use io::{load_json, promote_json, save_json};
 pub use seen::SeenStore;
 
 #[cfg(test)]

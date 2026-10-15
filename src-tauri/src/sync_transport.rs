@@ -7,6 +7,15 @@ pub const MAX_ENVELOPE: usize = 67_108_864;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TransportError {
+    Revoked,
+    Left,
+    Closed,
+    CredentialReplaced,
+    MasterRequired,
+    MasterCannotLeave,
+    InvitationExpired,
+    InvitationConsumed,
+    OperationMismatch,
     InvalidEndpoint,
     InvalidIdentity,
     Offline,
@@ -111,6 +120,7 @@ impl SyncTransport {
             .bearer_auth(token))
     }
 
+    #[cfg(test)]
     pub async fn create(
         &self,
         id: &str,
@@ -240,6 +250,71 @@ fn map_reqwest(error: &reqwest::Error) -> TransportError {
         TransportError::Offline
     } else {
         TransportError::MalformedResponse
+    }
+}
+
+impl SyncTransport {
+    pub async fn managed(
+        &self,
+        group: &str,
+        route: &str,
+        method: reqwest::Method,
+        token: &str,
+        invitation: Option<&str>,
+        body: Option<Vec<u8>>,
+    ) -> Result<Vec<u8>, TransportError> {
+        if !lower_hex_64(group)
+            || !lower_hex_64(token)
+            || body.as_ref().is_some_and(|b| b.len() > MAX_ENVELOPE)
+        {
+            return Err(TransportError::BodyTooLarge);
+        }
+        let url = self
+            .base
+            .join(&format!("sync/v2/groups/{group}/{route}"))
+            .map_err(|_| TransportError::InvalidEndpoint)?;
+        let mut request = self.client.request(method, url).bearer_auth(token);
+        if let Some(secret) = invitation {
+            request = request.header("x-rf-invitation", secret);
+        }
+        if let Some(bytes) = body {
+            request = request
+                .header(header::CONTENT_TYPE, "application/octet-stream")
+                .body(bytes);
+        }
+        let mut response = request.send().await.map_err(|e| map_reqwest(&e))?;
+        let status = response.status();
+        let limit = if status.is_success() {
+            MAX_ENVELOPE
+        } else {
+            256
+        };
+        if response.content_length().is_some_and(|n| n > limit as u64) {
+            return Err(TransportError::BodyTooLarge);
+        }
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await.map_err(|e| map_reqwest(&e))? {
+            if chunk.len() > limit - bytes.len() {
+                return Err(TransportError::BodyTooLarge);
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        if status == StatusCode::FORBIDDEN || status == StatusCode::CONFLICT {
+            return Err(match bytes.as_slice() {
+                b"revoked" => TransportError::Revoked,
+                b"left" => TransportError::Left,
+                b"closed" => TransportError::Closed,
+                b"credential_replaced" => TransportError::CredentialReplaced,
+                b"master_required" => TransportError::MasterRequired,
+                b"master_cannot_leave" => TransportError::MasterCannotLeave,
+                b"invitation_expired" => TransportError::InvitationExpired,
+                b"invitation_consumed" => TransportError::InvitationConsumed,
+                b"operation_mismatch" => TransportError::OperationMismatch,
+                _ => TransportError::MalformedResponse,
+            });
+        }
+        check_status(status, StatusCode::OK)?;
+        Ok(bytes)
     }
 }
 

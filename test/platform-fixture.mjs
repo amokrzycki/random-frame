@@ -12,6 +12,14 @@ const unpairedStatus = {
   snapshotSchemaVersion: 1,
   thisDeviceId: null,
   devices: [],
+  groupState: null,
+  membershipState: null,
+  masterMemberId: null,
+  thisMemberId: null,
+  credentialVersion: null,
+  keyEpoch: null,
+  controlVerifiedAt: null,
+  legacySourceId: null,
 };
 export const android = {
   platform: "android",

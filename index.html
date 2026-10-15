@@ -574,8 +574,8 @@
               <li>Preferences: theme and history page size</li>
             </ul>
             <p>
-              Everything is encrypted before it leaves this device. Images saved to files aren’t backed up, so a
-              recovery key brings back your lists, not the files.
+              Everything is encrypted before it leaves this device. Images saved to files aren’t backed up, so a Sync
+              restores your lists, not the files.
             </p>
           </section>
           <div id="sync-unpaired" hidden>
@@ -583,7 +583,7 @@
               <h3 id="sync-start-title">Start a new Sync</h3>
               <p class="sync-dialog__copy">Other devices need a version of Random Frame that supports collections.</p>
               <p class="sync-dialog__copy">
-                For your first device. Creates a new Sync from the data on this device and gives you a recovery key.
+                This device becomes HEAD of a new group. You’ll get a separate administration code to save.
               </p>
               <div class="sync-dialog__actions">
                 <button class="primary-action" id="sync-enable" type="button">Start a new Sync</button>
@@ -592,12 +592,16 @@
             <section class="sync-dialog__choice" aria-labelledby="sync-connect-title">
               <h3 id="sync-connect-title">Connect this device</h3>
               <p class="sync-dialog__copy" id="sync-connect-note">
-                Compare Restore and Merge, then enter your recovery key below.
+                Generate a pairing request and send it to HEAD for approval. Then paste the invitation. A legacy
+                recovery key still works for an old Sync.
               </p>
               <div class="sync-dialog__actions" id="sync-connect-actions">
                 <button class="sync-dialog__button" id="sync-show-join" type="button">Connect this device</button>
               </div>
               <form id="sync-join-form" hidden>
+                <button class="sync-dialog__button" id="sync-pairing-request" type="button">
+                  Generate pairing request
+                </button>
                 <p class="sync-join__fresh" id="sync-join-fresh" hidden>
                   Nothing is saved on this device yet, so it will take on the copy already in Sync.
                 </p>
@@ -640,10 +644,10 @@
                     With Restore, if Sync was saved by an older app, data it could not save is kept from this device.
                   </p>
                 </fieldset>
-                <label for="sync-recovery-input">Recovery key</label>
+                <label for="sync-recovery-input">Invitation or legacy recovery key</label>
                 <input
                   id="sync-recovery-input"
-                  placeholder="Paste your recovery key"
+                  placeholder="Paste your invitation or legacy key"
                   type="text"
                   autocomplete="off"
                   autocapitalize="off"
@@ -652,10 +656,24 @@
                   required>
               </form>
             </section>
+            <section class="sync-dialog__choice" aria-labelledby="sync-admin-recover-title">
+              <h3 id="sync-admin-recover-title">Recover administration</h3>
+              <p class="sync-dialog__copy">
+                Use the administration code on a new device to recover the same HEAD identity. This replaces the former
+                device’s access and restores the group’s data here. Local data will be replaced after recovery succeeds.
+              </p>
+              <form class="sync-dialog__name" id="sync-admin-recover-form">
+                <label for="sync-admin-code">Administration code</label>
+                <input id="sync-admin-code" type="password" autocomplete="off" spellcheck="false">
+                <button class="sync-dialog__button" id="sync-admin-recover" type="submit">
+                  Prepare recovery / resume
+                </button>
+              </form>
+            </section>
           </div>
           <div id="sync-recovery" hidden>
             <h3 id="sync-recovery-title">Your recovery key</h3>
-            <p>
+            <p id="sync-key-about">
               Keep this key somewhere safe. Use it to bring your saved data to another device. Anyone with this key can
               connect to your Sync.
             </p>
@@ -666,11 +684,14 @@
               <p class="sync-dialog__blocked-note">Check the box below to finish.</p>
               <label class="sync-dialog__saved">
                 <input id="sync-key-saved" type="checkbox">
-                <span>I’ve saved this recovery key somewhere safe</span>
+                <span id="sync-key-saved-label">I’ve saved this code somewhere safe</span>
               </label>
             </div>
             <div class="sync-dialog__actions">
               <button class="primary-action" id="sync-done" type="button" aria-disabled="true">Done</button>
+              <button class="sync-dialog__button" id="sync-recovery-cancel" type="button" hidden>
+                Cancel recovery
+              </button>
             </div>
           </div>
           <div id="sync-paired" hidden>
@@ -690,11 +711,41 @@
             </form>
             <section class="sync-dialog__devices" aria-labelledby="sync-devices-title">
               <h3 id="sync-devices-title">Devices</h3>
-              <p class="sync-dialog__copy">
+              <p class="sync-dialog__copy" id="sync-devices-note">
                 Devices known from past syncs. This list doesn’t show which ones are online or still connected.
               </p>
               <ul class="sync-devices" id="sync-devices"></ul>
             </section>
+            <section class="sync-dialog__choice" id="sync-legacy-move" hidden>
+              <h3>Move to managed Sync</h3>
+              <p class="sync-dialog__copy">
+                This device becomes HEAD of a new group. The old key cannot prove who created the old group. Your data
+                and deletions are preserved; other devices must join again. Creating the new group does not close the
+                old one.
+              </p>
+              <button class="sync-dialog__button" id="sync-move" type="button">Move to managed Sync</button>
+            </section>
+            <p class="sync-dialog__meta" id="sync-legacy-source" hidden></p>
+            <section class="sync-dialog__choice" id="sync-admin-tools" hidden>
+              <h3>Manage this group</h3>
+              <form class="sync-dialog__name" id="sync-invitation-form">
+                <label for="sync-pairing-input">Pairing request from the new device</label>
+                <input id="sync-pairing-input" type="text" autocomplete="off" spellcheck="false" required>
+                <button class="sync-dialog__button" id="sync-create-invitation" type="submit">
+                  Approve device and create invitation
+                </button>
+              </form>
+              <button class="sync-dialog__button" id="sync-show-invitation" type="button">
+                Show latest invitation
+              </button>
+              <button class="sync-dialog__button sync-dialog__button--danger" id="sync-dissolve" type="button">
+                Dissolve group
+              </button>
+            </section>
+            <p class="sync-dialog__copy" id="sync-master-note" hidden>
+              HEAD cannot disconnect. Recover administration on another device with your administration code, or
+              dissolve this group.
+            </p>
             <div class="sync-dialog__actions">
               <button class="primary-action" id="sync-now" type="button">Sync now</button>
               <button class="sync-dialog__button" id="sync-show-key" type="button">Show recovery key</button>
@@ -703,10 +754,43 @@
               </button>
             </div>
           </div>
+          <section class="sync-dialog__choice" id="sync-remove-confirm" hidden aria-labelledby="sync-remove-title">
+            <h3 id="sync-remove-title">Remove device</h3>
+            <p id="sync-remove-target"></p>
+            <p>
+              It will lose future read and write access. Previously downloaded data stays on that device. Other devices
+              update their key automatically.
+            </p>
+            <div class="sync-dialog__actions">
+              <button class="sync-dialog__button" id="sync-remove-cancel" type="button">Cancel</button>
+              <button class="sync-dialog__button sync-dialog__button--danger" id="sync-remove-device" type="button">
+                Remove device
+              </button>
+            </div>
+          </section>
+          <form class="sync-dialog__choice" id="sync-dissolve-confirm" hidden aria-labelledby="sync-dissolve-title">
+            <h3 id="sync-dissolve-title">Dissolve this group?</h3>
+            <p>
+              This closes Sync for every device. Downloaded data and local files remain on each device. The group cannot
+              be reopened.
+            </p>
+            <label for="sync-dissolve-word">Type DISSOLVE to confirm</label>
+            <input id="sync-dissolve-word" type="text" autocomplete="off" spellcheck="false" required>
+            <div class="sync-dialog__actions">
+              <button class="sync-dialog__button" id="sync-dissolve-cancel" type="button">Cancel</button>
+              <button
+                class="sync-dialog__button sync-dialog__button--danger"
+                id="sync-dissolve-submit"
+                type="submit"
+                disabled>
+                Dissolve group
+              </button>
+            </div>
+          </form>
           <div id="sync-leave-confirm" hidden>
             <p>
               This device will stop syncing. The data on this device and your Sync data on the server stay as they are.
-              To connect again, you’ll need your recovery key.
+              To connect again, you’ll need a new invitation for managed Sync, or your legacy recovery key.
             </p>
             <div class="sync-dialog__actions">
               <button class="sync-dialog__button" id="sync-leave-cancel" type="button">Cancel</button>

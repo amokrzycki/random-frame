@@ -1,10 +1,12 @@
+#[cfg(test)]
+use super::state::CreateSyncResult;
 use super::{
     cas::{check_rollback, push_with_retries, restore_with_retries},
     errors::SyncError,
     reconcile::SyncData,
     state::{
-        load_config, save_config, CreateSyncResult, DeviceSummary, Generation, JoinMode,
-        LocalSyncSummary, SyncLocalConfig, SyncState, SyncStatus,
+        load_config, save_config, DeviceSummary, Generation, JoinMode, LocalSyncSummary,
+        SyncLocalConfig, SyncState, SyncStatus,
     },
 };
 #[cfg(unix)]
@@ -33,11 +35,11 @@ pub struct SyncEngine<S: SecretStore> {
     pub(super) history: Arc<HistoryStore>,
     pub(super) data: Arc<PersistentState>,
     pub(super) secret: S,
-    transport: Option<SyncTransport>,
+    pub(super) transport: Option<SyncTransport>,
     pub(super) path: PathBuf,
     pub(super) operation: AsyncMutex<()>,
-    status: Mutex<SyncStatus>,
-    uploaded_generation: Mutex<Option<Generation>>,
+    pub(super) status: Mutex<SyncStatus>,
+    pub(super) uploaded_generation: Mutex<Option<Generation>>,
     app_handle: Option<AppHandle>,
 }
 
@@ -77,17 +79,18 @@ impl<S: SecretStore> SyncEngine<S> {
                 snapshot_schema_version: 1,
                 this_device_id: None,
                 devices: Vec::new(),
+                control: super::state::MembershipStatus::default(),
             }),
             uploaded_generation: Mutex::new(None),
             app_handle,
         }
     }
 
-    fn transport(&self) -> Result<&SyncTransport, SyncError> {
+    pub(super) fn transport(&self) -> Result<&SyncTransport, SyncError> {
         self.transport.as_ref().ok_or(SyncError::InvalidEndpoint)
     }
 
-    fn data(&self) -> SyncData<'_> {
+    pub(super) fn data(&self) -> SyncData<'_> {
         SyncData { state: &self.data }
     }
 
@@ -99,7 +102,7 @@ impl<S: SecretStore> SyncEngine<S> {
         save_config(&self.path, config)
     }
 
-    fn status_snapshot(&self) -> SyncStatus {
+    pub(super) fn status_snapshot(&self) -> SyncStatus {
         let mut status = self
             .status
             .lock()
@@ -117,6 +120,14 @@ impl<S: SecretStore> SyncEngine<S> {
             .flatten()
             .map_or(1, |c| c.highest_schema_version);
         status.this_device_id = Some(hex::encode(self.data.identity.id()));
+        if self
+            .config()
+            .ok()
+            .flatten()
+            .is_some_and(|c| c.protocol_version == 2)
+        {
+            return status;
+        }
         status.devices = self
             .data
             .preferences
@@ -132,17 +143,25 @@ impl<S: SecretStore> SyncEngine<S> {
                     joined_at_ms: d.joined_at_ms,
                     last_synced_at_ms: d.last_sync.as_ref().map(|r| r.value),
                     this_device: this,
+                    member_id: None,
+                    status: None,
+                    is_master: false,
                 }
             })
             .collect();
         status
     }
 
-    fn local_generation(&self) -> Generation {
+    pub(super) fn local_generation(&self) -> Generation {
         self.data.generation()
     }
 
-    fn set_state(&self, state: SyncState, error: Option<&SyncError>, revision: Option<i64>) {
+    pub(super) fn set_state(
+        &self,
+        state: SyncState,
+        error: Option<&SyncError>,
+        revision: Option<i64>,
+    ) {
         let mut status = self
             .status
             .lock()
@@ -154,13 +173,22 @@ impl<S: SecretStore> SyncEngine<S> {
         }
     }
 
-    fn notify_state_changed(&self) {
+    pub(super) fn notify_state_changed(&self) {
         if let Some(handle) = &self.app_handle {
             let _ = handle.emit("sync-state-changed", ());
         }
     }
 
     pub async fn status(&self) -> Result<SyncStatus, SyncError> {
+        if self.config()?.is_some_and(|c| c.protocol_version == 2) {
+            if self.journal()?.is_some() {
+                return Ok(self.status_snapshot());
+            }
+            let Ok(_guard) = self.operation.try_lock() else {
+                return Ok(self.status_snapshot());
+            };
+            return self.refresh_managed_status().await;
+        }
         match self.config()? {
             None => match self.secret.load().await {
                 Err(StorageError::Missing) => Ok(self.status_snapshot()),
@@ -178,6 +206,9 @@ impl<S: SecretStore> SyncEngine<S> {
     }
 
     pub async fn recovery_key(&self) -> Result<String, SyncError> {
+        if self.config()?.is_some_and(|c| c.protocol_version == 2) {
+            return self.admin_code().await;
+        }
         let config = self.config()?.ok_or(SyncError::Unpaired)?;
         let root = self.secret.load().await?;
         let keys = root.derive();
@@ -197,6 +228,7 @@ impl<S: SecretStore> SyncEngine<S> {
         Ok((config, keys))
     }
 
+    #[cfg(test)]
     pub async fn create(&self) -> Result<CreateSyncResult, SyncError> {
         let _guard = self
             .operation
@@ -221,6 +253,7 @@ impl<S: SecretStore> SyncEngine<S> {
         result
     }
 
+    #[cfg(test)]
     async fn create_inner(&self) -> Result<CreateSyncResult, SyncError> {
         let root = RootSecret::generate();
         let keys = root.derive();
@@ -329,10 +362,16 @@ impl<S: SecretStore> SyncEngine<S> {
     }
 
     pub async fn join(&self, recovery_key: &str, mode: JoinMode) -> Result<SyncStatus, SyncError> {
+        if recovery_key.starts_with("rf-invite-v2-") {
+            return self.join_managed(recovery_key, mode).await;
+        }
         let _guard = self
             .operation
             .try_lock()
             .map_err(|_| SyncError::AlreadySyncing)?;
+        if self.journal()?.is_some() {
+            return Err(SyncError::PendingOperation);
+        }
         if self.config()?.is_some() {
             return Err(SyncError::AlreadyPaired);
         }
@@ -422,6 +461,9 @@ impl<S: SecretStore> SyncEngine<S> {
     }
 
     async fn sync_inner(&self) -> Result<SyncStatus, SyncError> {
+        if self.journal()?.is_some() || self.config()?.is_some_and(|c| c.protocol_version == 2) {
+            return self.sync_managed_inner().await;
+        }
         let (mut config, keys) = self.paired().await?;
         let (revision, remote) = self
             .transport()?
@@ -465,7 +507,7 @@ impl<S: SecretStore> SyncEngine<S> {
     }
 
     pub async fn startup_sync(&self) -> Result<SyncStatus, SyncError> {
-        if self.config()?.is_none() {
+        if self.config()?.is_none() && self.journal()?.is_none() {
             return self.status().await;
         }
         self.sync_now().await
@@ -476,6 +518,12 @@ impl<S: SecretStore> SyncEngine<S> {
             .operation
             .try_lock()
             .map_err(|_| SyncError::AlreadySyncing)?;
+        if self.config()?.is_some_and(|c| c.protocol_version == 2) {
+            return self.end_membership(false).await;
+        }
+        if self.journal()?.is_some() {
+            return Err(SyncError::PendingOperation);
+        }
         // Remove recovery siblings first so a crash cannot resurrect removed canonical state.
         for path in [
             self.path.with_extension("json.tmp"),
@@ -512,12 +560,13 @@ impl<S: SecretStore> SyncEngine<S> {
             snapshot_schema_version: 1,
             this_device_id: None,
             devices: Vec::new(),
+            control: super::state::MembershipStatus::default(),
         };
         self.notify_state_changed();
         Ok(self.status_snapshot())
     }
 
-    fn finish<T>(&self, result: &Result<T, SyncError>) {
+    pub(super) fn finish<T>(&self, result: &Result<T, SyncError>) {
         if let Err(error) = result {
             let state = if matches!(error, SyncError::Unpaired) {
                 SyncState::Unpaired

@@ -6,6 +6,9 @@ import { FakeDocument, FakeStorage, ids, libraryOf } from "./dom-fakes.mjs";
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const NOW = Date.now();
 const KEY = "rf1-secret-recovery-key";
+const ADMIN = "rf-admin-v2-test-administration-code";
+const PAIRING = "rf-pair-v2-test-pairing-request";
+const INVITE = "rf-invite-v2-test-invitation";
 
 const unpaired = {
   supported: true,
@@ -18,6 +21,14 @@ const unpaired = {
   snapshotSchemaVersion: 1,
   thisDeviceId: "aabbccdd",
   devices: [],
+  groupState: null,
+  membershipState: null,
+  masterMemberId: null,
+  thisMemberId: null,
+  credentialVersion: null,
+  keyEpoch: null,
+  controlVerifiedAt: null,
+  legacySourceId: null,
 };
 const thisDevice = {
   deviceId: "aabbccdd",
@@ -26,6 +37,9 @@ const thisDevice = {
   joinedAtMs: NOW - 86_400_000 * 9,
   lastSyncedAtMs: NOW - 60_000,
   thisDevice: true,
+  memberId: null,
+  status: null,
+  isMaster: false,
 };
 const phone = {
   deviceId: "11223344",
@@ -34,6 +48,9 @@ const phone = {
   joinedAtMs: NOW - 86_400_000 * 3,
   lastSyncedAtMs: NOW - 86_400_000,
   thisDevice: false,
+  memberId: null,
+  status: null,
+  isMaster: false,
 };
 const paired = {
   ...unpaired,
@@ -44,6 +61,26 @@ const paired = {
   dirty: false,
   snapshotSchemaVersion: 2,
   devices: [phone, thisDevice],
+};
+
+const masterStatus = {
+  ...paired,
+  groupState: "active",
+  membershipState: "active",
+  masterMemberId: "master123456",
+  thisMemberId: "master123456",
+  credentialVersion: 1,
+  keyEpoch: 1,
+  controlVerifiedAt: NOW,
+  devices: [
+    { ...thisDevice, memberId: "master123456", status: "active", isMaster: true },
+    { ...phone, memberId: "member123456", status: "active", isMaster: false },
+  ],
+};
+const memberStatus = {
+  ...masterStatus,
+  thisMemberId: "member123456",
+  devices: masterStatus.devices.map((d) => ({ ...d, thisDevice: d.memberId === "member123456" })),
 };
 
 const document = new FakeDocument(ids);
@@ -64,7 +101,7 @@ function resetBackend() {
     current: structuredClone(unpaired),
     fail: null,
     statusFails: false,
-    partial: null,
+
     activityTotal: 5,
     summary: {
       history: 3,
@@ -104,6 +141,9 @@ before(async () => {
     "sync-recovery",
     "sync-error",
     "sync-name-error",
+    "sync-remove-confirm",
+    "sync-dissolve-confirm",
+    "sync-recovery-cancel",
   ])
     get(id).hidden = true;
   get("sync-join-restore").checked = false;
@@ -141,13 +181,44 @@ before(async () => {
           backend.current.snapshotSchemaVersion = 3;
           return null;
         }
-        if (command === "create_sync") {
-          if (!backend.partial) backend.current = structuredClone(paired);
+        if (command === "create_sync" || command === "move_to_managed_sync") {
+          backend.current = structuredClone(masterStatus);
+          if (command === "move_to_managed_sync") backend.current.legacySourceId = "legacy-source-id";
           return {
-            recoveryKey: KEY,
+            groupId: "new-group",
+            adminRecoveryCode: ADMIN,
             status: structuredClone(backend.current),
-            localPairingError: backend.partial,
+            sourceLegacyId: backend.current.legacySourceId,
+            prepared: false,
           };
+        }
+        if (command === "get_sync_pairing_request") return PAIRING;
+        if (command === "create_sync_invitation" || command === "get_sync_invitation") return INVITE;
+        if (command === "recover_sync_admin") {
+          if (args.confirmed) backend.current = structuredClone(masterStatus);
+          return {
+            groupId: "new-group",
+            adminRecoveryCode: ADMIN,
+            status: structuredClone(backend.current),
+            sourceLegacyId: null,
+            prepared: !args.confirmed,
+          };
+        }
+        if (command === "cancel_sync_admin_recovery") return null;
+        if (command === "remove_sync_device") {
+          backend.current.devices = backend.current.devices.map((d) =>
+            d.memberId === args.memberId ? { ...d, status: "revoked" } : d,
+          );
+          return structuredClone(backend.current);
+        }
+        if (command === "dissolve_sync") {
+          backend.current = {
+            ...structuredClone(unpaired),
+            groupState: "closed",
+            membershipState: "closed",
+            lastErrorCategory: "closed",
+          };
+          return structuredClone(backend.current);
         }
         if (command === "get_sync_join_summary") {
           if (backend.summaryFails) throw { category: "persistence" };
@@ -172,7 +243,7 @@ before(async () => {
           backend.current.dirty = true;
           return null;
         }
-        if (command === "get_sync_recovery_key") return KEY;
+        if (command === "get_sync_recovery_key") return backend.current.thisMemberId ? ADMIN : KEY;
         if (command === "get_history") return { history: structuredClone(backend.history), index: -1 };
         if (command === "get_saved_library") return libraryOf(structuredClone(backend.favorites));
         if (command === "get_exploration_stats") return { explored: 0, viewable: 0, unavailable: 0, unclassified: 0 };
@@ -303,7 +374,7 @@ test("Start a new Sync shows the recovery key, gates leaving on a confirmation, 
   await open(unpaired);
   get("sync-enable").click();
   await flush();
-  assert.equal(text("sync-recovery-key"), KEY);
+  assert.equal(text("sync-recovery-key"), ADMIN);
   assert.equal(get("sync-recovery").hidden, false);
   assert.equal(get("sync-key-confirm").hidden, false);
   assert.equal(get("sync-status").hidden, true);
@@ -311,11 +382,11 @@ test("Start a new Sync shows the recovery key, gates leaving on a confirmation, 
   assert.equal(document.activeElement, get("sync-key-saved"));
   assert.equal(get("sync-close").disabled, true);
   assert.equal(get("sync-done").getAttribute("aria-disabled"), "true");
-  assert.equal(JSON.stringify(backend.current).includes(KEY), false);
+  assert.equal(JSON.stringify(backend.current).includes(ADMIN), false);
 
   get("sync-copy-key").click();
   await flush();
-  assert.deepEqual(clipboard.copied, [KEY]);
+  assert.deepEqual(clipboard.copied, [ADMIN]);
   get("sync-close").click();
   assert.equal(get("sync-dialog").open, true);
   get("sync-done").click();
@@ -342,36 +413,28 @@ test("a clipboard failure keeps the key on screen for manual copying", async () 
   assert.equal(get("sync-error").hidden, false);
   assert.match(text("sync-error-message"), /copy it by hand/);
   assert.equal(get("sync-retry").hidden, true);
-  assert.equal(text("sync-recovery-key"), KEY);
+  assert.equal(text("sync-recovery-key"), ADMIN);
 });
 
-test("a created Sync whose local pairing failed keeps the key and explains what is left to do", async () => {
-  backend.partial = { category: "secure_storage" };
+test("create failure retains a retry instead of exposing an unstored code", async () => {
+  backend.fail = { command: "create_sync", error: { category: "timeout" } };
   await open(unpaired);
   get("sync-enable").click();
   await flush();
-  assert.equal(text("sync-recovery-key"), KEY);
-  assert.equal(get("sync-error").hidden, false);
-  assert.match(text("sync-error-message"), /Your Sync was created/);
-  assert.match(text("sync-error-message"), /secure storage/);
-  assert.match(text("sync-error-message"), /connect this device/);
-  assert.equal(get("sync-retry").hidden, true);
-  // Still gated: the only copy of the key is on this screen.
-  assert.equal(get("sync-close").disabled, true);
-  get("sync-key-saved").checked = true;
-  get("sync-key-saved").dispatchEvent(new Event("change"));
-  get("sync-done").click();
-  assert.equal(get("sync-dialog").open, false);
-  get("sync-button").click();
+  assert.equal(text("sync-recovery-key"), "");
+  assert.equal(get("sync-retry").hidden, false);
+  backend.fail = null;
+  get("sync-retry").click();
   await flush();
-  assert.equal(get("sync-unpaired").hidden, false);
-  assert.equal(get("sync-error").hidden, true);
+  assert.equal(text("sync-recovery-key"), ADMIN);
+  assert.equal(get("sync-key-confirm").hidden, false);
 });
 
 test("every status has its own headline and the last sync time comes only from the status", async () => {
   const cases = [
     [{ ...unpaired }, "Sync is off"],
     [{ ...paired, state: "syncing" }, "Syncing…"],
+    [{ ...paired, state: "updating_key" }, "Updating the key automatically…"],
     [{ ...paired, dirty: true }, "Changes waiting to sync"],
     [{ ...paired }, "Sync completed"],
     [{ ...paired, state: "offline", lastErrorCategory: "offline" }, "Sync couldn’t connect"],
@@ -955,7 +1018,7 @@ test("join copy is concrete, avoids vague promises, and keeps developer terms ou
   const form = html.split('id="sync-connect-title"')[1].split('id="sync-recovery"')[0];
   const copy = form.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
   for (const phrase of [
-    "Compare Restore and Merge, then enter your recovery key below.",
+    "Generate a pairing request and send it to HEAD for approval.",
     "Restore this device from Sync",
     "Replace this device’s synced data with the copy already in Sync.",
     "Local history, saved frames, collections and their previous deletions will not be added to Sync.",
@@ -1039,4 +1102,125 @@ test("Later on a pending join lets the user start a different connection without
   assert.equal(get("sync-upgrade").hidden, true);
   assert.equal(get("sync-unpaired").hidden, false);
   assert.equal(syncCalls("approve_sync_upgrade").length, 0);
+});
+
+test("only verified HEAD sees admin controls and distinct HEAD / This device badges", async () => {
+  await open(masterStatus);
+  assert.equal(get("sync-admin-tools").hidden, false);
+  assert.equal(get("sync-leave").disabled, true);
+  assert.equal(get("sync-master-note").hidden, false);
+  assert.ok(rowTexts(get("sync-devices").children[0]).includes("HEAD of sync"));
+  assert.ok(rowTexts(get("sync-devices").children[0]).includes("This device"));
+  get("sync-dialog").close();
+  await open(memberStatus);
+  assert.equal(get("sync-admin-tools").hidden, true);
+  assert.equal(get("sync-show-key").hidden, true);
+  assert.equal(get("sync-leave").disabled, false);
+  get("sync-dialog").close();
+  await open({ ...masterStatus, controlVerifiedAt: null });
+  assert.equal(get("sync-admin-tools").hidden, true);
+});
+
+test("pairing requests and invitations are separate from the administration code", async () => {
+  await open();
+  get("sync-show-join").click();
+  await flush();
+  get("sync-pairing-request").click();
+  await flush();
+  assert.equal(text("sync-recovery-key"), PAIRING);
+  assert.match(text("sync-key-about"), /Send this request to HEAD/);
+  get("sync-done").click();
+  assert.equal(text("sync-recovery-key"), "");
+  get("sync-dialog").close();
+  await open(masterStatus);
+  get("sync-pairing-input").value = PAIRING;
+  submit("sync-invitation-form");
+  await flush();
+  assert.equal(text("sync-recovery-key"), INVITE);
+  assert.match(text("sync-key-about"), /24 hours/);
+  assert.deepEqual(syncCalls("create_sync_invitation")[0].args, { request: PAIRING });
+  get("sync-done").click();
+  get("sync-show-invitation").click();
+  await flush();
+  assert.equal(text("sync-recovery-key"), INVITE);
+  assert.equal(syncCalls("create_sync_invitation").length, 1);
+});
+
+test("recovery commits only after saving the new administration code and clears secrets", async () => {
+  await open();
+  get("sync-admin-code").value = "old-admin-code";
+  submit("sync-admin-recover-form");
+  await flush();
+  assert.equal(syncCalls("recover_sync_admin").length, 1);
+  assert.equal(syncCalls("recover_sync_admin")[0].args.confirmed, false);
+  assert.equal(get("sync-admin-code").value, "");
+  assert.match(text("sync-key-about"), /only after recovery succeeds/);
+  get("sync-done").click();
+  assert.equal(syncCalls("recover_sync_admin").length, 1);
+  get("sync-key-saved").checked = true;
+  get("sync-key-saved").dispatchEvent(new Event("change"));
+  get("sync-close").click();
+  assert.equal(get("sync-dialog").open, true);
+  get("sync-done").click();
+  await flush();
+  assert.equal(syncCalls("recover_sync_admin")[1].args.confirmed, true);
+  assert.equal(text("sync-recovery-key"), "");
+  assert.equal(get("sync-admin-tools").hidden, false);
+});
+
+test("cancelling prepared recovery sends no commit", async () => {
+  await open();
+  get("sync-admin-code").value = "old-admin-code";
+  submit("sync-admin-recover-form");
+  await flush();
+  get("sync-recovery-cancel").click();
+  await flush();
+  assert.equal(syncCalls("cancel_sync_admin_recovery").length, 1);
+  assert.equal(syncCalls("recover_sync_admin").length, 1);
+  assert.equal(text("sync-recovery-key"), "");
+  assert.equal(document.activeElement, get("sync-admin-code"));
+});
+
+test("remove confirms the exact member and dissolve requires the typed word", async () => {
+  await open(masterStatus);
+  const row = get("sync-devices").children.find((row) =>
+    row.children.some((child) => child.textContent === "Remove device"),
+  );
+  row.children.find((child) => child.textContent === "Remove device").click();
+  assert.match(text("sync-remove-target"), /Pocket phone.*member12/);
+  assert.equal(document.activeElement, get("sync-remove-cancel"));
+  get("sync-remove-device").click();
+  await flush();
+  assert.deepEqual(syncCalls("remove_sync_device")[0].args, { memberId: "member123456" });
+  get("sync-dissolve").click();
+  assert.equal(document.activeElement, get("sync-dissolve-cancel"));
+  get("sync-dissolve-word").value = "dissolve";
+  submit("sync-dissolve-confirm");
+  await flush();
+  assert.equal(syncCalls("dissolve_sync").length, 0);
+  get("sync-dissolve-word").value = "DISSOLVE";
+  get("sync-dissolve-word").dispatchEvent(new Event("input"));
+  submit("sync-dissolve-confirm");
+  await flush();
+  assert.equal(syncCalls("dissolve_sync").length, 1);
+  assert.match(text("sync-status-detail"), /dissolved/);
+});
+
+test("legacy move explains both groups and terminal states offer no retry", async () => {
+  await open(paired);
+  assert.equal(get("sync-legacy-move").hidden, false);
+  assert.equal(get("sync-admin-tools").hidden, true);
+  get("sync-move").click();
+  await flush();
+  assert.equal(text("sync-recovery-key"), ADMIN);
+  get("sync-key-saved").checked = true;
+  get("sync-done").click();
+  await flush();
+  get("sync-button").click();
+  await flush();
+  assert.match(text("sync-legacy-source"), /did not close it/);
+  get("sync-dialog").close();
+  await open({ ...unpaired, membershipState: "revoked", lastErrorCategory: "revoked", state: "error" });
+  assert.match(text("sync-status-detail"), /removed/);
+  assert.equal(get("sync-retry").hidden, true);
 });

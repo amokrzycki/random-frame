@@ -32,9 +32,10 @@ mod join_mode;
 mod large_upgrade;
 
 #[derive(Clone, Default)]
-struct MemorySecret {
+pub(super) struct MemorySecret {
     value: Arc<Mutex<Option<[u8; 32]>>>,
-    fail_store: Arc<AtomicBool>,
+    v2: Arc<Mutex<Option<Vec<u8>>>>,
+    pub(super) fail_store: Arc<AtomicBool>,
     fail_delete: Arc<AtomicBool>,
 }
 
@@ -67,9 +68,40 @@ impl SecretStore for MemorySecret {
             .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
         Ok(())
     }
+    async fn store_v2(&self, bytes: zeroize::Zeroizing<Vec<u8>>) -> Result<(), StorageError> {
+        if self.fail_store.load(Ordering::Relaxed) {
+            return Err(StorageError::Unavailable);
+        }
+        *self
+            .v2
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(bytes.to_vec());
+        Ok(())
+    }
+    async fn load_v2(&self) -> Result<zeroize::Zeroizing<Vec<u8>>, StorageError> {
+        self.v2
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+            .map(zeroize::Zeroizing::new)
+            .ok_or(StorageError::Missing)
+    }
+    async fn delete_v2(&self) -> Result<(), StorageError> {
+        if self.fail_delete.load(Ordering::Relaxed) {
+            return Err(StorageError::Unavailable);
+        }
+        *self
+            .v2
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+        Ok(())
+    }
 }
 
-fn assert_sync_data_equal(actual: &snapshot::SyncSnapshot, expected: &snapshot::SyncSnapshot) {
+pub(super) fn assert_sync_data_equal(
+    actual: &snapshot::SyncSnapshot,
+    expected: &snapshot::SyncSnapshot,
+) {
     assert_eq!(actual.seen, expected.seen, "seen mismatch");
     assert_eq!(actual.history, expected.history, "history mismatch");
     assert_eq!(
@@ -315,7 +347,7 @@ async fn server() -> Result<
     Ok((url, state, task))
 }
 
-fn directory(label: &str) -> PathBuf {
+pub(super) fn directory(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
         "random-frame-sync-{label}-{}-{}",
         std::process::id(),
@@ -323,7 +355,7 @@ fn directory(label: &str) -> PathBuf {
     ))
 }
 
-fn device(
+pub(super) fn device(
     path: &Path,
     url: &str,
     secret: MemorySecret,

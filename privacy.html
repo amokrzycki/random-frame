@@ -136,8 +136,9 @@
           <li>Prnt.sc IDs checked (including ones with no image),</li>
           <li>
             if you enable Sync: a pairing ID, a random device ID, the name you give this device, and the time of the
-            last sync on this device, and your recovery key in your system’s secure storage. On Android, the key is
-            encrypted with a key held by Android Keystore.
+            last sync on this device, and Sync credentials in your system’s secure storage. Managed Sync stores this
+            device’s token, private key and data key; only HEAD also stores the administration secret. On Android, this
+            storage is encrypted with a key held by Android Keystore.
           </li>
         </ul>
 
@@ -162,12 +163,16 @@
         <h2>3. Optional Sync</h2>
 
         <p>
-          Sync transfers an encrypted copy of Seen IDs, history, saved frames, collection names and assignments,
-          exploration progress, Activity Stats, and preferences. Encryption and decryption happen on your device. The
-          server operator does not receive the plaintext list of identifiers or your recovery key. The server can see
-          connection metadata, the sync ID, and the size and timing of transfers. The list of devices known from past
-          syncs (name, platform, first joined and last synced times) is part of the encrypted copy. Keep your recovery
-          key safe: anyone with it can connect to your Sync. You can show it again from the Sync dialog.
+          Sync transfers an encrypted copy of Seen IDs, history, saved frames, collection names and assignments, exploration progress, Activity Stats, and
+          preferences. Encryption and decryption happen on your device. The server operator does not receive the
+          plaintext list of frame identifiers, data key or administration secret. The server can see connection
+          metadata, group and member IDs, approved public keys, membership state, key epochs, and the size and timing of
+          transfers. The list of devices known from past syncs (name, platform, first joined and last synced times) is
+          part of the encrypted copy. Keep your recovery key safe: anyone with it can connect to your legacy Sync.
+          Managed Sync requires HEAD to approve each device; its separate administration code can recover the same HEAD
+          on a new installation and replace the old installation’s access. HEAD can show that code again from the Sync
+          dialog. Removing a device or dissolving a group blocks future Sync access; downloaded data and saved files
+          remain on each device.
         </p>
 
         <p>
