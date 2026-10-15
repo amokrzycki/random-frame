@@ -39,7 +39,8 @@ childProcess.execFileSync = (_path, args) => {
   if (command === 'shell dumpsys activity activities') return ['overlay', 'focused'].includes(${JSON.stringify(mode)})
     ? 'topResumedActivity=dev.randomframe.android.debug/dev.randomframe.android.MainActivity'
     : 'topResumedActivity=com.google.android.apps.nexuslauncher/.NexusLauncherActivity';
-  if (command === 'shell dumpsys window windows') return ${JSON.stringify(mode)} === 'focused'
+  if (command === 'shell dumpsys window windows') return 'WINDOW MANAGER WINDOWS\\n  Window #0 Window{123 u0 dev.randomframe.android.debug/dev.randomframe.android.MainActivity}';
+  if (command === 'shell dumpsys window') return ${JSON.stringify(mode)} === 'focused'
     ? 'mCurrentFocus=Window{123 u0 dev.randomframe.android.debug/dev.randomframe.android.MainActivity}'
     : 'mCurrentFocus=Window{123 u0 Application Not Responding: com.android.systemui}';
   if (command === 'shell dumpsys activity exit-info dev.randomframe.android.debug') return 'process=dev.randomframe.android.debug reason=3 (LOW_MEMORY)';

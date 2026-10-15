@@ -116,7 +116,7 @@ runs:
         timeout 10 "$adb" logcat -d -b all -v threadtime > "$diagnostics/logcat-final.log" 2>&1 || true
         timeout 10 "$adb" shell dumpsys activity exit-info dev.randomframe.android.debug \
           > "$diagnostics/process-exits.txt" 2>&1 || true
-        timeout 10 "$adb" shell dumpsys window windows > "$diagnostics/windows.txt" 2>&1 || true
+        timeout 10 "$adb" shell dumpsys window > "$diagnostics/windows.txt" 2>&1 || true
         timeout 10 "$adb" root > "$diagnostics/adb-root.txt" 2>&1 || true
         timeout 10 "$adb" wait-for-device || true
         timeout 15 "$adb" pull /data/tombstones "$diagnostics/tombstones" \

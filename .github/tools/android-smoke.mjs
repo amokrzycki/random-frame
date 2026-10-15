@@ -210,7 +210,7 @@ async function launch() {
       if (current !== pid) throw new Error(`app process changed after launch (${pid} -> ${current})`);
     }
     if (!resumed()) throw new Error("app did not reach the foreground after launch");
-    const focus = adb("shell", "dumpsys", "window", "windows")
+    const focus = adb("shell", "dumpsys", "window")
       .split("\n")
       .find((line) => line.includes("mCurrentFocus="));
     if (!focus?.includes(`${pkg}/`)) throw new Error(`app did not receive input focus: ${focus ?? "unavailable"}`);
