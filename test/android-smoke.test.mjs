@@ -23,6 +23,7 @@ let launches = 0;
 let probes = 0;
 childProcess.execFileSync = (_path, args) => {
   const command = args.join(' ');
+  if (command.startsWith('forward') && ['overlay', 'focused'].includes(${JSON.stringify(mode)})) throw new Error('fixture stopped at DevTools discovery');
   if (command === 'shell getconf PAGE_SIZE') return ${JSON.stringify(mode)} === 'pagesize' ? '4096' : '16384';
   if (command.startsWith('shell am start ')) {
     process.stderr.write('Launch ' + ++launches + '\\n');
@@ -32,10 +33,16 @@ childProcess.execFileSync = (_path, args) => {
   if (command === 'shell pidof dev.randomframe.android.debug') {
     if (${JSON.stringify(mode)} === 'dead') throw Object.assign(new Error('no process'), { status: 1 });
     if (${JSON.stringify(mode)} === 'transport') throw Object.assign(new Error('device offline'), { status: 1, stderr: 'error: device offline' });
-    return ${JSON.stringify(mode)} === 'background' || ++probes === 1 ? '123' : '456';
+    return ['background', 'overlay', 'focused'].includes(${JSON.stringify(mode)}) || ++probes === 1 ? '123' : '456';
   }
   if (command === 'shell pm list packages -U dev.randomframe.android.debug') return 'package:dev.randomframe.android.debug uid:10207';
-  if (command === 'shell dumpsys activity activities') return 'topResumedActivity=com.google.android.apps.nexuslauncher/.NexusLauncherActivity';
+  if (command === 'shell dumpsys activity activities') return ['overlay', 'focused'].includes(${JSON.stringify(mode)})
+    ? 'topResumedActivity=dev.randomframe.android.debug/dev.randomframe.android.MainActivity'
+    : 'topResumedActivity=com.google.android.apps.nexuslauncher/.NexusLauncherActivity';
+  if (command === 'shell dumpsys window windows') return 'WINDOW MANAGER WINDOWS\\n  Window #0 Window{123 u0 dev.randomframe.android.debug/dev.randomframe.android.MainActivity}';
+  if (command === 'shell dumpsys window') return ${JSON.stringify(mode)} === 'focused'
+    ? 'mCurrentFocus=Window{123 u0 dev.randomframe.android.debug/dev.randomframe.android.MainActivity}'
+    : 'mCurrentFocus=Window{123 u0 Application Not Responding: com.android.systemui}';
   if (command === 'shell dumpsys activity exit-info dev.randomframe.android.debug') return 'process=dev.randomframe.android.debug reason=3 (LOW_MEMORY)';
   if (command.startsWith('logcat') && args.includes('crash')) return 'F libc: Fatal signal 6 (SIGABRT)';
   if (command.startsWith('logcat')) return "lowmemorykiller: Kill 'dev.randomframe.android.debug'";
@@ -52,7 +59,7 @@ syncBuiltinESMExports();`,
   );
   assert.equal(result.error, undefined);
   assert.equal(result.status, 1);
-  assert.doesNotMatch(result.stdout, /ok - app starts/);
+  assert.equal(/ok - app starts/.test(result.stdout), mode === "focused");
   return result.stdout + result.stderr;
 }
 
@@ -74,6 +81,16 @@ test("an adb transport failure is not treated as an absent app process", (t) => 
 
 test("a live process without a foreground activity does not pass", (t) => {
   assert.match(smokeFailure(t, "background"), /did not reach the foreground/);
+});
+
+test("a resumed activity behind a system error dialog cannot satisfy launch readiness", (t) => {
+  const output = smokeFailure(t, "overlay");
+  assert.match(output, /app did not receive input focus/);
+  assert.match(output, /Application Not Responding: com.android.systemui/);
+});
+
+test("an app with a stable process, resumed activity and input focus passes launch readiness", (t) => {
+  assert.match(smokeFailure(t, "focused"), /ok - app starts/);
 });
 
 test("am start errors fail even when adb exits successfully", (t) => {

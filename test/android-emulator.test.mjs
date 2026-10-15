@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -22,6 +22,8 @@ scenario=$2
 adb=adb
 emulator_pid=1
 log=/dev/null
+RUNNER_TEMP="$state_dir"
+mkdir -p "$RUNNER_TEMP/android-smoke"
 unset SECONDS
 SECONDS=0
 echo 0 > "$state_dir/poll"
@@ -32,9 +34,11 @@ adb() {
   poll=$(cat "$state_dir/poll")
   case "$*" in
     get-state) echo $((poll + 1)) > "$state_dir/poll"; echo device ;;
+    'shell settings put global hide_error_dialogs 1') touch "$state_dir/dialogs-hidden" ;;
     'shell getprop sys.boot_completed') echo 1 ;;
     'shell getprop init.svc.bootanim')
-      if [ "$scenario" = animation ]; then echo running; else echo stopped; fi ;;
+      if [ "$scenario" = no-animation ]; then return 0;
+      elif [ "$scenario" = animation ]; then echo running; else echo stopped; fi ;;
     'shell pm path android') echo package:/system/framework/framework-res.apk ;;
     'shell service check activity')
       if [ "$scenario" = services ] && (( poll <= 4 )); then
@@ -57,13 +61,22 @@ echo "ready at $SECONDS"
     { encoding: "utf8", timeout: 5000 },
   );
   assert.equal(result.error, undefined);
-  return result;
+  return { ...result, errorDialogsHidden: existsSync(join(directory, "dialogs-hidden")) };
 }
 
 // The composite action runs only on Linux; exercise its actual Bash readiness loop.
 test("boot completion alone does not bypass the settling window", { skip: process.platform === "win32" }, (t) => {
   const result = waitForBoot(t, "ready");
   assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.errorDialogsHidden, true, "first-boot system error dialogs cannot intercept app input");
+  assert.match(result.stdout, /ready at 30\b/);
+});
+
+test("a disabled boot animation still observes the settling window", {
+  skip: process.platform === "win32",
+}, (t) => {
+  const result = waitForBoot(t, "no-animation");
+  assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.match(result.stdout, /ready at 30\b/);
 });
 
@@ -85,5 +98,10 @@ test("an unfinished boot animation times out instead of starting smoke", {
   const result = waitForBoot(t, "animation");
   assert.equal(result.status, 1);
   assert.match(result.stdout, /did not finish booting within 600 seconds/);
+  assert.match(result.stdout, /adb state: device/);
+  assert.match(result.stdout, /boot completed: 1/);
+  assert.match(result.stdout, /boot animation: running/);
+  assert.match(result.stdout, /activity service: Service activity: found/);
+  assert.match(result.stdout, /system server: 100/);
   assert.doesNotMatch(result.stdout, /ready at/);
 });
