@@ -57,9 +57,10 @@ runs:
             exit 1
           fi
 
+          # With -no-boot-anim, the service may never start and its state stays empty.
           if [ "$("$adb" get-state 2>/dev/null || true)" = "device" ] &&
              [ "$("$adb" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] &&
-             [ "$("$adb" shell getprop init.svc.bootanim 2>/dev/null | tr -d '\r')" = "stopped" ] &&
+             [[ "$("$adb" shell getprop init.svc.bootanim 2>/dev/null | tr -d '\r')" =~ ^(stopped)?$ ]] &&
              "$adb" shell pm path android > /dev/null 2>&1 &&
              [ "$("$adb" shell service check activity 2>/dev/null | tr -d '\r')" = "Service activity: found" ]; then
             current_pid=$("$adb" shell pidof system_server 2>/dev/null || true)

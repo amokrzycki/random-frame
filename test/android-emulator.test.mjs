@@ -36,7 +36,8 @@ adb() {
     get-state) echo $((poll + 1)) > "$state_dir/poll"; echo device ;;
     'shell getprop sys.boot_completed') echo 1 ;;
     'shell getprop init.svc.bootanim')
-      if [ "$scenario" = animation ]; then echo running; else echo stopped; fi ;;
+      if [ "$scenario" = no-animation ]; then return 0;
+      elif [ "$scenario" = animation ]; then echo running; else echo stopped; fi ;;
     'shell pm path android') echo package:/system/framework/framework-res.apk ;;
     'shell service check activity')
       if [ "$scenario" = services ] && (( poll <= 4 )); then
@@ -66,6 +67,14 @@ echo "ready at $SECONDS"
 test("boot completion alone does not bypass the settling window", { skip: process.platform === "win32" }, (t) => {
   const result = waitForBoot(t, "ready");
   assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /ready at 30\b/);
+});
+
+test("a disabled boot animation still observes the settling window", {
+  skip: process.platform === "win32",
+}, (t) => {
+  const result = waitForBoot(t, "no-animation");
+  assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.match(result.stdout, /ready at 30\b/);
 });
 
