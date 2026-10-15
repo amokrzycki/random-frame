@@ -4,6 +4,18 @@ use serde::Serialize;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "category", content = "details", rename_all = "snake_case")]
 pub enum SyncError {
+    Revoked,
+    Left,
+    Closed,
+    CredentialReplaced,
+    MasterRequired,
+    MasterCannotLeave,
+    InvitationExpired,
+    InvitationConsumed,
+    OperationMismatch,
+    NoInvitation,
+    PendingOperation,
+    ManagedRequired,
     InvalidEndpoint,
     InvalidRecoveryKey,
     AlreadyPaired,
@@ -45,6 +57,15 @@ impl std::error::Error for SyncError {}
 impl From<TransportError> for SyncError {
     fn from(error: TransportError) -> Self {
         match error {
+            TransportError::Revoked => Self::Revoked,
+            TransportError::Left => Self::Left,
+            TransportError::Closed => Self::Closed,
+            TransportError::CredentialReplaced => Self::CredentialReplaced,
+            TransportError::MasterRequired => Self::MasterRequired,
+            TransportError::MasterCannotLeave => Self::MasterCannotLeave,
+            TransportError::InvitationExpired => Self::InvitationExpired,
+            TransportError::InvitationConsumed => Self::InvitationConsumed,
+            TransportError::OperationMismatch => Self::OperationMismatch,
             TransportError::InvalidEndpoint => Self::InvalidEndpoint,
             TransportError::Offline => Self::Offline,
             TransportError::Timeout => Self::Timeout,
@@ -74,6 +95,18 @@ impl From<StorageError> for SyncError {
 impl SyncError {
     pub(super) fn category(&self) -> &'static str {
         match self {
+            Self::Revoked => "revoked",
+            Self::Left => "left",
+            Self::Closed => "closed",
+            Self::CredentialReplaced => "credential_replaced",
+            Self::MasterRequired => "master_required",
+            Self::MasterCannotLeave => "master_cannot_leave",
+            Self::InvitationExpired => "invitation_expired",
+            Self::InvitationConsumed => "invitation_consumed",
+            Self::OperationMismatch => "operation_mismatch",
+            Self::NoInvitation => "no_invitation",
+            Self::PendingOperation => "pending_operation",
+            Self::ManagedRequired => "managed_required",
             Self::ServerRollbackDetected { .. } => "rollback_detected",
             Self::InvalidEndpoint => "invalid_endpoint",
             Self::InvalidRecoveryKey => "invalid_recovery_key",

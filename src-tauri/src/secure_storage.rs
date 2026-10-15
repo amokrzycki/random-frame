@@ -59,6 +59,38 @@ impl SecureStorage {
         .map_err(|_| StorageError::Unavailable)?
     }
 
+    fn managed_entry(&self) -> Self {
+        Self {
+            service: self.service.replace(".v1", ".v2"),
+            user: "credentials".into(),
+        }
+    }
+
+    async fn store_v2(&self, bytes: Zeroizing<Vec<u8>>) -> Result<(), StorageError> {
+        let storage = self.managed_entry();
+        tauri::async_runtime::spawn_blocking(move || {
+            entry(&storage.service, &storage.user)?
+                .set_secret(&bytes)
+                .map_err(|e| map_error(&e))
+        })
+        .await
+        .map_err(|_| StorageError::Unavailable)?
+    }
+    async fn load_v2(&self) -> Result<Zeroizing<Vec<u8>>, StorageError> {
+        let storage = self.managed_entry();
+        tauri::async_runtime::spawn_blocking(move || {
+            entry(&storage.service, &storage.user)?
+                .get_secret()
+                .map(Zeroizing::new)
+                .map_err(|e| map_error(&e))
+        })
+        .await
+        .map_err(|_| StorageError::Unavailable)?
+    }
+    async fn delete_v2(&self) -> Result<(), StorageError> {
+        self.managed_entry().delete().await
+    }
+
     pub async fn delete(&self) -> Result<(), StorageError> {
         let service = self.service.clone();
         let user = self.user.clone();
@@ -80,6 +112,14 @@ pub trait SecretStore: Send + Sync {
     ) -> impl std::future::Future<Output = Result<(), StorageError>> + Send;
     fn load(&self) -> impl std::future::Future<Output = Result<RootSecret, StorageError>> + Send;
     fn delete(&self) -> impl std::future::Future<Output = Result<(), StorageError>> + Send;
+    fn store_v2(
+        &self,
+        bytes: Zeroizing<Vec<u8>>,
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + Send;
+    fn load_v2(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Zeroizing<Vec<u8>>, StorageError>> + Send;
+    fn delete_v2(&self) -> impl std::future::Future<Output = Result<(), StorageError>> + Send;
 }
 
 impl SecretStore for SecureStorage {
@@ -91,6 +131,15 @@ impl SecretStore for SecureStorage {
     }
     async fn delete(&self) -> Result<(), StorageError> {
         self.delete().await
+    }
+    async fn store_v2(&self, bytes: Zeroizing<Vec<u8>>) -> Result<(), StorageError> {
+        self.store_v2(bytes).await
+    }
+    async fn load_v2(&self) -> Result<Zeroizing<Vec<u8>>, StorageError> {
+        self.load_v2().await
+    }
+    async fn delete_v2(&self) -> Result<(), StorageError> {
+        self.delete_v2().await
     }
 }
 
@@ -211,6 +260,16 @@ mod tests {
         assert_eq!(storage.load().await?.derive().sync_id(), second_id);
         storage.delete().await?;
         assert_eq!(storage.load().await.err(), Some(StorageError::Missing));
+        let managed = Zeroizing::new((0_u8..=250).cycle().take(8192).collect::<Vec<_>>());
+        storage.store_v2(Zeroizing::new(managed.to_vec())).await?;
+        let restarted = SecureStorage {
+            service: storage.service.clone(),
+            user: storage.user.clone(),
+        };
+        assert_eq!(restarted.load_v2().await?.as_slice(), managed.as_slice());
+        assert_eq!(restarted.load().await.err(), Some(StorageError::Missing));
+        restarted.delete_v2().await?;
+        assert_eq!(storage.load_v2().await.err(), Some(StorageError::Missing));
         Ok(())
     }
 }

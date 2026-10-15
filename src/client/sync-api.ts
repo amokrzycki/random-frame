@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type SyncState = "unpaired" | "idle" | "syncing" | "offline" | "error" | "upgrade_required";
+export type SyncState = "unpaired" | "idle" | "syncing" | "updating_key" | "offline" | "error" | "upgrade_required";
 
 export interface DeviceSummary {
   deviceId: string;
@@ -9,6 +9,9 @@ export interface DeviceSummary {
   joinedAtMs: number;
   lastSyncedAtMs: number | null;
   thisDevice: boolean;
+  memberId: string | null;
+  status: string | null;
+  isMaster: boolean;
 }
 
 export interface SyncStatus {
@@ -22,6 +25,14 @@ export interface SyncStatus {
   snapshotSchemaVersion: number;
   thisDeviceId: string | null;
   devices: DeviceSummary[];
+  groupState: string | null;
+  membershipState: string | null;
+  masterMemberId: string | null;
+  thisMemberId: string | null;
+  credentialVersion: number | null;
+  keyEpoch: number | null;
+  controlVerifiedAt: number | null;
+  legacySourceId: string | null;
 }
 
 export interface SyncError {
@@ -36,7 +47,7 @@ export interface CreateSyncResult {
 }
 
 export const getSyncStatus = (): Promise<SyncStatus> => invoke("get_sync_status");
-export const createSync = (): Promise<CreateSyncResult> => invoke("create_sync");
+export const createSync = (): Promise<CreateManagedSyncResult> => invoke("create_sync");
 // Restore: this device takes the Sync's copy and publishes nothing of its own.
 // Merge: this device's synced data, deletions included, is combined with the Sync's.
 export type JoinMode = "restore" | "merge";
@@ -66,3 +77,21 @@ export const getSyncRecoveryKey = (): Promise<string> => invoke("get_sync_recove
 
 export const approveSyncUpgrade = (recoveryKey?: string): Promise<void> =>
   invoke("approve_sync_upgrade", { recoveryKey });
+export interface CreateManagedSyncResult {
+  groupId: string;
+  adminRecoveryCode: string;
+  status: SyncStatus;
+  sourceLegacyId: string | null;
+  prepared: boolean;
+}
+export const getSyncPairingRequest = (): Promise<string> => invoke("get_sync_pairing_request");
+export const createSyncInvitation = (request: string): Promise<string> => invoke("create_sync_invitation", { request });
+export const moveToManagedSync = (): Promise<CreateManagedSyncResult> => invoke("move_to_managed_sync");
+export const recoverSyncAdmin = (code: string, confirmed = false): Promise<CreateManagedSyncResult> =>
+  invoke("recover_sync_admin", { code, confirmed });
+export const removeSyncDevice = (memberId: string): Promise<SyncStatus> => invoke("remove_sync_device", { memberId });
+export const dissolveSync = (): Promise<SyncStatus> => invoke("dissolve_sync");
+
+export const cancelSyncAdminRecovery = (): Promise<void> => invoke("cancel_sync_admin_recovery");
+
+export const getSyncInvitation = (): Promise<string> => invoke("get_sync_invitation");

@@ -1,4 +1,4 @@
-//! Canonical, device-independent plaintext. The crypto envelope and credentials remain v1.
+//! Canonical, device-independent snapshot v3; envelope and membership versions are independent.
 #[cfg(any(test, debug_assertions))]
 mod diagnostics;
 mod merge;

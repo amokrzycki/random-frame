@@ -56,6 +56,14 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
     snapshotSchemaVersion: 1,
     thisDeviceId: null,
     devices: [],
+    groupState: null,
+    membershipState: null,
+    masterMemberId: null,
+    thisMemberId: null,
+    credentialVersion: null,
+    keyEpoch: null,
+    controlVerifiedAt: null,
+    legacySourceId: null,
   };
   let finishStartupSync;
   const startupSync = new Promise((resolve) => {

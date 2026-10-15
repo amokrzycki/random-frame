@@ -24,7 +24,7 @@ Instead of an endless feed, Random Frame offers one deliberate draw at a time ac
 
 ## Operating Context
 
-The gallery is used as a focused desktop utility in a resizable window, primarily with keyboard and mouse. History can Sync across linked devices and can be cleared; known removals propagate through Sync, while new history created offline may appear later. Saved frames, their collection assignments, and Seen IDs can Sync and survive History clearing. Local activity Stats (Frames drawn, Today, streak, and daily results) reset with History. Prnt.sc exploration progress is durable across History clearing and restarts, and Syncs with the rest. The Sync dialog states what Sync covers, that images saved to files are not backed up, when this device last synced, and which devices are known from past syncs; it never implies presence or removal of devices.
+The gallery is used as a focused desktop utility in a resizable window, primarily with keyboard and mouse. History can Sync across linked devices and can be cleared; known removals propagate through Sync, while new history created offline may appear later. Saved frames, their collection assignments, and Seen IDs can Sync and survive History clearing. Local activity Stats (Frames drawn, Today, streak, and daily results) reset with History. Prnt.sc exploration progress is durable across History clearing and restarts, and Syncs with the rest. The Sync dialog states what Sync covers, that images saved to files are not backed up, when this device last synced, and server-verified membership for managed groups, with separate HEAD and This device badges. Legacy lists only devices known from past syncs; neither list implies online presence. HEAD approves pairing requests, removes other devices with automatic key rotation, and can dissolve the group. A separate administration code recovers the same logical HEAD on a new installation, replacing its previous credentials. Moving legacy creates a new group and leaves the old group unchanged.
 
 ## Capabilities and Constraints
 
@@ -35,7 +35,7 @@ The gallery is used as a focused desktop utility in a resizable window, primaril
 - Previous/next navigation and direct image download are required.
 - The star and `F` save an unsaved frame immediately without assigning a collection. For a saved frame they open Collections. A frame can belong to zero or many collections; deleting a collection or its last assignment keeps the global save. Global removal and Clear all saved offer Undo and keep history and downloaded files.
 - Existing favorites migrate once into a normal collection named Favourite, which can be renamed or deleted. Saved frames retain source links and metadata, not permanent copies of upstream images.
-- Collections use Sync snapshot v3. Existing v1/v2 chains require explicit Upgrade Sync consent before joining or publishing; Later leaves changes waiting. Older apps stop syncing after the upgrade and retain their local data. New chains require collection-capable clients. The known-device list cannot confirm app versions.
+- Collections use Sync snapshot v3. Existing v1/v2 chains, including managed groups, require explicit Upgrade Sync consent before joining or publishing; Later leaves changes waiting. Older apps stop syncing after the upgrade and retain their local data. New chains require collection-capable clients. The device list cannot confirm app versions. Legacy migration and collection-format upgrades are separate operations.
 
 ## Vocabulary
 

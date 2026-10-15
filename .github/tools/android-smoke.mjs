@@ -1,11 +1,14 @@
 // Emulator smoke test for the Android build. Needs a booted emulator on adb and a debug APK built with
-// RANDOM_FRAME_SYNC_BASE_URL=http://127.0.0.1:8787, which this script serves with an in-memory Sync mock.
+// RANDOM_FRAME_SYNC_BASE_URL=http://127.0.0.1:8787, which this script serves with a bounded in-memory v2 storage mock (not a security test).
 //
 //   node .github/tools/android-smoke.mjs <debug.apk> [--page-size 16384]
 //
 // Covers: install and start, Back on the consent screen leaves the app, consent survives nothing but
 // acceptance, Back still reaches the app after a relaunch, Sync create stores the secret, and the secret and pairing survive a force-stop.
+
+import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { setTimeout as sleep } from "node:timers/promises";
 
@@ -18,35 +21,163 @@ const check = (ok, message) => {
   process.stdout.write(`ok - ${message}\n`);
 };
 
-// The Sync protocol in miniature: PUT/GET /sync/<id>, numeric ETags, If-None-Match / If-Match.
+// Storage smoke only: this bounded mock implements create/snapshot for one HEAD per group.
+// Security, revocation and recovery are tested against the real Rust/SQLite server by client E2Es.
 const store = new Map();
+const hash = (token) => createHash("sha256").update(token).digest("hex");
+const frame = (metadata, payload = Buffer.alloc(0)) => {
+  const json = Buffer.from(JSON.stringify(metadata));
+  const prefix = Buffer.alloc(4);
+  prefix.writeUInt32BE(json.length);
+  return Buffer.concat([prefix, json, payload]);
+};
 const server = createServer((request, response) => {
-  const id = /^\/sync\/([0-9a-f]{64})$/.exec(request.url)?.[1];
-  const token = request.headers.authorization;
-  const send = (status, revision, body) => {
-    if (revision) response.setHeader("ETag", `"${revision}"`);
-    if (body) response.setHeader("Content-Type", "application/octet-stream");
+  const match = /^\/sync\/v2\/groups\/([0-9a-f]{64})\/(create|snapshot)$/.exec(request.url ?? "");
+  response.setHeader("Cache-Control", "no-store");
+  const send = (status, metadata, payload) => {
+    const body = metadata ? (payload ? frame(metadata, payload) : Buffer.from(JSON.stringify(metadata))) : undefined;
+    if (body) response.setHeader("Content-Type", payload ? "application/octet-stream" : "application/json");
     response.writeHead(status).end(body);
   };
   const chunks = [];
-  request.on("data", (chunk) => chunks.push(chunk));
+  let size = 0;
+  request.on("data", (chunk) => {
+    size += chunk.length;
+    if (size > 67108864) request.destroy();
+    else chunks.push(chunk);
+  });
   request.on("end", () => {
-    const entry = id && store.get(id);
-    if (!id) return send(404);
-    if (request.method === "GET") return entry ? send(200, entry.revision, entry.body) : send(404);
-    if (request.headers["if-none-match"] === "*") {
-      if (entry) return send(412);
-      store.set(id, { token, revision: 1, body: Buffer.concat(chunks) });
-      return send(201, 1);
+    if (!match) return send(404);
+    const [, id, route] = match;
+    const token = request.headers.authorization?.replace(/^Bearer /, "") ?? "";
+    if (!/^[0-9a-f]{64}$/.test(token)) return send(404);
+    let entry = store.get(id);
+    if (request.method === "GET") {
+      if (!entry || entry.tokenVerifier !== hash(token)) return send(404);
+      return send(200, entry.control, entry.payload);
     }
-    if (!entry) return send(404);
-    if (entry.token !== token) return send(403);
-    if (request.headers["if-match"] !== `"${entry.revision}"`) return send(412);
-    store.set(id, { token, revision: entry.revision + 1, body: Buffer.concat(chunks) });
-    return send(204, entry.revision + 1);
+    try {
+      const body = Buffer.concat(chunks);
+      if (body.length < 4) return send(400);
+      const len = body.readUInt32BE();
+      if (len > 1048576 || len > body.length - 4) return send(400);
+      const req = JSON.parse(body.subarray(4, 4 + len));
+      const mutation = req.mutation;
+      const payload = body.subarray(4 + len);
+      if (route === "create" && mutation.kind === "create") {
+        if (entry) return send(412);
+        const member = mutation.member;
+        if (member.tokenVerifier !== hash(token) || req.expectedRevision !== 0 || req.expectedEpoch !== 0)
+          return send(404);
+        entry = {
+          tokenVerifier: member.tokenVerifier,
+          payload,
+          control: {
+            protocolVersion: 2,
+            groupId: id,
+            masterMemberId: member.memberId,
+            state: "active",
+            epoch: 1,
+            revision: 1,
+            keyId: mutation.key_id,
+            snapshotSchemaFloor: 2,
+            recoveryGeneration: 1,
+            recoveryPublicKey: mutation.recovery.publicKey,
+            thisMemberId: member.memberId,
+            members: [
+              {
+                memberId: member.memberId,
+                deviceId: member.deviceId,
+                credentialVersion: 1,
+                wrappingPublicKey: member.wrappingPublicKey,
+                status: "active",
+                joinedAtMs: Date.now(),
+              },
+            ],
+            keyPackage: mutation.packages.find(
+              (p) => p.recipientKind === "member" && p.recipientId === member.memberId,
+            ),
+          },
+        };
+        store.set(id, entry);
+      } else if (route === "snapshot" && mutation.kind === "snapshot") {
+        if (!entry || entry.tokenVerifier !== hash(token)) return send(404);
+        if (
+          req.expectedRevision !== entry.control.revision ||
+          req.expectedEpoch !== entry.control.epoch ||
+          mutation.credential_version !== 1 ||
+          mutation.key_id !== entry.control.keyId
+        )
+          return send(412);
+        entry.payload = payload;
+        entry.control.revision++;
+      } else return send(405);
+      return send(200, {
+        operationId: req.operationId,
+        revision: entry.control.revision,
+        epoch: 1,
+        recoveryGeneration: 1,
+      });
+    } catch {
+      return send(400);
+    }
   });
 });
-await new Promise((resolve) => server.listen(8787, "127.0.0.1", resolve));
+const selfTest = apk === "--self-test";
+await new Promise((resolve) => server.listen(selfTest ? 0 : 8787, "127.0.0.1", resolve));
+if (selfTest) {
+  try {
+    const id = "ab".repeat(32),
+      token = "cd".repeat(32),
+      memberId = "ef".repeat(16);
+    const url = `http://127.0.0.1:${server.address().port}/sync/v2/groups/${id}`;
+    const member = { memberId, deviceId: memberId, tokenVerifier: hash(token), wrappingPublicKey: "12".repeat(32) };
+    const metadata = {
+      operationId: memberId,
+      expectedRevision: 0,
+      expectedEpoch: 0,
+      mutation: {
+        kind: "create",
+        member,
+        recovery: { publicKey: "34".repeat(32) },
+        key_id: "56".repeat(32),
+        packages: [{ recipientKind: "member", recipientId: memberId }],
+      },
+    };
+    const auth = { Authorization: `Bearer ${token}`, "Content-Type": "application/octet-stream" };
+    assert.equal(
+      (await fetch(`${url}/create`, { method: "POST", headers: auth, body: frame(metadata, Buffer.from("opaque")) }))
+        .status,
+      200,
+    );
+    assert.equal(
+      (await fetch(`${url}/snapshot`, { headers: { Authorization: `Bearer ${"00".repeat(32)}` } })).status,
+      404,
+    );
+    const got = await fetch(`${url}/snapshot`, { headers: auth });
+    assert.equal(got.status, 200);
+    assert.equal(got.headers.get("cache-control"), "no-store");
+    const bytes = Buffer.from(await got.arrayBuffer());
+    assert.equal(bytes.subarray(4 + bytes.readUInt32BE()).toString(), "opaque");
+    metadata.expectedRevision = 1;
+    metadata.expectedEpoch = 1;
+    metadata.mutation = { kind: "snapshot", credential_version: 1, key_id: "56".repeat(32) };
+    assert.equal(
+      (await fetch(`${url}/snapshot`, { method: "PUT", headers: auth, body: frame(metadata, Buffer.from("next")) }))
+        .status,
+      200,
+    );
+    assert.equal(
+      (await fetch(`${url}/snapshot`, { method: "PUT", headers: auth, body: frame(metadata, Buffer.from("stale")) }))
+        .status,
+      412,
+    );
+    process.stdout.write("ok - bounded v2 Android storage mock validates tokens and CAS\n");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+  process.exit(0);
+}
 
 const processId = () => {
   try {
@@ -252,6 +383,47 @@ try {
   check(status?.paired === true && status?.state === "idle", `Sync stays paired after a force-stop (${status?.state})`);
   check((await evaluate(invoke("get_sync_recovery_key"))) === key, "the stored secret survives a force-stop");
   check((await evaluate(invoke("sync_now")))?.state === "idle", "Sync runs after the restart");
+  const historyBefore = await evaluate(invoke("get_history"));
+  adb("shell", "am", "force-stop", pkg);
+  const prefsPath = "shared_prefs/keyring-random-frame-sync.xml";
+  const prefs = adb("shell", "run-as", pkg, "cat", prefsPath);
+  let changed = false;
+  const damaged = prefs.replace(
+    /(<string name="[^"\n]*sync\.v2[^"\n]*">)([^<]+)(<\/string>)/,
+    (_all, prefix, value, suffix) => {
+      const bytes = Buffer.from(value, "base64");
+      check(bytes.length > 16, "managed credential has an encrypted value");
+      bytes[bytes.length - 1] ^= 1;
+      changed = true;
+      return prefix + bytes.toString("base64") + suffix;
+    },
+  );
+  check(changed, "managed credential is in the excluded Android store");
+  const writePrefs = (value) =>
+    execFileSync(adbPath, ["shell", `run-as ${pkg} sh -c 'cat > ${prefsPath}'`], {
+      input: value,
+      stdio: ["pipe", "ignore", "pipe"],
+    });
+  try {
+    writePrefs(damaged);
+    await launch();
+    const denied = await evaluate(invoke("get_sync_status"));
+    check(
+      ["secure_storage", "corrupt_local_state"].includes(denied?.error?.category),
+      "damaged Keystore ciphertext fails closed instead of unpairing",
+    );
+    check(
+      JSON.stringify(await evaluate(invoke("get_history"))) === JSON.stringify(historyBefore),
+      "Keystore failure preserves local history",
+    );
+    check(
+      (await evaluate(invoke("create_sync")))?.error?.category === "already_paired",
+      "Keystore failure cannot silently create a replacement group",
+    );
+  } finally {
+    adb("shell", "am", "force-stop", pkg);
+    writePrefs(prefs);
+  }
 } finally {
   server.close();
   try {

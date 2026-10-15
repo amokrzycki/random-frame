@@ -6,6 +6,8 @@ mod snapshot;
 mod sources;
 mod sync;
 mod sync_crypto;
+mod sync_membership_crypto;
+mod sync_protocol;
 mod sync_transport;
 mod thumbnail_cache;
 mod time;
@@ -32,7 +34,9 @@ use std::{
     },
     time::Duration,
 };
-use sync::{CreateSyncResult, JoinMode, LocalSyncSummary, SyncEngine, SyncError, SyncStatus};
+use sync::{
+    CreateManagedSyncResult, JoinMode, LocalSyncSummary, SyncEngine, SyncError, SyncStatus,
+};
 use tauri::{ipc::Response, Manager, State};
 
 struct PendingFrame {
@@ -701,10 +705,10 @@ async fn get_sync_status(state: State<'_, AppState>) -> Result<SyncStatus, SyncE
 }
 
 #[tauri::command]
-async fn create_sync(state: State<'_, AppState>) -> Result<CreateSyncResult, SyncError> {
+async fn create_sync(state: State<'_, AppState>) -> Result<CreateManagedSyncResult, SyncError> {
     state.ensure_imports_ready()?;
     match &state.sync {
-        Some(sync) => sync.create().await,
+        Some(sync) => sync.create_managed().await,
         None => Err(SyncError::UnsupportedPlatform),
     }
 }
@@ -793,6 +797,78 @@ fn set_sync_device_name(name: String, state: State<'_, AppState>) -> Result<(), 
 async fn get_sync_recovery_key(state: State<'_, AppState>) -> Result<String, SyncError> {
     match &state.sync {
         Some(sync) => sync.recovery_key().await,
+        None => Err(SyncError::UnsupportedPlatform),
+    }
+}
+
+#[tauri::command]
+async fn get_sync_pairing_request(state: State<'_, AppState>) -> Result<String, SyncError> {
+    match &state.sync {
+        Some(sync) => sync.pairing_request().await,
+        None => Err(SyncError::UnsupportedPlatform),
+    }
+}
+#[tauri::command]
+async fn create_sync_invitation(
+    request: String,
+    state: State<'_, AppState>,
+) -> Result<String, SyncError> {
+    match &state.sync {
+        Some(sync) => sync.create_invitation(&request).await,
+        None => Err(SyncError::UnsupportedPlatform),
+    }
+}
+#[tauri::command]
+async fn get_sync_invitation(state: State<'_, AppState>) -> Result<String, SyncError> {
+    match &state.sync {
+        Some(sync) => sync.invitation_code().await,
+        None => Err(SyncError::UnsupportedPlatform),
+    }
+}
+#[tauri::command]
+async fn move_to_managed_sync(
+    state: State<'_, AppState>,
+) -> Result<CreateManagedSyncResult, SyncError> {
+    state.ensure_imports_ready()?;
+    match &state.sync {
+        Some(sync) => sync.move_to_managed_sync().await,
+        None => Err(SyncError::UnsupportedPlatform),
+    }
+}
+#[tauri::command]
+async fn recover_sync_admin(
+    code: String,
+    confirmed: bool,
+    state: State<'_, AppState>,
+) -> Result<CreateManagedSyncResult, SyncError> {
+    state.ensure_imports_ready()?;
+    match &state.sync {
+        Some(sync) => sync.recover_admin(&code, confirmed).await,
+        None => Err(SyncError::UnsupportedPlatform),
+    }
+}
+#[tauri::command]
+async fn remove_sync_device(
+    member_id: String,
+    state: State<'_, AppState>,
+) -> Result<SyncStatus, SyncError> {
+    state.ensure_imports_ready()?;
+    match &state.sync {
+        Some(sync) => sync.remove_device(&member_id).await,
+        None => Err(SyncError::UnsupportedPlatform),
+    }
+}
+#[tauri::command]
+async fn cancel_sync_admin_recovery(state: State<'_, AppState>) -> Result<(), SyncError> {
+    match &state.sync {
+        Some(sync) => sync.cancel_admin_recovery().await,
+        None => Err(SyncError::UnsupportedPlatform),
+    }
+}
+#[tauri::command]
+async fn dissolve_sync(state: State<'_, AppState>) -> Result<SyncStatus, SyncError> {
+    match &state.sync {
+        Some(sync) => sync.dissolve_group().await,
         None => Err(SyncError::UnsupportedPlatform),
     }
 }
@@ -908,6 +984,14 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             migrate_viewing_stats,
             get_sync_status,
             create_sync,
+            get_sync_pairing_request,
+            create_sync_invitation,
+            get_sync_invitation,
+            move_to_managed_sync,
+            recover_sync_admin,
+            remove_sync_device,
+            dissolve_sync,
+            cancel_sync_admin_recovery,
             join_sync,
             get_sync_join_summary,
             sync_now,

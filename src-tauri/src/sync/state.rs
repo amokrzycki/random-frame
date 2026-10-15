@@ -8,7 +8,9 @@ pub(super) type Generation = crate::persistence::transaction::Generation;
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SyncLocalConfig {
-    protocol_version: u8,
+    pub(super) protocol_version: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) managed: Option<ManagedConfig>,
     pub(super) sync_id: String,
     pub(super) last_accepted_revision: Option<i64>,
     #[serde(default = "schema_v1")]
@@ -21,6 +23,7 @@ impl SyncLocalConfig {
     pub(super) fn new(sync_id: String, revision: i64) -> Self {
         Self {
             protocol_version: 1,
+            managed: None,
             sync_id,
             last_accepted_revision: Some(revision),
             highest_schema_version: 3,
@@ -30,7 +33,10 @@ impl SyncLocalConfig {
 
     pub(super) fn validate(&self) -> Result<(), SyncError> {
         if !(1..=3).contains(&self.highest_schema_version)
-            || self.protocol_version != 1
+            || !matches!(
+                (self.protocol_version, &self.managed),
+                (1, None) | (2, Some(_))
+            )
             || self.sync_id.len() != 64
             || !self
                 .sync_id
@@ -40,12 +46,15 @@ impl SyncLocalConfig {
         {
             return Err(SyncError::CorruptLocalState);
         }
+        if let Some(m) = &self.managed {
+            m.validate()?;
+        }
         Ok(())
     }
 }
 
 /// How a device without Sync credentials adopts an existing Sync.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum JoinMode {
     /// Remote wins in represented domains; unsupported domains migrate from durable local v2 state.
@@ -98,6 +107,7 @@ pub enum SyncState {
     Idle,
     Syncing,
     UpgradeRequired,
+    UpdatingKey,
     Offline,
     Error,
 }
@@ -113,6 +123,9 @@ pub struct DeviceSummary {
     #[serde(rename = "lastSyncedAtMs")]
     pub last_synced_at_ms: Option<u64>,
     pub this_device: bool,
+    pub member_id: Option<String>,
+    pub status: Option<String>,
+    pub is_master: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -128,6 +141,8 @@ pub struct SyncStatus {
     pub snapshot_schema_version: u32,
     pub this_device_id: Option<String>,
     pub devices: Vec<DeviceSummary>,
+    #[serde(flatten)]
+    pub control: MembershipStatus,
 }
 
 impl SyncStatus {
@@ -143,10 +158,12 @@ impl SyncStatus {
             snapshot_schema_version: 1,
             this_device_id: None,
             devices: Vec::new(),
+            control: MembershipStatus::default(),
         }
     }
 }
 
+#[cfg(test)]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateSyncResult {
@@ -174,13 +191,27 @@ pub(super) fn load_config(path: &Path) -> Result<Option<SyncLocalConfig>, SyncEr
         match serde_json::from_slice::<SyncLocalConfig>(&bytes) {
             Ok(config) => {
                 config.validate()?;
-                // A replacement cannot change pairing or lower a committed security floor.
-                if backup.as_ref().is_some_and(|previous| {
-                    previous.sync_id != config.sync_id
-                        || previous.last_accepted_revision > config.last_accepted_revision
+                if let Some(previous) = &backup {
+                    if previous.sync_id != config.sync_id {
+                        // A journaled move is the one intentional switch of group identity.
+                        if !pending_managed_move(path, previous, &config)? {
+                            return Err(SyncError::CorruptLocalState);
+                        }
+                    } else if previous.last_accepted_revision > config.last_accepted_revision
                         || previous.highest_schema_version > config.highest_schema_version
-                }) {
-                    return Err(SyncError::CorruptLocalState);
+                        || previous
+                            .managed
+                            .as_ref()
+                            .zip(config.managed.as_ref())
+                            .is_some_and(|(a, b)| {
+                                a.member_id != b.member_id
+                                    || a.epoch > b.epoch
+                                    || a.credential_version > b.credential_version
+                                    || a.terminal.is_some() && a.terminal != b.terminal
+                            })
+                    {
+                        return Err(SyncError::CorruptLocalState);
+                    }
                 }
                 (temporary_path, config)
             }
@@ -240,6 +271,9 @@ mod tests {
             joined_at_ms: 1_700_000_000_000,
             last_synced_at_ms: Some(1_700_000_060_000),
             this_device: true,
+            member_id: None,
+            status: None,
+            is_master: false,
         };
         let expected: serde_json::Value = serde_json::from_str(include_str!(
             "../../../test/fixtures/sync-device-summary.json"
@@ -255,4 +289,89 @@ mod tests {
         assert!(json["lastSyncedAtMs"].is_null());
         Ok(())
     }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct ManagedConfig {
+    pub member_id: String,
+    pub credential_version: i64,
+    pub key_id: String,
+    pub epoch: i64,
+    pub terminal: Option<String>,
+    pub legacy_source_id: Option<String>,
+    pub adoption: Option<JoinMode>,
+    #[serde(default)]
+    pub left_locally: bool,
+}
+impl ManagedConfig {
+    fn validate(&self) -> Result<(), SyncError> {
+        use crate::sync_protocol::valid_hex;
+        if !valid_hex(&self.member_id, 16)
+            || !valid_hex(&self.key_id, 32)
+            || self.credential_version < 1
+            || self.epoch < 1
+            || self
+                .legacy_source_id
+                .as_ref()
+                .is_some_and(|s| !valid_hex(s, 32))
+            || self.terminal.as_ref().is_some_and(|s| {
+                !matches!(
+                    s.as_str(),
+                    "revoked" | "closed" | "credential_replaced" | "left"
+                )
+            })
+        {
+            return Err(SyncError::CorruptLocalState);
+        }
+        Ok(())
+    }
+}
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MembershipStatus {
+    pub group_state: Option<String>,
+    pub membership_state: Option<String>,
+    pub master_member_id: Option<String>,
+    pub this_member_id: Option<String>,
+    pub credential_version: Option<i64>,
+    pub key_epoch: Option<i64>,
+    pub control_verified_at: Option<u64>,
+    pub legacy_source_id: Option<String>,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateManagedSyncResult {
+    pub group_id: String,
+    pub admin_recovery_code: String,
+    pub status: SyncStatus,
+    pub source_legacy_id: Option<String>,
+    pub prepared: bool,
+}
+
+fn pending_managed_move(
+    path: &Path,
+    old: &SyncLocalConfig,
+    new: &SyncLocalConfig,
+) -> Result<bool, SyncError> {
+    if old.protocol_version != 1 || new.protocol_version != 2 {
+        return Ok(false);
+    }
+    let journal: Option<super::admin::Journal> =
+        crate::persistence::load_json(&path.with_file_name("sync-admin.json"))
+            .map_err(|_| SyncError::CorruptLocalState)?;
+    let Some(journal) = journal else {
+        return Ok(false);
+    };
+    let crate::sync_protocol::Mutation::Create { member, .. } = &journal.request.mutation else {
+        return Ok(false);
+    };
+    Ok(journal.version == 2
+        && journal.promote
+        && journal.confirmed
+        && journal.group_id == new.sync_id
+        && journal.legacy_source_id.as_deref() == Some(&old.sync_id)
+        && new.managed.as_ref().is_some_and(|m| {
+            m.member_id == member.member_id && m.legacy_source_id.as_deref() == Some(&old.sync_id)
+        }))
 }
