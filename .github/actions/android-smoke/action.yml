@@ -19,14 +19,17 @@ runs:
         sudo udevadm trigger --name-match=kvm
 
     - name: Start 16 KB emulator
+      id: emulator
       shell: bash
       run: |
-        image="system-images;android-35;google_apis_ps16k;x86_64"
+        # Android 15's experimental 16 KB image crashes WebView's MemoryInfra thread.
+        image="system-images;android-36;google_apis_ps16k;x86_64"
         sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
         avdmanager="$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager"
         emulator="$ANDROID_HOME/emulator/emulator"
         adb="$ANDROID_HOME/platform-tools/adb"
-        log="$RUNNER_TEMP/emulator.log"
+        mkdir -p "$RUNNER_TEMP/android-smoke"
+        log="$RUNNER_TEMP/android-smoke/emulator.log"
         export ANDROID_AVD_HOME="$RUNNER_TEMP/android-avd"
         mkdir -p "$ANDROID_AVD_HOME"
 
@@ -39,6 +42,7 @@ runs:
         nohup "$emulator" -avd smoke -no-window -no-audio -no-boot-anim -no-snapshot \
           -memory 6144 -gpu swiftshader_indirect > "$log" 2>&1 &
         emulator_pid=$!
+        nohup "$adb" logcat -b all -v threadtime > "$RUNNER_TEMP/android-smoke/logcat.log" 2>&1 &
 
         deadline=$((SECONDS + 600))
         booted=false
@@ -79,6 +83,14 @@ runs:
 
         if [ "$booted" != "true" ]; then
           echo "::error::Android emulator did not finish booting within 600 seconds"
+          {
+            echo "adb state: $("$adb" get-state 2>&1 || true)"
+            echo "boot completed: $("$adb" shell getprop sys.boot_completed 2>&1 || true)"
+            echo "boot animation: $("$adb" shell getprop init.svc.bootanim 2>&1 || true)"
+            echo "Android package: $("$adb" shell pm path android 2>&1 || true)"
+            echo "activity service: $("$adb" shell service check activity 2>&1 || true)"
+            echo "system server: $("$adb" shell pidof system_server 2>&1 || true)"
+          } | tee "$RUNNER_TEMP/android-smoke/boot-state.txt"
           cat "$log"
           exit 1
         fi
@@ -88,3 +100,29 @@ runs:
       run: |
         node .github/tools/android-smoke.mjs \
           src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk --page-size 16384
+
+    - name: Collect Android failure diagnostics
+      if: failure() && steps.emulator.outcome != 'skipped'
+      shell: bash
+      run: |
+        adb="$ANDROID_HOME/platform-tools/adb"
+        diagnostics="$RUNNER_TEMP/android-smoke"
+        mkdir -p "$diagnostics"
+        # The liveness check can fail while debuggerd is still writing the native crash report.
+        timeout 30 "$adb" shell 'while pidof crash_dump64 > /dev/null; do sleep 1; done' || true
+        timeout 10 "$adb" logcat -d -b all -v threadtime > "$diagnostics/logcat-final.log" 2>&1 || true
+        timeout 10 "$adb" shell dumpsys activity exit-info dev.randomframe.android.debug \
+          > "$diagnostics/process-exits.txt" 2>&1 || true
+        timeout 10 "$adb" root > "$diagnostics/adb-root.txt" 2>&1 || true
+        timeout 10 "$adb" wait-for-device || true
+        timeout 15 "$adb" pull /data/tombstones "$diagnostics/tombstones" \
+          > "$diagnostics/tombstone-pull.txt" 2>&1 || true
+
+    - name: Upload Android failure diagnostics
+      if: failure()
+      uses: actions/upload-artifact@v5
+      with:
+        name: android-smoke-diagnostics-${{ github.run_attempt }}
+        path: ${{ runner.temp }}/android-smoke/
+        if-no-files-found: ignore
+        retention-days: 7

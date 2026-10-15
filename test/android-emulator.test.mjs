@@ -22,6 +22,8 @@ scenario=$2
 adb=adb
 emulator_pid=1
 log=/dev/null
+RUNNER_TEMP="$state_dir"
+mkdir -p "$RUNNER_TEMP/android-smoke"
 unset SECONDS
 SECONDS=0
 echo 0 > "$state_dir/poll"
@@ -85,5 +87,10 @@ test("an unfinished boot animation times out instead of starting smoke", {
   const result = waitForBoot(t, "animation");
   assert.equal(result.status, 1);
   assert.match(result.stdout, /did not finish booting within 600 seconds/);
+  assert.match(result.stdout, /adb state: device/);
+  assert.match(result.stdout, /boot completed: 1/);
+  assert.match(result.stdout, /boot animation: running/);
+  assert.match(result.stdout, /activity service: Service activity: found/);
+  assert.match(result.stdout, /system server: 100/);
   assert.doesNotMatch(result.stdout, /ready at/);
 });
