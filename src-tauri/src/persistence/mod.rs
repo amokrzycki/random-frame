@@ -17,7 +17,10 @@ mod sync_ops;
 pub use activity::{activity_day, day_key, ActivityStore, DailyActivitySnapshot};
 pub use exploration::{ExplorationOutcome, ExplorationStore};
 #[allow(unused_imports, reason = "preserve the persistence module API")]
-pub use favorites::{FavoriteItem, FavoriteStore, FavoriteSyncState};
+pub use favorites::{
+    CollectionEditorRequest, FavoriteItem, FavoriteStore, FavoriteSyncState, RemoveSavedRequest,
+    RemovedSaved, SavedFrameRef, SavedLibrary, SavedUndo,
+};
 #[allow(unused_imports, reason = "preserve the persistence module API")]
 pub use history::{HistoryItem, HistorySnapshot, HistoryStore, HistorySyncState, RemovedFrame};
 #[cfg(unix)]

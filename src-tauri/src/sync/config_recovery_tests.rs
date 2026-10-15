@@ -37,7 +37,7 @@ async fn backup_and_temporary_recovery_preserve_pairing_across_restarts() -> Tes
                 let status = engine.status().await?;
                 assert!(status.paired);
                 assert_eq!(status.last_success_revision, Some(42));
-                assert_eq!(status.snapshot_schema_version, 2);
+                assert_eq!(status.snapshot_schema_version, 3);
                 assert_eq!(status.last_success_at, Some(123));
                 assert_eq!(engine.recovery_key().await?, key);
                 let recovered = engine.config()?.ok_or("missing recovered config")?;
@@ -91,7 +91,7 @@ fn invalid_candidates_are_never_promoted_or_defaulted() -> TestResult {
         ("lastAcceptedRevision", serde_json::json!(0)),
         ("lastAcceptedRevision", serde_json::json!(-1)),
         ("highestSchemaVersion", serde_json::json!(0)),
-        ("highestSchemaVersion", serde_json::json!(3)),
+        ("highestSchemaVersion", serde_json::json!(4)),
         ("unexpected", serde_json::json!(true)),
     ] {
         let mut invalid = valid.clone();
@@ -171,7 +171,7 @@ fn valid_temporary_takes_precedence_over_backup_without_lowering_floors() -> Tes
     for _ in 0..2 {
         let config = load_config(&canonical)?.ok_or("missing temporary")?;
         assert_eq!(config.last_accepted_revision, Some(42));
-        assert_eq!(config.highest_schema_version, 2);
+        assert_eq!(config.highest_schema_version, 3);
     }
     fs::remove_dir_all(path)?;
     Ok(())
@@ -186,7 +186,7 @@ fn incompatible_or_oversized_temporary_does_not_fall_back_to_older_backup() -> T
         let backup = SyncLocalConfig::new("a".repeat(64), 42);
         write_config(&canonical.with_extension("json.bak"), &backup)?;
         let mut invalid = serde_json::to_value(&backup)?;
-        invalid["highestSchemaVersion"] = serde_json::json!(3);
+        invalid["highestSchemaVersion"] = serde_json::json!(4);
         let mut bytes = serde_json::to_vec(&invalid)?;
         if oversized {
             bytes.resize(1025, b' ');
@@ -279,9 +279,10 @@ async fn recovered_backup_retains_remote_revision_schema_and_publication_guards(
         write_config(&engine.path.with_extension("json.bak"), &config)?;
         secret.store(root).await?;
         if guard == "schema-ledger" {
+            engine.data.begin_publication(keys.sync_id(), 40, 3)?;
             engine.data.complete_publication(keys.sync_id())?;
         } else if guard == "publication-ledger" {
-            engine.data.begin_publication(keys.sync_id(), 40)?;
+            engine.data.begin_publication(keys.sync_id(), 40, 2)?;
         }
         drop(engine);
         server

@@ -1,7 +1,16 @@
+import { bindCollectionActions, closeCollectionActions } from "./collection-actions.js";
+import { openCollectionManagement, openCollections, restoreSavedUndo } from "./collections-dialog.js";
 import { closeDialog, onDialogClosed, openDialog } from "./dialogs.js";
 import { elements } from "./elements.js";
 import { describeError } from "./errors.js";
-import { clearFavorites, type FavoriteItem, toggleFavorite } from "./favorites.js";
+import {
+  clearSavedFrames,
+  collectionLabels,
+  newOperationId,
+  operationKey,
+  type RemoveSavedRequest,
+  savedFrameRef,
+} from "./favorites.js";
 import {
   blobKey,
   blobs,
@@ -21,10 +30,21 @@ import {
   restoreHistoryItem,
   type ViewStamp,
 } from "./persistence.js";
+import { bindSavedSwitcher, closeSavedSwitcher, renderSavedSwitcher } from "./saved-switcher.js";
 import { setState, syncControls } from "./stage.js";
 import { toast } from "./toast.js";
 import { updateUserPreferences } from "./user-preferences.js";
-import { applyFavorites, applyHistory, isFavorite, setViewerLoading, state } from "./viewer-state.js";
+import {
+  applyHistory,
+  applySavedLibrary,
+  filteredSavedItems,
+  isFavorite,
+  mutateSavedLibrary,
+  refreshPersistedView,
+  setViewerLoading,
+  state,
+  uncollectedItems,
+} from "./viewer-state.js";
 
 type HistoryDialogTab = "history" | "favourites";
 export const pendingHistoryClearKey = "random-frame-history-clear-pending";
@@ -58,7 +78,7 @@ function gridEntries(): GridEntry[] {
       .map(({ source, id, viewedAt }, index) => ({ source, id, index, timestamp: viewedAt }))
       .reverse();
   const indexes = new Map(state.history.map((item, index) => [blobKey(item.source, item.id), index]));
-  return state.favorites
+  return filteredSavedItems()
     .map(({ source, id, addedAt }) => ({
       source,
       id,
@@ -177,17 +197,32 @@ function renderHistoryPage(scroll = elements.historyBody.scrollTop): void {
     "aria-labelledby",
     favoritesView ? "history-filter-favorites" : "history-filter-all",
   );
+  if (!favoritesView) {
+    closeSavedSwitcher(false);
+    closeCollectionActions(false);
+  }
+  elements.savedToolbar.hidden = !favoritesView;
+  renderSavedFilter();
   elements.historyClear.hidden = favoritesView;
-  elements.historyClearFavorites.hidden = !favoritesView || !state.favorites.length;
+  elements.historyClearFavorites.hidden = !favoritesView || state.savedFilter !== "all" || !state.favorites.length;
   elements.historyClearGroup.hidden = favoritesView;
-  elements.historyClearFavoritesGroup.hidden = !favoritesView || !state.favorites.length;
+  elements.historyClearFavoritesGroup.hidden = !favoritesView || state.savedFilter !== "all" || !state.favorites.length;
   elements.historyGrid.replaceChildren();
   elements.historyGrid.hidden = !entries.length;
   elements.historyEmpty.hidden = Boolean(entries.length);
-  elements.historyEmptyTitle.textContent = favoritesView ? "No favorites yet." : "No frames drawn yet.";
-  elements.historyEmptyDetail.textContent = favoritesView
-    ? "Star a frame to keep it here."
-    : "Draw a frame to begin your history.";
+  let emptyTitle = "Draw a frame to begin your history.";
+  let emptyDetail = "Draw a frame to begin your history.";
+  if (favoritesView) {
+    if (state.savedFilter === "all") {
+      emptyTitle = "No saved frames yet.";
+      emptyDetail = "Save a frame to keep it here.";
+    } else {
+      emptyTitle = "This collection is empty.";
+      emptyDetail = "In All saved, use a frame’s collection button to add it here.";
+    }
+  }
+  elements.historyEmptyTitle.textContent = emptyTitle;
+  elements.historyEmptyDetail.textContent = emptyDetail;
 
   // Below the smallest page size neither paging nor the size choice changes anything.
   if (entries.length <= PAGE_SIZES[0]) elements.historyPager.setAttribute("data-compact", "");
@@ -196,9 +231,12 @@ function renderHistoryPage(scroll = elements.historyBody.scrollTop): void {
   // Favorites count ranks; All keeps the original history frame numbers.
   const first = favoritesView ? view.start + 1 : entries.length - view.start;
   const last = favoritesView ? view.end : entries.length - view.end + 1;
-  elements.historyRange.textContent = entries.length
-    ? `${favoritesView ? "Favorites" : "Frames"} ${first.toLocaleString("en-US")}–${last.toLocaleString("en-US")} of ${entries.length.toLocaleString("en-US")}`
-    : "";
+  let rangeText = "";
+  if (entries.length) {
+    const label = favoritesView ? "Saved frames" : "Frames";
+    rangeText = `${label} ${first.toLocaleString("en-US")}–${last.toLocaleString("en-US")} of ${entries.length.toLocaleString("en-US")}`;
+  }
+  elements.historyRange.textContent = rangeText;
   elements.historyPage.textContent = `of ${view.pages}`;
   elements.historyPageInput.value = String(view.page + 1);
   elements.historyPageInput.max = String(view.pages);
@@ -222,8 +260,8 @@ function renderHistoryPage(scroll = elements.historyBody.scrollTop): void {
     button.className = "history-item";
     button.type = "button";
     const number = favoritesView ? view.start + position + 1 : itemIndex + 1;
-    const name = `Show ${favoritesView ? "favorite" : "frame"} ${number}, ${id}`;
-    button.setAttribute("aria-label", favorite ? `${name}, favorite` : name);
+    const name = `Show ${favoritesView ? "saved frame" : "frame"} ${number}, ${id}`;
+    button.setAttribute("aria-label", favorite ? `${name}, saved` : name);
     if (itemIndex >= 0 && itemIndex === state.index) button.setAttribute("aria-current", "true");
     if (favorite) button.dataset.favorite = "";
     const key = blobKey(source, id);
@@ -252,6 +290,7 @@ function renderHistoryPage(scroll = elements.historyBody.scrollTop): void {
     button.addEventListener("click", () => {
       if (state.loading) return;
       state.navigationMode = favorite ? "favourites" : "history";
+      state.navigationSavedFilter = favoritesView ? state.savedFilter : "all";
       state.historyTab = state.navigationMode;
       syncControls();
       rememberView();
@@ -260,7 +299,28 @@ function renderHistoryPage(scroll = elements.historyBody.scrollTop): void {
     });
     tile.className = "history-tile";
     tile.append(button);
-    // Favorites lists stars, not history, so its tiles have nothing to remove.
+    if (favoritesView) {
+      const organize = document.createElement("button");
+      organize.type = "button";
+      organize.dataset.frameId = id;
+      organize.dataset.frameSource = source;
+      organize.className = "history-tile__collections";
+      organize.dataset.tip = "Assign to collections";
+      organize.innerHTML =
+        '<svg viewBox="0 0 18 18" aria-hidden="true"><path d="M2.5 5.5h5l1.5-2h6.5v11h-13z" /><path d="M6 9h6M9 6v6" /></svg>';
+      organize.setAttribute("aria-label", `Collections for ${id}`);
+      organize.setAttribute("aria-haspopup", "dialog");
+      organize.addEventListener("click", () => {
+        const item = state.favorites.find((x) => x.source === source && x.id === id);
+        if (item)
+          openCollections(
+            item,
+            state.savedFilter !== "all" && state.savedFilter !== "none" ? state.savedFilter : undefined,
+          );
+      });
+      tile.append(organize);
+    }
+    // History removal remains separate from removing a global save.
     if (!favoritesView && itemIndex >= 0) {
       const remove = document.createElement("button");
       tile.dataset.index = String(itemIndex);
@@ -473,7 +533,8 @@ async function finishClearing(reviewedAt: number, review: ReturnType<typeof toas
     delete elements.historyDialog.dataset.busy;
     state.historyReturnFocus = elements.draw;
     closeDialog(elements.historyDialog);
-    elements.announcer.textContent = "History and Stats cleared. Favorites, Seen IDs and IDs checked are kept.";
+    elements.announcer.textContent =
+      "History and Stats cleared. Saved frames, collections, Seen IDs and IDs checked are kept.";
     return true;
   } catch (error) {
     // Retry the frozen request; restart finishes an already confirmed durable clear.
@@ -517,36 +578,64 @@ async function clearSavedHistory(): Promise<void> {
     "Clear pending. Choose Undo to keep History and Stats, or Finish clearing to remove them.";
 }
 
+let savedClearRequest: RemoveSavedRequest | undefined;
+let savedClearAttempted = false;
 async function clearSavedFavorites(): Promise<void> {
-  if (state.loading) return;
-  const previous = [...state.favorites];
+  if (state.loading || state.savedFilter !== "all") return;
+  savedClearRequest ??= { requestId: newOperationId(), frames: state.favorites.map(savedFrameRef) };
+  savedClearAttempted = true;
   try {
-    await clearFavorites();
-    applyFavorites([]);
+    const result = await mutateSavedLibrary(async () => {
+      const result = await clearSavedFrames(savedClearRequest as RemoveSavedRequest);
+      applySavedLibrary(result.library);
+      return result;
+    });
+    savedClearRequest = undefined;
+    savedClearAttempted = false;
     syncControls();
     renderHistoryPage();
-    // The favorites filter now hides its clear action; keep focus inside the dialog.
     elements.historyClose.focus();
-    if (!previous.length) return toast.success("Favorites cleared");
-    toast.info("Favorites cleared", { label: "Undo", run: () => restoreFavorites(previous) });
+    toast.info("Saved frames cleared", { label: "Undo", run: () => restoreSavedUndo(result.undo) });
   } catch (error) {
-    toast.error(describeError(error, "Favorites could not be cleared. Try again.").message);
+    if ((error as { kind?: string })?.kind === "stale_saved_frame") {
+      savedClearRequest = undefined;
+      savedClearAttempted = false;
+      try {
+        await refreshPersistedView();
+      } catch {
+        /* Keep the stale-review error. */
+      }
+      toast.error("A save changed after your review. Review the current saved frames before clearing again.");
+    } else toast.error(describeError(error, "Saved frames could not be cleared. Try again.").message);
   }
 }
 
-// Re-stars each frame with its original date, so the list keeps its order. Stops at the first failure.
-async function restoreFavorites(items: FavoriteItem[]): Promise<boolean> {
-  try {
-    for (const item of items) if (!isFavorite(item)) applyFavorites(await toggleFavorite(item));
-  } catch (error) {
-    toast.error(describeError(error, "Favorites could not be restored. Undo is still available; try again.").message);
-    return false;
+function renderSavedFilter(): void {
+  const focused = document.activeElement;
+  const labels = collectionLabels(state.library.collections);
+  const choices = [
+    { value: "all", label: "All saved" },
+    ...(uncollectedItems().length ? [{ value: "none", label: "Without a collection" }] : []),
+    ...state.library.collections.map((c) => ({
+      value: operationKey(c.collectionId),
+      label: labels.get(operationKey(c.collectionId)) ?? c.name,
+    })),
+  ];
+  if (!choices.some((c) => c.value === state.savedFilter)) state.savedFilter = "all";
+  renderSavedSwitcher(choices, state.savedFilter);
+  const collection = state.library.collections.find((c) => operationKey(c.collectionId) === state.savedFilter);
+  elements.collectionActionsButton.hidden = elements.collectionActionsButton.disabled = !collection;
+  elements.collectionRename.disabled = elements.collectionDelete.disabled = !collection;
+  const label = collection
+    ? `Collection actions for ${labels.get(state.savedFilter) ?? collection.name}`
+    : "Collection actions";
+  elements.collectionActionsButton.setAttribute("aria-label", label);
+  elements.collectionActionsButton.dataset.tip = label;
+  if (!collection) {
+    closeCollectionActions(false);
+    if (focused === elements.collectionActionsButton || elements.collectionActionsMenu.contains(focused))
+      elements.savedFilter.focus();
   }
-  syncControls();
-  if (elements.historyDialog.open) renderHistoryPage();
-  for (const item of state.favorites) void ensureThumbnail(item).catch(() => false);
-  elements.historyClose.focus();
-  return true;
 }
 
 // Confirmation stays explicit for pointer, keyboard, and assistive-technology activation.
@@ -560,6 +649,7 @@ function bindClearConfirmation(
   group: HTMLElement,
   clear: () => Promise<void>,
   count: () => string,
+  prepare: () => void,
 ): () => void {
   let armedAt = 0;
   let armedUntil = 0;
@@ -572,6 +662,7 @@ function bindClearConfirmation(
     armedAt = armedUntil = 0;
     group.removeAttribute("data-armed");
     group.removeAttribute("data-arming");
+    if (!savedClearAttempted) savedClearRequest = undefined;
     button.removeAttribute("aria-disabled");
     button.textContent = initialLabel;
   };
@@ -580,10 +671,12 @@ function bindClearConfirmation(
     const now = Date.now();
     if (now < armedUntil) {
       if (now - armedAt < ARM_DELAY_MS) return;
+      savedClearAttempted = true;
       reset();
       void clear();
       return;
     }
+    prepare();
     armedAt = now;
     armedUntil = now + 5000;
     group.setAttribute("data-armed", "");
@@ -604,11 +697,37 @@ function bindClearConfirmation(
 }
 
 export function bindHistoryDialogEvents(): void {
+  bindSavedSwitcher();
+  bindCollectionActions();
+  elements.savedFilter.addEventListener("change", () => {
+    closeCollectionActions(false);
+    state.savedFilter = elements.savedFilter.value;
+    state.pageIndex = 0;
+    renderHistoryPage(0);
+  });
+  elements.collectionCreate.addEventListener("click", () => openCollectionManagement("create"));
+  for (const [button, mode] of [
+    [elements.collectionRename, "rename"],
+    [elements.collectionDelete, "delete"],
+  ] as const)
+    button.addEventListener("click", () =>
+      openCollectionManagement(
+        mode,
+        state.library.collections.find((c) => operationKey(c.collectionId) === state.savedFilter),
+      ),
+    );
+
   // A sync that lands while History is open redraws the page; focus never falls out of the dialog.
   document.addEventListener("persisted-view-refreshed", () => {
     if (!elements.historyDialog.open) return;
     elements.historyClear.disabled = !state.history.length;
+    const focused = document.activeElement as HTMLElement | null;
+    const label = focused?.getAttribute("aria-label");
     renderHistoryPage();
+    if (label)
+      elements.historyGrid.querySelectorAll<HTMLElement>("button").forEach((button) => {
+        if (button.getAttribute("aria-label") === label) button.focus({ preventScroll: true });
+      });
     if (!elements.historyDialog.contains(document.activeElement))
       (filter === "history" ? elements.historyFilterAll : elements.historyFilterFavorites).focus({
         preventScroll: true,
@@ -635,7 +754,10 @@ export function bindHistoryDialogEvents(): void {
     elements.historyClearFavorites,
     elements.historyClearFavoritesGroup,
     clearSavedFavorites,
-    () => plural(state.favorites.length, "favorite"),
+    () => plural(state.favorites.length, "saved frame"),
+    () => {
+      savedClearRequest ??= { requestId: newOperationId(), frames: state.favorites.map(savedFrameRef) };
+    },
   );
   elements.historyFilterAll.addEventListener("click", () => {
     resetFavoritesConfirmation();

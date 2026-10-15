@@ -11,7 +11,7 @@ import {
   parsePageSize,
   savePageSize,
 } from "../dist/test-client/history-pagination.js";
-import { FakeDocument, FakeStorage, ids, testCapabilities } from "./dom-fakes.mjs";
+import { FakeDocument, FakeStorage, ids, libraryOf, testCapabilities } from "./dom-fakes.mjs";
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -125,7 +125,7 @@ test("pages a long existing history without touching the stored records", async 
       if (command === "import_session_history") return window.__TAURI_INTERNALS__.invoke("get_history");
       invocations.push(command);
       if (command === "get_history") return structuredClone(stored);
-      if (command === "get_favorites") return [];
+      if (command === "get_saved_library") return libraryOf();
       if (command === "select_history_item") return { ...structuredClone(stored), index: args.index };
       if (command === "get_frame_by_id") {
         return { id: args.id, source: "prntsc", sourcePageUrl: `https://prnt.sc/${args.id}`, mimeType: "image/png" };

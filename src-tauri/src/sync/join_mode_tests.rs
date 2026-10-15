@@ -238,7 +238,7 @@ async fn incident_restore_adopts_remote_and_never_publishes_local_deletions() ->
             .map(|x| x.value.as_str()),
         Some("dark")
     );
-    assert_eq!(remote_schema(&t.server, &t.keys)?, 2);
+    assert_eq!(remote_schema(&t.server, &t.keys)?, 3);
 
     // Linux keeps 5752 after Windows' first publication and a following sync.
     t.linux.sync_now().await?;
@@ -396,12 +396,15 @@ async fn restore_ignores_local_favorite_and_activity_tombstones_and_legacy_activ
     )?;
     let local = device(&path, &t.url, MemorySecret::default())?;
     assert_eq!(local.data.activity.viewed_total(), 5752);
-    let (remote_favorites, _) = t.linux.data.favorites.sync_state();
+    let remote_favorites = t.linux.data.favorites.sync_state().favorites;
     let (remote_activity, _) = t.linux.data.activity.sync_state();
-    local.data.favorites.merge_sync_state((
-        vec![],
-        remote_favorites.iter().map(|x| x.operation_id).collect(),
-    ))?;
+    local
+        .data
+        .favorites
+        .merge_sync_state(crate::persistence::FavoriteSyncState {
+            favorites_removed: remote_favorites.iter().map(|x| x.operation_id).collect(),
+            ..crate::persistence::FavoriteSyncState::default()
+        })?;
     local.data.activity.merge_sync_state(
         vec![],
         remote_activity
@@ -545,6 +548,7 @@ async fn restore_v1_remote_preserves_local_activity_during_upgrade() -> TestResu
         include_bytes!("../persistence/tests/fixtures/activity-large-legacy.json"),
     )?;
     let local = device(&path, &url, MemorySecret::default())?;
+    local.data.approve_sync_upgrade(keys.sync_id())?;
     for id in [700_001, 700_002, 700_003] {
         local
             .data
@@ -558,7 +562,7 @@ async fn restore_v1_remote_preserves_local_activity_during_upgrade() -> TestResu
         .await?;
     // Schema absence is not an authoritative empty Activity domain.
     assert_eq!(local.data.activity.viewed_total(), 5755);
-    assert_eq!(remote_schema(&server, &keys)?, 2);
+    assert_eq!(remote_schema(&server, &keys)?, 3);
     let published = remote(&server, &keys)?;
     assert_eq!(published.activity, local.data.snapshot()?.0.activity);
 
@@ -625,7 +629,10 @@ fn migrated_v1_joiner(
     local
         .data
         .favorites
-        .merge_sync_state((vec![], vec![[2; 16]]))?;
+        .merge_sync_state(crate::persistence::FavoriteSyncState {
+            favorites_removed: vec![[2; 16]],
+            ..crate::persistence::FavoriteSyncState::default()
+        })?;
     local.data.seen.merge([999_999])?;
     local.data.preferences.set(
         UserPreferences {
@@ -689,10 +696,11 @@ async fn restore_v1_preserves_only_unsupported_content_and_round_trips_without_r
     let (root, keys, decoded) = create_v1_chain(&url).await?;
     let path = directory("v1-preserved-content");
     let local = migrated_v1_joiner(&path, &url)?;
+    local.data.approve_sync_upgrade(keys.sync_id())?;
     let before = local.data.snapshot()?.0;
     local.join(&root.recovery_key(), JoinMode::Restore).await?;
     let published = remote(&server, &keys)?;
-    assert_eq!(remote_schema(&server, &keys)?, 2);
+    assert_eq!(remote_schema(&server, &keys)?, 3);
     assert_eq!(published.history, decoded.data.history);
     assert_eq!(published.history_removed, decoded.data.history_removed);
     assert_eq!(published.favorites, decoded.data.favorites);
@@ -768,6 +776,7 @@ async fn restore_v1_cas_retry_uses_latest_schema_and_v2_empty_domains_are_author
         let (root, keys, decoded) = create_v1_chain(&url).await?;
         let path = directory("v1-cas-schema");
         let local = migrated_v1_joiner(&path, &url)?;
+        local.data.approve_sync_upgrade(keys.sync_id())?;
         let before = local.data.snapshot()?.0;
         let newer = if latest_schema == 1 {
             let mut newer = snapshot::v1::parse_snapshot(include_bytes!(
@@ -798,7 +807,7 @@ async fn restore_v1_cas_retry_uses_latest_schema_and_v2_empty_domains_are_author
             local.data.activity.viewed_total(),
             if latest_schema == 1 { 5000 } else { 0 }
         );
-        assert_eq!(remote_schema(&server, &keys)?, 2);
+        assert_eq!(remote_schema(&server, &keys)?, 3);
         task.abort();
         fs::remove_dir_all(path)?;
     }
@@ -812,6 +821,7 @@ async fn restore_v1_empty_local_upgrades_cleanly_and_reaches_third_device() -> T
     let path = directory("v1-empty");
     let third_path = directory("v1-empty-third");
     let local = device(&path, &url, MemorySecret::default())?;
+    local.data.approve_sync_upgrade(keys.sync_id())?;
     assert!(!local.local_summary()?.meaningful);
     local.join(&root.recovery_key(), JoinMode::Restore).await?;
     let published = remote(&server, &keys)?;
@@ -825,7 +835,7 @@ async fn restore_v1_empty_local_upgrades_cleanly_and_reaches_third_device() -> T
     );
     assert_eq!(published.exploration, vec![]);
     assert_eq!(published.preferences, snapshot::PreferencesV2::default());
-    assert_eq!(remote_schema(&server, &keys)?, 2);
+    assert_eq!(remote_schema(&server, &keys)?, 3);
     let third = device(&third_path, &url, MemorySecret::default())?;
     third.join(&root.recovery_key(), JoinMode::Restore).await?;
     assert_content_eq(&third.data.snapshot()?.0, &published);
@@ -841,6 +851,7 @@ async fn restore_v1_invalid_remote_failed_put_and_partial_replace_are_safe() -> 
     let (root, keys, _) = create_v1_chain(&url).await?;
     let path = directory("v1-failure-safety");
     let local = migrated_v1_joiner(&path, &url)?;
+    local.data.approve_sync_upgrade(keys.sync_id())?;
     let before = local.data.snapshot()?.0;
     let good = lock(&server).envelope.clone();
     // A damaged legacy v1 envelope must leave every migrated local domain untouched.
@@ -865,7 +876,7 @@ async fn restore_v1_invalid_remote_failed_put_and_partial_replace_are_safe() -> 
         Some(SyncError::ServerError)
     );
     assert_eq!(local.data.snapshot()?.0, before);
-    fs::create_dir(path.join("favorites-v3.json.tmp"))?;
+    fs::create_dir(path.join("favorites-v4.json.tmp"))?;
     assert_eq!(
         local
             .join(&root.recovery_key(), JoinMode::Restore)
@@ -880,7 +891,7 @@ async fn restore_v1_invalid_remote_failed_put_and_partial_replace_are_safe() -> 
         "journal must block half-replaced state"
     );
     assert!(!path.join("sync-config.json").exists());
-    fs::remove_dir(path.join("favorites-v3.json.tmp"))?;
+    fs::remove_dir(path.join("favorites-v4.json.tmp"))?;
     drop(local);
     let reopened = device(&path, &url, MemorySecret::default())?;
     assert_content_eq(&reopened.data.snapshot()?.0, &published);
@@ -899,6 +910,7 @@ async fn merge_v1_keeps_crdt_union_for_represented_and_unsupported_domains() -> 
     let (root, keys, decoded) = create_v1_chain(&url).await?;
     let path = directory("v1-merge-unchanged");
     let local = migrated_v1_joiner(&path, &url)?;
+    local.data.approve_sync_upgrade(keys.sync_id())?;
     let before = local.data.snapshot()?.0;
     let mut expected = snapshot::merge_snapshots(&before, &decoded.data)?;
     snapshot::reconcile_seen(&mut expected);
@@ -1085,13 +1097,13 @@ async fn crash_during_restore_replacement_recovers_the_whole_target() -> TestRes
     fs::create_dir_all(&other_path)?;
     let partial = PersistentState::new(&other_path)?;
     partial.history.merge_sync_state((vec![], vec![op_id(1)]))?;
-    fs::create_dir(other_path.join("favorites-v3.json.tmp"))?;
+    fs::create_dir(other_path.join("favorites-v4.json.tmp"))?;
     assert!(partial.replace_synchronized(&target).is_err());
     assert!(
         partial.snapshot().is_err(),
         "half-replaced state must not be exported"
     );
-    fs::remove_dir(other_path.join("favorites-v3.json.tmp"))?;
+    fs::remove_dir(other_path.join("favorites-v4.json.tmp"))?;
     drop(partial);
     let recovered = PersistentState::new(&other_path)?;
     let (state, _) = recovered.snapshot()?;
@@ -1113,7 +1125,7 @@ async fn summary_counts_are_aggregate_and_tombstone_only_devices_are_not_empty()
     let json = serde_json::to_string(&summary)?;
     assert_eq!(
         json,
-        r#"{"history":3,"historyRemovals":1214,"favorites":1,"favoriteRemovals":0,"activityRemovals":0,"meaningful":true}"#
+        r#"{"history":3,"historyRemovals":1214,"favorites":1,"favoriteRemovals":0,"collections":0,"collectionRemovals":0,"memberships":0,"membershipRemovals":0,"activityRemovals":0,"meaningful":true}"#
     );
 
     let only = t.third("join-only-tombstones")?;
@@ -1300,13 +1312,14 @@ async fn unmodified_server_v1_restore_preserves_migrated_state() -> TestResult {
     let path = directory("e2e-v1-migrated");
     let third_path = directory("e2e-v1-third");
     let local = migrated_v1_joiner(&path, &url)?;
+    local.data.approve_sync_upgrade(keys.sync_id())?;
     let before = local.data.snapshot()?.0;
     local.join(&root.recovery_key(), JoinMode::Restore).await?;
     let (_, envelope) = SyncTransport::new(&url)?
         .get(keys.sync_id(), &keys.client_auth_token())
         .await?;
     let published = snapshot::decode_snapshot(&keys.decrypt_snapshot(keys.sync_id(), &envelope)?)?;
-    assert_eq!(published.original_schema_version, 2);
+    assert_eq!(published.original_schema_version, 3);
     assert_eq!(published.data.history, decoded.data.history);
     assert_eq!(published.data.history_removed, decoded.data.history_removed);
     assert_eq!(published.data.favorites, decoded.data.favorites);

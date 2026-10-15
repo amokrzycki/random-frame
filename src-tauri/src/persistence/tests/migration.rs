@@ -5,7 +5,7 @@ fn unanswered_publication_guards_later_revisions_and_retries_its_base() -> Resul
     let dir = test_directory("publication-recovery");
     let a = PersistentState::new(&dir)?;
     a.merge_versioned(&SyncSnapshot::default(), "group", 1)?;
-    a.begin_publication("group", 10)?;
+    a.begin_publication("group", 10, 2)?;
     fs::create_dir(dir.join("sync-schema-floor.json.tmp")).map_err(AppError::persistence)?;
     assert!(a.complete_publication("group").is_err());
     drop(a);
@@ -422,5 +422,27 @@ fn accepted_schema_floor_is_recovered_with_interrupted_remote_merge() -> Result<
         .merge_versioned(&SyncSnapshot::default(), "group", 1)
         .is_err());
     assert_eq!(a.schema_floor("other-group")?, 1);
+    fs::remove_dir_all(dir).map_err(AppError::persistence)
+}
+
+#[test]
+fn publication_metadata_retains_attempted_v3_and_reads_legacy_revision_as_v2(
+) -> Result<(), AppError> {
+    let dir = test_directory("collections-publication-schema");
+    let state = PersistentState::new(&dir)?;
+    fs::write(dir.join("sync-publication.json"), br#"{"old":10}"#)
+        .map_err(AppError::persistence)?;
+    assert_eq!(state.publication_floor("old", 11)?, 2);
+    state.begin_publication("new", 20, 3)?;
+    drop(state);
+    let state = PersistentState::new(&dir)?;
+    assert_eq!(state.schema_floor("new")?, 1);
+    assert_eq!(state.publication_floor("new", 20)?, 1);
+    assert_eq!(state.publication_floor("new", 21)?, 3);
+    state.cancel_publication("new")?;
+    assert_eq!(state.publication_floor("new", 21)?, 1);
+    state.begin_publication("new", 21, 3)?;
+    state.complete_publication("new")?;
+    assert_eq!(PersistentState::new(&dir)?.schema_floor("new")?, 3);
     fs::remove_dir_all(dir).map_err(AppError::persistence)
 }

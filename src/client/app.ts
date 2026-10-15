@@ -1,13 +1,15 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { bindAndroidNavigation, exitApp } from "./android-navigation.js";
+import { bindCollectionEvents } from "./collections-dialog.js";
 import { bindDialogChromeEvents, closeDialog, onDialogClosed, openDialog, refreshDialogBoundary } from "./dialogs.js";
 import { elements } from "./elements.js";
-import { getFavorites } from "./favorites.js";
+import { getSavedLibrary } from "./favorites.js";
 import { bindFrameActionEvents } from "./frame-actions.js";
 import { initializeThumbnailCache, persistThumbnails, releaseAllBlobs } from "./frame-cache.js";
 import { bindNavigationEvents, goTo } from "./frame-loader.js";
 import { bindHistoryDialogEvents, pendingHistoryClearKey } from "./history-dialog.js";
+import { bindMenu } from "./menu.js";
 import { historyFromStorage, shouldShowEntryDialog } from "./navigation.js";
 import {
   commitHistoryClear,
@@ -25,7 +27,7 @@ import { toast } from "./toast.js";
 import { bindTooltipEvents } from "./tooltip.js";
 import { bindChangelogEvents, checkForUpdate, showPendingChangelog } from "./update.js";
 import { initializeUserPreferences, updateUserPreferences } from "./user-preferences.js";
-import { applyFavorites, applyHistory, setViewerLoading, state } from "./viewer-state.js";
+import { applyHistory, applySavedLibrary, setViewerLoading, state } from "./viewer-state.js";
 import { initializeWindowControls } from "./window-controls.js";
 
 const storageKey = "prntsc-gallery-history";
@@ -70,9 +72,9 @@ async function initialize(): Promise<void> {
         // The already completed clear is safe to repeat on the next launch.
       }
     }
-    let [snapshot, favorites] = await Promise.all([getHistory(), getFavorites()]);
+    let [snapshot, favorites] = await Promise.all([getHistory(), getSavedLibrary()]);
     state.historyLoadFailed = false;
-    applyFavorites(favorites);
+    applySavedLibrary(favorites);
     await initializeThumbnailCache();
     await persistThumbnails();
     const legacy = historyFromStorage(sessionStorage.getItem(storageKey));
@@ -155,58 +157,6 @@ elements.entryButton.addEventListener("click", () => {
 
 window.addEventListener("pagehide", releaseAllBlobs);
 
-// Pinned to its button when it opens: the tools menu drops from the titlebar, the frame menu rises from the
-// info line. Closing on pick, before the item's own handler runs, returns focus to the button so a dialog
-// opened from the menu hands it back there. Items marked data-keep hold the menu open.
-const menuItems = (menu: HTMLElement): HTMLElement[] =>
-  [...menu.querySelectorAll<HTMLElement>("button:not(:disabled):not([hidden]), a[href]")].filter(
-    (item) => !item.closest("[hidden]"),
-  );
-
-function bindMenu(menu: HTMLElement, button: HTMLElement, placement: "below" | "above"): void {
-  menu.addEventListener("beforetoggle", (event) => {
-    if ((event as ToggleEvent).newState !== "open") return;
-    const rect = button.getBoundingClientRect();
-    if (placement === "below") {
-      menu.style.top = `${rect.bottom + 6}px`;
-      menu.style.right = `${window.innerWidth - rect.right}px`;
-    } else {
-      menu.style.bottom = `${window.innerHeight - rect.top + 6}px`;
-      menu.style.left = window.innerWidth <= 480 ? "auto" : `${rect.left}px`;
-      menu.style.right = window.innerWidth <= 480 ? "12px" : "auto";
-    }
-  });
-  menu.addEventListener(
-    "click",
-    (event) => {
-      const item = (event.target as Element).closest?.("button, a");
-      if (item && !item.hasAttribute("data-keep")) menu.hidePopover?.();
-    },
-    true,
-  );
-  button.addEventListener("keydown", (event) => {
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-    event.preventDefault();
-    menu.showPopover();
-    const items = menuItems(menu);
-    (event.key === "ArrowDown" ? items[0] : items[items.length - 1])?.focus();
-  });
-  menu.addEventListener("keydown", (event) => {
-    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) || (event.target as Element).tagName === "INPUT")
-      return;
-    const items = menuItems(menu);
-    const current = items.indexOf(document.activeElement as HTMLElement);
-    const next =
-      event.key === "Home"
-        ? 0
-        : event.key === "End"
-          ? items.length - 1
-          : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
-    event.preventDefault();
-    items[next]?.focus();
-  });
-}
-
 bindMenu(elements.toolsMenu, elements.toolsMenuButton, "below");
 bindMenu(elements.frameMenu, elements.frameMenuButton, "above");
 
@@ -267,6 +217,7 @@ bindChangelogEvents();
 bindStageEvents();
 bindNavigationEvents();
 bindFrameActionEvents();
+bindCollectionEvents();
 bindHistoryDialogEvents();
 bindStatsDialogEvents();
 bindSyncDialogEvents();

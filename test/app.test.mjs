@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { FakeDocument, FakeStorage, ids, testCapabilities } from "./dom-fakes.mjs";
+import { FakeDocument, FakeStorage, ids, libraryOf, testCapabilities } from "./dom-fakes.mjs";
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const keydown = (target, key) => {
@@ -84,7 +84,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
       if (command === "get_history") return structuredClone(persisted);
       if (command === "startup_sync") return startupSync;
       if (command === "get_sync_status") return syncStatus;
-      if (command === "get_favorites") return [];
+      if (command === "get_saved_library") return libraryOf();
       if (command === "record_history_item") {
         let itemIndex = persisted.history.findIndex(
           (item) => item.source === args.item.source && item.id === args.item.id,
@@ -236,7 +236,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(localStorage.getItem("random-frame-favorite-tip"), null);
   favoriteTip();
   assert.equal(localStorage.getItem("random-frame-favorite-tip"), "shown");
-  assert.match(document.body.children.flatMap((region) => region.children).at(-1).textContent, /press F to favorite/);
+  assert.match(document.body.children.flatMap((region) => region.children).at(-1).textContent, /press F to save/);
   assert.equal(get("frame-count-current").textContent, "4");
   assert.equal(get("image-id-value").textContent, "def456");
   assert.equal(get("draw-button").getAttribute("aria-busy"), "false");
@@ -452,12 +452,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   const clears = () => invocations.filter(({ command }) => command === "commit_history_clear").length;
   const prepares = () => invocations.filter(({ command }) => command === "prepare_history_clear").length;
   const historyDialog = get("history-dialog");
-  // ponytail: DOM path: dialog → dialog-notices regions → toast elements → buttons. Brittle if structure changes.
-  const action = (label) =>
-    historyDialog.children
-      .flatMap((region) => region.children)
-      .flatMap((notice) => notice.children)
-      .findLast((button) => button.textContent === label);
+  const action = (label) => historyDialog.querySelectorAll("button").findLast((button) => button.textContent === label);
   get("history-tool-button").click();
   const beforeClear = structuredClone(persisted);
   const viewer = await import("../dist/test-client/viewer-state.js");
@@ -537,7 +532,7 @@ test("migrates the legacy localStorage counter once on startup and clears it", a
       if (command === "import_session_history") return { history: [], index: -1 };
       invocations.push({ command, args });
       if (command === "get_history") return { history: [], index: -1 };
-      if (command === "get_favorites") return [];
+      if (command === "get_saved_library") return libraryOf();
       if (command === "migrate_viewing_stats") return null;
       throw new Error(`Unexpected command: ${command}`);
     },

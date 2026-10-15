@@ -49,7 +49,7 @@ impl SyncData<'_> {
             }
             _ => SyncError::InvalidRemoteData,
         })?;
-        debug_assert_eq!(remote.needs_upgrade, remote.original_schema_version == 1);
+        debug_assert_eq!(remote.needs_upgrade, remote.original_schema_version < 3);
         #[cfg(any(test, debug_assertions))]
         snapshot::report_diagnostics(
             "after_remote_decode",
@@ -75,6 +75,22 @@ impl SyncData<'_> {
         Ok(remote)
     }
 
+    pub(super) fn require_upgrade_consent(
+        &self,
+        keys: &SyncKeys,
+        schema: u32,
+    ) -> Result<(), SyncError> {
+        if schema < 3
+            && !self
+                .state
+                .sync_upgrade_approved(keys.sync_id())
+                .map_err(|_| SyncError::Persistence)?
+        {
+            return Err(SyncError::UpgradeRequired);
+        }
+        Ok(())
+    }
+
     /// Schema-aware Restore, not CRDT union. Represented domains are remote-authoritative,
     /// including explicit empty values. Only unsupported content domains use captured local
     /// v2 state. A stale local roster is never imported; identity registers only this device.
@@ -95,6 +111,29 @@ impl SyncData<'_> {
         .into_iter()
         .all(|domain| remote.represents(domain)));
         let mut target = remote.data.clone();
+        if !remote.represents(SyncDomain::Collections) {
+            let preserved = snapshot::SyncSnapshot {
+                collections: local.collections.clone(),
+                collections_removed: local.collections_removed.clone(),
+                memberships: local.memberships.clone(),
+                memberships_removed: local.memberships_removed.clone(),
+                ..snapshot::SyncSnapshot::default()
+            };
+            target = snapshot::merge_snapshots(&target, &preserved)
+                .map_err(|_| SyncError::InvalidRemoteData)?;
+        }
+        debug_assert_eq!(
+            remote.represents(SyncDomain::Collections),
+            remote.represents(SyncDomain::CollectionRemovals)
+        );
+        debug_assert_eq!(
+            remote.represents(SyncDomain::Collections),
+            remote.represents(SyncDomain::Memberships)
+        );
+        debug_assert_eq!(
+            remote.represents(SyncDomain::Collections),
+            remote.represents(SyncDomain::MembershipRemovals)
+        );
         if !remote.represents(SyncDomain::Exploration) {
             target.exploration.clone_from(&local.exploration);
         }
@@ -151,6 +190,7 @@ impl SyncData<'_> {
         revision: i64,
     ) -> Result<u32, SyncError> {
         let remote = self.decode_remote(keys, envelope, schema_floor, revision)?;
+        self.require_upgrade_consent(keys, remote.original_schema_version)?;
         self.state
             .merge_versioned(&remote.data, keys.sync_id(), remote.original_schema_version)
             .map_err(|error| {
@@ -169,7 +209,7 @@ impl SyncData<'_> {
                     snapshot::report_diagnostics(
                         "after_merge",
                         &merged,
-                        2,
+                        3,
                         bytes.len(),
                         bytes.len() + crate::sync_crypto::ENVELOPE_OVERHEAD,
                     );

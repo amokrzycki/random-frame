@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, test } from "node:test";
-import { FakeDocument, FakeStorage, ids } from "./dom-fakes.mjs";
+import { FakeDocument, FakeStorage, ids, libraryOf } from "./dom-fakes.mjs";
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const deferred = () => Promise.withResolvers();
@@ -52,7 +52,7 @@ before(async () => {
           if (command === "get_history") {
             if (backend.failHistory) throw new Error("Read failed");
             result = backend.history;
-          } else if (command === "get_favorites") result = backend.favorites;
+          } else if (command === "get_saved_library") result = libraryOf(backend.favorites);
           else if (command === "get_user_preferences") result = backend.preferences;
           else if (command === "set_user_preferences") result = Object.assign(backend.preferences, args.preferences);
           else if (["get_sync_status", "startup_sync", "sync_now"].includes(command)) result = backend.status;
@@ -68,11 +68,10 @@ before(async () => {
             backend.history.history.push(args.item);
             backend.history.index = backend.history.history.length - 1;
             result = backend.history;
-          } else if (command === "toggle_favorite") {
+          } else if (command === "save_frame") {
             const index = backend.favorites.findIndex(({ id }) => id === args.item.id);
-            if (index >= 0) backend.favorites.splice(index, 1);
-            else backend.favorites.push(args.item);
-            result = backend.favorites;
+            if (index < 0) backend.favorites.push(args.item);
+            result = libraryOf(backend.favorites);
           } else throw new Error(`Unexpected command: ${command}`);
           result = structuredClone(result);
           const gate = holds.get(command);
@@ -122,7 +121,7 @@ beforeEach(() => {
   viewer.state.historyLoadFailed = false;
   viewer.state.navigationMode = "history";
   viewer.applyHistory(structuredClone(backend.history));
-  viewer.applyFavorites([]);
+  viewer.applySavedLibrary(libraryOf());
   cache.releaseAllBlobs();
   get("image-zoom").hidden = true;
   get("sync-dialog").open = false;
@@ -209,14 +208,14 @@ for (const operation of ["navigation", "draw"]) {
     assertShown(operation === "navigation" ? "bbb222" : "ccc333");
     assert.equal(viewer.isFavorite(item("bbb222")), true);
     assert.equal(viewer.state.pageSize, 50);
-    assert.equal(get("favorite-button").getAttribute("aria-pressed"), String(operation === "navigation"));
+    assert.equal(get("favorite-button").hasAttribute("data-saved"), operation === "navigation");
   });
 }
 
 test("a local favorite change overtakes a refresh without losing remote history or preferences", async () => {
   backend.history.history.unshift(item("remote"));
   backend.preferences = { theme: "dark", historyPageSize: 50 };
-  const read = hold("get_favorites");
+  const read = hold("get_saved_library");
   const refresh = viewer.refreshPersistedView();
   await read.entered;
   await actions.toggleCurrentFavorite();
@@ -224,7 +223,7 @@ test("a local favorite change overtakes a refresh without losing remote history 
   await refresh;
   assertShown("aaa111");
   assert.equal(viewer.isFavorite(item("aaa111")), true);
-  assert.equal(get("favorite-button").getAttribute("aria-pressed"), "true");
+  assert.equal(get("favorite-button").hasAttribute("data-saved"), true);
   assert.equal(viewer.state.history[0].id, "remote");
   assert.equal(viewer.state.pageSize, 50);
 });
@@ -259,7 +258,7 @@ test("a response during navigation applies valid remote domains and defers histo
   await navigating;
   await refresh;
   assertShown("bbb222");
-  assert.equal(get("favorite-button").getAttribute("aria-pressed"), "true");
+  assert.equal(get("favorite-button").hasAttribute("data-saved"), true);
 });
 
 for (const operation of ["navigation", "draw"]) {
@@ -297,7 +296,7 @@ test("requests arriving during a read coalesce into one subsequent read of the l
 
 test("identity-preserving refresh retains favorites navigation when history positions shift", async () => {
   backend.favorites = ["bbb222", "aaa111"].map((id) => ({ ...item(id), addedAt: 2 }));
-  viewer.applyFavorites(backend.favorites);
+  viewer.applySavedLibrary(libraryOf(backend.favorites));
   viewer.state.navigationMode = "favourites";
   backend.history.history.unshift(item("remote"));
   await viewer.refreshPersistedView();
@@ -320,17 +319,20 @@ test("a remote removal keeps the existing unselected view contract and disables 
 });
 
 test("repeated local favorite interactions do not starve remote history or preference updates", async () => {
-  const first = hold("get_favorites");
+  const first = hold("get_saved_library");
   const refresh = viewer.refreshPersistedView();
   await first.entered;
   await actions.toggleCurrentFavorite();
   backend.history.history.unshift(item("remote"));
   backend.preferences = { theme: "dark", historyPageSize: 50 };
-  const second = hold("get_favorites");
+  const second = hold("get_saved_library");
   first.release();
   await second.entered;
-  await actions.toggleCurrentFavorite();
-  const third = hold("get_favorites");
+  await viewer.mutateSavedLibrary(async () => {
+    backend.favorites = [];
+    viewer.applySavedLibrary(libraryOf());
+  });
+  const third = hold("get_saved_library");
   second.release();
   await third.entered;
   assertShown("aaa111");

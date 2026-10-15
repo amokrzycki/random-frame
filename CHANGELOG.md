@@ -1,5 +1,18 @@
 # Random Frame release notes
 
+## 0.8.0
+
+### Saved frames and collections
+
+- Favorites is now Saved. Your existing favorites move into a collection automatically.
+- Click the star or press F to save a frame. For an already saved frame, the same action opens Collections. Keep a frame in several collections or leave it without one.
+- In History > Saved, browse All saved, a collection, or frames without a collection. Create, rename, and delete collections there. Deleting a collection keeps its frames saved.
+- Apply saves your collection choices; Cancel leaves them unchanged. Removing a frame from all saved offers Undo and keeps its history and downloaded files.
+
+### Sync with collections
+
+- Sync now includes collections and their saved frames. Existing Sync connections ask you to choose Upgrade Sync first. Update your other devices before upgrading: older apps will stop syncing, but keep their local data. Choose Later to leave local changes waiting.
+
 ## 0.7.2
 
 ### Small fixes

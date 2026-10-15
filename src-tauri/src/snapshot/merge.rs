@@ -48,6 +48,10 @@ fn register<T: Clone + PartialEq>(
         _ => Ok(a.or(b).cloned()),
     }
 }
+#[allow(
+    clippy::too_many_lines,
+    reason = "one explicit merge per synchronized domain keeps conflict rules reviewable"
+)]
 pub fn merge_snapshots(a: &SyncSnapshot, b: &SyncSnapshot) -> Result<SyncSnapshot, SnapshotError> {
     validate_snapshot(a)?;
     validate_snapshot(b)?;
@@ -74,6 +78,24 @@ pub fn merge_snapshots(a: &SyncSnapshot, b: &SyncSnapshot) -> Result<SyncSnapsho
         history_removed: union(&a.history_removed, &b.history_removed),
         favorites: operations(&a.favorites, &b.favorites, |x| x.operation_id, immutable)?,
         favorites_removed: union(&a.favorites_removed, &b.favorites_removed),
+        collections: operations(
+            &a.collections,
+            &b.collections,
+            |x| x.collection_id,
+            |a, b| {
+                a.name =
+                    register(Some(&a.name), Some(&b.name))?.ok_or(SnapshotError::InvalidValue)?;
+                Ok(())
+            },
+        )?,
+        collections_removed: union(&a.collections_removed, &b.collections_removed),
+        memberships: operations(
+            &a.memberships,
+            &b.memberships,
+            |x| x.operation_id,
+            immutable,
+        )?,
+        memberships_removed: union(&a.memberships_removed, &b.memberships_removed),
         activity: operations(
             &a.activity,
             &b.activity,
@@ -128,6 +150,15 @@ pub fn merge_snapshots(a: &SyncSnapshot, b: &SyncSnapshot) -> Result<SyncSnapsho
     result
         .activity
         .retain(|x| !activity_removed.contains(&x.operation_id()));
+    let collections_removed: BTreeSet<_> = result.collections_removed.iter().copied().collect();
+    let memberships_removed: BTreeSet<_> = result.memberships_removed.iter().copied().collect();
+    result
+        .collections
+        .retain(|x| !collections_removed.contains(&x.collection_id));
+    result
+        .memberships
+        .retain(|x| !memberships_removed.contains(&x.operation_id));
+    super::normalize_seeded_collection_name(&mut result);
     validate_snapshot(&result)?;
     Ok(result)
 }

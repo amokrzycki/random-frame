@@ -48,9 +48,7 @@ test("dialog recovery remains reachable, survives a blocked attempt and other fe
       return succeed;
     },
   });
-  const notice = dialog.children
-    .flatMap((region) => region.children)
-    .find((element) => element.className === "toast toast--info");
+  const notice = dialog.querySelectorAll("div").find((element) => element.className === "toast toast--info");
   assert.ok(
     notice?.children.some((button) => button.textContent === "Undo"),
     "Undo belongs to the dialog",

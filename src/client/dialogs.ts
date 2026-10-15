@@ -1,4 +1,6 @@
+import { closeCollectionActions } from "./collection-actions.js";
 import { elements } from "./elements.js";
+import { closeSavedSwitcher } from "./saved-switcher.js";
 import { setToastScope } from "./toast.js";
 
 // showModal() would also inert the titlebar's drag region and window controls, and would silence the live
@@ -7,6 +9,8 @@ import { setToastScope } from "./toast.js";
 export const dialogs = [
   elements.entryDialog,
   elements.historyDialog,
+  elements.collectionsDialog,
+  elements.collectionManageDialog,
   elements.statsDialog,
   elements.lightboxDialog,
   elements.shortcutsDialog,
@@ -67,8 +71,15 @@ export function onDialogClosed(): void {
     const target = closed.at(-1) && returnFocus.get(closed.at(-1) as HTMLDialogElement);
     queueMicrotask(() => {
       if (activeDialog() !== open) return;
-      if (target && open.contains(target) && !target.matches?.(":disabled")) target.focus();
-      else focusInDialog(open);
+      if (target?.isConnected && open.contains(target) && !target.matches?.(":disabled")) target.focus();
+      else if (target?.dataset.frameId) {
+        const replacement = [...open.querySelectorAll<HTMLElement>("[data-frame-id]")].find(
+          (item) =>
+            item.dataset.frameId === target.dataset.frameId && item.dataset.frameSource === target.dataset.frameSource,
+        );
+        if (replacement) replacement.focus();
+        else focusInDialog(open);
+      } else focusInDialog(open);
     });
     return;
   }
@@ -140,6 +151,7 @@ export function closeDialog(dialog: HTMLDialogElement): void {
  */
 export function dismissTopLayer(): boolean {
   if (elements.entryDialog.open) return false;
+  if (closeCollectionActions() || closeSavedSwitcher()) return true;
   const menu = [elements.toolsMenu, elements.frameMenu].find((item) => item.matches(":popover-open"));
   if (menu) {
     menu.hidePopover();

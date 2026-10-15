@@ -1,10 +1,13 @@
 import { resolveObjectURL } from "node:buffer";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 // Minimal DOM and storage doubles for importing the client app under node:test.
 class FakeElement extends EventTarget {
-  constructor(document) {
+  constructor(document, tag = "div") {
     super();
     this.document = document;
+    this.tagName = tag.toUpperCase();
     this.attributes = new Map();
     this.children = [];
     this.style = {};
@@ -20,19 +23,41 @@ class FakeElement extends EventTarget {
   }
 
   append(...children) {
-    this.children.push(...children);
+    for (const child of children) {
+      child.remove();
+      child.parentElement = this;
+      this.children.push(child);
+    }
   }
 
   remove() {
-    // Toasts leave the page when dismissed; nothing here inspects the removal.
+    if (this.parentElement) {
+      const index = this.parentElement.children.indexOf(this);
+      if (index >= 0) this.parentElement.children.splice(index, 1);
+      this.parentElement = undefined;
+    }
   }
 
   replaceChildren(...children) {
-    this.children = children;
+    for (const child of this.children) child.parentElement = undefined;
+    this.children = [];
+    this.append(...children);
+  }
+
+  get isConnected() {
+    return this.connectedOverride ?? (this.document.elements?.has(`#${this.id}`) || Boolean(this.parentElement));
+  }
+
+  set isConnected(value) {
+    this.connectedOverride = value;
   }
 
   setAttribute(name, value) {
     this.attributes.set(name, value);
+  }
+
+  hasAttribute(name) {
+    return this.attributes.has(name);
   }
 
   getAttribute(name) {
@@ -57,8 +82,25 @@ class FakeElement extends EventTarget {
     return this === node || this.children.some((child) => child.contains?.(node));
   }
 
-  querySelectorAll() {
-    return [];
+  querySelectorAll(selector) {
+    const all = this.children.flatMap((child) => [child, ...child.querySelectorAll("*")]);
+    return all.filter(
+      (child) =>
+        selector === "*" ||
+        selector.split(",").some((part) => part.trim().split("[")[0].toUpperCase() === child.tagName),
+    );
+  }
+  querySelector(selector) {
+    return this.querySelectorAll(selector)[0] ?? null;
+  }
+  matches(selector) {
+    if (selector.includes(":disabled") && this.disabled) return true;
+    if (selector.includes('[tabindex="-1"]') && this.tabIndex === -1) return true;
+    if (selector === ":popover-open") return Boolean(this.popoverOpen);
+    return false;
+  }
+  getClientRects() {
+    return this.hidden ? [] : [this.getBoundingClientRect()];
   }
 
   animate() {
@@ -109,7 +151,9 @@ export class FakeDocument extends EventTarget {
   constructor(ids) {
     super();
     this.activeElement = null;
-    this.elements = new Map(ids.map((id) => [`#${id}`, new FakeElement(this)]));
+    const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+    const tags = new Map([...html.matchAll(/<([a-z]+)[^>]*\bid="([^"]+)"/g)].map((match) => [match[2], match[1]]));
+    this.elements = new Map(ids.map((id) => [`#${id}`, new FakeElement(this, tags.get(id))]));
     const lightboxClasses = new Set();
     this.elements.get("#lightbox-view").classList = {
       contains: (name) => lightboxClasses.has(name),
@@ -118,10 +162,16 @@ export class FakeDocument extends EventTarget {
         else lightboxClasses.delete(name);
       },
     };
+    this.elements.get("#collection-manage-apply").classList = {
+      toggle() {
+        /* Visual class changes are outside this DOM double. */
+      },
+    };
+    for (const [selector, element] of this.elements) element.id = selector.slice(1);
     this.body = new FakeElement(this);
     this.documentElement = new FakeElement(this);
     this.elements.get("#history-clear-button").textContent = "Clear history & stats";
-    this.elements.get("#history-clear-favorites-button").textContent = "Clear favorites";
+    this.elements.get("#history-clear-favorites-button").textContent = "Clear all saved";
   }
 
   querySelector(selector) {
@@ -132,11 +182,17 @@ export class FakeDocument extends EventTarget {
     return [];
   }
 
-  createElement() {
-    const element = new FakeElement(this);
+  createElement(tag) {
+    const element = new FakeElement(this, tag);
     element.classList = {
       add() {
-        // Toast exit animation is outside these tests.
+        /* No CSS animations in the DOM double. */
+      },
+      toggle() {
+        /* Visual class changes are outside this DOM double. */
+      },
+      contains() {
+        return false;
       },
     };
     return element;
@@ -314,6 +370,44 @@ export const ids = [
   "ledger",
   "stats-error",
   "stats-retry",
+  "remove-saved-button",
+  "saved-toolbar",
+  "saved-filter",
+  "saved-filter-value",
+  "saved-filter-menu",
+  "collection-actions-button",
+  "collection-actions-menu",
+  "collection-create",
+  "collection-rename",
+  "collection-delete",
+  "collections-dialog",
+  "collections-close",
+  "collections-form",
+  "collections-frame",
+  "collections-choices",
+  "collections-name",
+  "collections-name-error",
+  "collections-add",
+  "collections-error",
+  "collections-reopen",
+  "collections-cancel",
+  "collections-apply",
+  "collections-remove",
+  "collections-move",
+  "collections-move-target",
+  "collections-move-button",
+  "collection-manage-dialog",
+  "collection-manage-title",
+  "collection-manage-copy",
+  "collection-manage-field",
+  "collection-manage-name",
+  "collection-manage-error",
+  "collection-manage-form",
+  "collection-manage-cancel",
+  "collection-manage-apply",
+  "sync-upgrade",
+  "sync-upgrade-later",
+  "sync-upgrade-confirm",
 ];
 
 // Native thumbnail commands shared by client integration tests.
@@ -333,5 +427,18 @@ export function fakeThumbnailCache() {
         [...disk].map(([key, bytes]) => [key, `data:image/jpeg;base64,${Buffer.from(bytes).toString("base64")}`]),
       );
     },
+  };
+}
+
+export function libraryOf(items = [], collections = [], memberships = []) {
+  return {
+    items: items.map((item) => ({
+      ...item,
+      saveOperationIds: item.saveOperationIds ?? [
+        Array.from(createHash("sha256").update(`${item.source}/${item.id}`).digest().subarray(0, 16)),
+      ],
+    })),
+    collections,
+    memberships,
   };
 }

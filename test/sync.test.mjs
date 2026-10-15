@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { after, before, beforeEach, test } from "node:test";
-import { FakeDocument, FakeStorage, ids } from "./dom-fakes.mjs";
+import { FakeDocument, FakeStorage, ids, libraryOf } from "./dom-fakes.mjs";
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const NOW = Date.now();
@@ -72,6 +72,10 @@ function resetBackend() {
       favorites: 0,
       favoriteRemovals: 0,
       activityRemovals: 0,
+      collections: 0,
+      collectionRemovals: 0,
+      memberships: 0,
+      membershipRemovals: 0,
       meaningful: true,
     },
     summaryFails: false,
@@ -130,6 +134,13 @@ before(async () => {
         }
         if (command === "join_sync") backend.onJoin?.();
         if (backend.fail && command === backend.fail.command) throw backend.fail.error;
+        if (command === "approve_sync_upgrade") {
+          backend.fail = null;
+          backend.current.lastErrorCategory = null;
+          backend.current.state = "idle";
+          backend.current.snapshotSchemaVersion = 3;
+          return null;
+        }
         if (command === "create_sync") {
           if (!backend.partial) backend.current = structuredClone(paired);
           return {
@@ -163,7 +174,7 @@ before(async () => {
         }
         if (command === "get_sync_recovery_key") return KEY;
         if (command === "get_history") return { history: structuredClone(backend.history), index: -1 };
-        if (command === "get_favorites") return structuredClone(backend.favorites);
+        if (command === "get_saved_library") return libraryOf(structuredClone(backend.favorites));
         if (command === "get_exploration_stats") return { explored: 0, viewable: 0, unavailable: 0, unclassified: 0 };
         if (command === "get_viewing_activity")
           return { viewedTotal: backend.activityTotal, days: [], localViewTimes: [], frameViews: [] };
@@ -780,7 +791,7 @@ test("the local summary is aggregate counts and the Merge warning names previous
   assert.equal(get("sync-join-local").hidden, false);
   assert.equal(
     text("sync-join-local"),
-    `This device currently has 3 history items, 1 favorite, ${count(1217)} previous deletions.`,
+    `This device currently has 3 history items, 1 saved frame, ${count(1217)} previous deletions.`,
   );
   assert.equal(get("sync-join-merge-deletions").hidden, false);
   assert.equal(
@@ -871,7 +882,7 @@ test("Restore reloads replaced views when final local pairing fails", async () =
   for (const category of ["secure_storage", "persistence"]) {
     const oldItem = { source: "prntsc", id: "oldlocal", sourcePageUrl: "https://prnt.sc/oldlocal", viewedAt: 1 };
     stateModule.applyHistory({ history: [oldItem], index: 0 });
-    stateModule.applyFavorites([{ ...oldItem, addedAt: 1 }]);
+    stateModule.applySavedLibrary(libraryOf([{ ...oldItem, addedAt: 1 }]));
     await openJoin();
     choose("restore");
     get("sync-recovery-input").value = KEY;
@@ -947,7 +958,7 @@ test("join copy is concrete, avoids vague promises, and keeps developer terms ou
     "Compare Restore and Merge, then enter your recovery key below.",
     "Restore this device from Sync",
     "Replace this device’s synced data with the copy already in Sync.",
-    "Local history, favorites and their previous deletions will not be added to Sync.",
+    "Local history, saved frames, collections and their previous deletions will not be added to Sync.",
     "With Restore, if Sync was saved by an older app, data it could not save is kept from this device.",
     "Merge this device with Sync",
     "Combine this device’s existing synced data with the copy already in Sync.",
@@ -968,4 +979,64 @@ test("the roster renders the Rust serialization contract fixture", async () => {
     rowTexts(get("sync-devices").children[0]).at(-1),
     `Linux · First joined: ${format(1700000000000)} · Last synced: ${format(1700000060000)}`,
   );
+});
+
+test("pending collection upgrade retains success history and Later performs no approval", async () => {
+  await open({ ...paired, state: "upgrade_required", dirty: true, lastErrorCategory: "upgrade_required" });
+  const last = text("sync-last-synced");
+  assert.equal(text("sync-status"), "Sync needs an upgrade");
+  assert.equal(get("sync-upgrade").hidden, false);
+  get("sync-upgrade-later").click();
+  assert.equal(syncCalls("approve_sync_upgrade").length, 0);
+  assert.equal(syncCalls("sync_now").length, 0);
+  await open(backend.current);
+  backend.onSyncNow = () => {
+    backend.current.dirty = false;
+  };
+  get("sync-upgrade-confirm").click();
+  await flush();
+  assert.equal(syncCalls("approve_sync_upgrade").length, 1);
+  assert.equal(syncCalls("sync_now").length, 1);
+  assert.equal(get("sync-upgrade").hidden, true);
+  assert.equal(text("sync-last-synced"), last);
+});
+
+test("joining an older Sync asks before approval and retries the frozen key and join mode", async () => {
+  await open();
+  get("sync-show-join").click();
+  await flush();
+  get("sync-join-restore").checked = true;
+  get("sync-recovery-input").value = KEY;
+  backend.fail = { command: "join_sync", error: { category: "upgrade_required" } };
+  submit("sync-join-form");
+  await flush();
+  assert.equal(get("sync-upgrade").hidden, false);
+  assert.equal(syncCalls("approve_sync_upgrade").length, 0);
+  get("sync-recovery-input").value = "edited after submit";
+  get("sync-upgrade-confirm").click();
+  await flush();
+  assert.equal(syncCalls("approve_sync_upgrade")[0].args.recoveryKey, KEY);
+  assert.deepEqual(
+    syncCalls("join_sync").map((x) => x.args),
+    [
+      { recoveryKey: KEY, mode: "restore" },
+      { recoveryKey: KEY, mode: "restore" },
+    ],
+  );
+});
+
+test("Later on a pending join lets the user start a different connection without approving an abandoned key", async () => {
+  await open();
+  get("sync-show-join").click();
+  await flush();
+  get("sync-join-restore").checked = true;
+  get("sync-recovery-input").value = KEY;
+  backend.fail = { command: "join_sync", error: { category: "upgrade_required" } };
+  submit("sync-join-form");
+  await flush();
+  get("sync-upgrade-later").click();
+  await open();
+  assert.equal(get("sync-upgrade").hidden, true);
+  assert.equal(get("sync-unpaired").hidden, false);
+  assert.equal(syncCalls("approve_sync_upgrade").length, 0);
 });

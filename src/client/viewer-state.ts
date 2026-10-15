@@ -1,6 +1,5 @@
 import { elements } from "./elements.js";
-import type { FavoriteItem } from "./favorites.js";
-import { getFavorites } from "./favorites.js";
+import { getSavedLibrary, operationKey, type SavedItem, type SavedLibrary } from "./favorites.js";
 import { loadPageSize } from "./history-pagination.js";
 import type { HistoryItem, HistorySnapshot } from "./persistence.js";
 import { getHistory } from "./persistence.js";
@@ -11,7 +10,10 @@ import { refreshUserPreferences } from "./user-preferences.js";
 // update the fields relevant to their own responsibility instead of holding copies.
 export const state = {
   history: [] as HistoryItem[],
-  favorites: [] as FavoriteItem[],
+  favorites: [] as SavedItem[],
+  library: { items: [], collections: [], memberships: [] } as SavedLibrary,
+  savedFilter: "all",
+  navigationSavedFilter: "all",
   index: -1,
   loading: true,
   // A network draw in flight, as opposed to any loading; only this spins the Draw button.
@@ -47,18 +49,28 @@ export function applyHistory(snapshot: HistorySnapshot): void {
   state.index = snapshot.index;
 }
 
-export function applyFavorites(favorites: FavoriteItem[]): void {
+export function applySavedLibrary(library: SavedLibrary): void {
   favoritesGeneration++;
-  state.favorites.splice(0, state.favorites.length, ...favorites);
+  state.library = library;
+  state.favorites.splice(0, state.favorites.length, ...library.items);
+  const collectionExists = library.collections.some((c) => operationKey(c.collectionId) === state.savedFilter);
+  if (state.savedFilter !== "all" && state.savedFilter !== "none" && !collectionExists) state.savedFilter = "all";
+  if (state.savedFilter === "none" && !uncollectedItems().length) state.savedFilter = "all";
   const current = state.history[state.index];
   if (current && !isFavorite(current)) state.navigationMode = "history";
+  else if (
+    current &&
+    state.navigationMode === "favourites" &&
+    !filteredSavedItems(state.navigationSavedFilter).some((x) => x.source === current.source && x.id === current.id)
+  )
+    state.navigationSavedFilter = "all";
 }
 
 // Favorites keep the same newest-first positions as the dialog; history keeps its frame numbers.
-export function navigationView(): { items: (HistoryItem | FavoriteItem)[]; index: number } {
+export function navigationView(): { items: (HistoryItem | SavedItem)[]; index: number } {
   const current = state.history[state.index];
   if (state.navigationMode === "favourites" && current && isFavorite(current)) {
-    const items = [...state.favorites].reverse();
+    const items = filteredSavedItems(state.navigationSavedFilter).slice().reverse();
     return { items, index: items.findIndex((item) => item.source === current.source && item.id === current.id) };
   }
   return { items: state.history, index: state.index };
@@ -66,6 +78,32 @@ export function navigationView(): { items: (HistoryItem | FavoriteItem)[]; index
 
 export function isFavorite(frame: { source: string; id: string }): boolean {
   return state.favorites.some((favorite) => favorite.source === frame.source && favorite.id === frame.id);
+}
+
+export function uncollectedItems(): SavedItem[] {
+  const assigned = new Set(state.library.memberships.map((m) => operationKey(m.favoriteOperationId)));
+  return state.favorites.filter((item) => !item.saveOperationIds.some((id) => assigned.has(operationKey(id))));
+}
+export function filteredSavedItems(filter = state.savedFilter): SavedItem[] {
+  if (filter === "all") return state.favorites;
+  if (filter === "none") return uncollectedItems();
+  const assigned = new Set(
+    state.library.memberships
+      .filter((m) => operationKey(m.collectionId) === filter)
+      .map((m) => operationKey(m.favoriteOperationId)),
+  );
+  return state.favorites.filter((item) => item.saveOperationIds.some((id) => assigned.has(operationKey(id))));
+}
+let libraryMutations: Promise<unknown> = Promise.resolve();
+let libraryPending = 0;
+export function mutateSavedLibrary<T>(run: () => Promise<T>): Promise<T> {
+  favoritesGeneration++;
+  libraryPending++;
+  const result = libraryMutations.then(run).finally(() => {
+    libraryPending--;
+  });
+  libraryMutations = result.catch(() => undefined);
+  return result;
 }
 
 export function refreshPersistedView(): Promise<void> {
@@ -81,10 +119,11 @@ export function refreshPersistedView(): Promise<void> {
         try {
           const historyAtStart = historyGeneration;
           const favoritesAtStart = favoritesGeneration;
-          const [history, favorites] = await Promise.all([getHistory(), getFavorites()]);
+          await libraryMutations;
+          const [history, library] = await Promise.all([getHistory(), getSavedLibrary()]);
           await refreshUserPreferences();
           const historyStale = state.loading || historyAtStart !== historyGeneration;
-          const favoritesStale = favoritesAtStart !== favoritesGeneration;
+          const favoritesStale = libraryPending > 0 || favoritesAtStart !== favoritesGeneration;
           // Only the domain overtaken by an interaction is stale. Other remote changes remain useful.
           if (!historyStale) {
             const current = state.history[state.index];
@@ -95,7 +134,7 @@ export function refreshPersistedView(): Promise<void> {
                 : -1,
             });
           }
-          if (!favoritesStale) applyFavorites(favorites);
+          if (!favoritesStale) applySavedLibrary(library);
           if (historyStale || favoritesStale) refreshRequested = true;
           // Open dialogs and the stage redraw from each accepted projection without moving focus.
           if (!historyStale || !favoritesStale) document.dispatchEvent(new CustomEvent("persisted-view-refreshed"));

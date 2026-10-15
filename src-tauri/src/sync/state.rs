@@ -23,13 +23,13 @@ impl SyncLocalConfig {
             protocol_version: 1,
             sync_id,
             last_accepted_revision: Some(revision),
-            highest_schema_version: 2,
+            highest_schema_version: 3,
             last_success_at: None,
         }
     }
 
     pub(super) fn validate(&self) -> Result<(), SyncError> {
-        if !(1..=2).contains(&self.highest_schema_version)
+        if !(1..=3).contains(&self.highest_schema_version)
             || self.protocol_version != 1
             || self.sync_id.len() != 64
             || !self
@@ -62,6 +62,10 @@ pub struct LocalSyncSummary {
     pub history_removals: usize,
     pub favorites: usize,
     pub favorite_removals: usize,
+    pub collections: usize,
+    pub collection_removals: usize,
+    pub memberships: usize,
+    pub membership_removals: usize,
     pub activity_removals: usize,
     pub meaningful: bool,
 }
@@ -77,6 +81,10 @@ impl LocalSyncSummary {
             history_removals: s.history_removed.len(),
             favorites: s.favorites.len(),
             favorite_removals: s.favorites_removed.len(),
+            collections: s.collections.len(),
+            collection_removals: s.collections_removed.len(),
+            memberships: s.memberships.len(),
+            membership_removals: s.memberships_removed.len(),
             activity_removals: s.activity_removed.len(),
             meaningful,
         }
@@ -89,6 +97,7 @@ pub enum SyncState {
     Unpaired,
     Idle,
     Syncing,
+    UpgradeRequired,
     Offline,
     Error,
 }

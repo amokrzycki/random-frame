@@ -7,16 +7,78 @@ interface ToastAction {
 
 const DWELL_MS = 3200;
 const LONG_DWELL_MS = 6000;
-let undoCurrent: (() => void) | undefined;
-let dismissRecovery: (() => void) | undefined;
+const recoveries: (() => void)[] = [];
 let replaceCurrent: (() => void) | undefined;
 let scope: HTMLElement | undefined;
 const notices = new Set<{ element: HTMLElement; tone: ToastTone }>();
 const dialogAnnouncements = new WeakMap<HTMLElement, HTMLDivElement>();
 let announcementObserver: MutationObserver | undefined;
 const dialogRegions = new WeakMap<HTMLElement, Map<ToastTone, HTMLDivElement>>();
+const dialogLayers = new WeakMap<HTMLElement, HTMLDivElement>();
+let layerObserver: ResizeObserver | undefined;
+let layerEventsBound = false;
+
+function positionDialogNotices(): void {
+  const layer = scope && dialogLayers.get(scope);
+  if (!scope || !layer) return;
+  const dialog = scope.getBoundingClientRect();
+  layer.style.right = `${Math.max(16, window.innerWidth - dialog.right + 16)}px`;
+  // Collection surfaces reserve a stable external gap. Bound consecutive Undo
+  // notices to it rather than covering controls or resizing the dialog.
+  const available = window.innerHeight - dialog.bottom - 24;
+  if (available >= 44) {
+    layer.style.maxHeight = `${available}px`;
+    layer.style.bottom = "16px";
+    layer.style.top = "auto";
+    return;
+  }
+  layer.style.maxHeight = "min(30dvh, 240px)";
+  const height = layer.getBoundingClientRect().height;
+  // Other app dialogs retain their existing dimensions. Keep their notices
+  // clear of header/footer controls and move aside for keyboard focus.
+  let bottom = 16;
+  if (height + 24 > window.innerHeight - dialog.bottom) {
+    const footer = scope.querySelector<HTMLElement>("footer, .collections-actions");
+    const edge = footer?.getBoundingClientRect().top ?? dialog.bottom - 16;
+    bottom = Math.max(16, window.innerHeight - edge + 12);
+  }
+  layer.style.bottom = `${bottom}px`;
+  const focused = document.activeElement as HTMLElement | null;
+  if (focused && scope.contains(focused) && !layer.contains(focused)) {
+    const target = focused.getBoundingClientRect();
+    const rail = layer.getBoundingClientRect();
+    if (target.right > rail.left && target.left < rail.right && target.bottom > rail.top && target.top < rail.bottom) {
+      layer.style.bottom = "auto";
+      layer.style.top = `${scope.querySelector("header")?.getBoundingClientRect().bottom ?? dialog.top + 16}px`;
+      return;
+    }
+  }
+  layer.style.top = "auto";
+}
+
+function dialogLayer(dialog: HTMLElement): HTMLDivElement {
+  const existing = dialogLayers.get(dialog);
+  if (existing) return existing;
+  const layer = document.createElement("div");
+  layer.className = "dialog-notice-layer";
+  layer.popover = "manual";
+  dialog.append(layer);
+  dialogLayers.set(dialog, layer);
+  if (typeof ResizeObserver !== "undefined") {
+    layerObserver ??= new ResizeObserver(positionDialogNotices);
+    layerObserver.observe(layer);
+  }
+  if (!layerEventsBound) {
+    window.addEventListener?.("resize", positionDialogNotices);
+    document.addEventListener("focusin", positionDialogNotices);
+    layerEventsBound = true;
+  }
+  return layer;
+}
 
 function region(tone: ToastTone): HTMLDivElement {
+  // Success and information share one polite announcement region.
+  if (tone === "success") tone = "info";
   if (scope) {
     let regions = dialogRegions.get(scope);
     if (!regions) {
@@ -28,7 +90,7 @@ function region(tone: ToastTone): HTMLDivElement {
     const element = document.createElement("div");
     element.className = "dialog-notices";
     element.setAttribute("aria-live", tone === "error" ? "assertive" : "polite");
-    (scope.querySelector?.(".history-dialog__content") ?? scope).append(element);
+    dialogLayer(scope).append(element);
     regions.set(tone, element);
     return element;
   }
@@ -43,6 +105,8 @@ function region(tone: ToastTone): HTMLDivElement {
 
 // Actionable feedback follows the active dialog into its focus and accessibility scope.
 export function setToastScope(dialog?: HTMLElement): void {
+  const previousLayer = scope && dialogLayers.get(scope);
+  if (previousLayer?.matches?.(":popover-open")) previousLayer.hidePopover();
   scope = dialog;
   const announcer = document.querySelector<HTMLElement>("#announcer");
   if (announcer) {
@@ -67,13 +131,18 @@ export function setToastScope(dialog?: HTMLElement): void {
     region("error");
   }
   for (const notice of notices) region(notice.tone).append(notice.element);
+  if (scope) {
+    const layer = dialogLayer(scope);
+    layer.showPopover?.();
+    positionDialogNotices();
+    layer.scrollTop = layer.scrollHeight;
+  }
 }
 
 function show(message: string, tone: ToastTone, action?: ToastAction, completion?: ToastAction) {
   // ponytail: "Undo" label is the recovery discriminator; rename the field if this ever needs to apply to non-Undo actions.
   const recovery = action?.label === "Undo";
-  if (recovery) dismissRecovery?.();
-  else replaceCurrent?.();
+  if (!recovery) replaceCurrent?.();
   const returnFocus = document.activeElement as HTMLElement | null;
   const notification = document.createElement("div");
   notification.className = `toast toast--${tone}`;
@@ -83,20 +152,27 @@ function show(message: string, tone: ToastTone, action?: ToastAction, completion
   region(tone).append(notification);
   const notice = { element: notification, tone };
   notices.add(notice);
+  positionDialogNotices();
   let timer = 0;
   let expired = false;
   let running = false;
-  const dismiss = (): void => {
+  const dismiss = (immediate = false): void => {
     if (expired) return;
     expired = true;
     clearTimeout(timer);
     notices.delete(notice);
     if (recovery) {
-      undoCurrent = undefined;
-      dismissRecovery = undefined;
+      const index = undoRun && recoveries.indexOf(undoRun);
+      if (typeof index === "number" && index >= 0) recoveries.splice(index, 1);
     } else replaceCurrent = undefined;
     const focused = notification.contains(document.activeElement);
-    notification.remove();
+    notification.setAttribute("aria-hidden", "true");
+    notification.classList?.add("toast--leaving");
+    notification.style.pointerEvents = "none";
+    for (const button of buttons) button.tabIndex = -1;
+    // Correctness never depends on transitionend; rapid replacement removes immediately.
+    if (immediate) notification.remove();
+    else window.setTimeout(() => notification.remove(), 140);
     if (focused) {
       const target =
         returnFocus?.isConnected &&
@@ -109,8 +185,7 @@ function show(message: string, tone: ToastTone, action?: ToastAction, completion
       target?.focus();
     }
   };
-  if (recovery) dismissRecovery = dismiss;
-  else replaceCurrent = dismiss;
+  if (!recovery) replaceCurrent = () => dismiss(true);
   const arm = (): void => {
     timer = window.setTimeout(dismiss, tone === "error" || action ? LONG_DWELL_MS : DWELL_MS);
   };
@@ -128,6 +203,7 @@ function show(message: string, tone: ToastTone, action?: ToastAction, completion
     }
   }
   const buttons: HTMLButtonElement[] = [];
+  let undoRun: (() => void) | undefined;
   for (const current of [action, completion]) {
     if (!current) continue;
     const button = document.createElement("button");
@@ -154,25 +230,32 @@ function show(message: string, tone: ToastTone, action?: ToastAction, completion
         });
     };
     button.addEventListener("click", run);
-    if (current.label === "Undo") undoCurrent = run;
+    if (current.label === "Undo") {
+      undoRun = run;
+      recoveries.push(run);
+    }
     buttons.push(button);
     notification.append(button);
   }
+  const layer = scope && dialogLayers.get(scope);
+  if (layer) layer.scrollTop = layer.scrollHeight;
   return {
     dismiss,
     confirm: (message: string): void => {
       copy.textContent = message;
       const undo = buttons[0];
       if (undo) undo.hidden = true;
-      undoCurrent = undefined;
+      const index = undoRun && recoveries.indexOf(undoRun);
+      if (typeof index === "number" && index >= 0) recoveries.splice(index, 1);
     },
   };
 }
 
 export const toast = {
   undo: (): boolean => {
-    if (!undoCurrent) return false;
-    undoCurrent();
+    const undo = recoveries.at(-1);
+    if (!undo) return false;
+    undo();
     return true;
   },
   success: (message: string, action?: ToastAction): void => {

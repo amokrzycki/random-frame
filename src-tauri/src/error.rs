@@ -6,6 +6,8 @@ use std::fmt;
 #[serde(rename_all = "kebab-case")]
 pub enum ErrorKind {
     InvalidInput,
+    #[serde(rename = "stale_saved_frame")]
+    StaleSavedFrame,
     UnknownSource,
     UnavailableSource,
     NotFound,

@@ -5,10 +5,14 @@ import { FakeDocument, ids } from "./dom-fakes.mjs";
 test("dialogs contain focus and suspend titlebar tools", async (t) => {
   const document = new FakeDocument(ids);
   const original = Object.getOwnPropertyDescriptor(globalThis, "document");
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  globalThis.window = Object.assign(new EventTarget(), { innerWidth: 800, innerHeight: 600 });
   globalThis.document = document;
   t.after(() => {
     if (original) Object.defineProperty(globalThis, "document", original);
     else delete globalThis.document;
+    if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
+    else delete globalThis.window;
   });
 
   const { bindDialogChromeEvents, dismissTopLayer, onDialogClosed, openDialog, refreshDialogBoundary } = await import(

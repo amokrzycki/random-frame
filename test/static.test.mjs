@@ -50,10 +50,10 @@ test("builds static Tauri assets with the package version", async () => {
 test("history and Stats copy distinguishes reset activity from persistent exploration", async () => {
   const index = await readFile(new URL("../dist/index.html", import.meta.url), "utf8");
   const copy = index.replace(/\s+/g, " ");
-  assert.match(copy, /Clears history and Stats\. Favorites and Seen IDs/);
-  assert.match(copy, /Clears favorites on this device/);
-  assert.match(copy, /known favorites are removed from linked devices when they sync/);
-  assert.match(copy, /New favorites created on an offline device may appear later/);
+  assert.match(copy, /Clears history and Stats\. Saved frames, collections and Seen IDs/);
+  assert.match(copy, /Removes all known saved frames/);
+  assert.match(copy, /Collections remain empty/);
+  assert.match(copy, /New offline saves may appear after Sync/);
   assert.match(copy, /<dt>Frames drawn<\/dt>.*<dt>Today<\/dt>.*<dt>Activity streak<\/dt>/);
   assert.match(copy, /Prnt\.sc IDs checked/);
   assert.match(copy, /Stats reset with History, and on linked devices once they Sync\. IDs checked and Seen IDs stay/);
@@ -83,7 +83,8 @@ test("distilled menus keep Save beside Favorite and Clear in the History footer"
   const history = html.split('id="history-dialog"')[1].split('id="stats-dialog"')[0];
   assert.match(more, /id="stats-button"/);
   assert.doesNotMatch(more, /History/);
-  assert.equal((frame.match(/role="menuitem"/g) ?? []).length, 7);
+  assert.equal((frame.match(/role="menuitem"/g) ?? []).length, 8);
+  assert.match(frame, /id="remove-saved-button"[\s\S]*Remove from all saved/);
   assert.doesNotMatch(frame, /id="save-button"|id="position-current"|id="history-total"/);
   assert.match(html, /id="favorite-button"[\s\S]*class="info-icon"\s+id="save-button"/);
   assert.match(history, /<footer class="history-footer">[\s\S]*id="history-clear-button"/);
@@ -110,7 +111,7 @@ test("Sync dialog separates Start a new Sync from Connect this device and states
   assert.ok(connect.indexOf('id="sync-join-modes"') < connect.indexOf('id="sync-recovery-input"'));
   assert.match(dialog, /id="sync-join"[^>]*form="sync-join-form"/);
   assert.doesNotMatch(connectText, /It won’t be replaced/);
-  assert.match(copy, /History and Favorites/);
+  assert.match(copy, /History, saved frames and collections/);
   assert.match(copy, /Previously viewed and checked IDs/);
   assert.match(copy, /Activity &amp; Stats/);
   assert.match(copy, /Preferences/);

@@ -36,6 +36,7 @@ pub(super) async fn push_with_retries(
     mut config: Option<&mut SyncLocalConfig>,
     mut schema_floor: u32,
 ) -> Result<(i64, Generation), SyncError> {
+    data.require_upgrade_consent(keys, schema_floor)?;
     for attempt in 0..MAX_CAS_ATTEMPTS {
         let (snapshot, generation, self_record) = data.local_snapshot()?;
         let envelope = keys
@@ -44,7 +45,7 @@ pub(super) async fn push_with_retries(
         #[cfg(any(test, debug_assertions))]
         crate::snapshot::report_upload(&snapshot, &envelope);
         data.state
-            .begin_publication(keys.sync_id(), revision)
+            .begin_publication(keys.sync_id(), revision, 3)
             .map_err(|_| SyncError::Persistence)?;
         match transport
             .ok_or(SyncError::InvalidEndpoint)?
@@ -118,6 +119,7 @@ pub(super) async fn restore_with_retries(
     mut remote: snapshot::DecodedSnapshot,
 ) -> Result<(i64, Generation), SyncError> {
     let transport = transport.ok_or(SyncError::InvalidEndpoint)?;
+    data.require_upgrade_consent(keys, remote.original_schema_version)?;
     let mut schema_floor = remote.original_schema_version;
     let local = if remote.needs_upgrade {
         data.state.snapshot().map_err(|_| SyncError::Persistence)?.0
@@ -127,6 +129,7 @@ pub(super) async fn restore_with_retries(
         snapshot::SyncSnapshot::default()
     };
     for attempt in 0..MAX_CAS_ATTEMPTS {
+        data.require_upgrade_consent(keys, remote.original_schema_version)?;
         let target = data.restore_target(&remote, &local, now_ms())?;
         let bytes = snapshot::serialize_snapshot(&target).map_err(|error| match error {
             snapshot::SnapshotError::PayloadTooLarge => SyncError::BodyTooLarge,
@@ -138,7 +141,7 @@ pub(super) async fn restore_with_retries(
         #[cfg(any(test, debug_assertions))]
         crate::snapshot::report_upload(&bytes, &envelope);
         data.state
-            .begin_publication(keys.sync_id(), revision)
+            .begin_publication(keys.sync_id(), revision, 3)
             .map_err(|_| SyncError::Persistence)?;
         match transport
             .update(

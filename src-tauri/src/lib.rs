@@ -13,8 +13,9 @@ mod time;
 use chrono::Local;
 use error::{AppError, ErrorKind};
 use persistence::{
-    activity_day, day_key, ActivityStore, ExplorationStore, FavoriteItem, FavoriteStore, FrameView,
-    HistoryItem, HistorySnapshot, HistoryStore, PersistentState, RemovedFrame, SeenStore,
+    activity_day, day_key, ActivityStore, CollectionEditorRequest, ExplorationStore, FavoriteItem,
+    FavoriteStore, FrameView, HistoryItem, HistorySnapshot, HistoryStore, PersistentState,
+    RemoveSavedRequest, RemovedFrame, RemovedSaved, SavedLibrary, SavedUndo, SeenStore,
     UserPreferences,
 };
 use rate_limit::RateLimiter;
@@ -420,6 +421,114 @@ fn clear_favorites(state: State<'_, AppState>) -> Result<(), AppError> {
 #[tauri::command]
 #[allow(
     clippy::needless_pass_by_value,
+    reason = "Tauri command state extractors are passed by value"
+)]
+fn get_saved_library(state: State<'_, AppState>) -> Result<SavedLibrary, AppError> {
+    state.data.read(|| Ok(state.favorites.library()))
+}
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command state extractors are passed by value"
+)]
+fn save_frame(
+    item: FavoriteItem,
+    collection_id: Option<snapshot::OperationId>,
+    state: State<'_, AppState>,
+) -> Result<SavedLibrary, AppError> {
+    let source = select_source(&item.source)?;
+    if source == Source::Prntsc {
+        prntsc::validate_item_id(&item.id)?;
+    }
+    state
+        .data
+        .read(|| state.favorites.save_frame(item, collection_id))
+}
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command state extractors are passed by value"
+)]
+fn commit_collection_editor(
+    request: CollectionEditorRequest,
+    state: State<'_, AppState>,
+) -> Result<SavedLibrary, AppError> {
+    state.data.read(|| state.favorites.commit_editor(request))
+}
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command IPC arguments are passed by value"
+)]
+fn create_collection(name: String, state: State<'_, AppState>) -> Result<SavedLibrary, AppError> {
+    state.data.read(|| state.favorites.create_collection(&name))
+}
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command IPC arguments are passed by value"
+)]
+fn rename_collection(
+    collection_id: snapshot::OperationId,
+    name: String,
+    state: State<'_, AppState>,
+) -> Result<SavedLibrary, AppError> {
+    state
+        .data
+        .read(|| state.favorites.rename_collection(collection_id, &name))
+}
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command state extractors are passed by value"
+)]
+fn delete_collection(
+    collection_id: snapshot::OperationId,
+    state: State<'_, AppState>,
+) -> Result<SavedLibrary, AppError> {
+    state
+        .data
+        .read(|| state.favorites.delete_collection(collection_id))
+}
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command state extractors are passed by value"
+)]
+fn remove_saved_frame(
+    request: RemoveSavedRequest,
+    state: State<'_, AppState>,
+) -> Result<RemovedSaved, AppError> {
+    if request.frames.len() != 1 {
+        return Err(AppError::invalid_input("Expected one saved frame"));
+    }
+    state.data.read(|| state.favorites.remove_saved(request))
+}
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command state extractors are passed by value"
+)]
+fn clear_saved_frames(
+    request: RemoveSavedRequest,
+    state: State<'_, AppState>,
+) -> Result<RemovedSaved, AppError> {
+    state.data.read(|| state.favorites.remove_saved(request))
+}
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command state extractors are passed by value"
+)]
+fn restore_saved_frames(
+    undo: SavedUndo,
+    state: State<'_, AppState>,
+) -> Result<SavedLibrary, AppError> {
+    state.data.read(|| state.favorites.restore_saved(&undo))
+}
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
     reason = "Tauri command state extractors must be passed by value"
 )]
 fn get_exploration_stats(state: State<'_, AppState>) -> Result<ExplorationStats, AppError> {
@@ -627,6 +736,18 @@ fn get_sync_join_summary(state: State<'_, AppState>) -> Result<LocalSyncSummary,
 }
 
 #[tauri::command]
+async fn approve_sync_upgrade(
+    recovery_key: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), SyncError> {
+    state.ensure_imports_ready()?;
+    match &state.sync {
+        Some(sync) => sync.approve_upgrade(recovery_key.as_deref()).await,
+        None => Err(SyncError::UnsupportedPlatform),
+    }
+}
+
+#[tauri::command]
 async fn sync_now(state: State<'_, AppState>) -> Result<SyncStatus, SyncError> {
     state.ensure_imports_ready()?;
     match &state.sync {
@@ -773,6 +894,15 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             get_favorites,
             toggle_favorite,
             clear_favorites,
+            get_saved_library,
+            save_frame,
+            commit_collection_editor,
+            create_collection,
+            rename_collection,
+            delete_collection,
+            remove_saved_frame,
+            clear_saved_frames,
+            restore_saved_frames,
             get_exploration_stats,
             get_viewing_activity,
             migrate_viewing_stats,
@@ -781,6 +911,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             join_sync,
             get_sync_join_summary,
             sync_now,
+            approve_sync_upgrade,
             startup_sync,
             leave_sync,
             set_sync_device_name,

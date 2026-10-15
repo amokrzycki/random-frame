@@ -42,7 +42,7 @@ function showFavoriteTip(): void {
     )
       return;
     localStorage.setItem(favoriteTipKey, "shown");
-    toast.info("Tip: press F to favorite a frame.");
+    toast.info("Tip: press F to save a frame.");
   }, 4000);
 }
 
@@ -170,7 +170,7 @@ export function goNext(): void {
   // A trailing no-break space alternates, so screen readers announce a repeated press too.
   const notice =
     view.items !== state.history
-      ? "This is the last favorite. Press N to draw another."
+      ? "This is the last saved frame. Press N to draw another."
       : "This is the newest frame. Press N to draw another.";
   elements.announcer.textContent = elements.announcer.textContent === notice ? `${notice} ` : notice;
 }

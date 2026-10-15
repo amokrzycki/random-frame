@@ -18,14 +18,14 @@ fn v1_snapshot_preserves_operations_and_tombstones() -> Result<(), SnapshotError
 }
 
 #[test]
-fn v2_roundtrip_is_canonical_and_old_decoder_rejects_it() -> Result<(), SnapshotError> {
+fn v3_roundtrip_is_canonical_and_old_decoders_reject_it() -> Result<(), SnapshotError> {
     let value = SyncSnapshot::default();
     let bytes = serialize_snapshot(&value)?;
-    assert_eq!(decode_snapshot(&bytes)?.original_schema_version, 2);
+    assert_eq!(decode_snapshot(&bytes)?.original_schema_version, 3);
     assert_eq!(parse_snapshot(&bytes)?, value);
     assert!(matches!(
         v1::parse_snapshot(&bytes),
-        Err(v1::SnapshotError::UnsupportedVersion(2))
+        Err(v1::SnapshotError::UnsupportedVersion(3))
     ));
     Ok(())
 }
@@ -400,5 +400,95 @@ fn legacy_v2_zero_and_absent_device_dates_roundtrip() -> Result<(), SnapshotErro
         ..Default::default()
     };
     assert_eq!(parse_snapshot(&serialize_snapshot(&state)?)?, state);
+    Ok(())
+}
+
+#[test]
+fn frozen_v2_migration_and_v3_collection_sections_are_bounded_and_canonical(
+) -> Result<(), SnapshotError> {
+    let old = SyncSnapshot {
+        favorites: vec![FavoriteRecord {
+            operation_id: [3; 16],
+            added_at: 42,
+            source: "prntsc".into(),
+            id: "abc123".into(),
+            source_page_url: "https://prnt.sc/abc123".into(),
+        }],
+        favorites_removed: vec![[4; 16]],
+        ..SyncSnapshot::default()
+    };
+    let bytes = v2::serialize_snapshot(&old)?;
+    assert_eq!(
+        bytes,
+        include_bytes!("../persistence/tests/fixtures/snapshot-v2.bin")
+    );
+    let decoded = decode_snapshot(&bytes)?;
+    assert_eq!(decoded.original_schema_version, 2);
+    assert!(decoded.needs_upgrade);
+    assert_eq!(decoded.data.favorites, old.favorites);
+    assert_eq!(decoded.data.favorites_removed, old.favorites_removed);
+    let converted = decoded.data;
+    assert_eq!(converted.collections[0].name.value, "Favourite");
+    assert_eq!(converted.collections[0].name.clock, 0);
+    assert_eq!(converted.memberships[0].favorite_operation_id, [3; 16]);
+    assert_eq!(parse_snapshot(&serialize_snapshot(&converted)?)?, converted);
+    assert!(matches!(
+        v2::decode_snapshot(&serialize_snapshot(&converted)?),
+        Err(SnapshotError::UnsupportedVersion(3))
+    ));
+    let mut corrupt = converted.clone();
+    corrupt.collections[0].name.value = "bad\nname".into();
+    assert_eq!(
+        serialize_snapshot(&corrupt).err(),
+        Some(SnapshotError::InvalidValue)
+    );
+    corrupt = converted.clone();
+    corrupt.memberships.push(corrupt.memberships[0].clone());
+    assert_eq!(
+        serialize_snapshot(&corrupt).err(),
+        Some(SnapshotError::UnsortedOrDuplicate)
+    );
+    let mut forged = serialize_snapshot(&converted)?;
+    forged.truncate(forged.len() - 4);
+    assert!(decode_snapshot(&forged).is_err());
+    Ok(())
+}
+
+#[test]
+fn seeded_collection_english_name_converges_without_changing_user_names(
+) -> Result<(), SnapshotError> {
+    let seed_id = hash_id(&[b"rf/collections/legacy-favorites/v1"]);
+    let mut legacy = SyncSnapshot {
+        collections: vec![CollectionRecord {
+            collection_id: seed_id,
+            name: Register {
+                clock: 0,
+                operation_id: hash_id(&[b"rf/collections/legacy-favorites/name/v1"]),
+                value: "Ulubione".into(),
+            },
+        }],
+        ..SyncSnapshot::default()
+    };
+    let modern = parse_snapshot(&serialize_snapshot(&legacy)?)?;
+    assert_eq!(modern.collections[0].name.value, "Favourite");
+    assert_eq!(modern.collections[0].collection_id, seed_id);
+    assert!(modern.collections[0].name.stamp() > legacy.collections[0].name.stamp());
+    assert_eq!(merge_snapshots(&legacy, &modern)?, modern);
+    assert_eq!(merge_snapshots(&modern, &legacy)?, modern);
+    assert_eq!(merge_snapshots(&legacy, &legacy)?, modern);
+    for name in ["My favourites", "Ulubione", "Favourite"] {
+        legacy.collections[0].name = Register {
+            clock: 1,
+            operation_id: [0; 16],
+            value: name.into(),
+        };
+        assert_eq!(parse_snapshot(&serialize_snapshot(&legacy)?)?, legacy);
+        assert_eq!(merge_snapshots(&modern, &legacy)?, legacy);
+    }
+    // A user-created collection with the old spelling is not the seed.
+    legacy.collections[0].collection_id = [20; 16];
+    legacy.collections[0].name.clock = 0;
+    legacy.collections[0].name.value = "Ulubione".into();
+    assert_eq!(parse_snapshot(&serialize_snapshot(&legacy)?)?, legacy);
     Ok(())
 }
