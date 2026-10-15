@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -34,6 +34,7 @@ adb() {
   poll=$(cat "$state_dir/poll")
   case "$*" in
     get-state) echo $((poll + 1)) > "$state_dir/poll"; echo device ;;
+    'shell settings put global hide_error_dialogs 1') touch "$state_dir/dialogs-hidden" ;;
     'shell getprop sys.boot_completed') echo 1 ;;
     'shell getprop init.svc.bootanim')
       if [ "$scenario" = no-animation ]; then return 0;
@@ -60,13 +61,14 @@ echo "ready at $SECONDS"
     { encoding: "utf8", timeout: 5000 },
   );
   assert.equal(result.error, undefined);
-  return result;
+  return { ...result, errorDialogsHidden: existsSync(join(directory, "dialogs-hidden")) };
 }
 
 // The composite action runs only on Linux; exercise its actual Bash readiness loop.
 test("boot completion alone does not bypass the settling window", { skip: process.platform === "win32" }, (t) => {
   const result = waitForBoot(t, "ready");
   assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.errorDialogsHidden, true, "first-boot system error dialogs cannot intercept app input");
   assert.match(result.stdout, /ready at 30\b/);
 });
 
