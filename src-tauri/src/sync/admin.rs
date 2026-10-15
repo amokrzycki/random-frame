@@ -84,6 +84,13 @@ pub(super) struct Journal {
     pub confirmed: bool,
     pub generation: Option<super::state::Generation>,
     pub self_record: Option<crate::snapshot::DeviceRecord>,
+    #[serde(default)]
+    pub snapshot_schema: Option<u32>,
+    #[serde(default = "managed_schema")]
+    pub source_schema: u32,
+}
+fn managed_schema() -> u32 {
+    2
 }
 impl<S: SecretStore> SyncEngine<S> {
     pub(super) fn admin_path(&self) -> std::path::PathBuf {
@@ -125,6 +132,8 @@ impl<S: SecretStore> SyncEngine<S> {
                 || !valid_hex(&j.group_id, 32)
                 || !valid_hex(&j.request.operation_id, 16)
                 || !valid_hex(&j.request_hash, 32)
+                || !(2..=3).contains(&j.source_schema)
+                || j.snapshot_schema.is_some_and(|v| !(2..=3).contains(&v))
             {
                 return Err(SyncError::CorruptLocalState);
             }
@@ -201,6 +210,10 @@ impl<S: SecretStore> SyncEngine<S> {
         }
         let mut config = SyncLocalConfig::new(c.group_id.clone(), result.revision);
         config.protocol_version = 2;
+        config.highest_schema_version = prior
+            .as_ref()
+            .filter(|p| p.sync_id == c.group_id)
+            .map_or(2, |p| p.highest_schema_version);
         config.last_success_at = prior.as_ref().and_then(|p| p.last_success_at);
         let credential_version = prior
             .as_ref()

@@ -110,6 +110,22 @@ pub(super) fn assert_sync_data_equal(
     );
     assert_eq!(actual.favorites, expected.favorites, "favorites mismatch");
     assert_eq!(
+        actual.collections, expected.collections,
+        "collections mismatch"
+    );
+    assert_eq!(
+        actual.collections_removed, expected.collections_removed,
+        "collection tombstones mismatch"
+    );
+    assert_eq!(
+        actual.memberships, expected.memberships,
+        "memberships mismatch"
+    );
+    assert_eq!(
+        actual.memberships_removed, expected.memberships_removed,
+        "membership tombstones mismatch"
+    );
+    assert_eq!(
         actual.favorites_removed, expected.favorites_removed,
         "favorites_removed mismatch"
     );

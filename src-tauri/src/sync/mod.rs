@@ -19,3 +19,6 @@ mod tests;
 
 #[cfg(test)]
 mod membership_tests;
+
+#[cfg(test)]
+mod managed_collections_tests;

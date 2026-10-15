@@ -328,6 +328,7 @@ function renderDevices(next: SyncStatus): void {
 // Only problems flag the titlebar: a quiet icon means Sync is fine or not in use.
 function setStatus(next: SyncStatus): void {
   status = next;
+  if (next.snapshotSchemaVersion >= 3 && next.lastErrorCategory !== "upgrade_required") upgradeAction = undefined;
   statusCheckFailed = false;
   renderDevices(next);
   const attention = next.paired && (next.state === "error" || next.state === "offline" || next.lastErrorCategory);
@@ -841,14 +842,19 @@ export function bindSyncDialogEvents(): void {
   });
   elements.syncAdminRecoverForm.addEventListener("submit", async (event) => {
     event.preventDefault();
-    await operate("Preparing administration recovery…", async () => {
-      const result = await recoverSyncAdmin(elements.syncAdminCode.value.trim());
-      elements.syncAdminCode.value = "";
-      recoveryPrepared = result.prepared;
-      if (recoveryPrepared) elements.syncRecovery.dataset.recovering = "true";
-      showKey(result.adminRecoveryCode, true);
-      return result.status;
-    });
+    const code = elements.syncAdminCode.value.trim();
+    await operate(
+      "Preparing administration recovery…",
+      async () => {
+        const result = await recoverSyncAdmin(code);
+        elements.syncAdminCode.value = "";
+        recoveryPrepared = result.prepared;
+        if (recoveryPrepared) elements.syncRecovery.dataset.recovering = "true";
+        showKey(result.adminRecoveryCode, true);
+        return result.status;
+      },
+      code,
+    );
     focusWhenSettled(elements.syncKeySaved);
   });
   elements.syncRecoveryCancel.addEventListener("click", async () => {

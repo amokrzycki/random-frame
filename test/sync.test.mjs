@@ -1224,3 +1224,45 @@ test("legacy move explains both groups and terminal states offer no retry", asyn
   assert.match(text("sync-status-detail"), /removed/);
   assert.equal(get("sync-retry").hidden, true);
 });
+
+test("managed invitation upgrade preserves the invitation and mode until explicit consent", async () => {
+  await open();
+  get("sync-show-join").click();
+  await flush();
+  get("sync-join-restore").checked = true;
+  get("sync-recovery-input").value = INVITE;
+  backend.fail = { command: "join_sync", error: { category: "upgrade_required" } };
+  submit("sync-join-form");
+  await flush();
+  assert.equal(get("sync-upgrade").hidden, false);
+  assert.equal(syncCalls("approve_sync_upgrade").length, 0);
+  get("sync-recovery-input").value = "changed invitation";
+  get("sync-upgrade-confirm").click();
+  await flush();
+  assert.equal(syncCalls("approve_sync_upgrade")[0].args.recoveryKey, INVITE);
+  assert.deepEqual(
+    syncCalls("join_sync").map((c) => c.args),
+    [
+      { recoveryKey: INVITE, mode: "restore" },
+      { recoveryKey: INVITE, mode: "restore" },
+    ],
+  );
+});
+
+test("administration recovery upgrade retains the exact code and still requires saving its replacement", async () => {
+  await open();
+  get("sync-admin-code").value = ADMIN;
+  backend.fail = { command: "recover_sync_admin", error: { category: "upgrade_required" } };
+  submit("sync-admin-recover-form");
+  await flush();
+  assert.equal(get("sync-upgrade").hidden, false);
+  assert.equal(syncCalls("approve_sync_upgrade").length, 0);
+  get("sync-admin-code").value = "edited after submit";
+  get("sync-upgrade-confirm").click();
+  await flush();
+  assert.equal(syncCalls("approve_sync_upgrade")[0].args.recoveryKey, ADMIN);
+  assert.equal(syncCalls("recover_sync_admin")[1].args.code, ADMIN);
+  assert.equal(syncCalls("recover_sync_admin")[1].args.confirmed, false);
+  assert.equal(get("sync-key-saved").checked, false);
+  assert.equal(get("sync-recovery").dataset.recovering, "true");
+});

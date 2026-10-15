@@ -13,14 +13,22 @@ use std::{
     process::{Child, Command, Stdio},
     sync::atomic::Ordering,
 };
-struct Server(Child);
+pub(super) struct Server(Child);
 impl Drop for Server {
     fn drop(&mut self) {
         let _ = self.0.kill();
         let _ = self.0.wait();
     }
 }
-async fn start(root: &std::path::Path) -> Result<(Server, String), Box<dyn std::error::Error>> {
+pub(super) async fn start(
+    root: &std::path::Path,
+) -> Result<(Server, String), Box<dyn std::error::Error>> {
+    start_with_limit(root, 67_108_864).await
+}
+pub(super) async fn start_with_limit(
+    root: &std::path::Path,
+    limit: usize,
+) -> Result<(Server, String), Box<dyn std::error::Error>> {
     fs::create_dir_all(root)?;
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let address = listener.local_addr()?;
@@ -29,6 +37,7 @@ async fn start(root: &std::path::Path) -> Result<(Server, String), Box<dyn std::
         Command::new(std::env::var("RF_SYNC_SERVER_BIN")?)
             .env("RF_SYNC_BIND", address.to_string())
             .env("RF_SYNC_DB", root.join("sync.db"))
+            .env("RF_SYNC_MAX_PAYLOAD", limit.to_string())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()?,
@@ -54,6 +63,7 @@ async fn real_server_managed_move_rotation_recovery_dissolve(
     let a_secret = MemorySecret::default();
     let a = device(&root.join("a"), &url, a_secret.clone())?;
     a.seen.insert(101)?;
+    super::managed_collections_tests::seed_library(&a)?;
     let legacy = a.create().await?;
     let old = crate::sync_crypto::RootSecret::from_recovery_key(&legacy.recovery_key)?.derive();
     let transport = SyncTransport::new(&url)?;
@@ -231,6 +241,7 @@ async fn real_server_managed_journal_keyring_and_recovery_timeout(
     );
     assert!(a.journal()?.is_none());
     secret.fail_store.store(false, Ordering::Relaxed);
+    super::managed_collections_tests::seed_library(&a)?;
     let created = a.create_managed().await?;
     let b_secret = MemorySecret::default();
     let b = device(&root.join("b"), &url, b_secret.clone())?;
@@ -332,6 +343,8 @@ fn windows_move_config_promotion_requires_its_pending_journal(
         confirmed: true,
         generation: None,
         self_record: None,
+        snapshot_schema: Some(3),
+        source_schema: 3,
     };
     crate::persistence::save_json(&root.join("sync-admin.json"), &Some(j))?;
     let recovered = load_config(&path)?.ok_or("missing config")?;

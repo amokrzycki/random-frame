@@ -348,11 +348,21 @@ impl<S: SecretStore> SyncEngine<S> {
             .try_lock()
             .map_err(|_| SyncError::AlreadySyncing)?;
         let sync_id = if let Some(key) = recovery_key {
-            RootSecret::from_recovery_key(key)
-                .map_err(|_| SyncError::InvalidRecoveryKey)?
-                .derive()
-                .sync_id()
-                .to_owned()
+            if key.starts_with("rf-invite-v2-") {
+                super::managed::invitation_group(key)?
+            } else if key.starts_with("rf-admin-v2-") {
+                crate::sync_membership_crypto::AdminRecoverySecret::from_code(key)
+                    .map_err(|_| SyncError::InvalidRecoveryKey)?
+                    .0
+            } else {
+                RootSecret::from_recovery_key(key)
+                    .map_err(|_| SyncError::InvalidRecoveryKey)?
+                    .derive()
+                    .sync_id()
+                    .to_owned()
+            }
+        } else if let Some(config) = self.config()?.filter(|c| c.protocol_version == 2) {
+            config.sync_id
         } else {
             self.paired().await?.1.sync_id().to_owned()
         };

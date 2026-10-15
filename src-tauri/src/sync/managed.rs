@@ -95,6 +95,8 @@ fn journal(group: String, revision: i64, epoch: i64, mutation: Mutation, route: 
         confirmed: true,
         generation: None,
         self_record: None,
+        snapshot_schema: None,
+        source_schema: 2,
     }
 }
 fn invitation(code: &str) -> Result<(String, String, Zeroizing<[u8; 32]>), SyncError> {
@@ -112,6 +114,10 @@ fn invitation(code: &str) -> Result<(String, String, Zeroizing<[u8; 32]>), SyncE
     let mut s = Zeroizing::new([0; 32]);
     s.copy_from_slice(&bytes);
     Ok((g.into(), id.into(), s))
+}
+
+pub(super) fn invitation_group(code: &str) -> Result<String, SyncError> {
+    Ok(invitation(code)?.0)
 }
 
 impl<S: SecretStore> SyncEngine<S> {
@@ -274,7 +280,7 @@ impl<S: SecretStore> SyncEngine<S> {
             || control.state != "active"
             || control.revision < 1
             || control.epoch < 1
-            || control.snapshot_schema_floor != 2
+            || !(2..=3).contains(&control.snapshot_schema_floor)
             || control.recovery_generation < 1
             || !valid_hex(&control.master_member_id, 16)
         {
@@ -359,8 +365,16 @@ impl<S: SecretStore> SyncEngine<S> {
         let plaintext = root
             .derive()
             .decrypt_managed(&control.group_id, control.epoch, payload)
-            .map_err(invalid)?;
-        let remote = snapshot::decode_snapshot(&plaintext).map_err(invalid)?;
+            .map_err(|error| match error {
+                crate::sync_crypto::CryptoError::UnsupportedSnapshotVersion(v) => {
+                    SyncError::UnsupportedVersion(v)
+                }
+                _ => SyncError::InvalidRemoteData,
+            })?;
+        let remote = snapshot::decode_snapshot(&plaintext).map_err(|error| match error {
+            snapshot::SnapshotError::UnsupportedVersion(v) => SyncError::UnsupportedVersion(v),
+            _ => SyncError::InvalidRemoteData,
+        })?;
         let floor = self
             .data
             .schema_floor(&control.group_id)
@@ -370,18 +384,35 @@ impl<S: SecretStore> SyncEngine<S> {
                     .publication_floor(&control.group_id, control.revision)
                     .map_err(|_| SyncError::Persistence)?,
             )
-            .max(2);
+            .max(control.snapshot_schema_floor)
+            .max(
+                self.config()?
+                    .filter(|p| p.sync_id == c.group_id)
+                    .map_or(2, |p| p.highest_schema_version),
+            );
         if remote.original_schema_version < floor {
             return Err(SyncError::SchemaDowngrade);
         }
         c.root = *root.as_bytes();
         Ok((control, remote))
     }
+    fn require_managed_upgrade(&self, group: &str, schema: u32) -> Result<(), SyncError> {
+        if schema < 3
+            && !self
+                .data
+                .sync_upgrade_approved(group)
+                .map_err(|_| SyncError::Persistence)?
+        {
+            return Err(SyncError::UpgradeRequired);
+        }
+        Ok(())
+    }
     pub(super) fn save_observed(
         &self,
         c: &Credentials,
         control: &Control,
         source: Option<String>,
+        schema: u32,
     ) -> Result<(), SyncError> {
         let result = OperationResult {
             operation_id: String::new(),
@@ -400,6 +431,7 @@ impl<S: SecretStore> SyncEngine<S> {
             .find(|m| m.member_id == c.member_id)
             .ok_or(SyncError::InvalidRemoteData)?
             .credential_version;
+        config.highest_schema_version = config.highest_schema_version.max(schema);
         self.save(&config)?;
         self.cache_managed_status(self.managed_status(Some(control), &config));
         Ok(())
@@ -428,6 +460,19 @@ impl<S: SecretStore> SyncEngine<S> {
                         | SyncError::InvitationConsumed
                 )
             {
+                if entry.snapshot_schema.is_some()
+                    || matches!(
+                        &entry.request.mutation,
+                        Mutation::Create { .. }
+                            | Mutation::Snapshot { .. }
+                            | Mutation::Revoke { .. }
+                            | Mutation::Recovery { .. }
+                    )
+                {
+                    self.data
+                        .cancel_publication(&entry.group_id)
+                        .map_err(|_| SyncError::Persistence)?;
+                }
                 self.clear_journal(entry)?;
                 let mut vault = self.vault().await?;
                 if matches!(&entry.request.mutation, Mutation::Redeem { .. }) {
@@ -455,17 +500,6 @@ impl<S: SecretStore> SyncEngine<S> {
         }
         let mut vault = self.vault().await?;
         let bytes = self.request_bytes(entry)?;
-        if matches!(
-            &entry.request.mutation,
-            Mutation::Create { .. }
-                | Mutation::Snapshot { .. }
-                | Mutation::Revoke { .. }
-                | Mutation::Recovery { .. }
-        ) {
-            self.data
-                .begin_publication(&entry.group_id, entry.request.expected_revision)
-                .map_err(|_| SyncError::Persistence)?;
-        }
         let current = vault.current.as_ref();
         let pending = vault.pending.as_ref();
         let c = if entry.promote {
@@ -474,6 +508,61 @@ impl<S: SecretStore> SyncEngine<S> {
             current
         }
         .ok_or(SyncError::CorruptLocalState)?;
+        let (_, payload): (Request, &[u8]) = decode(&bytes).map_err(invalid)?;
+        let published_schema = if payload.is_empty() {
+            None
+        } else {
+            let epoch = if matches!(
+                &entry.request.mutation,
+                Mutation::Create { .. } | Mutation::Revoke { .. } | Mutation::Recovery { .. }
+            ) {
+                entry
+                    .request
+                    .expected_epoch
+                    .checked_add(1)
+                    .ok_or(SyncError::CorruptLocalState)?
+            } else {
+                entry.request.expected_epoch
+            };
+            let plain = c
+                .root()?
+                .derive()
+                .decrypt_managed(&entry.group_id, epoch, payload)
+                .map_err(invalid)?;
+            let schema = snapshot::decode_snapshot(&plain)
+                .map_err(invalid)?
+                .original_schema_version;
+            if entry.snapshot_schema.is_some_and(|v| v != schema) {
+                return Err(SyncError::CorruptLocalState);
+            }
+            let floor = self
+                .data
+                .schema_floor(&entry.group_id)
+                .map_err(|_| SyncError::Persistence)?
+                .max(
+                    self.data
+                        .publication_floor(
+                            &entry.group_id,
+                            entry.request.expected_revision.saturating_add(1),
+                        )
+                        .map_err(|_| SyncError::Persistence)?,
+                )
+                .max(
+                    self.config()?
+                        .filter(|p| p.sync_id == entry.group_id)
+                        .map_or(2, |p| p.highest_schema_version),
+                );
+            if schema < floor {
+                return Err(SyncError::SchemaDowngrade);
+            }
+            if schema == 3 && !matches!(&entry.request.mutation, Mutation::Create { .. }) {
+                self.require_managed_upgrade(&entry.group_id, entry.source_schema)?;
+            }
+            self.data
+                .begin_publication(&entry.group_id, entry.request.expected_revision, schema)
+                .map_err(|_| SyncError::Persistence)?;
+            Some(schema)
+        };
         let result = if matches!(&entry.request.mutation, Mutation::Recovery { .. }) {
             // The old code is never given replay privileges; confirm with the prepared new token.
             match self
@@ -574,6 +663,9 @@ impl<S: SecretStore> SyncEngine<S> {
         ) {
             config.last_success_at = Some(now_ms());
         }
+        if let Some(schema) = published_schema {
+            config.highest_schema_version = config.highest_schema_version.max(schema);
+        }
         self.save(&config)?;
         if entry.restore {
             let (_, payload): (Request, &[u8]) = decode(&bytes).map_err(invalid)?;
@@ -583,13 +675,17 @@ impl<S: SecretStore> SyncEngine<S> {
                 .decrypt_managed(&entry.group_id, result.epoch, payload)
                 .map_err(invalid)?;
             let target = snapshot::decode_snapshot(&plain).map_err(invalid)?;
+            let mut operation = [0; 16];
+            hex::decode_to_slice(&entry.request.operation_id, &mut operation).map_err(invalid)?;
             self.data
-                .replace_synchronized(&target.data)
+                .replace_synchronized_once(&target.data, Some(operation))
                 .map_err(|_| SyncError::Persistence)?;
         }
-        self.data
-            .complete_publication(&entry.group_id)
-            .map_err(|_| SyncError::Persistence)?;
+        if published_schema.is_some() {
+            self.data
+                .complete_publication(&entry.group_id)
+                .map_err(|_| SyncError::Persistence)?;
+        }
         if let (Some(record), Some(generation)) = (&entry.self_record, entry.generation) {
             let generation = self
                 .data
@@ -601,6 +697,9 @@ impl<S: SecretStore> SyncEngine<S> {
                 .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(generation);
         }
         self.clear_journal(entry)?;
+        if published_schema.is_some() {
+            self.set_state(SyncState::Idle, None, Some(result.revision));
+        }
         vault.auth = None;
         if vault.invitation_id.is_none()
             || matches!(
@@ -725,6 +824,8 @@ impl<S: SecretStore> SyncEngine<S> {
         entry.generation = Some(generation);
         entry.self_record = Some(self_record);
         entry.legacy_source_id = source;
+        entry.snapshot_schema = Some(3);
+        entry.source_schema = 3; // New group; legacy consent was checked before its merge.
         let entry = self.prepare(entry, &payload)?;
         self.commit_journal(&entry).await?;
         self.managed_creation_result(false).await
@@ -780,11 +881,15 @@ impl<S: SecretStore> SyncEngine<S> {
         {
             return Err(SyncError::CorruptLocalState);
         }
-        let (control, _) = self.read_managed(c, None).await?;
+        let (control, remote) = self.read_managed(c, None).await?;
         let source = config.managed.and_then(|m| m.legacy_source_id);
-        self.save_observed(c, &control, source)?;
+        self.save_observed(c, &control, source, remote.original_schema_version)?;
         self.save_vault(&vault).await?;
-        if matches!(self.status_snapshot().state, SyncState::UpdatingKey) {
+        if matches!(self.status_snapshot().state, SyncState::UpdatingKey)
+            || (remote.original_schema_version == 3
+                && self.status_snapshot().last_error_category.as_deref()
+                    == Some("upgrade_required"))
+        {
             self.set_state(SyncState::Idle, None, None);
         }
         Ok(self.managed_status(Some(&control), &self.config()?.ok_or(SyncError::Unpaired)?))
@@ -988,6 +1093,15 @@ impl<S: SecretStore> SyncEngine<S> {
     }
     pub(super) async fn sync_managed_inner(&self) -> Result<SyncStatus, SyncError> {
         self.resume_managed().await?;
+        let local = if self
+            .config()?
+            .and_then(|c| c.managed)
+            .is_some_and(|m| m.adoption == Some(JoinMode::Restore))
+        {
+            self.data.snapshot().map_err(|_| SyncError::Persistence)?.0
+        } else {
+            snapshot::SyncSnapshot::default()
+        };
         for _ in 0..super::cas::MAX_CAS_ATTEMPTS {
             let config = self.config()?.ok_or(SyncError::Unpaired)?;
             let m = config.managed.as_ref().ok_or(SyncError::ManagedRequired)?;
@@ -997,16 +1111,13 @@ impl<S: SecretStore> SyncEngine<S> {
             let mut vault = self.vault().await?;
             let c = vault.current.as_mut().ok_or(SyncError::CorruptLocalState)?;
             let (control, remote) = self.read_managed(c, None).await?;
+            self.require_managed_upgrade(&c.group_id, remote.original_schema_version)?;
             let adoption = m.adoption;
             let source = m.legacy_source_id.clone();
             let root = c.root()?;
-            self.save_observed(c, &control, source.clone())?;
+            self.save_observed(c, &control, source.clone(), remote.original_schema_version)?;
             let (bytes, generation, self_record, restore) = if adoption == Some(JoinMode::Restore) {
-                let target = self.data().restore_target(
-                    &remote,
-                    &snapshot::SyncSnapshot::default(),
-                    now_ms(),
-                )?;
+                let target = self.data().restore_target(&remote, &local, now_ms())?;
                 (
                     snapshot::serialize_snapshot(&target).map_err(snapshot_error)?,
                     None,
@@ -1015,7 +1126,7 @@ impl<S: SecretStore> SyncEngine<S> {
                 )
             } else {
                 self.data
-                    .merge_versioned(&remote.data, &c.group_id, 2)
+                    .merge_versioned(&remote.data, &c.group_id, remote.original_schema_version)
                     .map_err(|_| SyncError::Persistence)?;
                 let (bytes, generation, record) = self.data().local_snapshot()?;
                 (bytes, Some(generation), Some(record), false)
@@ -1040,6 +1151,8 @@ impl<S: SecretStore> SyncEngine<S> {
                 },
                 "snapshot",
             );
+            entry.snapshot_schema = Some(3);
+            entry.source_schema = remote.original_schema_version;
             entry.restore = restore;
             entry.legacy_source_id = source;
             entry.generation = generation;
@@ -1110,6 +1223,7 @@ impl<S: SecretStore> SyncEngine<S> {
         if control.epoch == i64::MAX || control.recovery_generation == i64::MAX {
             return Err(SyncError::InvalidRemoteData);
         }
+        self.require_managed_upgrade(&c.group_id, remote.original_schema_version)?;
         let mut rs = recipients(&control);
         let version = control
             .members
@@ -1134,12 +1248,8 @@ impl<S: SecretStore> SyncEngine<S> {
                     r.public_key.clone_from(&member.wrapping_public_key);
                 }
             }
-            let mut target = remote.data.clone();
-            crate::persistence::PreferenceStore::register_self(
-                &mut target,
-                &self.data.identity,
-                now_ms(),
-            );
+            let local = self.data.snapshot().map_err(|_| SyncError::Persistence)?.0;
+            let target = self.data().restore_target(&remote, &local, now_ms())?;
             let root = crate::sync_crypto::RootSecret::generate();
             c.root = *root.as_bytes();
             mutation = Mutation::Recovery {
@@ -1162,7 +1272,7 @@ impl<S: SecretStore> SyncEngine<S> {
             }
             rs.retain(|r| r.kind != "member" || r.id != target);
             self.data
-                .merge_versioned(&remote.data, &c.group_id, 2)
+                .merge_versioned(&remote.data, &c.group_id, remote.original_schema_version)
                 .map_err(|_| SyncError::Persistence)?;
             let root = crate::sync_crypto::RootSecret::generate();
             c.root = *root.as_bytes();
@@ -1195,6 +1305,8 @@ impl<S: SecretStore> SyncEngine<S> {
             },
         );
         entry.promote = true;
+        entry.snapshot_schema = Some(3);
+        entry.source_schema = remote.original_schema_version;
         entry.restore = recovering;
         entry.confirmed = !recovering;
         entry.legacy_source_id = self

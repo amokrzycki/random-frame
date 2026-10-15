@@ -32,6 +32,8 @@ struct Transaction {
     /// Restore: `effects` replace the synchronized stores instead of merging into them.
     #[serde(default)]
     replace: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    restore_operation: Option<snapshot::OperationId>,
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -293,6 +295,12 @@ impl PersistentState {
                 "session-history",
             )?;
         }
+        if let Some(id) = tx.restore_operation {
+            save_json(
+                &self.path.with_file_name("sync-restore-receipt.json"),
+                &Some(id),
+            )?;
+        }
         if let Some((id, schema)) = &tx.accepted_schema {
             let mut floors: BTreeMap<String, u32> = load_json(&self.schema_path)?;
             let floor = floors.entry(id.clone()).or_insert(1);
@@ -329,7 +337,20 @@ impl PersistentState {
     /// Restore: makes `target` the whole synchronized state through the journal. Device
     /// identity, thumbnails and Sync credentials are not part of it and stay untouched.
     pub fn replace_synchronized(&self, target: &SyncSnapshot) -> Result<Generation, AppError> {
+        self.replace_synchronized_once(target, None)
+    }
+    pub fn replace_synchronized_once(
+        &self,
+        target: &SyncSnapshot,
+        operation: Option<snapshot::OperationId>,
+    ) -> Result<Generation, AppError> {
         self.read(|| {
+            // One active admin journal: its durable receipt prevents replay erasing later local edits.
+            let applied: Option<snapshot::OperationId> =
+                load_json(&self.path.with_file_name("sync-restore-receipt.json"))?;
+            if operation.is_some() && applied == operation {
+                return Ok(self.generation());
+            }
             snapshot::validate_snapshot(target).map_err(AppError::persistence)?;
             let tx = Transaction {
                 version: 2,
@@ -340,6 +361,7 @@ impl PersistentState {
                 session_import: true,
                 accepted_schema: None,
                 replace: true,
+                restore_operation: operation,
             };
             save_json(&self.path, &Some(&tx))?;
             self.apply(&tx)?;
@@ -358,6 +380,7 @@ impl PersistentState {
             session_import: true,
             accepted_schema: None,
             replace: true,
+            restore_operation: None,
         };
         save_json(&self.path, &Some(&tx))
     }
@@ -398,6 +421,7 @@ impl PersistentState {
             session_import,
             accepted_schema,
             replace: false,
+            restore_operation: None,
         };
         // No upload-size check here: oversized local state must remain durable and recoverable.
         save_json(&self.path, &Some(&tx))?;
