@@ -1883,27 +1883,34 @@
   margin: 0 0 24px;
   padding: 0;
   border: 0;
+  border-block: 1px solid var(--line);
   min-width: 0;
+}
+.collections-choices:empty {
+  display: none;
 }
 .collections-choice {
   display: flex;
   gap: 12px;
   align-items: center;
   min-height: 44px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--line);
-  border-radius: var(--radius-control);
+  padding: 11px 12px;
+  font-size: 14px;
+  line-height: 1.5;
   cursor: pointer;
   transition: background-color 140ms var(--ease-out);
 }
+.collections-choice + .collections-choice {
+  border-top: 1px solid var(--line);
+}
 .collections-choices input {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   flex: 0 0 auto;
   margin: 0;
   appearance: none;
   border: 1px solid var(--control-line);
-  border-radius: 5px;
+  border-radius: 4px;
   background: var(--paper);
   cursor: inherit;
   transition:
@@ -1915,6 +1922,9 @@
 }
 .collections-choice:has(:checked) {
   background: color-mix(in srgb, var(--blue) 8%, var(--paper));
+}
+.collections-choice:has(:checked):hover {
+  background: color-mix(in srgb, var(--blue) 13%, var(--paper));
 }
 .collections-choices input:checked {
   border-color: var(--blue);
@@ -1928,11 +1938,12 @@
   cursor: default;
 }
 :root[data-input="keyboard"] .collections-choice:has(:focus-visible) {
-  outline: 3px solid var(--blue);
-  outline-offset: -3px;
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
 }
 .collections-choices input:focus-visible {
-  outline-offset: 2px;
+  /* The containing row owns keyboard focus, so the checkbox keeps only its state mark. */
+  outline: none;
 }
 .collections-choice__name {
   min-width: 0;
@@ -1969,6 +1980,25 @@
 .collections-row__action {
   flex-shrink: 0;
 }
+:is(#collections-dialog, #collection-manage-dialog[data-mode="create"]) input[type="text"] {
+  transition:
+    border-color 140ms var(--ease-out),
+    background-color 140ms var(--ease-out);
+}
+:is(#collections-dialog, #collection-manage-dialog[data-mode="create"]) input[type="text"]:hover:not(:disabled) {
+  border-color: var(--ink);
+}
+:is(#collections-dialog, #collection-manage-dialog[data-mode="create"]) input[aria-invalid="true"] {
+  border-color: var(--danger);
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+:is(#collections-dialog, #collection-manage-dialog[data-mode="create"]) input:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+:is(#collections-dialog, #collection-manage-dialog[data-mode="create"]) .collections-hint {
+  line-height: 1.5;
+}
 .collections-actions {
   display: flex;
   justify-content: flex-end;
@@ -1981,10 +2011,26 @@
   min-height: 38px;
   padding: 8px 18px;
 }
+#collections-dialog .collections-actions .primary-action {
+  min-width: 104px;
+}
+:is(#collections-dialog, #collection-manage-dialog[data-mode="create"]) .collections-actions > button {
+  min-height: 42px;
+  border-radius: var(--radius-control);
+}
+:is(#collections-dialog, #collection-manage-dialog[data-mode="create"]) .collections-actions .primary-action {
+  justify-content: center;
+  box-shadow: none;
+}
 .collections-remove {
   margin-top: 24px;
-  padding-top: 16px;
+  padding-top: 20px;
   border-top: 1px solid var(--line);
+}
+.collections-remove .sync-dialog__button {
+  min-height: 36px;
+  padding-inline: 12px;
+  font-size: 13px;
 }
 .collections-error {
   margin: 16px 0;
@@ -2147,6 +2193,67 @@
 }
 :root[data-platform="android"] .collections-dialog > .history-dialog__content > .collections-actions {
   padding: 12px var(--mobile-gutter) max(12px, env(safe-area-inset-bottom));
+}
+
+:is(#collections-dialog, #collection-manage-dialog[data-mode="create"]) {
+  font-size: 14px;
+  line-height: 1.6;
+}
+:is(#collections-dialog, #collection-manage-dialog[data-mode="create"]) .history-dialog__header {
+  padding: 24px 28px 8px;
+  border-bottom: 0;
+}
+:is(#collections-dialog, #collection-manage-dialog[data-mode="create"]) h2 {
+  font-size: 28px;
+  line-height: 1.2;
+}
+#collections-dialog .history-close {
+  margin: -7px -12px -7px 0;
+}
+#collections-dialog .collections-form {
+  padding-top: 12px;
+  overscroll-behavior: contain;
+  scroll-padding-block: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--control-line) transparent;
+}
+#collections-dialog .collections-copy {
+  margin: 8px 0 20px;
+}
+#collections-dialog .collections-frame {
+  font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+#collection-manage-dialog[data-mode="create"] {
+  width: min(480px, calc(100% - 32px));
+}
+#collection-manage-dialog[data-mode="create"] h2 {
+  font-size: 26px;
+}
+#collection-manage-dialog[data-mode="create"] .collections-form {
+  padding: 16px 28px 0;
+}
+#collection-manage-dialog[data-mode="create"] .collections-actions {
+  margin-inline: -28px;
+  padding: 16px 28px;
+  border-top: 1px solid var(--line);
+  background: var(--paper-deep);
+}
+#collection-manage-dialog[data-mode="create"] .collections-actions .primary-action {
+  min-width: 11em;
+}
+@media (max-width: 600px) {
+  :is(#collections-dialog, #collection-manage-dialog[data-mode="create"]) .history-dialog__header {
+    padding-inline: 20px;
+  }
+  #collection-manage-dialog[data-mode="create"] .collections-form {
+    padding-inline: 20px;
+  }
+  #collection-manage-dialog[data-mode="create"] .collections-actions {
+    margin-inline: -20px;
+    padding-inline: 20px;
+  }
 }
 
 /* Leave a stable overlay gap below collection surfaces; notices never resize
@@ -2340,6 +2447,11 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .collections-choice,
+  .collections-choices input,
+  :is(#collections-dialog, #collection-manage-dialog[data-mode="create"]) input[type="text"] {
+    transition: none;
+  }
   .collection-create,
   .collection-actions,
   .collection-actions-menu .tools-menu__item,

@@ -51,6 +51,7 @@ function setBusy(next: boolean): void {
   if (next) elements.collectionsDialog.dataset.busy = "true";
   else delete elements.collectionsDialog.dataset.busy;
   elements.collectionsForm.setAttribute("aria-busy", String(next));
+  elements.collectionsApply.textContent = next ? "Applying…" : "Apply";
   elements.collectionsChoices.disabled = next;
   for (const control of [
     elements.collectionsApply,
@@ -176,6 +177,7 @@ async function applyEditor(): Promise<void> {
   if (elements.collectionsName.value.trim()) {
     elements.collectionsNameError.textContent = "Add this name to choices before applying, or clear the field.";
     elements.collectionsNameError.hidden = false;
+    elements.collectionsName.setAttribute("aria-invalid", "true");
     return elements.collectionsName.focus();
   }
   const editor = draft;
@@ -267,6 +269,7 @@ let manageBusy = false;
 export function openCollectionManagement(mode: "create" | "rename" | "delete", collection?: SavedCollection): void {
   if (manageBusy || (mode !== "create" && !collection)) return;
   management = { mode, collection: collection && structuredClone(collection) };
+  elements.collectionManageDialog.dataset.mode = mode;
   let titleText = "Delete collection?";
   let applyText = "Delete collection";
   if (mode === "create") {
@@ -279,6 +282,8 @@ export function openCollectionManagement(mode: "create" | "rename" | "delete", c
   elements.collectionManageTitle.textContent = titleText;
   elements.collectionManageApply.textContent = applyText;
   elements.collectionManageApply.classList.toggle("sync-dialog__button--danger", mode === "delete");
+  elements.collectionManageApply.classList.toggle("primary-action", mode === "create");
+  elements.collectionManageApply.classList.toggle("sync-dialog__button", mode !== "create");
   elements.collectionManageCopy.textContent = `Delete “${collection?.name}”? Its frames stay in All saved and in their other collections.`;
   elements.collectionManageCopy.hidden = mode !== "delete";
   elements.collectionManageField.hidden = mode === "delete";
@@ -303,7 +308,11 @@ async function applyManagement(): Promise<void> {
     return elements.collectionManageName.focus();
   }
   manageBusy = true;
+  elements.collectionManageName.removeAttribute("aria-invalid");
   elements.collectionManageDialog.dataset.busy = "true";
+  elements.collectionManageForm.setAttribute("aria-busy", "true");
+  const applyText = elements.collectionManageApply.textContent;
+  if (mode === "create") elements.collectionManageApply.textContent = "Creating…";
   elements.collectionManageApply.disabled =
     elements.collectionManageCancel.disabled =
     elements.collectionManageName.disabled =
@@ -341,6 +350,8 @@ async function applyManagement(): Promise<void> {
   } finally {
     manageBusy = false;
     delete elements.collectionManageDialog.dataset.busy;
+    elements.collectionManageForm.setAttribute("aria-busy", "false");
+    elements.collectionManageApply.textContent = applyText;
     elements.collectionManageApply.disabled =
       elements.collectionManageCancel.disabled =
       elements.collectionManageName.disabled =
