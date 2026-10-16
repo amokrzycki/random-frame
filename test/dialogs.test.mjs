@@ -67,8 +67,12 @@ test("dialogs contain focus and suspend titlebar tools", async (t) => {
 
   // An inactive tab remains programmatically focusable, but is outside the Tab cycle.
   all.setAttribute("tabindex", "-1");
-  history.contains = (node) => [history, all, favorites, close].includes(node);
-  history.querySelectorAll = () => [all, favorites, close];
+  // Closed native disclosures can retain layout boxes for their hidden descendants.
+  const collapsedAction = document.createElement("button");
+  collapsedAction.getClientRects = () => [1];
+  collapsedAction.closest = () => document.createElement("details");
+  history.contains = (node) => [history, all, favorites, close, collapsedAction].includes(node);
+  history.querySelectorAll = () => [all, favorites, close, collapsedAction];
   openDialog(history);
   assert.equal(document.activeElement === favorites, true, "Initial focus skips the inactive tab");
   close.focus();

@@ -106,7 +106,13 @@ function focusableIn(dialog: HTMLDialogElement): HTMLElement[] {
   return [
     ...dialog.querySelectorAll<HTMLElement>(focusableSelector),
     ...(shell?.querySelectorAll<HTMLElement>(focusableSelector) ?? []),
-  ].filter((item) => !item.matches(':disabled, [tabindex="-1"]') && item.getClientRects().length > 0);
+  ].filter(
+    (item) =>
+      !item.matches(':disabled, [tabindex="-1"]') &&
+      // Collapsed panels can retain layout boxes during their exit animation.
+      !item.closest?.("[inert], details:not([open]) > :not(summary)") &&
+      item.getClientRects().length > 0,
+  );
 }
 
 function focusInDialog(dialog: HTMLDialogElement): void {

@@ -356,7 +356,18 @@
 }
 
 .sync-dialog {
-  width: min(560px, calc(100% - 32px));
+  width: min(640px, calc(100% - 32px));
+  transform: translateY(6px) scale(0.99);
+}
+
+.sync-dialog[open].is-closing {
+  transform: translateY(4px) scale(0.99);
+}
+
+@starting-style {
+  .sync-dialog[open] {
+    transform: translateY(6px) scale(0.99);
+  }
 }
 
 .sync-dialog__body {
@@ -370,7 +381,7 @@
   display: flex;
   align-items: baseline;
   gap: 10px;
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 650;
 }
 .sync-dialog__status::before {
@@ -406,16 +417,30 @@
   font-variant-numeric: tabular-nums;
 }
 .sync-dialog__summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+.sync-dialog__status-copy {
+  flex: 1 1 30ch;
+  min-width: 0;
   display: grid;
   gap: 4px;
 }
-.sync-dialog__summary > :not(.sync-dialog__status) {
+.sync-dialog__status-copy > :not(.sync-dialog__status) {
   padding-left: 17px;
 }
+.sync-dialog__summary .primary-action {
+  min-width: 112px;
+}
+.sync-dialog__status::before {
+  transition: background-color 160ms var(--ease-out);
+}
 .sync-dialog__body h3 {
-  margin: 0 0 4px;
+  margin: 0 0 8px;
   color: var(--ink);
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 650;
 }
 .sync-dialog__scope ul {
@@ -478,12 +503,9 @@
   border-radius: 50%;
   background: var(--danger);
 }
-.sync-dialog__devices {
-  margin-top: 22px;
-}
 .sync-devices {
   display: grid;
-  margin: 10px 0 0;
+  margin: 24px 0 0;
   padding: 0;
   list-style: none;
 }
@@ -491,20 +513,22 @@
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 2px 10px;
-  padding: 10px 0;
+  gap: 6px 10px;
+  padding: 16px 0;
   border-top: 1px solid var(--line);
   overflow-wrap: anywhere;
 }
 .sync-device__name {
+  flex: 1 1 auto;
   min-width: 0;
+  font-size: 15px;
   font-weight: 650;
 }
 .sync-device__badge {
   padding: 1px 8px;
-  border: 1px solid var(--control-line);
-  border-radius: 999px;
-  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--ink);
   font-size: 12px;
   white-space: nowrap;
 }
@@ -536,7 +560,10 @@
   background: var(--paper);
   font: inherit;
   cursor: pointer;
-  transition: transform 140ms var(--ease-out);
+  transition:
+    transform 140ms var(--ease-out),
+    background-color 140ms var(--ease-out),
+    color 140ms var(--ease-out);
 }
 .sync-dialog__button:hover {
   color: var(--control-fill-text);
@@ -568,10 +595,10 @@
   margin-left: 17px;
 }
 /* With the status lines stepped aside, the error is the first thing in the body. */
-.sync-dialog__summary:has(> .sync-dialog__status[hidden]) {
+.sync-dialog__summary:has(.sync-dialog__status[hidden]) {
   display: none;
 }
-.sync-dialog__summary:has(> .sync-dialog__status[hidden]) + .sync-dialog__error {
+.sync-dialog__summary:has(.sync-dialog__status[hidden]) + .sync-dialog__error {
   margin-top: 0;
 }
 .sync-dialog__error::before {
@@ -582,6 +609,179 @@
   border-radius: 50%;
   background: var(--danger);
 }
+.sync-dialog__body {
+  scroll-padding-block: 16px;
+}
+.sync-dialog__body :is(button, input, summary, output) {
+  scroll-margin-block: 16px;
+}
+.sync-dialog__section {
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+}
+#sync-paired > .sync-dialog__section:first-child {
+  margin-top: 0;
+}
+.sync-device__role {
+  color: var(--muted);
+  font-size: 12px;
+}
+.sync-device > button {
+  margin-left: auto;
+  min-height: 32px;
+  font-size: 12px;
+}
+.sync-pairing-steps {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding-left: 20px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.sync-dialog__name .sync-dialog__actions {
+  margin-top: 4px;
+}
+.sync-dialog__button--quiet {
+  border-color: transparent;
+}
+.sync-dialog__body .sync-dialog__member-note {
+  margin-top: 16px;
+}
+.sync-disclosure__toggle {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 32px;
+  font-size: 14px;
+  font-weight: 650;
+  cursor: pointer;
+  border-radius: 5px;
+  transition: color 140ms var(--ease-out);
+}
+.sync-disclosure__toggle::after {
+  content: "";
+  flex: 0 0 6px;
+  height: 6px;
+  margin: 0 4px;
+  border-right: 1px solid currentColor;
+  border-bottom: 1px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform 140ms var(--ease-out);
+}
+.sync-disclosure__toggle[aria-expanded="true"]::after {
+  transform: rotate(225deg);
+}
+.sync-disclosure__toggle:hover {
+  color: var(--blue);
+}
+.sync-disclosure__body {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 150ms var(--ease-out),
+    opacity 150ms var(--ease-out);
+}
+.sync-disclosure__toggle[aria-expanded="true"] + .sync-disclosure__body {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition-duration: 220ms;
+}
+.sync-disclosure__clip {
+  /* Leave room for focus outlines while clipping the animated content. */
+  margin-inline: -8px;
+  padding-inline: 8px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.sync-dialog__body .sync-disclosure__content {
+  margin-top: 12px;
+  padding-bottom: 8px;
+}
+.sync-disclosure--quiet > .sync-disclosure__toggle,
+.sync-dialog__scope > .sync-disclosure__toggle {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+}
+.sync-dialog__admin-key {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+}
+.sync-dialog__legacy {
+  margin-top: 24px;
+}
+.sync-dialog__legacy > button {
+  margin-top: 12px;
+}
+.sync-dialog__legacy-detail {
+  margin-top: 16px;
+}
+.sync-dialog__legacy-detail:has(#sync-legacy-source[hidden]),
+.sync-dialog__admin-key:has(#sync-show-key[hidden]) {
+  display: none;
+}
+#sync-legacy-source {
+  overflow-wrap: anywhere;
+}
+.sync-dialog__danger-zone {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+.sync-dialog__danger-zone .sync-dialog__actions {
+  margin-top: 12px;
+}
+#sync-pairing-input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+.sync-dialog__button:disabled {
+  cursor: default;
+}
+@media (max-width: 560px) {
+  .sync-dialog .history-dialog__header {
+    padding: 16px 20px;
+  }
+  .sync-dialog .sync-dialog__body {
+    padding: 20px;
+  }
+  .sync-dialog__name-row > button {
+    flex: 1 1 auto;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sync-dialog,
+  .sync-dialog[open],
+  .sync-dialog[open].is-closing {
+    transform: none;
+  }
+  .sync-dialog .sync-dialog__button:active:not(:disabled) {
+    transform: none;
+  }
+  .sync-disclosure__toggle::after,
+  .sync-disclosure__body {
+    transition: none;
+  }
+  @starting-style {
+    .sync-dialog[open] {
+      transform: none;
+    }
+  }
+}
+
 #sync-join-form {
   display: grid;
   gap: 8px;
@@ -1814,9 +2014,6 @@
 }
 
 /* Compare join modes before entering the key; actions stay outside the scrolling content. */
-.sync-dialog[data-joining] .sync-dialog__summary {
-  display: none;
-}
 .sync-join-actions {
   flex: 0 0 auto;
   margin: 0;
@@ -2482,8 +2679,4 @@
   background: var(--paper);
   color: var(--ink);
   font: inherit;
-}
-
-#sync-legacy-source {
-  overflow-wrap: anywhere;
 }
