@@ -99,9 +99,14 @@ function renderLedger(days: LedgerDay[]): void {
   renderLedgerPage();
 }
 
+let statsGeneration = 0;
+let statsLoading = 0;
 async function loadStats(): Promise<void> {
+  const generation = ++statsGeneration;
+  statsLoading++;
   try {
     const [exploration, activity] = await Promise.all([getExplorationStats(), getViewingActivity()]);
+    if (generation !== statsGeneration) return;
     elements.statsToday.textContent = String(activity.days.at(-1)?.viewed ?? 0);
     elements.statsTotal.textContent = activity.viewedTotal.toLocaleString("en-US");
     const streak = drawStreak(activity.days);
@@ -123,6 +128,7 @@ async function loadStats(): Promise<void> {
     elements.statsError.hidden = true;
     elements.ledger.hidden = false;
   } catch {
+    if (generation !== statsGeneration) return;
     // Dashes, not zeros: the counts are unknown, not empty.
     elements.statsToday.textContent = "—";
     elements.statsTotal.textContent = "—";
@@ -132,6 +138,8 @@ async function loadStats(): Promise<void> {
     elements.statsExploredBreakdown.textContent = "";
     elements.statsError.hidden = false;
     elements.ledger.hidden = true;
+  } finally {
+    statsLoading--;
   }
 }
 
@@ -157,7 +165,7 @@ export function bindStatsDialogEvents(): void {
   elements.statsClose.addEventListener("click", () => closeDialog(elements.statsDialog));
   // A sync that lands while Stats is open must not leave the old ledger on screen.
   document.addEventListener("persisted-view-refreshed", () => {
-    if (elements.statsDialog.open) void loadStats();
+    if (elements.statsDialog.open || statsLoading > 0) void loadStats();
   });
   elements.statsDialog.addEventListener("close", () => {
     onDialogClosed();

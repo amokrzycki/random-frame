@@ -22,6 +22,7 @@ import { getPlatformCapabilities, initializePlatform } from "./platform.js";
 import { bindShortcutsEvents } from "./shortcuts.js";
 import { bindStageEvents, setState, showError, syncControls } from "./stage.js";
 import { bindStatsDialogEvents, migrateLegacyStats } from "./stats-dialog.js";
+import { getSyncStatus } from "./sync-api.js";
 import { bindSyncDialogEvents, runStartupSync } from "./sync-dialog.js";
 import { toast } from "./toast.js";
 import { bindTooltipEvents } from "./tooltip.js";
@@ -43,10 +44,20 @@ let lastStartupSync = 0;
 // An Android app is resumed far more often than it is started, so returning to it syncs too.
 const FOREGROUND_SYNC_INTERVAL_MS = 15 * 60_000;
 
-function syncOnReturn(): void {
-  if (document.hidden || !startupSyncStarted || Date.now() - lastStartupSync < FOREGROUND_SYNC_INTERVAL_MS) return;
-  lastStartupSync = Date.now();
-  void runStartupSync();
+let checkingReturn = false;
+async function syncOnReturn(): Promise<void> {
+  if (document.hidden || !startupSyncStarted || checkingReturn) return;
+  checkingReturn = true;
+  try {
+    const status = await getSyncStatus();
+    if (!status.dirty && Date.now() - lastStartupSync < FOREGROUND_SYNC_INTERVAL_MS) return;
+    lastStartupSync = Date.now();
+    await runStartupSync();
+  } catch {
+    // A later focus or explicit sync can retry; native persistence remains durable.
+  } finally {
+    checkingReturn = false;
+  }
 }
 let initializing = false;
 
@@ -91,11 +102,6 @@ async function initialize(): Promise<void> {
     await migrateLegacyStats();
     await initializeUserPreferences();
     await completeStateImports();
-    if (!startupSyncStarted && getPlatformCapabilities().sync) {
-      startupSyncStarted = true;
-      lastStartupSync = Date.now();
-      void runStartupSync();
-    }
 
     applyHistory({ ...snapshot, index: -1 });
     setViewerLoading(false);
@@ -108,6 +114,11 @@ async function initialize(): Promise<void> {
     }
     await setViewerLoading(false);
     syncControls();
+    if (!startupSyncStarted && getPlatformCapabilities().sync) {
+      startupSyncStarted = true;
+      lastStartupSync = Date.now();
+      void runStartupSync();
+    }
   } catch (error) {
     console.error(error);
     state.historyLoadFailed = true;
@@ -250,7 +261,10 @@ async function start(): Promise<void> {
     refreshDialogBoundary();
     if (platform.platform === "android") {
       void bindAndroidNavigation();
+    }
+    if (platform.sync) {
       document.addEventListener("visibilitychange", syncOnReturn);
+      window.addEventListener("focus", syncOnReturn);
     }
     elements.syncButton.hidden = !platform.sync;
     elements.copyImage.hidden = !platform.imageClipboard;

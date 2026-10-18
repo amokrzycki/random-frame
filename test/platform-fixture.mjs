@@ -77,6 +77,7 @@ export async function startApp(t, capabilities) {
     }
   });
   const invocations = [];
+  const syncStatus = structuredClone(unpairedStatus);
   let nextCallback = 1;
   window.__TAURI_INTERNALS__ = {
     metadata: { currentWindow: { label: "main" } },
@@ -89,14 +90,14 @@ export async function startApp(t, capabilities) {
         return { theme: null, historyPageSize: null };
       if (command === "get_history" || command === "import_session_history") return { history: [], index: -1 };
       if (command === "get_saved_library") return libraryOf();
-      if (command === "startup_sync" || command === "get_sync_status") return unpairedStatus;
+      if (command === "startup_sync" || command === "get_sync_status") return syncStatus;
       if (command === "load_thumbnail_cache") return [];
       return null;
     },
   };
   await import(`../dist/test-client/app.js?test=${Date.now()}-${Math.random()}`);
   for (let i = 0; i < 4; i++) await flush();
-  return { invocations, removed, get: (id) => document.querySelector(`#${id}`) };
+  return { invocations, removed, syncStatus, get: (id) => document.querySelector(`#${id}`) };
 }
 
 export const desktopOnly = /^plugin:(updater|process|window)\|/;

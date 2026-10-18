@@ -4,7 +4,7 @@ import { android, desktopOnly, flush, startApp } from "./platform-fixture.mjs";
 
 test("Android retries a failed capability check, then starts Sync without any desktop-only IPC", async (t) => {
   let failing = true;
-  const { invocations, removed, get } = await startApp(t, () => {
+  const { invocations, removed, get, syncStatus } = await startApp(t, () => {
     if (failing) throw new Error("ipc down");
     return android;
   });
@@ -55,6 +55,12 @@ test("Android retries a failed capability check, then starts Sync without any de
   await flush();
   assert.equal(syncs(), before + 1);
   assert.equal(invocations.includes("get_random_frame"), false);
+  Object.assign(syncStatus, { paired: true, dirty: true, state: "idle" });
+  document.dispatchEvent(new Event("visibilitychange"));
+  window.dispatchEvent(new Event("focus"));
+  await flush();
+  assert.equal(syncs(), before + 2, "pending data bypasses the clean resume threshold and events coalesce");
+  syncStatus.dirty = false;
 
   // Back belongs to the app's layers, and Leave finishes the activity instead of closing a window.
   assert.ok(invocations.includes("plugin:app|register_listener"));

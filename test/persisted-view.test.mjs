@@ -20,6 +20,8 @@ let loader;
 let sync;
 let actions;
 let cache;
+let stats;
+let historyDialog;
 let refreshed;
 
 // Capture the native result when the command runs, then explicitly choose when IPC returns it.
@@ -53,16 +55,30 @@ before(async () => {
             if (backend.failHistory) throw new Error("Read failed");
             result = backend.history;
           } else if (command === "get_saved_library") result = libraryOf(backend.favorites);
+          else if (command === "get_exploration_stats")
+            result = {
+              explored: backend.history.history.length,
+              viewable: backend.history.history.length,
+              unavailable: 0,
+              unclassified: 0,
+            };
+          else if (command === "get_viewing_activity")
+            result = { viewedTotal: backend.history.history.length, days: [], localViewTimes: [] };
           else if (command === "get_user_preferences") result = backend.preferences;
           else if (command === "set_user_preferences") result = Object.assign(backend.preferences, args.preferences);
-          else if (["get_sync_status", "startup_sync", "sync_now"].includes(command)) result = backend.status;
-          else if (command === "get_sync_recovery_key") result = "rf1-test-key";
+          else if (["get_sync_status", "startup_sync", "sync_now"].includes(command)) {
+            if (backend.failSync && command !== "get_sync_status") throw { category: "offline" };
+            result = backend.status;
+          } else if (command === "get_sync_recovery_key") result = "rf1-test-key";
           else if (command === "plugin:event|listen") result = 1;
           else if (command === "get_frame_by_id") result = { ...item(args.id), mimeType: "image/png" };
           else if (command === "get_random_frame") result = { ...item("ccc333"), mimeType: "image/png" };
+          else if (command === "get_thumbnail_image") result = new Uint8Array([1]).buffer;
           else if (command === "get_frame_image") result = new Uint8Array([1]).buffer;
           else if (command === "select_history_item") {
-            backend.history.index = args.index;
+            backend.history.index = args.id
+              ? backend.history.history.findIndex((item) => item.source === args.source && item.id === args.id)
+              : args.index;
             result = backend.history;
           } else if (command === "record_history_item") {
             backend.history.history.push(args.item);
@@ -91,6 +107,10 @@ before(async () => {
   sync = await import("../dist/test-client/sync-dialog.js");
   actions = await import("../dist/test-client/frame-actions.js");
   cache = await import("../dist/test-client/frame-cache.js");
+  stats = await import("../dist/test-client/stats-dialog.js");
+  stats.bindStatsDialogEvents();
+  historyDialog = await import("../dist/test-client/history-dialog.js");
+  historyDialog.bindHistoryDialogEvents();
   stage.bindStageEvents();
   sync.bindSyncDialogEvents();
   document.addEventListener("persisted-view-refreshed", () => refreshed++);
@@ -133,6 +153,8 @@ beforeEach(() => {
   cache.releaseAllBlobs();
   get("image-zoom").hidden = true;
   get("sync-dialog").open = false;
+  get("stats-dialog").open = false;
+  get("history-dialog").open = false;
   stage.showFrame("prntsc", "aaa111", new Blob(["a"]), URL.createObjectURL(new Blob(["a"])));
   stage.showFrame("prntsc", "bbb222", new Blob(["b"]), URL.createObjectURL(new Blob(["b"])));
   stage.swapImage(cache.blobs.get("prntsc:aaa111").url, "aaa111");
@@ -323,7 +345,8 @@ test("a remote removal keeps the existing unselected view contract and disables 
   assert.equal(get("copy-link-button").disabled, true);
   assert.equal(get("save-button").disabled, true);
   assert.equal(get("frame-count-current").textContent, "0");
-  assert.match(get("image").alt, /aaa111/);
+  assert.equal(stage.getViewState(), "empty");
+  assert.equal(get("image-zoom").hidden, true);
 });
 
 test("repeated local favorite interactions do not starve remote history or preference updates", async () => {
@@ -404,4 +427,97 @@ test("a sync event during a read-only Sync dialog action still refreshes persist
   await flush();
   assert.equal(viewer.isFavorite(item("aaa111")), true);
   assertShown("aaa111");
+});
+
+test("ten remote frames update history, navigation and open statistics without Draw", async () => {
+  get("stats-dialog").open = true;
+  get("history-dialog").open = true;
+  backend.history.history.push(...Array.from({ length: 10 }, (_, i) => item(`remote${i}`)));
+  await sync.runStartupSync();
+  await flush();
+  assertShown("aaa111");
+  assert.equal(viewer.navigationView().items.length, 12);
+  assert.equal(get("frame-count-total").textContent, "12");
+  assert.equal(get("stats-total").textContent, "12");
+  assert.equal(get("history-grid").children.length, 12);
+  assert.equal(calls.includes("get_random_frame"), false);
+});
+
+test("foreground refresh failure exposes reload-only retry instead of silently reporting success", async () => {
+  backend.history.history.push(item("remote"));
+  backend.failHistory = true;
+  await sync.runStartupSync();
+  assert.equal(get("sync-error").hidden, false);
+  assert.match(get("sync-error-message").textContent, /saved data could not be reloaded/);
+  assert.equal(get("sync-button").dataset.sync, "attention");
+  get("sync-button").click();
+  await flush();
+  assert.equal(get("sync-error").hidden, false);
+  backend.failHistory = false;
+  get("sync-retry").click();
+  await flush();
+  assert.equal(viewer.state.history.length, 3);
+  assert.equal(calls.filter((command) => command === "startup_sync").length, 1);
+});
+
+test("simultaneous sync API triggers share one native reconciliation", async () => {
+  const api = await import("../dist/test-client/sync-api.js");
+  const gate = hold("startup_sync");
+  const first = api.startupSync();
+  await gate.entered;
+  const second = api.syncNow();
+  gate.release();
+  await Promise.all([first, second]);
+  assert.equal(calls.filter((command) => ["startup_sync", "sync_now"].includes(command)).length, 1);
+});
+
+test("an older statistics read cannot overwrite the post-sync ledger", async () => {
+  const read = hold("get_viewing_activity");
+  get("stats-button").click();
+  await read.entered;
+  backend.history.history.push(...Array.from({ length: 10 }, (_, i) => item(`remote${i}`)));
+  await sync.runStartupSync();
+  await flush();
+  assert.equal(get("stats-total").textContent, "12");
+  read.release();
+  await flush();
+  assert.equal(get("stats-total").textContent, "12");
+});
+
+test("remote reordering during frame restoration selects the displayed identity", async () => {
+  cache.blobs.delete("prntsc:bbb222");
+  const read = hold("get_frame_by_id");
+  const navigation = loader.goTo(1);
+  await read.entered;
+  backend.history.history.unshift(item("remote"));
+  read.release();
+  await navigation;
+  assertShown("bbb222");
+  assert.equal(viewer.state.index, 2);
+});
+
+test("remote removal during restoration never displays a frame outside persisted history", async () => {
+  cache.blobs.delete("prntsc:bbb222");
+  const read = hold("get_frame_by_id");
+  const navigation = loader.goTo(1);
+  await read.entered;
+  backend.history.history.pop();
+  read.release();
+  await navigation;
+  assert.equal(viewer.state.history.length, 1);
+  assert.equal(viewer.state.index, -1);
+  assert.equal(stage.getViewState(), "empty");
+  assert.equal(get("image-zoom").hidden, true);
+});
+
+test("remote state persisted before an upload failure still refreshes the open UI", async () => {
+  backend.history.history.push(...Array.from({ length: 10 }, (_, i) => item(`remote${i}`)));
+  backend.status.state = "offline";
+  backend.status.dirty = true;
+  backend.failSync = true;
+  await sync.runStartupSync();
+  assert.equal(viewer.state.history.length, 12);
+  assert.equal(get("frame-count-total").textContent, "12");
+  assertShown("aaa111");
+  assert.equal(get("sync-button").dataset.sync, "attention");
 });

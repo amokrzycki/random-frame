@@ -69,8 +69,15 @@ export interface LocalSyncSummary {
 export const getSyncJoinSummary = (): Promise<LocalSyncSummary> => invoke("get_sync_join_summary");
 export const joinSync = (recoveryKey: string, mode: JoinMode): Promise<SyncStatus> =>
   invoke("join_sync", { recoveryKey, mode });
-export const syncNow = (): Promise<SyncStatus> => invoke("sync_now");
-export const startupSync = (): Promise<SyncStatus> => invoke("startup_sync");
+let syncing: Promise<SyncStatus> | undefined;
+function synchronize(command: "sync_now" | "startup_sync"): Promise<SyncStatus> {
+  syncing ??= invoke<SyncStatus>(command).finally(() => {
+    syncing = undefined;
+  });
+  return syncing;
+}
+export const syncNow = (): Promise<SyncStatus> => synchronize("sync_now");
+export const startupSync = (): Promise<SyncStatus> => synchronize("startup_sync");
 export const leaveSync = (): Promise<SyncStatus> => invoke("leave_sync");
 export const setSyncDeviceName = (name: string): Promise<void> => invoke("set_sync_device_name", { name });
 export const getSyncRecoveryKey = (): Promise<string> => invoke("get_sync_recovery_key");

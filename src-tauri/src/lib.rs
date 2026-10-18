@@ -25,13 +25,12 @@ use reqwest::StatusCode;
 use secure_storage::SecureStorage;
 use serde::Serialize;
 use sources::{prntsc, prntsc::FetchedFrame, prntsc::Prntsc, select_source, Source};
+#[cfg(desktop)]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{
     error::Error,
     path::Path,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
-    },
+    sync::{Arc, Mutex},
     time::Duration,
 };
 use sync::{
@@ -47,7 +46,11 @@ struct PendingFrame {
 
 struct AppState {
     data: Arc<PersistentState>,
-    imports_ready: AtomicBool,
+    imports_ready: tokio::sync::watch::Sender<bool>,
+    #[cfg(desktop)]
+    shutdown_started: AtomicBool,
+    #[cfg(desktop)]
+    shutdown_finished: AtomicBool,
     prntsc: Prntsc,
     history: Arc<HistoryStore>,
     favorites: Arc<FavoriteStore>,
@@ -83,7 +86,11 @@ impl AppState {
         Ok(Self {
             prntsc: Prntsc::new(Arc::clone(&data))?,
             data,
-            imports_ready: AtomicBool::new(false),
+            imports_ready: tokio::sync::watch::channel(false).0,
+            #[cfg(desktop)]
+            shutdown_started: AtomicBool::new(false),
+            #[cfg(desktop)]
+            shutdown_finished: AtomicBool::new(false),
             history,
             favorites,
             explored,
@@ -97,10 +104,24 @@ impl AppState {
     }
 
     fn ensure_imports_ready(&self) -> Result<(), SyncError> {
-        if self.imports_ready.load(Ordering::Acquire) {
+        if *self.imports_ready.borrow() {
             Ok(())
         } else {
             Err(SyncError::LocalMigrationPending)
+        }
+    }
+
+    async fn flush_before_exit(&self) {
+        // Never export incomplete migrations. An early close can wait for imports, at most 5s,
+        // then gets the separate 5s network budget. Failed initialization remains local for retry.
+        let mut ready = self.imports_ready.subscribe();
+        if tokio::time::timeout(Duration::from_secs(5), ready.wait_for(|ready| *ready))
+            .await
+            .is_ok()
+        {
+            if let Some(sync) = &self.sync {
+                let _ = sync.flush_pending().await;
+            }
         }
     }
 
@@ -338,9 +359,15 @@ fn record_accepted_frame(
 )]
 fn select_history_item(
     index: usize,
+    source: Option<String>,
+    id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<HistorySnapshot, AppError> {
-    state.data.read(|| state.history.select(index))
+    state.data.read(|| match (source, id) {
+        (Some(source), Some(id)) => state.history.select_frame(&source, &id),
+        (None, None) => state.history.select(index),
+        _ => Err(AppError::invalid_input("Incomplete frame identity")),
+    })
 }
 
 #[tauri::command]
@@ -623,9 +650,20 @@ fn migrate_viewing_stats(
     clippy::needless_pass_by_value,
     reason = "Tauri command arguments must be passed by value"
 )]
-fn complete_state_imports(state: State<'_, AppState>) -> Result<(), AppError> {
+fn complete_state_imports(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), AppError> {
     state.data.read(|| Ok(()))?;
-    state.imports_ready.store(true, Ordering::Release);
+    if !state.imports_ready.send_replace(true) {
+        let changes = state.data.subscribe_changes();
+        tauri::async_runtime::spawn(async move {
+            let state = app.state::<AppState>();
+            if let Some(sync) = &state.sync {
+                sync.run_background(changes).await;
+            }
+        });
+    }
     Ok(())
 }
 
@@ -906,7 +944,8 @@ fn get_platform_capabilities() -> PlatformCapabilities {
     clippy::needless_pass_by_value,
     reason = "Tauri command extractors must be passed by value"
 )]
-fn exit_app(webview: tauri::Webview) -> tauri::Result<()> {
+async fn exit_app(webview: tauri::Webview, state: State<'_, AppState>) -> tauri::Result<()> {
+    state.flush_before_exit().await;
     webview.with_webview(|platform| {
         platform.jni_handle().exec(|env, activity, _webview| {
             let _ = env.call_method(activity, "finish", "()V", &[]);
@@ -919,6 +958,46 @@ fn exit_app(webview: tauri::Webview) -> tauri::Result<()> {
 fn mobile_main() {
     // Android has no caller to report to; a failed start ends with the activity.
     let _ = run();
+}
+
+#[cfg(desktop)]
+fn request_shutdown(app: &tauri::AppHandle, code: i32) {
+    let state = app.state::<AppState>();
+    if state.shutdown_started.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<AppState>();
+        state.flush_before_exit().await;
+        state.shutdown_finished.store(true, Ordering::Release);
+        app.exit(code);
+    });
+}
+
+fn handle_lifecycle(app: &tauri::AppHandle, event: tauri::RunEvent) {
+    #[cfg(desktop)]
+    match event {
+        tauri::RunEvent::WindowEvent {
+            event: tauri::WindowEvent::CloseRequested { api, .. },
+            ..
+        } => {
+            api.prevent_close();
+            request_shutdown(app, 0);
+        }
+        tauri::RunEvent::ExitRequested { api, code, .. }
+            if !app
+                .state::<AppState>()
+                .shutdown_finished
+                .load(Ordering::Acquire) =>
+        {
+            api.prevent_exit();
+            request_shutdown(app, code.unwrap_or(0));
+        }
+        _ => {}
+    }
+    #[cfg(mobile)]
+    let _ = (app, event);
 }
 
 /// Starts the application.
@@ -1001,7 +1080,9 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             set_sync_device_name,
             get_sync_recovery_key
         ])
-        .run(tauri::generate_context!())?;
+        .build(tauri::generate_context!())?
+        .run(handle_lifecycle);
+
     Ok(())
 }
 
@@ -1246,6 +1327,26 @@ mod tests {
 #[cfg(test)]
 mod startup_guard_tests {
     use super::*;
+    #[tokio::test(start_paused = true)]
+    async fn early_close_waits_for_imports_and_abandoned_initialization_is_bounded(
+    ) -> Result<(), AppError> {
+        let path = tests::test_state_directory("early-close");
+        let state = AppState::new(&path, None)?;
+        let started = tokio::time::Instant::now();
+        let complete = async {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            state.imports_ready.send_replace(true);
+        };
+        tokio::join!(state.flush_before_exit(), complete);
+        assert_eq!(started.elapsed(), Duration::from_millis(100));
+        state.imports_ready.send_replace(false);
+        let started = tokio::time::Instant::now();
+        state.flush_before_exit().await;
+        assert_eq!(started.elapsed(), Duration::from_secs(5));
+        std::fs::remove_dir_all(path).map_err(AppError::persistence)?;
+        Ok(())
+    }
+
     #[test]
     fn sync_exports_wait_for_startup_imports() -> Result<(), AppError> {
         let directory = tests::test_state_directory("startup-gate");
@@ -1254,7 +1355,7 @@ mod startup_guard_tests {
             state.ensure_imports_ready(),
             Err(SyncError::LocalMigrationPending)
         );
-        state.imports_ready.store(true, Ordering::Release);
+        state.imports_ready.send_replace(true);
         assert_eq!(state.ensure_imports_ready(), Ok(()));
         std::fs::remove_dir_all(directory).map_err(AppError::persistence)
     }

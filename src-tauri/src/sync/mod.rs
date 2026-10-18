@@ -3,6 +3,7 @@ mod admin;
 mod cas;
 mod engine;
 mod errors;
+mod lifecycle;
 mod managed;
 mod reconcile;
 mod state;

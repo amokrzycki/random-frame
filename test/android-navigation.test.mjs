@@ -7,10 +7,12 @@ test("Android Back closes the top layer by the Escape rules, and leaves from the
   const window = new EventTarget();
   const commands = [];
   let backHandler;
+  let exitGate;
   window.__TAURI_INTERNALS__ = {
     transformCallback: () => 1,
     async invoke(command, args) {
       commands.push(command);
+      if (command === "exit_app") await exitGate?.promise;
       if (command === "plugin:app|register_listener") backHandler = args.handler;
       return null;
     },
@@ -88,5 +90,13 @@ test("Android Back closes the top layer by the Escape rules, and leaves from the
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(wentBack, 0);
   assert.ok(commands.includes("exit_app"));
+  commands.length = 0;
+  exitGate = Promise.withResolvers();
+  backHandler.onmessage({ canGoBack: false });
+  backHandler.onmessage({ canGoBack: false });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(commands.filter((command) => command === "exit_app").length, 1);
+  exitGate.resolve();
+  await new Promise((resolve) => setImmediate(resolve));
   unbind();
 });

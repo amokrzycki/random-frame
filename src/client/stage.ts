@@ -383,7 +383,10 @@ export function swapImage(url: string, id: string): void {
 }
 
 export function bindStageEvents(): void {
-  document.addEventListener("persisted-view-refreshed", syncControls);
+  document.addEventListener("persisted-view-refreshed", () => {
+    if (!state.loading && state.index < 0 && viewState === "image") setState("empty");
+    syncControls();
+  });
   reducedMotion?.addEventListener("change", animateFocusFrame);
   document.addEventListener("visibilitychange", () => {
     for (const animation of focusAnimations) {

@@ -4,8 +4,12 @@ import { dialogs, dismissTopLayer } from "./dialogs.js";
 import { cancelDraw } from "./frame-loader.js";
 
 /** Finishes the Android activity, as the system Back would from the first screen. */
+let exiting: Promise<void> | undefined;
 export function exitApp(): Promise<void> {
-  return invoke("exit_app");
+  exiting ??= invoke<void>("exit_app").finally(() => {
+    exiting = undefined;
+  });
+  return exiting;
 }
 
 // While this listener is registered, Tauri hands every Back press to it instead of the WebView. The

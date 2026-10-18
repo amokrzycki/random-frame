@@ -80,6 +80,7 @@ pub struct PersistentState {
     publication_path: PathBuf,
     upgrade_path: PathBuf,
     operation: Mutex<()>,
+    changes: tokio::sync::watch::Sender<Generation>,
     pub seen: Arc<SeenStore>,
     pub history: Arc<HistoryStore>,
     pub favorites: Arc<FavoriteStore>,
@@ -136,6 +137,7 @@ impl PersistentState {
             publication_path: directory.join("sync-publication.json"),
             upgrade_path: directory.join("sync-upgrades.json"),
             operation: Mutex::new(()),
+            changes: tokio::sync::watch::channel([0; 6]).0,
             seen,
             history,
             favorites,
@@ -159,8 +161,16 @@ impl PersistentState {
             .operation
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        self.recover()?;
-        f()
+        let before = self.generation();
+        let result = self.recover().and_then(|()| f());
+        let after = self.generation();
+        if before != after {
+            self.changes.send_replace(after);
+        }
+        result
+    }
+    pub fn subscribe_changes(&self) -> tokio::sync::watch::Receiver<Generation> {
+        self.changes.subscribe()
     }
     pub fn generation(&self) -> Generation {
         [

@@ -354,7 +354,13 @@ function setStatus(next: SyncStatus): void {
   if (next.snapshotSchemaVersion >= 3 && next.lastErrorCategory !== "upgrade_required") upgradeAction = undefined;
   statusCheckFailed = false;
   renderDevices(next);
-  const attention = next.paired && (next.state === "error" || next.state === "offline" || next.lastErrorCategory);
+  renderAttention();
+}
+
+function renderAttention(): void {
+  const attention =
+    retryAction === refreshView ||
+    (status?.paired && (status.state === "error" || status.state === "offline" || status.lastErrorCategory));
   if (attention) elements.toolsMenuButton.dataset.sync = "attention";
   else delete elements.toolsMenuButton.dataset.sync;
   if (attention) elements.syncButton.dataset.sync = "attention";
@@ -410,6 +416,7 @@ function computeState(busy: boolean, checking: boolean, statusCheckFailed: boole
 }
 
 function render(): void {
+  renderAttention();
   renderJoin();
   const upgrading = Boolean(upgradeAction || (status?.paired && status.lastErrorCategory === "upgrade_required"));
   elements.syncUpgrade.hidden = !upgrading;
@@ -566,7 +573,7 @@ async function refreshView(): Promise<boolean> {
     render();
     return true;
   } catch (error) {
-    showError(`Sync completed, but saved data could not be reloaded. ${safeError(error)}`, refreshView);
+    showError(`Sync finished, but saved data could not be reloaded. ${safeError(error)}`, refreshView);
     return false;
   }
 }
@@ -630,11 +637,7 @@ function focusWhenSettled(target: HTMLElement): void {
 
 async function onSyncStateChanged(): Promise<void> {
   await refresh();
-  try {
-    await refreshPersistedView();
-  } catch {
-    // The next open or sync reads the saved data again.
-  }
+  await refreshView();
 }
 
 async function renameDevice(): Promise<void> {
@@ -718,7 +721,7 @@ export function bindSyncDialogEvents(): void {
       return;
     }
     opener = document.activeElement as HTMLElement | null;
-    clearError();
+    if (retryAction !== refreshView) clearError();
     render();
     openDialog(elements.syncDialog);
     elements.syncClose.focus();
@@ -1020,11 +1023,12 @@ export function bindSyncDialogEvents(): void {
 export async function runStartupSync(): Promise<void> {
   try {
     setStatus(await startupSync());
-    await refreshPersistedView();
   } catch {
-    // Rust keeps the typed error in SyncStatus; read it for the titlebar flag. An unpaired device needs no notice.
+    // GET may have persisted remote changes before a failed PUT; project them without claiming delivery.
     await refresh();
+    await refreshView();
     return;
   }
+  await refreshView();
   if (elements.syncDialog.open) await refresh();
 }
