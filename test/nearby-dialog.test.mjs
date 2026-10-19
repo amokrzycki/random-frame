@@ -56,7 +56,7 @@ test("Nearby shows borrowed current pixels before acknowledgement and cancels at
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(calls.filter((x) => x.command === "resolve_nearby_frame").length, 0);
   assert.equal(state.navigationMode, "favourites");
-  assert.equal(document.activeElement, elements.frameMenuButton);
+  assert.equal(document.activeElement, elements.nearbyButton);
   assert.equal((await import("node:buffer")).resolveObjectURL(url).size, 1);
   URL.revokeObjectURL(url);
 });

@@ -39,8 +39,8 @@ pub(super) fn encode(bytes: &[u8]) -> Result<Vec<u8>, AppError> {
     let orientation = decoder.orientation().map_err(|e| failure(e.to_string()))?;
     let mut image = DynamicImage::from_decoder(decoder).map_err(|e| failure(e.to_string()))?;
     image.apply_orientation(orientation);
-    let image = if image.width() > 384 || image.height() > 384 {
-        image.thumbnail(384, 384)
+    let image = if image.width() > 768 || image.height() > 768 {
+        image.thumbnail(768, 768)
     } else {
         image
     }
@@ -62,6 +62,13 @@ pub(super) fn encode(bytes: &[u8]) -> Result<Vec<u8>, AppError> {
         .encode_image(&backing)
         .map_err(|e| failure(e.to_string()))?;
     if jpeg.len() > 128 * 1024 {
+        // Keep complex previews within the existing per-file and cache budgets.
+        jpeg.clear();
+        JpegEncoder::new_with_quality(&mut jpeg, 70)
+            .encode_image(&DynamicImage::ImageRgb8(backing).thumbnail(384, 384))
+            .map_err(|e| failure(e.to_string()))?;
+    }
+    if jpeg.len() > 128 * 1024 {
         return Err(failure("encoded preview exceeds byte limit".into()));
     }
     Ok(jpeg)
@@ -73,15 +80,15 @@ mod tests {
     #[test]
     fn contains_without_upscaling_and_backs_alpha() -> Result<(), Box<dyn std::error::Error>> {
         let image = DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+            1200,
             600,
-            300,
             image::Rgba([255, 0, 0, 0]),
         ));
         let mut png = Cursor::new(Vec::new());
         image.write_to(&mut png, image::ImageFormat::Png)?;
         let jpeg = encode(png.get_ref())?;
         let decoded = image::load_from_memory(&jpeg)?.to_rgb8();
-        assert_eq!(decoded.dimensions(), (384, 192));
+        assert_eq!(decoded.dimensions(), (768, 384));
         assert!(decoded.get_pixel(0, 0)[0].abs_diff(34) < 4);
         assert!(encode(b"not an image").is_err());
         Ok(())
@@ -106,6 +113,21 @@ mod codec_tests {
             let preview = image::load_from_memory(&encode(encoded.get_ref())?)?;
             assert_eq!((preview.width(), preview.height()), (16, 8));
         }
+        let mut seed = 1_u32;
+        let noise = RgbImage::from_fn(1200, 800, |_, _| {
+            let mut pixel = [0; 3];
+            for channel in &mut pixel {
+                seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                *channel = seed.to_le_bytes()[3];
+            }
+            Rgb(pixel)
+        });
+        let mut noisy = Cursor::new(Vec::new());
+        DynamicImage::ImageRgb8(noise).write_to(&mut noisy, image::ImageFormat::Png)?;
+        let preview = encode(noisy.get_ref())?;
+        assert!(preview.len() <= 128 * 1024);
+        let decoded = image::load_from_memory(&preview)?;
+        assert!(decoded.width() <= 768 && decoded.height() <= 768);
         let mut wide = Cursor::new(Vec::new());
         DynamicImage::new_rgb8(8193, 1).write_to(&mut wide, image::ImageFormat::Png)?;
         assert!(encode(wide.get_ref()).is_err());

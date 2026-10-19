@@ -1,9 +1,12 @@
 /* A secondary paper gallery; the main viewing stage remains a single image. */
 .nearby-dialog {
-  width: min(532px, calc(100% - 32px));
+  width: min(1360px, calc(94vw - 16px));
+  max-height: calc(100dvh - var(--titlebar-height) - 32px);
+  top: var(--titlebar-height);
 }
 .nearby-dialog .history-dialog__content {
   min-height: 0;
+  max-height: calc(100dvh - var(--titlebar-height) - 32px);
 }
 .nearby-dialog h2 {
   line-height: 1.2;
@@ -403,4 +406,28 @@ button.nearby-tile {
 }
 :root[data-platform="android"] .nearby-feedback {
   min-height: max(48px, 2.9em);
+}
+
+@media (max-width: 760px) {
+  .nearby-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .nearby-body {
+    padding: 16px;
+  }
+  .nearby-footer {
+    padding: 12px 16px;
+  }
+}
+@media (max-width: 440px) {
+  .nearby-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+:root[data-platform="android"] .nearby-dialog {
+  top: 0;
+  max-height: 100dvh;
+}
+:root[data-platform="android"] .nearby-dialog .history-dialog__content {
+  max-height: 100dvh;
 }

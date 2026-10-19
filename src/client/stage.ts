@@ -230,6 +230,7 @@ export function syncControls(): void {
   elements.lightboxFavorite.setAttribute("aria-label", favoriteLabel);
   elements.lightboxFavorite.dataset.tip = `${favoriteLabel} (F)`;
   elements.nearbyGroup.hidden = current?.source !== "prntsc";
+  elements.nearbyButton.hidden = current?.source !== "prntsc";
   let clearPending =
     elements.historyClearGroup.hasAttribute("data-armed") || Boolean(elements.historyDialog.dataset.busy);
   try {
@@ -237,12 +238,13 @@ export function syncControls(): void {
   } catch {
     /* Availability still follows the viewer state. */
   }
-  elements.nearbyButton.disabled = state.loading || state.historyLoadFailed || !currentBlob || clearPending;
+  elements.nearbyButton.disabled =
+    state.loading || state.historyLoadFailed || current?.source !== "prntsc" || !currentBlob || clearPending;
   const nearbyTip = clearPending
     ? "Finish or cancel the History clear first"
     : elements.nearbyButton.disabled
       ? "Finish loading the frame first"
-      : "Inspect four source IDs before and after this frame";
+      : "Nearby Frames · Inspect four source IDs before and after this frame";
   elements.nearbyButton.dataset.tip = nearbyTip;
   elements.nearbyButton.setAttribute("aria-description", nearbyTip);
   elements.previousId.disabled =

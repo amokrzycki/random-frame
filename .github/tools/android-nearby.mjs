@@ -101,7 +101,7 @@ export async function runNearbySmoke({ adb, evaluate, check, sleep }) {
   );
   check(
     await evaluate(
-      `(() => {document.querySelector('#frame-menu-button').click();document.querySelector('#nearby-button').click();const tile=document.querySelector('[aria-current="true"]');return document.querySelector('#nearby-dialog').open && tile?.querySelector('img').src===document.querySelector('#image').src;})()`,
+      `(() => {document.querySelector('#nearby-button').click();const tile=document.querySelector('[aria-current="true"]');return document.querySelector('#nearby-dialog').open && tile?.querySelector('img').src===document.querySelector('#image').src;})()`,
     ),
     "Nearby shows Current before preview completion",
   );
@@ -130,9 +130,9 @@ export async function runNearbySmoke({ adb, evaluate, check, sleep }) {
   await sleep(1000);
   check(
     await evaluate(
-      `!document.querySelector('#nearby-dialog').open && document.activeElement===document.querySelector('#frame-menu-button')`,
+      `!document.querySelector('#nearby-dialog').open && document.activeElement===document.querySelector('#nearby-button')`,
     ),
-    "system Back dismisses Nearby and restores frame-menu focus",
+    "system Back dismisses Nearby and restores Nearby button focus",
   );
   check(
     JSON.stringify(
@@ -142,9 +142,7 @@ export async function runNearbySmoke({ adb, evaluate, check, sleep }) {
     ) === JSON.stringify(before),
     "Nearby fixture inspection and Back preserve native History and Activity",
   );
-  await evaluate(
-    `document.querySelector('#frame-menu-button').click();document.querySelector('#nearby-button').click();true`,
-  );
+  await evaluate(`document.querySelector('#nearby-button').click();true`);
   await sleep(400);
   await evaluate(`document.querySelector('[aria-current="true"]').click();true`);
   await sleep(400);
@@ -156,9 +154,7 @@ export async function runNearbySmoke({ adb, evaluate, check, sleep }) {
     ) === JSON.stringify(before),
     "activating Current makes no native persistence changes",
   );
-  await evaluate(
-    `document.querySelector('#frame-menu-button').click();document.querySelector('#nearby-button').click();true`,
-  );
+  await evaluate(`document.querySelector('#nearby-button').click();true`);
   await sleep(400);
   await evaluate(`document.querySelector('[aria-label="Open Prnt.sc frame abc124"]').click();true`);
   await sleep(1200);
@@ -185,7 +181,7 @@ async function runResourceChecks({ adb, evaluate, check, sleep }) {
     URL.createObjectURL=(blob)=>{const url=create(blob);live.add(url);return url;};
     URL.revokeObjectURL=(url)=>{live.delete(url);revoke(url);};
     for(let i=0;i<12;i++){
-      document.querySelector('#frame-menu-button').click();document.querySelector('#nearby-button').click();
+      document.querySelector('#nearby-button').click();
       await new Promise(r=>setTimeout(r,100));document.querySelector('#nearby-close').click();
       await new Promise(r=>setTimeout(r,220));
     }
@@ -260,7 +256,7 @@ async function runResourceChecks({ adb, evaluate, check, sleep }) {
       `(async () => {
       window.__nearbySmoke.native=false;
       if(!matchMedia('(prefers-reduced-motion: reduce)').matches)return false;
-      document.querySelector('#frame-menu-button').click();document.querySelector('#nearby-button').click();
+      document.querySelector('#nearby-button').click();
       document.querySelector('#nearby-next').click();document.querySelector('#nearby-previous').click();
       await new Promise(r=>setTimeout(r,1000));
       const settled=document.querySelector('#nearby-dialog').getAnimations({subtree:true}).every(x=>x.playState!=='running');

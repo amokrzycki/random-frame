@@ -710,28 +710,35 @@ fn get_viewing_activity(state: State<'_, AppState>) -> Result<ViewingActivity, A
         Ok(ViewingActivity {
             viewed_total: state.activity.viewed_total(),
             days,
-            local_view_times: state
-                .history
-                .snapshot()
-                .history
-                .iter()
-                .map(|item| {
-                    frame_views
-                        .iter()
-                        .find(|view| {
-                            view.source == item.source
-                                && (view.id == item.id
-                                    || view.source == "prntsc"
-                                        && prntsc::item_id_value(&view.id).is_ok_and(|value| {
-                                            prntsc::item_id_value(&item.id).ok() == Some(value)
-                                        }))
-                        })
-                        .map(|view| view.at_ms)
-                })
-                .collect(),
+            local_view_times: draw_view_times(&state.history.snapshot().history, &frame_views),
             frame_views,
         })
     })
+}
+
+fn draw_view_times(history: &[HistoryItem], frame_views: &[FrameView]) -> Vec<Option<u64>> {
+    let normalized_id = |source: &str, id: &str| {
+        if source == "prntsc" {
+            prntsc::item_id_value(id).map_or_else(|_| id.to_owned(), prntsc::value_to_base36)
+        } else {
+            id.to_owned()
+        }
+    };
+    let mut times = std::collections::HashMap::with_capacity(frame_views.len());
+    for view in frame_views {
+        // Preserve the first discovery, including historical leading-zero aliases.
+        times
+            .entry((view.source.as_str(), normalized_id(&view.source, &view.id)))
+            .or_insert(view.at_ms);
+    }
+    history
+        .iter()
+        .map(|item| {
+            times
+                .get(&(item.source.as_str(), normalized_id(&item.source, &item.id)))
+                .copied()
+        })
+        .collect()
 }
 
 /// One-shot migration of the legacy client-side viewing counter into the backend store.
@@ -1472,5 +1479,73 @@ mod startup_guard_tests {
         state.imports_ready.send_replace(true);
         assert_eq!(state.ensure_imports_ready(), Ok(()));
         std::fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+}
+
+#[cfg(test)]
+mod stats_performance_tests {
+    use super::*;
+    #[test]
+    fn stats_join_preserves_first_draw_aliases_and_provider_boundaries() {
+        let history: Vec<_> = [
+            ("prntsc", "0b"),
+            ("prntsc", "b"),
+            ("other", "0b"),
+            ("other", "b"),
+            ("prntsc", "c"),
+        ]
+        .into_iter()
+        .map(|(source, id)| HistoryItem {
+            source: source.into(),
+            id: id.into(),
+            source_page_url: String::new(),
+            viewed_at: 999,
+        })
+        .collect();
+        let views: Vec<_> = [
+            ("prntsc", "b", 10),
+            ("prntsc", "0b", 20),
+            ("other", "b", 30),
+        ]
+        .into_iter()
+        .map(|(source, id, at_ms)| FrameView {
+            source: source.into(),
+            id: id.into(),
+            at_ms,
+            day: "2026-10-19".into(),
+            day_inferred: false,
+        })
+        .collect();
+        assert_eq!(
+            draw_view_times(&history, &views),
+            vec![Some(10), Some(10), None, Some(30), None]
+        );
+    }
+    #[test]
+    #[ignore = "manual stats read benchmark"]
+    fn stats_join_timing() {
+        let history: Vec<_> = (0..10_000)
+            .map(|i| HistoryItem {
+                source: "prntsc".into(),
+                id: format!("a{i:06}"),
+                source_page_url: String::new(),
+                viewed_at: 0,
+            })
+            .collect();
+        let views: Vec<_> = history
+            .iter()
+            .enumerate()
+            .map(|(i, x)| FrameView {
+                source: x.source.clone(),
+                id: x.id.clone(),
+                at_ms: i as u64,
+                day: "2026-10-19".into(),
+                day_inferred: false,
+            })
+            .collect();
+        let start = std::time::Instant::now();
+        let times = std::hint::black_box(draw_view_times(&history, &views));
+        assert_eq!(times.last(), Some(&Some(9_999)));
+        eprintln!("stats 10k history/view join: {:?}", start.elapsed());
     }
 }

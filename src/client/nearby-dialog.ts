@@ -296,7 +296,7 @@ export function openNearby(): void {
   selected = undefined;
   pauseUntil = 0;
   thumbnailNotice = false;
-  elements.frameMenuButton.focus();
+  elements.nearbyButton.focus();
   const id = sessionId;
   let anchorRepairStarted = false;
   const resolveTile = async (
@@ -453,7 +453,7 @@ export function bindNearbyEvents(): void {
     releaseAnchor?.();
     releaseAnchor = undefined;
     onDialogClosed();
-    elements.frameMenuButton.focus();
+    elements.nearbyButton.focus();
     if (target) void openNearbyFrame(target);
   });
   elements.nearbyGrid.addEventListener("keydown", (event) => {
@@ -467,15 +467,20 @@ export function bindNearbyEvents(): void {
     if (event.key === "Home") target = actionable[0];
     else if (event.key === "End") target = actionable.at(-1);
     else if (current) {
+      const columns = getComputedStyle(elements.nearbyGrid).gridTemplateColumns.split(" ").length;
       const deltas: Record<string, number> = {
         ArrowLeft: -1,
         ArrowRight: 1,
-        ArrowUp: -3,
-        ArrowDown: 3,
+        ArrowUp: -columns,
+        ArrowDown: columns,
       };
       const delta = deltas[event.key] ?? 0;
       for (let index = current.index + delta; index >= 0 && index < 9; index += delta) {
-        if (Math.abs(delta) === 1 && Math.floor(index / 3) !== Math.floor(current.index / 3)) break;
+        if (
+          (event.key === "ArrowLeft" || event.key === "ArrowRight") &&
+          Math.floor(index / columns) !== Math.floor(current.index / columns)
+        )
+          break;
         target = actionable.find((tile) => tile.index === index);
         if (target) break;
       }

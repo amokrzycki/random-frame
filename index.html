@@ -73,7 +73,9 @@
         <header class="history-dialog__header">
           <div>
             <h2 id="nearby-title">Nearby Frames</h2>
-            <p id="nearby-description">Four IDs before and after the center, in source order.</p>
+            <p id="nearby-description">
+              Four IDs before and after the center, in source order. Select a preview to open the full frame.
+            </p>
           </div>
           <button class="history-close" id="nearby-close" type="button" aria-label="Close Nearby Frames" autofocus>
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
@@ -355,25 +357,26 @@
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
           </button>
         </header>
-        <div class="stats-dialog__body" id="stats-body">
+        <p class="stats-status" id="stats-status" role="status"></p>
+        <div class="stats-dialog__body" id="stats-body" aria-busy="false">
           <div class="stats-headline">
             <dl class="stats-tally">
               <div class="stats-tally__item">
                 <dt>Frames drawn</dt>
-                <dd id="stats-total">0</dd>
+                <dd id="stats-total">—</dd>
               </div>
               <div class="stats-tally__item">
                 <dt>Today</dt>
-                <dd id="stats-today">0</dd>
+                <dd id="stats-today">—</dd>
               </div>
               <div class="stats-tally__item">
                 <dt>Activity streak</dt>
-                <dd id="stats-streak">0 days</dd>
+                <dd id="stats-streak">—</dd>
               </div>
             </dl>
             <p class="stats-headline__detail stats-explored">
-              <span>Prnt.sc IDs checked <span id="stats-explored">0</span></span>
-              <span id="stats-explored-breakdown">0 drawn · 0 unavailable</span>
+              <span>Prnt.sc IDs checked <span id="stats-explored">—</span></span>
+              <span id="stats-explored-breakdown"></span>
             </p>
             <p class="stats-headline__error" id="stats-error" hidden>
               <span>Stats couldn’t be read from this device.</span>
@@ -1189,19 +1192,6 @@
                 <p class="tools-menu__group" role="presentation">Explore nearby Prnt.sc IDs</p>
                 <button
                   class="tools-menu__item"
-                  id="nearby-button"
-                  type="button"
-                  role="menuitem"
-                  aria-haspopup="dialog"
-                  aria-controls="nearby-dialog"
-                  disabled>
-                  <svg viewBox="0 0 18 18" aria-hidden="true">
-                    <path d="M2.5 2.5h13v13h-13zM2.5 7h13M2.5 11h13M7 2.5v13M11 2.5v13" />
-                  </svg
-                  >Nearby Frames
-                </button>
-                <button
-                  class="tools-menu__item"
                   id="previous-id-button"
                   type="button"
                   role="menuitem"
@@ -1315,6 +1305,19 @@
                 <path class="save-arrow" d="M9 3v8m-3.5-3.5L9 11l3.5-3.5" />
                 <path class="save-check" d="m5.5 8 2.4 2.4 4.6-4.9" pathLength="1" />
                 <path d="M3.5 14.5h11" />
+              </svg>
+            </button>
+            <button
+              class="info-icon"
+              id="nearby-button"
+              type="button"
+              aria-label="Nearby Frames"
+              aria-haspopup="dialog"
+              aria-controls="nearby-dialog"
+              data-tip="Nearby Frames"
+              disabled>
+              <svg viewBox="0 0 18 18" aria-hidden="true">
+                <path d="M2.5 2.5h13v13h-13zM2.5 7h13M2.5 11h13M7 2.5v13M11 2.5v13" />
               </svg>
             </button>
           </div>

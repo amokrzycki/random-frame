@@ -104,9 +104,6 @@ export function ledgerDays(
   sourceViews?: readonly FrameView[],
 ): LedgerDay[] {
   const frames = new Map<string, number[]>();
-  const newestFirst = viewedAt
-    .flatMap((millis, index) => (millis === null ? [] : [{ millis, index }]))
-    .sort((a, b) => b.millis - a.millis || b.index - a.index);
   // ponytail: Two code paths for historical reasons. sourceViews provides server-authoritative
   // day keys (preserved across timezone changes), while localViewTimes requires inferring the
   // day from the local timestamp. The sourceViews path is preferred when available (v2 sync),
@@ -123,6 +120,9 @@ export function ledgerDays(
       else frames.set(view.day, [index]);
     }
   } else {
+    const newestFirst = viewedAt
+      .flatMap((millis, index) => (millis === null ? [] : [{ millis, index }]))
+      .sort((a, b) => b.millis - a.millis || b.index - a.index);
     for (const { millis, index } of newestFirst) {
       const key = localDayKey(millis);
       const day = frames.get(key);

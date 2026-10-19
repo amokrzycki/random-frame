@@ -407,6 +407,7 @@ export const ids = [
   "draw-button",
   "draw-label",
   "stats-body",
+  "stats-status",
   "ledger-list",
   "ledger-empty",
   "ledger-more",

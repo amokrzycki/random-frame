@@ -100,13 +100,28 @@ function renderLedger(days: LedgerDay[]): void {
 }
 
 let statsGeneration = 0;
-let statsLoading = 0;
+let statsDismissed = true;
+
 async function loadStats(): Promise<void> {
   const generation = ++statsGeneration;
-  statsLoading++;
+  elements.statsBody.setAttribute("aria-busy", "true");
+  elements.statsStatus.textContent = "Loading stats…";
+  elements.statsToday.textContent = "—";
+  elements.statsTotal.textContent = "—";
+  elements.statsStreak.textContent = "—";
+  elements.statsExplored.textContent = "—";
+  delete elements.statsExplored.dataset.state;
+  elements.statsExploredBreakdown.textContent = "";
+  elements.statsError.hidden = true;
+  elements.ledger.hidden = false;
+  elements.ledgerEmpty.hidden = true;
+  elements.ledgerMore.hidden = true;
+  elements.ledgerList.replaceChildren();
+  state.ledger = [];
+  state.ledgerShown = 0;
   try {
     const [exploration, activity] = await Promise.all([getExplorationStats(), getViewingActivity()]);
-    if (generation !== statsGeneration) return;
+    if (generation !== statsGeneration || !elements.statsDialog.open) return;
     elements.statsToday.textContent = String(activity.days.at(-1)?.viewed ?? 0);
     elements.statsTotal.textContent = activity.viewedTotal.toLocaleString("en-US");
     const streak = drawStreak(activity.days);
@@ -127,8 +142,9 @@ async function loadStats(): Promise<void> {
     delete elements.statsExplored.dataset.state;
     elements.statsError.hidden = true;
     elements.ledger.hidden = false;
+    elements.statsStatus.textContent = "Stats loaded.";
   } catch {
-    if (generation !== statsGeneration) return;
+    if (generation !== statsGeneration || !elements.statsDialog.open) return;
     // Dashes, not zeros: the counts are unknown, not empty.
     elements.statsToday.textContent = "—";
     elements.statsTotal.textContent = "—";
@@ -138,8 +154,9 @@ async function loadStats(): Promise<void> {
     elements.statsExploredBreakdown.textContent = "";
     elements.statsError.hidden = false;
     elements.ledger.hidden = true;
+    elements.statsStatus.textContent = "Stats couldn’t be read. Try again.";
   } finally {
-    statsLoading--;
+    if (generation === statsGeneration) elements.statsBody.setAttribute("aria-busy", "false");
   }
 }
 
@@ -151,23 +168,36 @@ export async function migrateLegacyStats(): Promise<void> {
 }
 
 export function bindStatsDialogEvents(): void {
-  elements.statsButton.addEventListener("click", async () => {
-    await loadStats();
+  elements.statsButton.addEventListener("click", () => {
+    if (elements.statsDialog.open) return;
+    statsDismissed = false;
     openDialog(elements.statsDialog);
+    void loadStats();
   });
   elements.statsRetry.addEventListener("click", async () => {
-    await loadStats();
-    if (elements.statsError.hidden) elements.statsClose.focus();
-    // A fresh toast node each time, so repeat failures are announced again.
-    else toast.error("Stats still couldn’t be read");
+    const request = loadStats();
+    const generation = statsGeneration;
+    // The retry action disappears while loading; keep keyboard focus on a stable control.
+    elements.statsClose.focus();
+    await request;
+    if (generation !== statsGeneration || !elements.statsDialog.open) return;
+    if (!elements.statsError.hidden) toast.error("Stats still couldn’t be read");
   });
   elements.ledgerMore.addEventListener("click", () => renderLedgerPage()?.focus());
   elements.statsClose.addEventListener("click", () => closeDialog(elements.statsDialog));
   // A sync that lands while Stats is open must not leave the old ledger on screen.
   document.addEventListener("persisted-view-refreshed", () => {
-    if (elements.statsDialog.open || statsLoading > 0) void loadStats();
+    if (elements.statsDialog.open && !statsDismissed) void loadStats();
+  });
+  elements.statsDialog.addEventListener("dialog-dismiss", () => {
+    statsDismissed = true;
+    statsGeneration++;
+    elements.statsBody.setAttribute("aria-busy", "false");
   });
   elements.statsDialog.addEventListener("close", () => {
+    statsDismissed = true;
+    statsGeneration++;
+    elements.statsBody.setAttribute("aria-busy", "false");
     onDialogClosed();
     elements.toolsMenuButton.focus();
   });

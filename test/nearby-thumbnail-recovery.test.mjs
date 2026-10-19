@@ -47,7 +47,7 @@ test("an expired Nearby handle re-resolves once, while a repeated miss stays ret
   const { blobs, thumbnails } = await import("../dist/test-client/frame-cache.js");
   const { setState } = await import("../dist/test-client/stage.js");
   const { elements } = await import("../dist/test-client/elements.js");
-  const { openNearby } = await import("../dist/test-client/nearby-dialog.js");
+  const { openNearby, bindNearbyEvents } = await import("../dist/test-client/nearby-dialog.js");
   const { closeDialog } = await import("../dist/test-client/dialogs.js");
   const blob = new Blob([new Uint8Array([1])]);
   const url = URL.createObjectURL(blob);
@@ -59,11 +59,38 @@ test("an expired Nearby handle re-resolves once, while a repeated miss stays ret
   const settle = async () => {
     for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve));
   };
+  bindNearbyEvents();
   openNearby();
   await settle();
   assert.equal(resolves, 2);
   assert.equal(reads, 2);
   assert.ok(thumbnails.has("prntsc:abc124"));
+  // Keyboard movement follows the responsive column count rather than assuming three columns.
+  let columns = "140px";
+  globalThis.getComputedStyle = () => ({ gridTemplateColumns: columns });
+  const key = (value) => {
+    const event = new Event("keydown", { cancelable: true });
+    Object.defineProperty(event, "key", { value });
+    elements.nearbyGrid.dispatchEvent(event);
+  };
+  const current = elements.nearbyGrid.children[4].children[0];
+  const next = elements.nearbyGrid.children[5].children[0];
+  current.focus();
+  key("ArrowDown");
+  assert.ok(document.activeElement === next, "focus moves to the next tile");
+  key("ArrowUp");
+  assert.ok(document.activeElement === current, "focus returns to Current");
+  key("ArrowRight");
+  assert.ok(document.activeElement === current, "horizontal movement stays in its row");
+  columns = "140px 140px";
+  key("ArrowRight");
+  assert.ok(document.activeElement === next, "two-column horizontal movement follows the row");
+  key("ArrowLeft");
+  assert.ok(document.activeElement === current, "two-column movement returns to Current");
+  columns = "140px 140px 140px";
+  key("ArrowRight");
+  assert.ok(document.activeElement === next, "focus moves to the next tile");
+  delete globalThis.getComputedStyle;
   closeDialog(elements.nearbyDialog);
   await settle();
   thumbnails.delete("prntsc:abc124");

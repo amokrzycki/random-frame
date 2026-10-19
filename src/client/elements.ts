@@ -199,6 +199,7 @@ export const elements = {
   statsStreak: element<HTMLElement>("#stats-streak"),
   statsExplored: element<HTMLElement>("#stats-explored"),
   statsExploredBreakdown: element<HTMLElement>("#stats-explored-breakdown"),
+  statsStatus: element<HTMLElement>("#stats-status"),
   statsBody: element<HTMLElement>("#stats-body"),
   statsError: element<HTMLElement>("#stats-error"),
   statsRetry: element<HTMLButtonElement>("#stats-retry"),
