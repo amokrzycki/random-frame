@@ -138,7 +138,8 @@ export async function goTo(targetIndex: number): Promise<void> {
       swapImage(cached.url, current.id);
       elements.announcer.textContent = `Showing frame ${current.id}`;
     }
-    applyHistory(await selectHistoryItem(targetIndex));
+    applyHistory(await selectHistoryItem(targetIndex, current));
+    if (state.index < 0) setState("empty");
   } catch (error) {
     // A failed restore at startup keeps the target, so "Show frame N" retries it.
     state.index = previousIndex >= 0 ? previousIndex : targetIndex;

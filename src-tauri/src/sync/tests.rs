@@ -165,6 +165,7 @@ struct ServerState {
     rate_limit_next_get: bool,
     oversized: bool,
     requests: usize,
+    hold_update_response: Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>,
 }
 
 async fn server() -> Result<
@@ -344,6 +345,19 @@ async fn server() -> Result<
                     };
                     (status, etag, payload, state.oversized && method == "GET")
                 };
+                let hold = if method == "PUT" && status == 204 {
+                    shared
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .hold_update_response
+                        .take()
+                } else {
+                    None
+                };
+                if let Some((entered, release)) = hold {
+                    entered.notify_one();
+                    release.notified().await;
+                }
                 let content_length = if oversized {
                     MAX_ENVELOPE + 1
                 } else {
@@ -1301,9 +1315,10 @@ async fn config_identity_and_single_operation_are_checked_before_network(
         Some(SyncError::CorruptLocalState)
     );
     let guard = engine.operation.lock().await;
-    assert_eq!(
-        engine.sync_now().await.err(),
-        Some(SyncError::AlreadySyncing)
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(1), engine.sync_now())
+            .await
+            .is_err()
     );
     drop(guard);
     fs::remove_dir_all(path)?;
@@ -1333,7 +1348,8 @@ async fn dirty_local_change_survives_upload_and_offline_sync(
             },
         ));
     }
-    let status = engine.sync_now().await?;
+    engine.seen.insert(4)?;
+    let status = engine.flush_pending().await?;
     assert!(status.dirty);
     assert!(engine.seen.contains(2));
     assert_eq!(engine.history.snapshot().history.len(), 1);
@@ -2758,6 +2774,260 @@ async fn collection_v2_v3_cas_contract_roundtrips_exact_encrypted_bytes_on_real_
     let snapshot = snapshot::decode_snapshot(&plaintext)?;
     assert_eq!(snapshot.original_schema_version, 3);
     assert_eq!(snapshot.data.collections.len(), 1);
+    fs::remove_dir_all(path)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn shutdown_flush_preserves_offline_changes_and_restart_retries(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (url, fixture, task) = server().await?;
+    let path = directory("shutdown-retry");
+    let secret = MemorySecret::default();
+    let engine = device(&path, &url, secret.clone())?;
+    engine.create().await?;
+    engine.data.accept(
+        &HistoryItem {
+            source: "prntsc".into(),
+            id: "abc123".into(),
+            source_page_url: "https://prnt.sc/abc123".into(),
+            viewed_at: 42,
+        },
+        false,
+    )?;
+    engine.flush_pending().await?;
+    assert!(!engine.status().await?.dirty);
+    let revision = fixture
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .revision;
+    engine.flush_pending().await?;
+    assert_eq!(
+        fixture
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .revision,
+        revision
+    );
+    task.abort();
+    engine.data.accept(
+        &HistoryItem {
+            source: "prntsc".into(),
+            id: "def456".into(),
+            source_page_url: "https://prnt.sc/def456".into(),
+            viewed_at: 43,
+        },
+        false,
+    )?;
+    assert!(engine.flush_pending().await.is_err());
+    assert!(engine.status().await?.dirty);
+    drop(engine);
+    let (new_url, new_fixture, new_task) = server().await?;
+    *new_fixture
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = std::mem::take(
+        &mut *fixture
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+    );
+    let restarted = device(&path, &new_url, secret)?;
+    assert_eq!(restarted.history.snapshot().history.len(), 2);
+    assert!(restarted.status().await?.dirty);
+    restarted.startup_sync().await?;
+    assert!(!restarted.status().await?.dirty);
+    assert_eq!(restarted.history.snapshot().history.len(), 2);
+    new_task.abort();
+    fs::remove_dir_all(path)?;
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn shutdown_deadline_includes_waiting_for_an_active_operation(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = directory("shutdown-bound");
+    let engine = device(&path, "http://127.0.0.1:1", MemorySecret::default())?;
+    let _guard = engine.operation.lock().await;
+    let started = tokio::time::Instant::now();
+    assert_eq!(engine.flush_pending().await.err(), Some(SyncError::Timeout));
+    assert_eq!(started.elapsed(), std::time::Duration::from_secs(5));
+    fs::remove_dir_all(path)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn simultaneous_sync_triggers_publish_once() -> Result<(), Box<dyn std::error::Error>> {
+    let (url, fixture, task) = server().await?;
+    let path = directory("simultaneous");
+    let engine = device(&path, &url, MemorySecret::default())?;
+    engine.create().await?;
+    engine.data.accept(
+        &HistoryItem {
+            source: "prntsc".into(),
+            id: "abc123".into(),
+            source_page_url: "https://prnt.sc/abc123".into(),
+            viewed_at: 42,
+        },
+        false,
+    )?;
+    let revision = fixture
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .revision;
+    let (first, second) = tokio::join!(engine.sync_now(), engine.sync_now());
+    assert!(!first?.dirty);
+    assert!(!second?.dirty);
+    assert_eq!(
+        fixture
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .revision,
+        revision + 1
+    );
+    task.abort();
+    fs::remove_dir_all(path)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn ten_remote_frames_project_into_history_activity_and_identity_selection(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (url, _, task) = server().await?;
+    let a_path = directory("ten-a");
+    let b_path = directory("ten-b");
+    let a = device(&a_path, &url, MemorySecret::default())?;
+    let b = device(&b_path, &url, MemorySecret::default())?;
+    let created = a.create().await?;
+    b.join(&created.recovery_key, JoinMode::Restore).await?;
+    let mut changes = a.data.subscribe_changes();
+    for n in 0..10 {
+        let id = format!("abc{n:03}");
+        a.data.accept(
+            &HistoryItem {
+                source: "prntsc".into(),
+                source_page_url: format!("https://prnt.sc/{id}"),
+                id,
+                viewed_at: 42 + n,
+            },
+            false,
+        )?;
+    }
+    assert!(changes.has_changed()?);
+    changes.borrow_and_update();
+    a.flush_pending().await?;
+    b.sync_now().await?;
+    assert_eq!(b.history.snapshot().history.len(), 10);
+    assert_eq!(b.data.activity.viewed_total(), 10);
+    let selected = b.data.read(|| b.history.select_frame("prntsc", "abc005"))?;
+    assert_eq!(
+        selected.history[usize::try_from(selected.index)?].id,
+        "abc005"
+    );
+    b.data.read(|| b.history.remove("prntsc", "abc005"))?;
+    assert_eq!(
+        b.data
+            .read(|| b.history.select_frame("prntsc", "abc005"))?
+            .index,
+        -1
+    );
+    a.sync_now().await?;
+    assert_eq!(b.history.snapshot().history.len(), 9);
+    task.abort();
+    fs::remove_dir_all(a_path)?;
+    fs::remove_dir_all(b_path)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn background_mutations_publish_without_a_frontend_sync_command(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (url, fixture, task) = server().await?;
+    let path = directory("background");
+    let engine = Arc::new(device(&path, &url, MemorySecret::default())?);
+    engine.create().await?;
+    let revision = fixture
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .revision;
+    let changes = engine.data.subscribe_changes();
+    let mut published = changes.clone();
+    let worker = Arc::clone(&engine);
+    let background = tokio::spawn(async move { worker.run_background(changes).await });
+    for n in 0..10 {
+        let id = format!("abc{n:03}");
+        engine.data.accept(
+            &HistoryItem {
+                source: "prntsc".into(),
+                source_page_url: format!("https://prnt.sc/{id}"),
+                id,
+                viewed_at: 42 + n,
+            },
+            false,
+        )?;
+    }
+    published.borrow_and_update();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            published.changed().await?;
+            let _guard = engine.operation.lock().await;
+            if !engine.status_snapshot().dirty {
+                break;
+            }
+        }
+        Ok::<_, Box<dyn std::error::Error>>(())
+    })
+    .await??;
+    assert_eq!(
+        fixture
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .revision,
+        revision + 1
+    );
+    assert_eq!(engine.history.snapshot().history.len(), 10);
+    background.abort();
+    task.abort();
+    fs::remove_dir_all(path)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn shutdown_timeout_after_accepted_put_recovers_on_restart(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (url, fixture, task) = server().await?;
+    let path = directory("shutdown-accepted-put");
+    let secret = MemorySecret::default();
+    let engine = Arc::new(device(&path, &url, secret.clone())?);
+    engine.create().await?;
+    engine.data.accept(
+        &HistoryItem {
+            source: "prntsc".into(),
+            id: "abc123".into(),
+            source_page_url: "https://prnt.sc/abc123".into(),
+            viewed_at: 42,
+        },
+        false,
+    )?;
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    fixture
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .hold_update_response = Some((Arc::clone(&entered), Arc::clone(&release)));
+    let flushing = Arc::clone(&engine);
+    let flush = tokio::spawn(async move { flushing.flush_pending().await });
+    entered.notified().await;
+    tokio::time::pause();
+    tokio::time::advance(std::time::Duration::from_secs(5)).await;
+    assert_eq!(flush.await?.err(), Some(SyncError::Timeout));
+    tokio::time::resume();
+    assert!(engine.status().await?.dirty);
+    release.notify_one();
+    drop(engine);
+    let restarted = device(&path, &url, secret)?;
+    restarted.startup_sync().await?;
+    assert!(!restarted.status().await?.dirty);
+    assert_eq!(restarted.history.snapshot().history.len(), 1);
+    task.abort();
     fs::remove_dir_all(path)?;
     Ok(())
 }

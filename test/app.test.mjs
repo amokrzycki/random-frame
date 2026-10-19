@@ -175,6 +175,14 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   await flush();
   await flush();
   await flush();
+  assert.equal(
+    invocations.some(({ command }) => command === "startup_sync"),
+    false,
+  );
+  assert.equal(invocations.filter(({ command }) => command === "get_history").length, 1);
+  startupRestoreReleased.resolve();
+  await flush();
+  await flush();
   assert.ok(invocations.some(({ command }) => command === "startup_sync"));
   for (const command of ["import_session_history", "migrate_viewing_stats", "set_user_preferences"]) {
     assert.ok(
@@ -192,8 +200,8 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
       invocations.findIndex(({ command }) => command === "startup_sync"),
   );
   assert.ok(
-    invocations.findIndex(({ command }) => command === "startup_sync") <
-      invocations.findIndex(({ command }) => command === "get_frame_by_id"),
+    invocations.findIndex(({ command }) => command === "select_history_item") <
+      invocations.findIndex(({ command }) => command === "startup_sync"),
   );
   assert.deepEqual(
     invocations.find(({ command }) => command === "import_session_history").args.items.map((item) => item.id),
@@ -201,8 +209,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   );
   finishStartupSync(syncStatus);
   await flush();
-  assert.equal(invocations.filter(({ command }) => command === "get_history").length, 1);
-  startupRestoreReleased.resolve();
+  assert.equal(invocations.filter(({ command }) => command === "get_history").length, 2);
   await flush();
   await flush();
   assert.match(get("image").alt, /saved2/);

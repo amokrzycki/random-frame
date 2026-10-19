@@ -460,17 +460,23 @@ impl<S: SecretStore> SyncEngine<S> {
     }
 
     pub async fn sync_now(&self) -> Result<SyncStatus, SyncError> {
-        let _guard = self
-            .operation
-            .try_lock()
-            .map_err(|_| SyncError::AlreadySyncing)?;
+        let revision = self.status_snapshot().last_success_revision;
+        let _guard = self.operation.lock().await;
+        let status = self.status_snapshot();
+        // A successful overlapping operation already reconciled this generation.
+        if status.last_success_revision != revision
+            && !status.dirty
+            && matches!(status.state, SyncState::Idle)
+        {
+            return Ok(status);
+        }
         self.set_state(SyncState::Syncing, None, None);
         let result = self.sync_inner().await;
         self.finish(&result);
         result
     }
 
-    async fn sync_inner(&self) -> Result<SyncStatus, SyncError> {
+    pub(super) async fn sync_inner(&self) -> Result<SyncStatus, SyncError> {
         if self.journal()?.is_some() || self.config()?.is_some_and(|c| c.protocol_version == 2) {
             return self.sync_managed_inner().await;
         }
@@ -595,6 +601,8 @@ impl<S: SecretStore> SyncEngine<S> {
                 SyncState::Error
             };
             self.set_state(state, Some(error), None);
+            // A GET may already have merged durable remote state before a later PUT failed.
+            self.notify_state_changed();
         }
     }
 }

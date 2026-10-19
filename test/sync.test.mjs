@@ -84,6 +84,17 @@ const memberStatus = {
 };
 
 const document = new FakeDocument(ids);
+const disclosureToggle = document.createElement("button");
+const disclosureBody = document.createElement("div");
+const disclosureInput = document.createElement("input");
+disclosureToggle.setAttribute("aria-expanded", "false");
+disclosureBody.inert = true;
+disclosureBody.append(disclosureInput);
+disclosureToggle.nextElementSibling = disclosureBody;
+const syncDialog = document.querySelector("#sync-dialog");
+const queryDialog = syncDialog.querySelectorAll.bind(syncDialog);
+syncDialog.querySelectorAll = (selector) =>
+  selector === ".sync-disclosure__toggle" ? [disclosureToggle] : queryDialog(selector);
 const localStorage = new FakeStorage();
 const names = ["document", "localStorage", "navigator", "window"];
 const originals = new Map(names.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
@@ -1018,7 +1029,7 @@ test("join copy is concrete, avoids vague promises, and keeps developer terms ou
   const form = html.split('id="sync-connect-title"')[1].split('id="sync-recovery"')[0];
   const copy = form.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
   for (const phrase of [
-    "Generate a pairing request and send it to HEAD for approval.",
+    "Create a pairing request and send it to your group’s administrator.",
     "Restore this device from Sync",
     "Replace this device’s synced data with the copy already in Sync.",
     "Local history, saved frames, collections and their previous deletions will not be added to Sync.",
@@ -1104,12 +1115,12 @@ test("Later on a pending join lets the user start a different connection without
   assert.equal(syncCalls("approve_sync_upgrade").length, 0);
 });
 
-test("only verified HEAD sees admin controls and distinct HEAD / This device badges", async () => {
+test("only the verified administrator sees admin controls and distinct role / This device labels", async () => {
   await open(masterStatus);
   assert.equal(get("sync-admin-tools").hidden, false);
   assert.equal(get("sync-leave").disabled, true);
   assert.equal(get("sync-master-note").hidden, false);
-  assert.ok(rowTexts(get("sync-devices").children[0]).includes("HEAD of sync"));
+  assert.ok(rowTexts(get("sync-devices").children[0]).includes("Administrator"));
   assert.ok(rowTexts(get("sync-devices").children[0]).includes("This device"));
   get("sync-dialog").close();
   await open(memberStatus);
@@ -1128,9 +1139,11 @@ test("pairing requests and invitations are separate from the administration code
   get("sync-pairing-request").click();
   await flush();
   assert.equal(text("sync-recovery-key"), PAIRING);
-  assert.match(text("sync-key-about"), /Send this request to HEAD/);
+  assert.equal(get("sync-join-actions").hidden, true);
+  assert.match(text("sync-key-about"), /Send this request to the administrator/);
   get("sync-done").click();
   assert.equal(text("sync-recovery-key"), "");
+  assert.equal(document.activeElement.id, "sync-pairing-request");
   get("sync-dialog").close();
   await open(masterStatus);
   get("sync-pairing-input").value = PAIRING;
@@ -1144,6 +1157,8 @@ test("pairing requests and invitations are separate from the administration code
   await flush();
   assert.equal(text("sync-recovery-key"), INVITE);
   assert.equal(syncCalls("create_sync_invitation").length, 1);
+  get("sync-done").click();
+  assert.equal(document.activeElement.id, "sync-create-invitation");
 });
 
 test("recovery commits only after saving the new administration code and clears secrets", async () => {
@@ -1265,4 +1280,83 @@ test("administration recovery upgrade retains the exact code and still requires 
   assert.equal(syncCalls("recover_sync_admin")[1].args.confirmed, false);
   assert.equal(get("sync-key-saved").checked, false);
   assert.equal(get("sync-recovery").dataset.recovering, "true");
+});
+
+test("pairing explains invalid requests inline and never submits them", async () => {
+  await open(masterStatus);
+  for (const value of ["", ADMIN, INVITE, "rf-pair-v2-", `rf-pair-v2-${"a".repeat(4096)}`]) {
+    get("sync-pairing-input").value = value;
+    submit("sync-invitation-form");
+    await flush();
+    assert.equal(syncCalls("create_sync_invitation").length, 0);
+    assert.equal(get("sync-pairing-error").hidden, false);
+    assert.equal(get("sync-pairing-input").getAttribute("aria-invalid"), "true");
+    assert.equal(document.activeElement, get("sync-pairing-input"));
+  }
+  get("sync-pairing-input").value = PAIRING;
+  get("sync-pairing-input").dispatchEvent(new Event("input"));
+  assert.equal(get("sync-pairing-error").hidden, true);
+  assert.equal(get("sync-pairing-input").getAttribute("aria-invalid"), null);
+  submit("sync-invitation-form");
+  await flush();
+  assert.equal(text("sync-recovery-title"), "Invitation ready");
+  assert.equal(document.activeElement, get("sync-copy-key"));
+});
+
+test("a rejected pairing request retains the input, explains the failure, and restores focus", async () => {
+  await open(masterStatus);
+  get("sync-pairing-input").value = PAIRING;
+  backend.fail = { command: "create_sync_invitation", error: { category: "invalid_recovery_key" } };
+  submit("sync-invitation-form");
+  await flush();
+  assert.match(text("sync-pairing-error"), /pairing request.*copied all/i);
+  assert.equal(get("sync-pairing-input").value, PAIRING);
+  assert.equal(document.activeElement, get("sync-pairing-input"));
+  get("sync-dialog").close();
+  assert.equal(text("sync-pairing-error"), "");
+});
+
+test("failed request and invitation reads return focus to the action that failed", async () => {
+  await open();
+  get("sync-show-join").click();
+  await flush();
+  backend.fail = { command: "get_sync_pairing_request", error: { category: "offline" } };
+  get("sync-pairing-request").click();
+  await flush();
+  assert.equal(document.activeElement, get("sync-pairing-request"));
+  get("sync-dialog").close();
+  await open(masterStatus);
+  backend.fail = { command: "get_sync_invitation", error: { category: "no_invitation" } };
+  get("sync-show-invitation").click();
+  await flush();
+  assert.equal(document.activeElement, get("sync-show-invitation"));
+});
+
+test("joining names the actual operation while controls are disabled", async () => {
+  await openJoin();
+  choose("restore");
+  get("sync-recovery-input").value = KEY;
+  submit("sync-join-form");
+  assert.equal(text("sync-join"), "Restoring this device…");
+  assert.equal(text("sync-status"), "Restoring this device…");
+  assert.equal(get("sync-join").disabled, true);
+  await flush();
+  assert.equal(get("sync-join-actions").hidden, true);
+});
+
+test("disclosures expose content immediately, exclude collapsed controls, and reverse repeated toggles", () => {
+  disclosureToggle.click();
+  assert.equal(disclosureToggle.getAttribute("aria-expanded"), "true");
+  assert.equal(disclosureBody.inert, false);
+  disclosureInput.focus();
+  disclosureToggle.click();
+  assert.equal(disclosureToggle.getAttribute("aria-expanded"), "false");
+  assert.equal(disclosureBody.inert, true);
+  assert.equal(document.activeElement, disclosureToggle);
+  disclosureToggle.click();
+  disclosureToggle.click();
+  disclosureToggle.click();
+  assert.equal(disclosureToggle.getAttribute("aria-expanded"), "true");
+  assert.equal(disclosureBody.inert, false);
+  disclosureToggle.click();
 });

@@ -41,8 +41,8 @@ export function recordHistoryItem(item: HistoryItem, legacyImport = false): Prom
   return invoke("record_history_item", { item, legacyImport });
 }
 
-export function selectHistoryItem(index: number): Promise<HistorySnapshot> {
-  return invoke("select_history_item", { index });
+export function selectHistoryItem(index: number, frame?: Pick<HistoryItem, "source" | "id">): Promise<HistorySnapshot> {
+  return invoke("select_history_item", { index, ...frame });
 }
 
 // orderAt is the frame's place in history, handed back so an undo can restore it there.

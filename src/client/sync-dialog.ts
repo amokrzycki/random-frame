@@ -35,15 +35,16 @@ const NOT_APPLIED = "Nothing was changed on this device or in your Sync.";
 
 const errorCopy: Record<string, string> = {
   left_locally:
-    "Disconnected on this device while offline. Server membership was not ended. HEAD can remove the old membership; a new invitation is needed to rejoin.",
-  revoked: "This device was removed. Local data remains; ask HEAD for a new invitation to join again.",
+    "Disconnected on this device while offline. Server membership was not ended. The administrator can remove the old membership; a new invitation is needed to rejoin.",
+  revoked: "This device was removed. Local data remains; ask the administrator for a new invitation to join again.",
   closed: "This Sync group was dissolved. Your local data and files remain.",
   credential_replaced: "Administration was recovered on another device. This installation can no longer sync.",
   left: "This device disconnected. Local data remains. A new invitation is needed to rejoin managed Sync.",
-  master_required: "Only HEAD can manage this group.",
-  master_cannot_leave: "HEAD cannot disconnect. Recover administration on another device, or dissolve the group.",
-  invitation_expired: "This invitation expired or the group’s key changed. Ask HEAD for a new invitation.",
-  invitation_consumed: "This invitation has already been used. Ask HEAD for a new one.",
+  master_required: "Only the administrator can manage this group.",
+  master_cannot_leave:
+    "The administrator cannot disconnect. Recover administration on another device, or dissolve the group.",
+  invitation_expired: "This invitation expired or the group’s key changed. Ask the administrator for a new invitation.",
+  invitation_consumed: "This invitation has already been used. Ask the administrator for a new one.",
   operation_mismatch: "The prepared operation does not match. No new change was committed.",
   no_invitation: "No invitation is saved on this device. Approve a device’s pairing request to create one.",
   pending_operation:
@@ -127,6 +128,22 @@ function nameProblem(name: string): string | null {
   return null;
 }
 
+// Native parsing and credential validation remain authoritative; catch common paste mistakes here.
+function pairingProblem(): string | null {
+  const request = elements.syncPairingInput.value.trim();
+  if (!request) return "Paste the pairing request generated on the new device.";
+  if (!request.startsWith("rf-pair-v2-") || request.length <= 11 || request.length > 4096)
+    return "Use the complete pairing request beginning with rf-pair-v2-, not an invitation or administration code.";
+  return null;
+}
+
+function setPairingError(message: string | null): void {
+  elements.syncPairingError.textContent = message ?? "";
+  elements.syncPairingError.hidden = !message;
+  if (message) elements.syncPairingInput.setAttribute("aria-invalid", "true");
+  else elements.syncPairingInput.removeAttribute("aria-invalid");
+}
+
 // What this device holds before joining; null until read, or when it could not be read.
 let joinSummary: LocalSyncSummary | null = null;
 let joinSummaryLoaded = false;
@@ -135,6 +152,7 @@ let checking = false;
 let statusCheckFailed = false;
 let busy = false;
 let busyMessage = "";
+let statusAnimation: Animation | undefined;
 let opener: HTMLElement | null = null;
 let nameEdited = false;
 let recoveryPrepared = false;
@@ -201,8 +219,13 @@ function renderJoin(): void {
       ? `This device has ${plural(deletions, "previous deletion", "previous deletions")} that will also be merged.`
       : "";
   const mode = selectedJoinMode();
-  elements.syncJoin.textContent =
-    mode === "merge" ? "Merge this device" : mode === "restore" ? "Restore this device" : "Connect this device";
+  elements.syncJoin.textContent = busy
+    ? busyMessage
+    : mode === "merge"
+      ? "Merge this device"
+      : mode === "restore"
+        ? "Restore this device"
+        : "Connect this device";
 }
 
 async function loadJoinSummary(): Promise<void> {
@@ -293,8 +316,8 @@ function deviceRow(device: DeviceSummary): HTMLLIElement {
   }
   if (device.isMaster) {
     const badge = document.createElement("span");
-    badge.className = "sync-device__badge";
-    badge.textContent = "HEAD of sync";
+    badge.className = "sync-device__role";
+    badge.textContent = "Administrator";
     row.append(badge);
   }
   if (device.status && device.status !== "active") meta.textContent += ` · ${device.status}`;
@@ -331,7 +354,13 @@ function setStatus(next: SyncStatus): void {
   if (next.snapshotSchemaVersion >= 3 && next.lastErrorCategory !== "upgrade_required") upgradeAction = undefined;
   statusCheckFailed = false;
   renderDevices(next);
-  const attention = next.paired && (next.state === "error" || next.state === "offline" || next.lastErrorCategory);
+  renderAttention();
+}
+
+function renderAttention(): void {
+  const attention =
+    retryAction === refreshView ||
+    (status?.paired && (status.state === "error" || status.state === "offline" || status.lastErrorCategory));
   if (attention) elements.toolsMenuButton.dataset.sync = "attention";
   else delete elements.toolsMenuButton.dataset.sync;
   if (attention) elements.syncButton.dataset.sync = "attention";
@@ -387,22 +416,33 @@ function computeState(busy: boolean, checking: boolean, statusCheckFailed: boole
 }
 
 function render(): void {
+  renderAttention();
+  renderJoin();
   const upgrading = Boolean(upgradeAction || (status?.paired && status.lastErrorCategory === "upgrade_required"));
   elements.syncUpgrade.hidden = !upgrading;
   elements.syncUpgradeConfirm.disabled = elements.syncUpgradeLater.disabled = busy;
-  elements.syncJoinActions.hidden = elements.syncJoinForm.hidden || upgrading;
   const paired = status?.paired ?? false;
   const supported = status?.supported ?? true;
   const showingKey = Boolean(elements.syncRecoveryKey.textContent);
   const gated = showingKey && Boolean(elements.syncRecovery.dataset.gated);
+  elements.syncJoinActions.hidden = elements.syncJoinForm.hidden || upgrading || showingKey;
   const confirming =
     !elements.syncLeaveConfirm.hidden || !elements.syncRemoveConfirm.hidden || !elements.syncDissolveConfirm.hidden;
   // While the key shows, nothing on the status lines is news: the key and its checkbox are the whole task.
   const headline = computeHeadline(busy, checking, statusCheckFailed, status);
   const detail = !busy && status && elements.syncError.hidden ? statusDetail(status) : "";
   elements.syncStatus.hidden = showingKey;
-  elements.syncStatus.textContent = headline;
-  elements.syncStatus.dataset.state = computeState(busy, checking, statusCheckFailed, status);
+  const nextState = computeState(busy, checking, statusCheckFailed, status);
+  if (elements.syncStatus.textContent !== headline || elements.syncStatus.dataset.state !== nextState) {
+    statusAnimation?.cancel();
+    elements.syncStatus.textContent = headline;
+    elements.syncStatus.dataset.state = nextState;
+    if (elements.syncDialog.open && !showingKey)
+      statusAnimation = elements.syncStatus.animate([{ opacity: 0.65 }, { opacity: 1 }], {
+        duration: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? 0 : 160,
+        easing: window.getComputedStyle?.(elements.syncDialog).getPropertyValue("--ease-out").trim() || "ease-out",
+      });
+  }
   elements.syncStatusDetail.hidden = showingKey || !detail;
   elements.syncStatusDetail.textContent = detail;
   elements.syncLastSynced.hidden = showingKey || !paired || !supported;
@@ -417,6 +457,16 @@ function render(): void {
   elements.syncRecovery.hidden = !showingKey;
   elements.syncKeyConfirm.hidden = !gated;
   elements.syncPaired.hidden = !paired || showingKey || confirming || upgrading;
+  elements.syncNow.hidden = !paired || showingKey || confirming || upgrading || !supported;
+  elements.syncNow.textContent = busy && busyMessage === "Syncing…" ? "Syncing…" : "Sync now";
+  elements.syncCreateInvitation.textContent =
+    busy && busyMessage === "Approving the device…" ? "Creating invitation…" : "Create invitation";
+  elements.syncDissolve.hidden = !isMaster();
+  elements.syncMemberNote.hidden = !status?.thisMemberId || isMaster();
+  elements.syncAdminKeyNote.hidden = Boolean(status?.thisMemberId) && !isMaster();
+  elements.syncAdminKeyNote.textContent = status?.thisMemberId
+    ? "Keep your administration code safe. It lets you recover administration on another device."
+    : "Keep your legacy recovery key safe. Anyone with it can connect to this Sync.";
   elements.syncNow.disabled = busy || !supported || status?.state === "syncing" || status?.state === "updating_key";
   elements.syncShowKey.disabled = busy || !supported;
   elements.syncShowKey.hidden = Boolean(status?.thisMemberId) && !isMaster();
@@ -468,15 +518,15 @@ function showKey(key: string, gated: boolean): void {
   const invite = key.startsWith("rf-invite-v2-");
   const pairing = key.startsWith("rf-pair-v2-");
   const label = admin ? "Administration code" : invite ? "Invitation" : pairing ? "Pairing request" : "Recovery key";
-  elements.syncRecoveryTitle.textContent = `Your ${label.toLowerCase()}`;
+  elements.syncRecoveryTitle.textContent = invite ? "Invitation ready" : `Your ${label.toLowerCase()}`;
   elements.syncKeyAbout.textContent = admin
     ? recoveryPrepared
       ? "Save this new administration code before finishing recovery. It becomes active only after recovery succeeds; the previous code then stops working. If recovery is rejected, this prepared code is not active."
-      : "Keep this code somewhere safe. It can recover HEAD on a new device and replace this device’s access. It is separate from invitations and the data key; do not send it to participants."
+      : "Keep this code somewhere safe. It can recover administration on a new device and replace this device’s access. It is separate from invitations and the data key; do not send it to participants."
     : invite
       ? "Send this one-use invitation to the device whose request you approved. It expires in 24 hours or when the group’s key changes. It grants no administration access."
       : pairing
-        ? "Send this request to HEAD. It binds approval to this installation’s credentials. Paste the invitation HEAD gives you in Connect this device."
+        ? "Send this request to the administrator. It binds approval to this installation’s credentials. Paste the invitation the administrator gives you in Connect this device."
         : "Keep this legacy key somewhere safe. Anyone with it can connect to the old Sync.";
   elements.syncCopyKey.textContent = `Copy ${label.toLowerCase()}`;
   elements.syncRecoveryKey.setAttribute("aria-label", label);
@@ -523,7 +573,7 @@ async function refreshView(): Promise<boolean> {
     render();
     return true;
   } catch (error) {
-    showError(`Sync completed, but saved data could not be reloaded. ${safeError(error)}`, refreshView);
+    showError(`Sync finished, but saved data could not be reloaded. ${safeError(error)}`, refreshView);
     return false;
   }
 }
@@ -587,11 +637,7 @@ function focusWhenSettled(target: HTMLElement): void {
 
 async function onSyncStateChanged(): Promise<void> {
   await refresh();
-  try {
-    await refreshPersistedView();
-  } catch {
-    // The next open or sync reads the saved data again.
-  }
+  await refreshView();
 }
 
 async function renameDevice(): Promise<void> {
@@ -606,6 +652,7 @@ async function renameDevice(): Promise<void> {
     return;
   }
   busy = true;
+  busyMessage = "Saving device name…";
   render();
   try {
     await setSyncDeviceName(name);
@@ -626,6 +673,18 @@ async function renameDevice(): Promise<void> {
 }
 
 export function bindSyncDialogEvents(): void {
+  for (const toggle of elements.syncDialog.querySelectorAll<HTMLButtonElement>(".sync-disclosure__toggle")) {
+    const body = toggle.nextElementSibling as HTMLElement;
+    toggle.addEventListener("click", () => {
+      const expanded = toggle.getAttribute("aria-expanded") !== "true";
+      toggle.setAttribute("aria-expanded", String(expanded));
+      body.inert = !expanded;
+      if (!expanded && body.contains(document.activeElement)) toggle.focus();
+    });
+  }
+  elements.syncDialog.addEventListener("focusin", (event) => {
+    (event.target as HTMLElement).scrollIntoView?.({ block: "nearest" });
+  });
   elements.syncUpgradeLater.addEventListener("click", () => closeDialog(elements.syncDialog));
   elements.syncUpgradeConfirm.addEventListener("click", async () => {
     const pending = upgradeAction ?? { message: "Syncing…", action: syncNow, recoveryKey: undefined };
@@ -662,7 +721,7 @@ export function bindSyncDialogEvents(): void {
       return;
     }
     opener = document.activeElement as HTMLElement | null;
-    clearError();
+    if (retryAction !== refreshView) clearError();
     render();
     openDialog(elements.syncDialog);
     elements.syncClose.focus();
@@ -690,9 +749,17 @@ export function bindSyncDialogEvents(): void {
       closeDialog(elements.syncDialog);
       return;
     }
+    const key = elements.syncRecoveryKey.textContent;
+    const returnTo = key.startsWith("rf-pair-v2-")
+      ? elements.syncPairingRequest
+      : key.startsWith("rf-invite-v2-")
+        ? elements.syncCreateInvitation
+        : status?.paired
+          ? elements.syncShowKey
+          : elements.syncRecoveryInput;
     hideKey();
     render();
-    focusWhenSettled(status?.paired ? elements.syncShowKey : elements.syncRecoveryInput);
+    focusWhenSettled(returnTo);
   });
   elements.syncRetry.addEventListener("click", async () => {
     const again = retryAction;
@@ -715,6 +782,7 @@ export function bindSyncDialogEvents(): void {
     nameEdited = false;
     elements.syncAdminCode.value = "";
     elements.syncPairingInput.value = "";
+    setPairingError(null);
     elements.syncRemoveConfirm.hidden = true;
     elements.syncDissolveConfirm.hidden = true;
     elements.syncDissolveWord.value = "";
@@ -809,41 +877,58 @@ export function bindSyncDialogEvents(): void {
     focusWhenSettled(shown ? elements.syncCopyKey : elements.syncShowKey);
   });
   elements.syncPairingRequest.addEventListener("click", async () => {
-    await operate("Preparing this device’s pairing request…", async () => {
+    const shown = await operate("Preparing this device’s pairing request…", async () => {
       showKey(await getSyncPairingRequest(), false);
       return undefined;
     });
-    focusWhenSettled(elements.syncCopyKey);
+    focusWhenSettled(shown ? elements.syncCopyKey : elements.syncPairingRequest);
+  });
+  elements.syncPairingInput.addEventListener("input", () => setPairingError(null));
+  elements.syncPairingInput.addEventListener("blur", () => {
+    if (elements.syncPairingInput.value.trim()) setPairingError(pairingProblem());
   });
   elements.syncInvitationForm.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (busy) return;
+    const problem = pairingProblem();
+    setPairingError(problem);
+    if (problem) {
+      elements.syncPairingInput.focus();
+      return;
+    }
     const request = elements.syncPairingInput.value.trim();
-    await operate("Approving the device…", async () => {
+    const created = await operate("Approving the device…", async () => {
       showKey(await createSyncInvitation(request), false);
       elements.syncPairingInput.value = "";
+      setPairingError(null);
       return undefined;
     });
-    focusWhenSettled(elements.syncCopyKey);
+    if (!created && !elements.syncError.hidden) {
+      const message = elements.syncErrorMessage.textContent.replace("recovery key", "pairing request");
+      elements.syncErrorMessage.textContent = message;
+      setPairingError(message);
+    }
+    focusWhenSettled(created ? elements.syncCopyKey : elements.syncPairingInput);
   });
   elements.syncShowInvitation.addEventListener("click", async () => {
-    await operate("Reading the latest invitation…", async () => {
+    const shown = await operate("Reading the latest invitation…", async () => {
       showKey(await getSyncInvitation(), false);
       return undefined;
     });
-    focusWhenSettled(elements.syncCopyKey);
+    focusWhenSettled(shown ? elements.syncCopyKey : elements.syncShowInvitation);
   });
   elements.syncMove.addEventListener("click", async () => {
-    await operate("Creating a new managed group…", async () => {
+    const moved = await operate("Creating a new managed group…", async () => {
       const result = await moveToManagedSync();
       showKey(result.adminRecoveryCode, true);
       return result.status;
     });
-    focusWhenSettled(elements.syncKeySaved);
+    focusWhenSettled(moved ? elements.syncKeySaved : upgradeAction ? elements.syncUpgradeLater : elements.syncMove);
   });
   elements.syncAdminRecoverForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const code = elements.syncAdminCode.value.trim();
-    await operate(
+    const prepared = await operate(
       "Preparing administration recovery…",
       async () => {
         const result = await recoverSyncAdmin(code);
@@ -855,7 +940,9 @@ export function bindSyncDialogEvents(): void {
       },
       code,
     );
-    focusWhenSettled(elements.syncKeySaved);
+    focusWhenSettled(
+      prepared ? elements.syncKeySaved : upgradeAction ? elements.syncUpgradeLater : elements.syncAdminCode,
+    );
   });
   elements.syncRecoveryCancel.addEventListener("click", async () => {
     await operate("Cancelling prepared recovery…", async () => {
@@ -911,7 +998,7 @@ export function bindSyncDialogEvents(): void {
   });
   elements.syncLeave.addEventListener("click", () => {
     if (isMaster()) {
-      showError(errorCopy.master_cannot_leave ?? "HEAD cannot disconnect.");
+      showError(errorCopy.master_cannot_leave ?? "The administrator cannot disconnect.");
       return;
     }
     elements.syncLeaveConfirm.hidden = false;
@@ -936,11 +1023,12 @@ export function bindSyncDialogEvents(): void {
 export async function runStartupSync(): Promise<void> {
   try {
     setStatus(await startupSync());
-    await refreshPersistedView();
   } catch {
-    // Rust keeps the typed error in SyncStatus; read it for the titlebar flag. An unpaired device needs no notice.
+    // GET may have persisted remote changes before a failed PUT; project them without claiming delivery.
     await refresh();
+    await refreshView();
     return;
   }
+  await refreshView();
   if (elements.syncDialog.open) await refresh();
 }

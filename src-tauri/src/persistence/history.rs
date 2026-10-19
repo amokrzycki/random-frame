@@ -345,6 +345,24 @@ impl HistoryStore {
         Ok(result)
     }
 
+    // Resolve after HTTP completes: remote reconciliation may have moved or removed this frame.
+    pub fn select_frame(&self, source: &str, id: &str) -> Result<HistorySnapshot, AppError> {
+        let mut data = self
+            .data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut next = data.clone();
+        next.index = next
+            .history
+            .iter()
+            .position(|item| item.source == source && item.id == id);
+        self.save(&next)?;
+        *data = next;
+        let result = snapshot(&data);
+        drop(data);
+        Ok(result)
+    }
+
     /// Removes one frame. Every op for it is tombstoned, since a synced device may hold its own,
     /// and the earliest `order_at` is returned so `restore` can put it back in place.
     pub fn remove(&self, source: &str, id: &str) -> Result<RemovedFrame, AppError> {

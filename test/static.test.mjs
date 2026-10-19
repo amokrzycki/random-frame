@@ -104,10 +104,10 @@ test("Sync dialog separates Start a new Sync from Connect this device and states
   assert.match(connect, /id="sync-show-join"/);
   // The two ways to join are explained before the key form and in the same section.
   const connectText = connect.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-  assert.ok(connectText.includes("Generate a pairing request and send it to HEAD for approval."));
+  assert.ok(connectText.includes("Create a pairing request and send it to your group’s administrator."));
   assert.ok(connectText.includes("Restore this device from Sync"));
   assert.ok(connectText.includes("Merge this device with Sync"));
-  assert.ok(connect.indexOf("Generate a pairing request") < connect.indexOf('id="sync-join-form"'));
+  assert.ok(connect.indexOf("Create a pairing request") < connect.indexOf('id="sync-join-form"'));
   assert.ok(connect.indexOf('id="sync-join-modes"') < connect.indexOf('id="sync-recovery-input"'));
   assert.match(dialog, /id="sync-join"[^>]*form="sync-join-form"/);
   assert.doesNotMatch(connectText, /It won’t be replaced/);
@@ -116,10 +116,7 @@ test("Sync dialog separates Start a new Sync from Connect this device and states
   assert.match(copy, /Activity &amp; Stats/);
   assert.match(copy, /Preferences/);
   assert.match(copy, /Images saved to files aren’t backed up/);
-  assert.match(
-    copy,
-    /Devices known from past syncs\. This list doesn’t show which ones are online or still connected\./,
-  );
+  assert.match(copy, /Last synced is a record of past activity, not online presence\./);
   assert.match(
     copy,
     /Keep this key somewhere safe\. Use it to bring your saved data to another device\. Anyone with this key can connect to your Sync\./,
