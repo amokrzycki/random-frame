@@ -108,9 +108,9 @@ export async function runNearbySmoke({ adb, evaluate, check, sleep }) {
   await sleep(1200);
   check(
     await evaluate(
-      `window.__nearbySmoke.maximum===2 && window.__nearbySmoke.resolves===8 && document.querySelector('#nearby-grid').children.length===9`,
+      `window.__nearbySmoke.maximum===2 && window.__nearbySmoke.resolves===9 && document.querySelector('#nearby-grid').children.length===9`,
     ),
-    "Nearby starts eight fixture checks with two resolves maximum",
+    "Nearby starts nine fixture checks with two resolves maximum",
   );
   check(
     await evaluate(
@@ -122,7 +122,7 @@ export async function runNearbySmoke({ adb, evaluate, check, sleep }) {
   await sleep(1000);
   check(
     await evaluate(
-      `document.querySelector('#nearby-center').textContent==='abc127' && document.querySelector('#nearby-grid').children[0].querySelector('[aria-current="true"]')!==null && window.__nearbySmoke.resolves===12`,
+      `document.querySelector('#nearby-center').textContent==='abc127' && document.querySelector('#nearby-grid').children[0].querySelector('[aria-current="true"]')!==null && window.__nearbySmoke.resolves===13`,
     ),
     "Next 4 retains Current and introduces exactly four fixture checks",
   );
