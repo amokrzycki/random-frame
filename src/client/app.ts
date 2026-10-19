@@ -11,6 +11,7 @@ import { bindNavigationEvents, goTo } from "./frame-loader.js";
 import { bindHistoryDialogEvents, pendingHistoryClearKey } from "./history-dialog.js";
 import { bindMenu } from "./menu.js";
 import { historyFromStorage, shouldShowEntryDialog } from "./navigation.js";
+import { bindNearbyEvents } from "./nearby-dialog.js";
 import {
   commitHistoryClear,
   completeStateImports,
@@ -227,6 +228,7 @@ bindDialogChromeEvents();
 bindChangelogEvents();
 bindStageEvents();
 bindNavigationEvents();
+bindNearbyEvents();
 bindFrameActionEvents();
 bindCollectionEvents();
 bindHistoryDialogEvents();

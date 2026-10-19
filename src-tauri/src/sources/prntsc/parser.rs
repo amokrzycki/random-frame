@@ -33,6 +33,23 @@ pub fn extract_image_url(html: &str) -> Option<String> {
     })
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum PageOutcome {
+    Image(String),
+    Challenge,
+    Unrecognized,
+}
+pub fn parse_page(html: &str) -> PageOutcome {
+    if let Some(url) = extract_image_url(html) {
+        return PageOutcome::Image(url);
+    }
+    if html.to_ascii_lowercase().contains("cf-chl-") {
+        PageOutcome::Challenge
+    } else {
+        PageOutcome::Unrecognized
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -83,6 +100,22 @@ mod tests {
         assert_eq!(
             extract_image_url(r#"<META PROPERTY="OG:IMAGE" CONTENT="https://i.imgur.com/c.png">"#),
             Some("https://i.imgur.com/c.png".into())
+        );
+    }
+}
+
+#[cfg(test)]
+mod nearby_tests {
+    use super::*;
+    #[test]
+    fn absent_image_and_challenge_are_never_deleted_evidence() {
+        assert_eq!(
+            parse_page("<html>unknown page</html>"),
+            PageOutcome::Unrecognized
+        );
+        assert_eq!(
+            parse_page("<script src='cf-chl-challenge'></script>"),
+            PageOutcome::Challenge
         );
     }
 }

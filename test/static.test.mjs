@@ -83,7 +83,8 @@ test("distilled menus keep Save beside Favorite and Clear in the History footer"
   const history = html.split('id="history-dialog"')[1].split('id="stats-dialog"')[0];
   assert.match(more, /id="stats-button"/);
   assert.doesNotMatch(more, /History/);
-  assert.equal((frame.match(/role="menuitem"/g) ?? []).length, 8);
+  assert.equal((frame.match(/role="menuitem"/g) ?? []).length, 9);
+  assert.ok(frame.indexOf('id="nearby-button"') < frame.indexOf('id="previous-id-button"'));
   assert.match(frame, /id="remove-saved-button"[\s\S]*Remove from all saved/);
   assert.doesNotMatch(frame, /id="save-button"|id="position-current"|id="history-total"/);
   assert.match(html, /id="favorite-button"[\s\S]*class="info-icon"\s+id="save-button"/);

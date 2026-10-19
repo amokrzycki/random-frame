@@ -2,7 +2,7 @@ use super::io::{load_json, save_json};
 use crate::{
     error::AppError,
     snapshot::{merge_snapshots, ExplorationRecord, SyncSnapshot},
-    sources::prntsc::{item_id_value, value_to_base36, LEGACY_MAX_VALUE},
+    sources::prntsc::{value_to_base36, LEGACY_MAX_VALUE},
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -16,6 +16,7 @@ use std::{
 };
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExplorationOutcome {
+    // Bit 1 is verified availability; it does not imply a user view.
     Viewed,
     Rejected,
 }
@@ -179,6 +180,13 @@ impl ExplorationStore {
         }])?;
         Ok(true)
     }
+    pub fn evidence(&self, id: u64) -> Option<u8> {
+        self.ids
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&("prntsc".into(), value_to_base36(id)))
+            .copied()
+    }
     pub fn contains(&self, id: u64) -> bool {
         self.ids
             .lock()
@@ -206,15 +214,6 @@ impl ExplorationStore {
         }
         drop(ids);
         result
-    }
-    pub fn viewed_ids(&self) -> Vec<u64> {
-        self.ids
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .iter()
-            .filter(|((source, _), evidence)| source == "prntsc" && *evidence & 1 != 0)
-            .filter_map(|((_, id), _)| item_id_value(id).ok())
-            .collect()
     }
     #[cfg(test)]
     pub fn count(&self) -> usize {

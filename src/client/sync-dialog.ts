@@ -61,7 +61,7 @@ const errorCopy: Record<string, string> = {
   persistence: "Sync data could not be saved on this device.",
   unsupported_version: "This Sync was updated by a newer version of Random Frame. Update the app to continue.",
   unsupported_platform: "Sync isn’t available on this device.",
-  upgrade_required: "Collections need a newer Sync format. Review the upgrade before continuing.",
+  upgrade_required: "Nearby Frames needs a newer Sync format. Review the upgrade before continuing.",
   schema_downgrade: `Synced data uses an older format, so it was not applied. ${NOT_APPLIED}`,
   invalid_remote_data: `Synced data could not be verified, so it was not applied. ${NOT_APPLIED}`,
   offline: OFFLINE,
@@ -351,7 +351,7 @@ function renderDevices(next: SyncStatus): void {
 // Only problems flag the titlebar: a quiet icon means Sync is fine or not in use.
 function setStatus(next: SyncStatus): void {
   status = next;
-  if (next.snapshotSchemaVersion >= 3 && next.lastErrorCategory !== "upgrade_required") upgradeAction = undefined;
+  if (next.snapshotSchemaVersion >= 4 && next.lastErrorCategory !== "upgrade_required") upgradeAction = undefined;
   statusCheckFailed = false;
   renderDevices(next);
   renderAttention();

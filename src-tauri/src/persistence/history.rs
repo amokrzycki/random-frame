@@ -296,6 +296,7 @@ impl HistoryStore {
             .collect()
     }
 
+    #[cfg(test)]
     pub fn frame_views(&self) -> Vec<FrameView> {
         let data = self
             .data

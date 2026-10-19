@@ -2,8 +2,15 @@ import type { Frame } from "./api.js";
 import { getFrameById, getRandomFrame } from "./api.js";
 import { elements } from "./elements.js";
 import { blobKey, blobs } from "./frame-cache.js";
-import { adjacentPrntscId, frameNumberToIndex, historyIndexForId, nextHistoryIndex } from "./navigation.js";
-import { recordHistoryItem, selectHistoryItem } from "./persistence.js";
+import {
+  adjacentPrntscId,
+  frameNumberToIndex,
+  historyIndexForId,
+  nearbyWindow,
+  nextHistoryIndex,
+  PRNTSC_ID_PATTERN,
+} from "./navigation.js";
+import { recordHistoryItem, recordNearbyHistoryItem, selectHistoryItem } from "./persistence.js";
 import {
   decodedUrl,
   drawPaused,
@@ -46,21 +53,26 @@ function showFavoriteTip(): void {
   }, 4000);
 }
 
-async function recordFrame(frame: Frame, canRecord = () => true): Promise<void> {
+async function recordFrame(frame: Frame, canRecord = () => true, accept = recordHistoryItem): Promise<void> {
   const url = await decodedUrl(frame.blob);
   await settleLoader();
   if (!canRecord()) {
     URL.revokeObjectURL(url);
     return;
   }
-  applyHistory(
-    await recordHistoryItem({
-      source: frame.source,
-      id: frame.id,
-      sourcePageUrl: frame.sourcePageUrl,
-      viewedAt: Date.now(),
-    }),
-  );
+  try {
+    applyHistory(
+      await accept({
+        source: frame.source,
+        id: frame.id,
+        sourcePageUrl: frame.sourcePageUrl,
+        viewedAt: Date.now(),
+      }),
+    );
+  } catch (error) {
+    URL.revokeObjectURL(url);
+    throw error;
+  }
   showFrame(frame.source, frame.id, frame.blob, url);
 }
 
@@ -111,7 +123,7 @@ export async function loadRandom(): Promise<void> {
   }
 }
 
-export async function goTo(targetIndex: number): Promise<void> {
+export async function goTo(targetIndex: number, intent: "standard" | "nearby" = "standard"): Promise<void> {
   // The shown index may be re-requested when an error covers it, so the frame can be recovered.
   if (
     state.loading ||
@@ -130,10 +142,10 @@ export async function goTo(targetIndex: number): Promise<void> {
       setState("loading", `Restoring frame ${targetIndex + 1}…`);
       elements.announcer.textContent = `Restoring frame ${targetIndex + 1}`;
       syncControls();
-      const frame = await getFrameById(current.id, current.source);
+      const frame = await getFrameById(current.id, current.source, intent);
       const url = await decodedUrl(frame.blob);
       await settleLoader();
-      showFrame(frame.source, frame.id, frame.blob, url);
+      showFrame(current.source, current.id, frame.blob, url);
     } else {
       swapImage(cached.url, current.id);
       elements.announcer.textContent = `Showing frame ${current.id}`;
@@ -143,7 +155,7 @@ export async function goTo(targetIndex: number): Promise<void> {
   } catch (error) {
     // A failed restore at startup keeps the target, so "Show frame N" retries it.
     state.index = previousIndex >= 0 ? previousIndex : targetIndex;
-    showError(error, () => goTo(targetIndex), targetIndex);
+    showError(error, () => goTo(targetIndex, intent), targetIndex);
   }
   finishLoading();
 }
@@ -190,6 +202,31 @@ export async function loadById(id: string, source = "prntsc"): Promise<void> {
     await recordFrame(frame);
   } catch (error) {
     showError(error, () => loadById(id, source));
+  } finally {
+    finishLoading();
+  }
+}
+
+export async function openNearbyFrame(id: string): Promise<void> {
+  if (state.loading || state.historyLoadFailed) return;
+  const canonical = nearbyWindow(id).centerId;
+  state.navigationMode = "history";
+  state.historyTab = "history";
+  const index = state.history.findIndex(
+    (item) =>
+      item.source === "prntsc" &&
+      PRNTSC_ID_PATTERN.test(item.id) &&
+      Number.parseInt(item.id, 36) === Number.parseInt(canonical, 36),
+  );
+  if (index >= 0) return goTo(index, "nearby");
+  startLoading();
+  setState("loading");
+  syncControls();
+  try {
+    const frame = await getFrameById(canonical, "prntsc", "nearby");
+    await recordFrame(frame, () => true, recordNearbyHistoryItem);
+  } catch (error) {
+    showError(error, () => openNearbyFrame(canonical));
   } finally {
     finishLoading();
   }

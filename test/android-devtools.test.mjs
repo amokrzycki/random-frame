@@ -9,9 +9,12 @@ const evaluateSource = source.slice(source.indexOf("async function evaluate("), 
 function devtools(scenario) {
   let elapsed = 0;
   let probes = 0;
+  const sent = [];
   const context = vm.createContext({
     Date: { now: () => elapsed },
     AbortSignal,
+    setTimeout,
+    clearTimeout,
     pkg: "dev.randomframe.android.debug",
     processId: () =>
       (scenario === "dead" || scenario === "hang") && probes > 0
@@ -46,7 +49,7 @@ function devtools(scenario) {
           );
         });
       }
-      if (scenario !== "slow") throw new Error("DevTools connection refused");
+      if (!["slow", "closed", "media"].includes(scenario)) throw new Error("DevTools connection refused");
       return {
         json: async () =>
           elapsed < 6000 ? [] : [{ type: "page", webSocketDebuggerUrl: "ws://127.0.0.1/devtools/page/1" }],
@@ -55,20 +58,39 @@ function devtools(scenario) {
     WebSocket: class {
       addEventListener(event, handler) {
         if (event === "open") queueMicrotask(handler);
-        if (event === "message") queueMicrotask(() => handler({ data: '{"id":1,"result":{"result":{"value":42}}}' }));
+        if (event === "message" && scenario === "media")
+          queueMicrotask(() => handler({ data: '{"id":2,"result":{}}' }));
+        if (event === "message" && scenario !== "closed")
+          queueMicrotask(() => handler({ data: '{"id":1,"result":{"result":{"value":42}}}' }));
+        if (event === "close" && scenario === "closed") queueMicrotask(handler);
       }
-      send = () => undefined;
+      send = (message) => sent.push(JSON.parse(message));
+      removeEventListener = () => undefined;
       close = () => undefined;
     },
   });
   vm.runInContext(evaluateSource, context);
-  return { evaluate: context.evaluate, elapsed: () => elapsed, probes: () => probes };
+  return { evaluate: context.evaluate, elapsed: () => elapsed, probes: () => probes, sent };
 }
 
 test("DevTools discovery waits for a slow WebView beyond five seconds", async () => {
   const device = devtools("slow");
   assert.equal(await device.evaluate("21 * 2"), 42);
   assert.equal(device.elapsed(), 6000);
+});
+
+test("native renderer media emulation ignores its acknowledgement before the evaluation result", async () => {
+  const device = devtools("media");
+  assert.equal(await device.evaluate("21 * 2", true), 42);
+  assert.deepEqual(
+    device.sent.map((x) => x.method),
+    ["Emulation.setEmulatedMedia", "Runtime.evaluate"],
+  );
+  assert.deepEqual(device.sent[0].params.features, [{ name: "prefers-reduced-motion", value: "reduce" }]);
+});
+
+test("a WebView crash during evaluation fails instead of hanging the release gate", { timeout: 500 }, async () => {
+  await assert.rejects(devtools("closed").evaluate("21 * 2"), /WebView.*closed/);
 });
 
 test("DevTools discovery fails promptly if the app dies", async () => {

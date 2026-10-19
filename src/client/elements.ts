@@ -5,6 +5,17 @@ function element<T extends Element>(selector: string): T {
 }
 
 export const elements = {
+  nearbyButton: element<HTMLButtonElement>("#nearby-button"),
+  nearbyGroup: element<HTMLElement>("#nearby-menu-group"),
+  nearbyDialog: element<HTMLDialogElement>("#nearby-dialog"),
+  nearbyClose: element<HTMLButtonElement>("#nearby-close"),
+  nearbyGrid: element<HTMLOListElement>("#nearby-grid"),
+  nearbyStatus: element<HTMLElement>("#nearby-status"),
+  nearbyLive: element<HTMLElement>("#nearby-live"),
+  nearbyRetry: element<HTMLButtonElement>("#nearby-retry"),
+  nearbyPrevious: element<HTMLButtonElement>("#nearby-previous"),
+  nearbyNext: element<HTMLButtonElement>("#nearby-next"),
+  nearbyCenter: element<HTMLElement>("#nearby-center"),
   image: element<HTMLImageElement>("#image"),
   imageZoom: element<HTMLButtonElement>("#image-zoom"),
   imageGhost: element<HTMLImageElement>("#image-ghost"),

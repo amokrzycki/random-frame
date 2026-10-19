@@ -9,6 +9,7 @@ import { setToastScope } from "./toast.js";
 export const dialogs = [
   elements.entryDialog,
   elements.historyDialog,
+  elements.nearbyDialog,
   elements.collectionsDialog,
   elements.collectionManageDialog,
   elements.statsDialog,
@@ -133,10 +134,12 @@ export function closeDialog(dialog: HTMLDialogElement): void {
   }
   const classList = (dialog as unknown as { classList?: DOMTokenList }).classList;
   if (!classList) {
+    dialog.dispatchEvent(new Event("dialog-dismiss"));
     dialog.close();
     return;
   }
   if (classList.contains("is-closing")) return;
+  dialog.dispatchEvent(new Event("dialog-dismiss"));
   classList.add("is-closing");
   if (!dialogs.some((other) => other !== dialog && other.open)) delete elements.dialogBackdrop.dataset.open;
   // Not `once`: children's transitionend events bubble here first and would consume the listener.

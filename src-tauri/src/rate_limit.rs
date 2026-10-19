@@ -32,6 +32,12 @@ impl RateLimiter {
         Ok(())
     }
 
+    pub fn delay_until_token(&self, now: Instant) -> std::time::Duration {
+        let tokens = (self.tokens
+            + now.saturating_duration_since(self.updated_at).as_secs_f64() * REFILL_PER_SECOND)
+            .min(CAPACITY);
+        std::time::Duration::from_secs_f64(((1.0 - tokens) / REFILL_PER_SECOND).max(0.0))
+    }
     pub fn take(&mut self) -> Result<(), AppError> {
         self.take_at(Instant::now())
     }
@@ -67,5 +73,26 @@ mod tests {
                 ..
             })
         ));
+    }
+}
+
+#[cfg(test)]
+mod nearby_tests {
+    use super::*;
+    #[test]
+    fn local_admission_delay_does_not_consume_tokens() {
+        let at = Instant::now();
+        let mut limiter = RateLimiter {
+            tokens: 0.0,
+            updated_at: at,
+        };
+        assert!((limiter.delay_until_token(at).as_secs_f64() - 1.0 / 3.0).abs() < 0.000_001);
+        assert!(limiter
+            .delay_until_token(at + std::time::Duration::from_millis(334))
+            .is_zero());
+        assert_eq!(limiter.tokens, 0.0);
+        assert!(limiter
+            .take_at(at + std::time::Duration::from_millis(334))
+            .is_ok());
     }
 }

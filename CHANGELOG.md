@@ -1,5 +1,14 @@
 # Random Frame release notes
 
+## Unreleased
+
+### Nearby Frames
+
+- Inspect four Prnt.sc IDs before and after the displayed image in a progressive 3×3 gallery from the frame-ID menu. Previous 4 and Next 4 move in source order; Current keeps marking the viewer image.
+- Preview checks change IDs checked only. Opening a full image adds History and Seen without a Draw. Source failures and unsaved checks offer explicit retries.
+- Sync format v4 keeps preview availability separate from viewed IDs. Update other devices before upgrading; older apps stop syncing and keep their local data. Previous collections consent requires a new review for this format.
+- Draw ledger thumbnails now use the original Draw operation, keeping thumbnail selections out and keeping revisits on their genuine draw day.
+
 ## 0.8.0
 
 ### Saved frames and collections

@@ -41,6 +41,10 @@ export function recordHistoryItem(item: HistoryItem, legacyImport = false): Prom
   return invoke("record_history_item", { item, legacyImport });
 }
 
+export function recordNearbyHistoryItem(item: HistoryItem): Promise<HistorySnapshot> {
+  return invoke("record_nearby_history_item", { item });
+}
+
 export function selectHistoryItem(index: number, frame?: Pick<HistoryItem, "source" | "id">): Promise<HistorySnapshot> {
   return invoke("select_history_item", { index, ...frame });
 }

@@ -11,6 +11,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { setTimeout as sleep } from "node:timers/promises";
+import { runNearbySmoke } from "./android-nearby.mjs";
 
 const [apk, pageSizeFlag, pageSize] = process.argv.slice(2);
 const pkg = "dev.randomframe.android.debug";
@@ -270,7 +271,7 @@ async function installApk() {
 }
 
 // Evaluates an expression in the app's WebView through its DevTools socket (debug builds only).
-async function evaluate(expression) {
+async function evaluate(expression, reducedMotion = false) {
   const pid = processId();
   if (!pid) throw new Error("Smoke failed: app is not running before DevTools discovery");
   adb("forward", "--remove-all");
@@ -320,6 +321,14 @@ async function evaluate(expression) {
     socket.addEventListener("open", resolve, { once: true });
     socket.addEventListener("error", reject, { once: true });
   });
+  if (reducedMotion)
+    socket.send(
+      JSON.stringify({
+        id: 2,
+        method: "Emulation.setEmulatedMedia",
+        params: { features: [{ name: "prefers-reduced-motion", value: "reduce" }] },
+      }),
+    );
   socket.send(
     JSON.stringify({
       id: 1,
@@ -327,10 +336,26 @@ async function evaluate(expression) {
       params: { expression, awaitPromise: true, returnByValue: true },
     }),
   );
-  const reply = await new Promise((resolve) =>
-    socket.addEventListener("message", (event) => resolve(JSON.parse(event.data)), { once: true }),
-  );
-  socket.close();
+  let timer;
+  let reply;
+  let receive;
+  try {
+    reply = await new Promise((resolve, reject) => {
+      timer = setTimeout(() => reject(new Error("WebView evaluation timed out after 60 seconds")), 60_000);
+      receive = (event) => {
+        const message = JSON.parse(event.data);
+        if (message.id === 1) resolve(message);
+        else if (message.error) reject(new Error("WebView media emulation failed"));
+      };
+      socket.addEventListener("message", receive);
+      socket.addEventListener("close", () => reject(new Error("WebView closed during evaluation")), { once: true });
+      socket.addEventListener("error", () => reject(new Error("WebView evaluation connection failed")), { once: true });
+    });
+  } finally {
+    clearTimeout(timer);
+    if (receive) socket.removeEventListener("message", receive);
+    socket.close();
+  }
   if (reply.result?.exceptionDetails) throw new Error(JSON.stringify(reply.result.exceptionDetails));
   return reply.result?.result?.value;
 }
@@ -387,6 +412,13 @@ try {
   check(status?.paired === true && status?.state === "idle", `Sync stays paired after a force-stop (${status?.state})`);
   check((await evaluate(invoke("get_sync_recovery_key"))) === key, "the stored secret survives a force-stop");
   check((await evaluate(invoke("sync_now")))?.state === "idle", "Sync runs after the restart");
+  await runNearbySmoke({ adb, evaluate, check, sleep });
+  // Keep the native fixture History, but leave no selected source ID for the later cold start.
+  check(
+    (await evaluate(`window.__TAURI_INTERNALS__.invoke('select_history_item',{index:0,source:'prntsc',id:'0'})`))
+      .index === -1,
+    "deterministic fixtures cannot trigger source fetching on the later restart",
+  );
   const historyBefore = await evaluate(invoke("get_history"));
   adb("shell", "am", "force-stop", pkg);
   const prefsPath = "shared_prefs/keyring-random-frame-sync.xml";

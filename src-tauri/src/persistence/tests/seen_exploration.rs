@@ -333,3 +333,137 @@ fn corrupt_rows_and_out_of_range_ids_fail_instead_of_inflating_progress() -> Res
     assert_eq!(store.counts(), (1, 1, 0, 0));
     fs::remove_dir_all(directory).map_err(AppError::persistence)
 }
+
+#[test]
+fn nearby_checks_and_acceptance_never_create_draws_or_implicit_seen() -> Result<(), AppError> {
+    let directory = test_directory("nearby-checks");
+    let data = PersistentState::new(&directory)?;
+    for id in 1..=8 {
+        let result = data.record_check(
+            id,
+            if id % 2 == 0 {
+                ExplorationOutcome::Viewed
+            } else {
+                ExplorationOutcome::Rejected
+            },
+        )?;
+        assert!(result.inserted && result.evidence_changed);
+    }
+    assert!(
+        !data
+            .record_check(2, ExplorationOutcome::Viewed)?
+            .evidence_changed
+    );
+    assert!(
+        data.record_check(1, ExplorationOutcome::Viewed)?
+            .evidence_changed
+    );
+    assert_eq!(data.explored.evidence(1), Some(3));
+    let state = data.snapshot()?.0;
+    assert_eq!(state.exploration.len(), 8);
+    assert!(state.seen.is_empty() && state.history.is_empty() && state.activity.is_empty());
+    drop(data);
+    let data = PersistentState::new(&directory)?;
+    assert_eq!(data.snapshot()?.0.seen.len(), 0);
+    // A concurrent Restore may remove the check before full-image acceptance.
+    data.replace_synchronized(&snapshot::SyncSnapshot::default())?;
+    data.accept_nearby(&HistoryItem {
+        source: "prntsc".into(),
+        id: "2".into(),
+        source_page_url: "https://prnt.sc/2".into(),
+        viewed_at: 1_800_000_000_000,
+    })?;
+    let state = data.snapshot()?.0;
+    assert_eq!(state.history.len(), 1);
+    assert_eq!(state.seen, vec![2]);
+    assert_eq!(state.exploration[0].evidence, 1);
+    assert_eq!(state.activity.len(), 0);
+    assert!(data.activity.draw_frame_views().is_empty());
+    fs::remove_dir_all(directory).map_err(AppError::persistence)
+}
+
+#[test]
+fn nearby_check_replays_journal_and_startup_receipt_is_mandatory() -> Result<(), AppError> {
+    let directory = test_directory("nearby-replay");
+    let data = PersistentState::new(&directory)?;
+    fs::create_dir(directory.join("exploration-v2.json.tmp")).map_err(AppError::persistence)?;
+    assert!(data.record_check(42, ExplorationOutcome::Viewed).is_err());
+    fs::remove_dir(directory.join("exploration-v2.json.tmp")).map_err(AppError::persistence)?;
+    drop(data);
+    let data = PersistentState::new(&directory)?;
+    assert_eq!(data.explored.evidence(42), Some(1));
+    assert_eq!(data.snapshot()?.0.seen.len(), 0);
+    assert_eq!(data.snapshot()?.0.activity.len(), 0);
+    fs::remove_dir_all(directory).map_err(AppError::persistence)
+}
+
+#[test]
+fn collections_consent_does_not_approve_nearby_sync_semantics() -> Result<(), AppError> {
+    let directory = test_directory("nearby-consent");
+    let data = PersistentState::new(&directory)?;
+    super::super::io::save_json(
+        &directory.join("sync-upgrades.json"),
+        &BTreeMap::from([("group", 3)]),
+    )?;
+    assert!(!data.sync_upgrade_approved("group")?);
+    data.approve_sync_upgrade("group")?;
+    assert!(data.sync_upgrade_approved("group")?);
+    fs::remove_dir_all(directory).map_err(AppError::persistence)
+}
+
+#[test]
+fn nearby_startup_cannot_pass_a_failed_legacy_receipt() -> Result<(), AppError> {
+    let directory = test_directory("nearby-startup-receipt");
+    fs::create_dir_all(&directory).map_err(AppError::persistence)?;
+    fs::write(directory.join("prntsc-explored.txt"), "42,v\n").map_err(AppError::persistence)?;
+    fs::create_dir(directory.join("seen-reconciliation-v4.json.tmp"))
+        .map_err(AppError::persistence)?;
+    assert!(PersistentState::new(&directory).is_err());
+    fs::remove_dir(directory.join("seen-reconciliation-v4.json.tmp"))
+        .map_err(AppError::persistence)?;
+    let data = PersistentState::new(&directory)?;
+    assert!(data.seen.contains(42));
+    data.record_check(43, ExplorationOutcome::Viewed)?;
+    drop(data);
+    assert!(!PersistentState::new(&directory)?.seen.contains(43));
+    fs::remove_dir_all(directory).map_err(AppError::persistence)
+}
+
+#[test]
+fn nearby_enriches_legacy_evidence_and_draw_attribution_keeps_original_day() -> Result<(), AppError>
+{
+    let directory = test_directory("nearby-draw-attribution");
+    let data = PersistentState::new(&directory)?;
+    data.merge(&snapshot::SyncSnapshot {
+        exploration: vec![snapshot::ExplorationRecord {
+            source: "prntsc".into(),
+            id: "1".into(),
+            evidence: 0,
+        }],
+        ..snapshot::SyncSnapshot::default()
+    })?;
+    let commit = data.record_check(1, ExplorationOutcome::Viewed)?;
+    assert!(!commit.inserted && commit.evidence_changed);
+    assert_eq!(data.explored.count(), 1);
+    let mut item = HistoryItem {
+        source: "prntsc".into(),
+        id: "2".into(),
+        source_page_url: "https://prnt.sc/2".into(),
+        viewed_at: 1_800_000_000_000,
+    };
+    data.accept(&item, false)?;
+    let before = data.activity.draw_frame_views();
+    assert_eq!(before.len(), 1);
+    item.viewed_at += 86_400_000;
+    data.accept_nearby(&item)?;
+    let after = data.activity.draw_frame_views();
+    assert_eq!(after[0].at_ms, before[0].at_ms);
+    assert_eq!(after[0].day, before[0].day);
+    data.record_check(3, ExplorationOutcome::Rejected)?;
+    item.id = "3".into();
+    item.source_page_url = "https://prnt.sc/3".into();
+    data.accept(&item, false)?;
+    assert_eq!(data.explored.evidence(3), Some(3));
+    assert_eq!(data.activity.viewed_total(), 1);
+    fs::remove_dir_all(directory).map_err(AppError::persistence)
+}

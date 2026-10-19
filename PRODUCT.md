@@ -35,7 +35,7 @@ The gallery is used as a focused desktop utility in a resizable window, primaril
 - Previous/next navigation and direct image download are required.
 - The star and `F` save an unsaved frame immediately without assigning a collection. For a saved frame they open Collections. A frame can belong to zero or many collections; deleting a collection or its last assignment keeps the global save. Global removal and Clear all saved offer Undo and keep history and downloaded files.
 - Existing favorites migrate once into a normal collection named Favourite, which can be renamed or deleted. Saved frames retain source links and metadata, not permanent copies of upstream images.
-- Collections use Sync snapshot v3. Existing v1/v2 chains, including managed groups, require explicit Upgrade Sync consent before joining or publishing; Later leaves changes waiting. Older apps stop syncing after the upgrade and retain their local data. New chains require collection-capable clients. The device list cannot confirm app versions. Legacy migration and collection-format upgrades are separate operations.
+- Nearby availability is separate from viewing. Sync snapshot v4 enforces that distinction. Existing v1–v3 chains, including managed groups, require fresh Upgrade Sync consent before joining or publishing; Later leaves changes waiting. Older apps stop syncing after the upgrade and retain their local data. New chains require Nearby-capable clients. The device list cannot confirm app versions. Legacy migration and collection-format upgrades are separate operations.
 
 ## Vocabulary
 
@@ -43,7 +43,8 @@ The gallery is used as a focused desktop utility in a resizable window, primaril
 - **Collection:** A named way to organize saved frames. Removing a frame from a collection does not remove it from the Saved library.
 - **Draw / drawn:** the action and the stat. A frame is drawn; Stats count Frames drawn.
 - **Seen IDs:** the synced list of IDs of frames you have viewed, kept to skip repeats. Not a stat.
-- **IDs checked:** Prnt.sc exploration, including IDs with no image. Syncs and survives History clearing.
+- **IDs checked:** Prnt.sc exploration, including verified available and unavailable IDs; pending and transient failures do not count. Syncs and survives History clearing.
+- **Nearby Frames:** a secondary 3×3 gallery of four Prnt.sc IDs before and after a numerical center. Previous/Next 4 overlap by five IDs; Current always identifies the displayed viewer frame. Checking previews changes only IDs checked. Opening a new frame adds History and Seen without adding a Draw.
 - **Adjacent ID:** the Prnt.sc ID just before or after the shown one; distinct from the previous/next frame in history.
 - Do not call drawn frames "found"; one word per idea.
 - The current Prnt.sc mode can inspect the immediately adjacent base-36 identifiers; successful results join local history.

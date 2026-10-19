@@ -238,7 +238,7 @@ async fn incident_restore_adopts_remote_and_never_publishes_local_deletions() ->
             .map(|x| x.value.as_str()),
         Some("dark")
     );
-    assert_eq!(remote_schema(&t.server, &t.keys)?, 3);
+    assert_eq!(remote_schema(&t.server, &t.keys)?, 4);
 
     // Linux keeps 5752 after Windows' first publication and a following sync.
     t.linux.sync_now().await?;
@@ -562,7 +562,7 @@ async fn restore_v1_remote_preserves_local_activity_during_upgrade() -> TestResu
         .await?;
     // Schema absence is not an authoritative empty Activity domain.
     assert_eq!(local.data.activity.viewed_total(), 5755);
-    assert_eq!(remote_schema(&server, &keys)?, 3);
+    assert_eq!(remote_schema(&server, &keys)?, 4);
     let published = remote(&server, &keys)?;
     assert_eq!(published.activity, local.data.snapshot()?.0.activity);
 
@@ -700,7 +700,7 @@ async fn restore_v1_preserves_only_unsupported_content_and_round_trips_without_r
     let before = local.data.snapshot()?.0;
     local.join(&root.recovery_key(), JoinMode::Restore).await?;
     let published = remote(&server, &keys)?;
-    assert_eq!(remote_schema(&server, &keys)?, 3);
+    assert_eq!(remote_schema(&server, &keys)?, 4);
     assert_eq!(published.history, decoded.data.history);
     assert_eq!(published.history_removed, decoded.data.history_removed);
     assert_eq!(published.favorites, decoded.data.favorites);
@@ -783,11 +783,15 @@ async fn restore_v1_cas_retry_uses_latest_schema_and_v2_empty_domains_are_author
                 "../persistence/tests/fixtures/snapshot-v1.bin"
             ))?;
             newer.seen.push(999_998);
+            newer.seen.sort_unstable();
+            newer.seen.dedup();
             snapshot::v1::serialize_snapshot(&newer)?
         } else {
             // No Activity/Exploration/preferences: these are explicit authoritative empties.
             let mut newer = decoded.data;
             newer.seen.push(999_998);
+            newer.seen.sort_unstable();
+            newer.seen.dedup();
             snapshot::serialize_snapshot(&newer)?
         };
         lock(&server).v1_on_update = Some(keys.encrypt_snapshot(&newer)?);
@@ -807,7 +811,7 @@ async fn restore_v1_cas_retry_uses_latest_schema_and_v2_empty_domains_are_author
             local.data.activity.viewed_total(),
             if latest_schema == 1 { 5000 } else { 0 }
         );
-        assert_eq!(remote_schema(&server, &keys)?, 3);
+        assert_eq!(remote_schema(&server, &keys)?, 4);
         task.abort();
         fs::remove_dir_all(path)?;
     }
@@ -835,7 +839,7 @@ async fn restore_v1_empty_local_upgrades_cleanly_and_reaches_third_device() -> T
     );
     assert_eq!(published.exploration, vec![]);
     assert_eq!(published.preferences, snapshot::PreferencesV2::default());
-    assert_eq!(remote_schema(&server, &keys)?, 3);
+    assert_eq!(remote_schema(&server, &keys)?, 4);
     let third = device(&third_path, &url, MemorySecret::default())?;
     third.join(&root.recovery_key(), JoinMode::Restore).await?;
     assert_content_eq(&third.data.snapshot()?.0, &published);
@@ -1319,7 +1323,7 @@ async fn unmodified_server_v1_restore_preserves_migrated_state() -> TestResult {
         .get(keys.sync_id(), &keys.client_auth_token())
         .await?;
     let published = snapshot::decode_snapshot(&keys.decrypt_snapshot(keys.sync_id(), &envelope)?)?;
-    assert_eq!(published.original_schema_version, 3);
+    assert_eq!(published.original_schema_version, 4);
     assert_eq!(published.data.history, decoded.data.history);
     assert_eq!(published.data.history_removed, decoded.data.history_removed);
     assert_eq!(published.data.favorites, decoded.data.favorites);

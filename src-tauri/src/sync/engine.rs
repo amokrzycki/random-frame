@@ -264,7 +264,7 @@ impl<S: SecretStore> SyncEngine<S> {
         #[cfg(any(test, debug_assertions))]
         crate::snapshot::report_upload(&snapshot, &envelope);
         self.data
-            .begin_publication(keys.sync_id(), 0, 3)
+            .begin_publication(keys.sync_id(), 0, crate::snapshot::CURRENT_SNAPSHOT_SCHEMA)
             .map_err(|_| SyncError::Persistence)?;
         let revision = self
             .transport()?
@@ -510,7 +510,7 @@ impl<S: SecretStore> SyncEngine<S> {
         .await?;
         // A failed local save after PUT is recoverable: next GET may be above the old floor.
         config.last_accepted_revision = Some(revision);
-        config.highest_schema_version = 3;
+        config.highest_schema_version = crate::snapshot::CURRENT_SNAPSHOT_SCHEMA;
         config.last_success_at = Some(now_ms());
         self.save(&config)?;
         *self

@@ -6,7 +6,7 @@ Images come from [prnt.sc](https://prnt.sc/). The Rust backend resolves variable
 
 ## Features
 
-- Draw a random image, revisit frames in History, or explore neighboring Prnt.sc source IDs
+- Draw a random image, revisit frames in History, or inspect nearby Prnt.sc source IDs in a progressive 3×3 gallery
 - Local browsing history and a Saved library with collections, pagination, jump-to-frame, and retryable Undo
 - Clear History & Stats through an untimed review: Undo keeps the data; Finish clearing commits it. Closing or restarting before choosing Finish cancels the review.
 - Exploration and daily viewing statistics
@@ -16,6 +16,14 @@ Images come from [prnt.sc](https://prnt.sc/). The Rust backend resolves variable
 - Custom desktop title bar and window controls; Android Back closes the active surface
 - Automatic desktop updates from GitHub Releases; Android updates by installing a newer APK
 - Optional Sync of history, saved frames, collections and assignments, Seen IDs, exploration progress, Activity Stats, and preferences between devices, with device approval and a separate administration code
+
+### Nearby Frames
+
+Open the frame-ID menu and choose Nearby Frames to inspect four source IDs before and after the current image. Previous 4 and Next 4 move in base-36 source order; Current marks the viewer image even after the center moves. The current image appears immediately, and previews fill independently. Retry a failed tile; confirmed unavailable IDs stay distinct from source, decoder and storage errors.
+
+Preview checks update IDs checked only. They do not add History, Seen IDs or Draw activity. Opening a thumbnail uses its full image and adds History/Seen with no Draw. Closing preserves the viewer and its History/Saved navigation. Completed checks survive restart, History clearing and Sync; grid position and thumbnails are not synced.
+
+Nearby needs Sync snapshot v4 so older apps cannot mistake thumbnail availability for a viewed frame. Update the other devices before choosing Upgrade Sync. Previous collections consent does not approve v4; Later leaves local changes waiting without uploading. Older apps stop syncing and retain their local data. After publication, use a v4-capable fix rather than downgrading Sync or opening the same local data directory with an older binary.
 
 ### Saved collections
 
@@ -59,7 +67,7 @@ Sync needs a server endpoint. Set `RANDOM_FRAME_SYNC_BASE_URL` to a validated HT
 
 Existing keys remain on the legacy protocol, without a historical HEAD claim or administration actions. “Move to managed Sync” creates a separate group from the current legacy/local merge, preserving data, operation IDs and deletions. This device becomes its founder; other devices must join again. The old group remains unchanged and may remain accessible. Closing that old ID is a separate one-time operator action with confirmed agreement; creating v2 is not a global cutover. Old servers require an update for managed groups; the client never falls back to legacy credentials.
 
-Membership protocol v2, its authenticated server control, envelope v2, and collection snapshot v3 are independent formats. The server's `snapshotSchemaFloor = 2` is the minimum supported plaintext format, not the format of its opaque current blob; it remains unchanged. There is no separate control signature in this protocol: HTTPS and the authenticated membership endpoint establish server authority, while HPKE and AEAD bind group, epoch and key ID. Clients enforce the maximum of that minimum, their accepted schema, config, and pending publication floor. The journal records the actual prepared schema; replay verifies it against the exact decrypted request and retains the expected revision before HTTP and the accepted revision after success.
+Membership protocol v2, its authenticated server control, envelope v2, and collection snapshot v4 are independent formats. The server's `snapshotSchemaFloor = 2` is the minimum supported plaintext format, not the format of its opaque current blob; it remains unchanged. There is no separate control signature in this protocol: HTTPS and the authenticated membership endpoint establish server authority, while HPKE and AEAD bind group, epoch and key ID. Clients enforce the maximum of that minimum, their accepted schema, config, and pending publication floor. The journal records the actual prepared schema; replay verifies it against the exact decrypted request and retains the expected revision before HTTP and the accepted revision after success.
 
 All managed publications preserve the whole library, including empty user collections, name registers, memberships, and tombstones. Existing managed v2 groups pause before merge, destructive Restore, rotation, recovery, or a v3 upload until Upgrade Sync is approved for the stable group ID. Invitations and administration codes identify that same group for consent; rotating its data key does not reset approval. Remote v3 needs no repeat approval. Moving legacy checks the old chain's upgrade consent independently before creating a new managed group. Restore keeps only domains absent from an older schema; a CAS retry that observes v3 stops preserving local collections. A transaction receipt prevents replay of an already applied managed Restore from erasing subsequent local edits.
 
@@ -87,7 +95,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
 
-Collections use snapshot v3 with the existing encrypted envelope and HTTP API. Before upgrading an existing v1/v2 Sync, the app asks you to update your other devices and explicitly choose Upgrade Sync. Later leaves local edits waiting; no replacement v2 snapshot is uploaded. Older apps stop syncing after the upgrade, but keep their local data. A new Sync requires collection-capable clients from the start. The known-device list does not confirm their app versions or presence.
+Collections use snapshot v4 with the existing encrypted envelope and HTTP API. Before upgrading an existing v1/v2 Sync, the app asks you to update your other devices and explicitly choose Upgrade Sync. Later leaves local edits waiting; no replacement v2 snapshot is uploaded. Older apps stop syncing after the upgrade, but keep their local data. A new Sync requires collection-capable clients from the start. The known-device list does not confirm their app versions or presence.
 
 ## Privacy
 
