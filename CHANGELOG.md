@@ -1,6 +1,6 @@
 # Random Frame release notes
 
-## Unreleased
+## 0.8.0
 
 ### Nearby Frames
 
@@ -23,8 +23,6 @@
 - A failed upload now shows remote changes that arrived before the failure. A manual sync waits for an automatic one instead of starting on top of it.
 - If Sync finishes but saved data cannot be reloaded, the app says so and keeps Try again available instead of reporting success.
 - If a sync reorders or removes frames while you open one, the app follows the frame you chose. A removed frame leaves an empty viewer instead of a stale image, and Stats opened during a sync show the refreshed totals.
-
-## 0.8.0
 
 ### Saved frames and collections
 
