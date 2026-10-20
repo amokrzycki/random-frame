@@ -4,6 +4,45 @@ import { nearbyWindow } from "../dist/test-client/navigation.js";
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
+test("Nearby resolves eight neighbors around Current and four new frames after Next 4", async () => {
+  const { NearbySession } = await import("../dist/test-client/nearby-state.js");
+  const requests = [];
+  let active = 0;
+  let maximum = 0;
+  const session = new NearbySession("abc123", {
+    setWindow: async (centerId) => ({ window: nearbyWindow(centerId), evidence: { abc123: 1 } }),
+    resolve: async (id) => {
+      requests.push(id);
+      maximum = Math.max(maximum, ++active);
+      await tick();
+      active--;
+      return { state: "unavailable", reason: "Unavailable" };
+    },
+    changed: () => {
+      /* Rendering is exercised by the dialog suite. */
+    },
+  });
+  const settle = async () => {
+    for (let i = 0; i < 20; i++) await tick();
+    assert.equal(active, 0);
+  };
+  await session.move("abc123");
+  await settle();
+  assert.equal(session.tiles.length, 9);
+  assert.equal(session.tiles[4].current, true);
+  assert.equal(session.tiles[4].phase, "ready");
+  assert.equal(requests.length, 8);
+  assert.ok(!requests.includes("abc123"), "Current reuses its displayed image");
+  await session.move("abc127");
+  await settle();
+  assert.equal(session.tiles[0].current, true);
+  assert.equal(session.tiles[0].phase, "ready");
+  assert.equal(requests.length, 12);
+  assert.deepEqual(new Set(requests.slice(8)), new Set(["abc128", "abc129", "abc12a", "abc12b"]));
+  assert.equal(maximum, 2);
+  session.close();
+});
+
 test("Nearby pump bounds work, adopts overlap and ignores obsolete decode/close results", async () => {
   const { NearbySession } = await import("../dist/test-client/nearby-state.js");
   const requests = [];

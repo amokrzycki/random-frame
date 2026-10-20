@@ -1523,6 +1523,10 @@ mod stats_performance_tests {
     }
     #[test]
     #[ignore = "manual stats read benchmark"]
+    #[allow(
+        clippy::print_stderr,
+        reason = "measurement is reported from an ignored test"
+    )]
     fn stats_join_timing() {
         let history: Vec<_> = (0..10_000)
             .map(|i| HistoryItem {

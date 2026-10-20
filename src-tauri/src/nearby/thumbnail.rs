@@ -122,9 +122,9 @@ mod codec_tests {
             }
             Rgb(pixel)
         });
-        let mut noisy = Cursor::new(Vec::new());
-        DynamicImage::ImageRgb8(noise).write_to(&mut noisy, image::ImageFormat::Png)?;
-        let preview = encode(noisy.get_ref())?;
+        let mut png = Cursor::new(Vec::new());
+        DynamicImage::ImageRgb8(noise).write_to(&mut png, image::ImageFormat::Png)?;
+        let preview = encode(png.get_ref())?;
         assert!(preview.len() <= 128 * 1024);
         let decoded = image::load_from_memory(&preview)?;
         assert!(decoded.width() <= 768 && decoded.height() <= 768);
