@@ -1,6 +1,6 @@
 import { closeDialog, onDialogClosed, openDialog } from "./dialogs.js";
 import { elements } from "./elements.js";
-import { blobKey, blobs, thumbnails } from "./frame-cache.js";
+import { blobKey, blobs, thumbnailFor } from "./frame-cache.js";
 import { goTo } from "./frame-loader.js";
 import { getExplorationStats, getViewingActivity, migrateViewingStats } from "./persistence.js";
 import type { LedgerDay } from "./statistics.js";
@@ -22,7 +22,7 @@ import { isFavorite, state } from "./viewer-state.js";
 function ledgerThumbnail(itemIndex: number): HTMLButtonElement | null {
   const item = state.history[itemIndex];
   const key = item && blobKey(item.source, item.id);
-  const src = key && (blobs.get(key)?.url ?? thumbnails.get(key));
+  const src = key && (blobs.get(key)?.url ?? thumbnailFor(key));
   if (!item || !src) return null;
   const button = document.createElement("button");
   const image = document.createElement("img");

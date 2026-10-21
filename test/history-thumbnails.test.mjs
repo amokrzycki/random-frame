@@ -181,4 +181,26 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
     get("history-grid").children.map((tile) => tile.children[0].children[0].src),
     [stored["prntsc:id11"], stored["prntsc:id10"], stored["prntsc:id1"]],
   );
+
+  await t.test("History and Saved reuse canonical thumbnails for leading-zero IDs", async () => {
+    const alias = item("0abc123");
+    state.history = [alias];
+    applySavedLibrary(libraryOf([alias]));
+    thumbnails.set("prntsc:abc123", "data:image/jpeg;base64,AQ==");
+    get("history-filter-all").click();
+    assert.equal(get("history-grid").children[0].children[0].children[0].src, "data:image/jpeg;base64,AQ==");
+    get("history-filter-favorites").click();
+    assert.equal(get("history-grid").children[0].children[0].children[0].src, "data:image/jpeg;base64,AQ==");
+
+    thumbnails.delete("prntsc:abc123");
+    get("history-filter-all").click();
+    const loading = get("history-grid").children[0].children[0];
+    thumbnails.set("prntsc:abc123", "data:image/jpeg;base64,AQ==");
+    await flush();
+    assert.equal(loading.children[0].src, "data:image/jpeg;base64,AQ==");
+    assert.equal(loading.getAttribute("data-empty"), null);
+    assert.ok(!fetchedIds().includes("0abc123"), "alias cache hits avoid source requests");
+    get("history-close-button").click();
+    await flush();
+  });
 });

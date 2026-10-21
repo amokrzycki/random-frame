@@ -98,4 +98,23 @@ test("Stats opens before reads, discards late responses, and refreshes without s
   document.dispatchEvent(new Event("persisted-view-refreshed"));
   assert.equal(requests.length, 14, "sync while closed does not start reads");
   assert.deepEqual(state.history, [], "reading Stats does not create history");
+
+  state.history = [{ source: "prntsc", id: "0abc123", sourcePageUrl: "https://prnt.sc/0abc123", viewedAt: 1 }];
+  const { thumbnails } = await import("../dist/test-client/frame-cache.js");
+  thumbnails.set("prntsc:abc123", "data:image/jpeg;base64,AQ==");
+  e.statsButton.click();
+  requests[14].resolve({ explored: 1, viewable: 1, unavailable: 0, unclassified: 0 });
+  requests[15].resolve({
+    viewedTotal: 1,
+    days: [{ date: "2026-10-19", viewed: 1, rejected: 0 }],
+    localViewTimes: [1],
+    frameViews: [{ source: "prntsc", id: "abc123", atMs: 1, day: "2026-10-19", dayInferred: false }],
+  });
+  await flush();
+  assert.equal(
+    e.ledgerList.children[0].children[2].children[0]?.children[0].src,
+    "data:image/jpeg;base64,AQ==",
+    "Stats renders canonical thumbnails for leading-zero History IDs",
+  );
+  e.statsClose.click();
 });

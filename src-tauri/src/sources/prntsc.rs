@@ -143,7 +143,8 @@ impl Prntsc {
     }
 
     pub async fn get_thumbnail(&self, id: &str) -> Result<FetchedFrame, AppError> {
-        self.fetch_outcome(id, true, false).await?.into_frame()
+        // Reopening History/Saved retries previews once the shared cooldown has elapsed.
+        self.fetch_outcome(id, true, true).await?.into_frame()
     }
 
     pub async fn fetch_outcome(

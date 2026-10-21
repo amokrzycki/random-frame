@@ -342,7 +342,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn upstream_pause_requires_explicit_retry_even_after_retry_after_expires(
+    async fn upstream_pause_keeps_nearby_explicit_and_library_thumbnails_respect_cooldown(
     ) -> Result<(), Box<dyn std::error::Error>> {
         for (status, retry_after) in [
             (403, "0"),
@@ -403,6 +403,38 @@ mod tests {
                 pages.load(Ordering::SeqCst),
                 2,
                 "only explicit retry restarts source work"
+            );
+            *source
+                .fetches
+                .pause
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some((
+                std::time::Instant::now() + Duration::from_secs(60),
+                error.clone(),
+            ));
+            assert_eq!(
+                source.get_thumbnail("abc125").await.err().map(|e| e.kind),
+                Some(error.kind)
+            );
+            assert_eq!(
+                pages.load(Ordering::SeqCst),
+                2,
+                "cooldown blocks library work"
+            );
+            *source
+                .fetches
+                .pause
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                Some((std::time::Instant::now(), error));
+            assert_eq!(
+                source.get_thumbnail("abc125").await.err().map(|e| e.kind),
+                Some(ErrorKind::NotFound)
+            );
+            assert_eq!(
+                pages.load(Ordering::SeqCst),
+                3,
+                "library work resumes after cooldown"
             );
             server.abort();
             std::fs::remove_dir_all(directory)?;
