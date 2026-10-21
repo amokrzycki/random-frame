@@ -35,7 +35,11 @@ let favoriteTipTimer: ReturnType<typeof setTimeout>;
 
 // Give the first image time to settle; other notices and dialogs take priority.
 function showFavoriteTip(): void {
-  if (localStorage.getItem(favoriteTipKey) || state.favorites.length) return;
+  try {
+    if (localStorage.getItem(favoriteTipKey) || state.favorites.length) return;
+  } catch {
+    return;
+  }
   clearTimeout(favoriteTipTimer);
   favoriteTipTimer = window.setTimeout(() => {
     if (
@@ -48,7 +52,11 @@ function showFavoriteTip(): void {
       globalThis.matchMedia?.("(hover: none) and (pointer: coarse)").matches
     )
       return;
-    localStorage.setItem(favoriteTipKey, "shown");
+    try {
+      localStorage.setItem(favoriteTipKey, "shown");
+    } catch {
+      return;
+    }
     toast.info("Tip: press F to save a frame.");
   }, 4000);
 }

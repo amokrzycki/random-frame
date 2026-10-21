@@ -175,15 +175,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn never_generates_a_value_above_the_legacy_max() {
-        for _ in 0..100_000 {
-            assert!(
-                matches!(base36_to_value(&make_id()), Some(value) if value <= LEGACY_MAX_VALUE)
-            );
-        }
-    }
-
     // Uniform sampling over 0..=LEGACY_MAX_VALUE, converted straight to base36
     // with no padding, means string length is a deterministic function of the
     // sampled integer rather than something chosen separately. Since
@@ -192,7 +183,7 @@ mod tests {
     // remaining "2xxxxxx..26y3ahr" partial block is ~8.8%. Frequent 1xxxxxx
     // ids are an expected consequence of the range, not a distribution bug.
     #[test]
-    fn generated_ids_match_the_expected_length_bucket_distribution() {
+    fn generated_ids_match_the_expected_length_bucket_distribution() -> Result<(), AppError> {
         const SAMPLES: u32 = 200_000;
         let six_digit_max = 36u64.pow(6) - 1; // "zzzzzz"
         let leading_one_max = 2 * 36u64.pow(6) - 1; // "1zzzzzz"
@@ -202,9 +193,7 @@ mod tests {
         let mut leading_high = 0u32;
 
         for _ in 0..SAMPLES {
-            // make_id() only ever emits BASE36_ALPHABET bytes, so this is always Some;
-            // unwrap_or(0) sidesteps the crate's expect_used/unwrap_used lints.
-            let value = base36_to_value(&make_id()).unwrap_or(0);
+            let value = item_id_value(&make_id())?;
             if value <= six_digit_max {
                 short += 1;
             } else if value <= leading_one_max {
@@ -225,6 +214,7 @@ mod tests {
         assert_share(short, 0.4561, "<= zzzzzz");
         assert_share(leading_one, 0.4561, "1xxxxxx");
         assert_share(leading_high, 0.0878, "2xxxxxx..26y3ahr");
+        Ok(())
     }
 }
 

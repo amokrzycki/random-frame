@@ -241,14 +241,30 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.match(get("announcer").textContent, /Press N to draw another/);
   assert.equal(invocations.filter(({ command }) => command === "get_random_frame").length, 0);
 
+  const getItem = localStorage.getItem.bind(localStorage);
+  localStorage.getItem = (key) => {
+    if (key === "random-frame-favorite-tip") throw new Error("storage unavailable");
+    return getItem(key);
+  };
   get("draw-button").click();
   await flush();
   await flush();
+  assert.equal(get("image-zoom").hidden, false, "optional tip storage cannot hide a committed draw");
+  assert.equal(get("error-state").hidden, true);
+  assert.equal(historyWrites(), 1);
+  localStorage.getItem = getItem;
   keydown(document, "n");
   await flush();
   await flush();
   // The first-draw tip waits for the image to settle.
   assert.equal(localStorage.getItem("random-frame-favorite-tip"), null);
+  const setItem = localStorage.setItem.bind(localStorage);
+  localStorage.setItem = () => {
+    throw new Error("storage full");
+  };
+  assert.doesNotThrow(() => favoriteTip(), "a delayed tip cache write is also optional");
+  assert.equal(get("error-state").hidden, true);
+  localStorage.setItem = setItem;
   favoriteTip();
   assert.equal(localStorage.getItem("random-frame-favorite-tip"), "shown");
   assert.match(document.body.children.flatMap((region) => region.children).at(-1).textContent, /press F to save/);

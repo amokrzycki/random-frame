@@ -70,10 +70,6 @@ export function restoreHistoryItem(item: HistoryItem, orderAt: number, lastView:
   return invoke("restore_history_item", { item, orderAt, lastView });
 }
 
-export function clearHistory(): Promise<void> {
-  return invoke("clear_history");
-}
-
 export function getExplorationStats(): Promise<ExplorationStats> {
   return invoke("get_exploration_stats");
 }
@@ -116,10 +112,6 @@ export function prepareHistoryClear(legacyPending = false): Promise<string> {
 
 export function commitHistoryClear(requestId: string): Promise<void> {
   return invoke("commit_history_clear", { requestId });
-}
-
-export function cancelHistoryClear(requestId: string): Promise<void> {
-  return invoke("cancel_history_clear", { requestId });
 }
 
 export function importSessionHistory(items: HistoryItem[], index: number): Promise<HistorySnapshot> {

@@ -1,6 +1,6 @@
 import { elements } from "./elements.js";
 import { getSavedLibrary, operationKey, type SavedItem, type SavedLibrary } from "./favorites.js";
-import { loadPageSize } from "./history-pagination.js";
+import { loadPageSize, parsePageSize } from "./history-pagination.js";
 import type { HistoryItem, HistorySnapshot } from "./persistence.js";
 import { getHistory } from "./persistence.js";
 import type { LedgerDay } from "./statistics.js";
@@ -19,7 +19,7 @@ export const state = {
   // A network draw in flight, as opposed to any loading; only this spins the Draw button.
   drawing: false,
   historyLoadFailed: false,
-  pageSize: loadPageSize(localStorage),
+  pageSize: loadPageSize(),
   pageIndex: 0,
   historyTab: "history" as "history" | "favourites",
   historyReset: false,
@@ -155,5 +155,5 @@ export function refreshPersistedView(): Promise<void> {
 
 document.addEventListener("user-preferences", (event) => {
   const size = (event as CustomEvent).detail?.historyPageSize;
-  if (size) state.pageSize = loadPageSize({ getItem: () => String(size) });
+  if (size) state.pageSize = parsePageSize(size);
 });

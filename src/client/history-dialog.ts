@@ -412,7 +412,7 @@ function changePageSize(): void {
     view.page = pageOf(view.page * oldSize, state.pageSize);
     view.scroll = 0;
   }
-  savePageSize(localStorage, state.pageSize);
+  savePageSize(state.pageSize);
   void updateUserPreferences({ historyPageSize: state.pageSize }).catch(() =>
     toast.error("Page size could not be saved. Try again."),
   );

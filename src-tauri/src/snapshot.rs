@@ -523,18 +523,10 @@ pub fn validate_snapshot(s: &SyncSnapshot) -> Result<(), SnapshotError> {
             validate_day(day)?;
         }
     }
-    // Validate every operation, including tombstoned ones, but project only the active set.
-    let removed: std::collections::BTreeSet<_> = s.activity_removed.iter().collect();
     for op in &s.activity {
         activity_projection(std::slice::from_ref(op))?;
     }
-    activity_projection(
-        &s.activity
-            .iter()
-            .filter(|x| !removed.contains(&x.operation_id()))
-            .cloned()
-            .collect::<Vec<_>>(),
-    )?;
+    activity_projection(&s.activity)?;
     if s.preferences
         .theme
         .as_ref()
