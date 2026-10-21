@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   drawStreak,
-  formatDayLabel,
   formatExploredBreakdown,
   formatLedgerCounts,
   ledgerDateLabel,
@@ -31,11 +30,6 @@ test("parses valid legacy stats and rejects malformed or missing ones", () => {
   assert.equal(parseLegacyStats("not json"), null);
   assert.equal(parseLegacyStats(JSON.stringify({ day: "2026-09-19", today: 5, total: 3 })), null);
   assert.equal(parseLegacyStats(JSON.stringify({ today: 3, total: 42 })), null);
-});
-
-test("formats a local calendar day label without a UTC off-by-one", () => {
-  assert.equal(formatDayLabel("2026-09-20"), "Sep 20, 2026");
-  assert.equal(formatDayLabel("2026-01-01"), "Jan 1, 2026");
 });
 
 test("names ledger days relative to today, adding the year only when it differs", () => {
@@ -85,12 +79,12 @@ test("renders and derives local day keys as the same calendar day in any timezon
     assert.equal(ledgerDateLabel("2026-09-22", "2026-09-23"), "Yesterday", zone);
     // DST transitions (Europe: Mar 29 / Oct 25, US: Mar 8 / Nov 1).
     for (const [iso, label] of [
-      ["2026-03-29", "Mar 29, 2026"],
-      ["2026-10-25", "Oct 25, 2026"],
-      ["2026-03-08", "Mar 8, 2026"],
-      ["2026-11-01", "Nov 1, 2026"],
+      ["2026-03-29", "Sun, Mar 29, 2026"],
+      ["2026-10-25", "Sun, Oct 25, 2026"],
+      ["2026-03-08", "Sun, Mar 8, 2026"],
+      ["2026-11-01", "Sun, Nov 1, 2026"],
     ]) {
-      assert.equal(formatDayLabel(iso), label, `${zone}: ${iso}`);
+      assert.equal(ledgerDateLabel(iso, "2027-01-01"), label, `${zone}: ${iso}`);
       const [year, month, day] = iso.split("-").map(Number);
       assert.equal(localDayKey(new Date(year, month - 1, day, 12).getTime()), iso, `${zone}: ${iso} key`);
     }

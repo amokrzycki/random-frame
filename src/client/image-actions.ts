@@ -47,8 +47,9 @@ export async function saveImage(id: string, blob: Blob): Promise<boolean> {
 }
 
 export async function copyImage(blob: Blob): Promise<void> {
+  let bitmap: ImageBitmap | undefined;
   try {
-    const bitmap = await createImageBitmap(blob);
+    bitmap = await createImageBitmap(blob);
     const canvas = document.createElement("canvas");
     canvas.width = bitmap.width;
     canvas.height = bitmap.height;
@@ -57,9 +58,15 @@ export async function copyImage(blob: Blob): Promise<void> {
     context.drawImage(bitmap, 0, 0);
     const { data } = context.getImageData(0, 0, bitmap.width, bitmap.height);
     const image = await Image.new(new Uint8Array(data.buffer), bitmap.width, bitmap.height);
-    await writeImage(image);
+    try {
+      await writeImage(image);
+    } finally {
+      await image.close();
+    }
     toast.success("Copied image to clipboard");
   } catch (error) {
     toast.error(describeError(error, "The image could not be copied. Try again.").message);
+  } finally {
+    bitmap?.close();
   }
 }

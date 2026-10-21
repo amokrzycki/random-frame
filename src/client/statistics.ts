@@ -54,10 +54,6 @@ function parseLocalDate(iso: string): Date {
   return new Date(year, month - 1, day);
 }
 
-export function formatDayLabel(iso: string): string {
-  return parseLocalDate(iso).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
-}
-
 // The same `YYYY-MM-DD` local calendar key the backend buckets activity under.
 export function localDayKey(millis: number): string {
   const date = new Date(millis);

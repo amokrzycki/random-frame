@@ -37,19 +37,16 @@ test("falls back to 25 for any invalid stored page size", () => {
 test("persists the page size under its own key and reads it back", () => {
   const store = new FakeStorage();
   store.setItem("prntsc-gallery-thumbnails", "{}");
-  savePageSize(store, 50);
+  savePageSize(50, store);
   assert.equal(store.values.get(PAGE_SIZE_STORAGE_KEY), "50");
   assert.equal(loadPageSize(store), 50);
   assert.equal(store.values.get("prntsc-gallery-thumbnails"), "{}");
   assert.doesNotThrow(() =>
-    savePageSize(
-      {
-        setItem() {
-          throw new Error("quota");
-        },
+    savePageSize(10, {
+      setItem() {
+        throw new Error("quota");
       },
-      10,
-    ),
+    }),
   );
 });
 
@@ -201,4 +198,26 @@ test("pages a long existing history without touching the stored records", async 
 
 test("jumps directly to the oldest page of 1,000 frames", () => {
   assert.deepEqual(historyPage(1000, 39, 25), { page: 39, pages: 40, start: 975, end: 1000 });
+});
+
+test("viewer startup falls back when acquiring localStorage throws", async (t) => {
+  const originals = new Map(
+    ["document", "localStorage"].map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]),
+  );
+  t.after(() => {
+    for (const [name, descriptor] of originals) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else delete globalThis[name];
+    }
+  });
+  globalThis.document = new FakeDocument(ids);
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    get() {
+      throw new Error("storage denied");
+    },
+  });
+  const { state } = await import("../dist/test-client/viewer-state.js?storage-denied");
+  assert.equal(state.pageSize, DEFAULT_PAGE_SIZE);
+  assert.doesNotThrow(() => savePageSize(50));
 });

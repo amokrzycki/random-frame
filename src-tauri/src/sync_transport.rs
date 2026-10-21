@@ -263,10 +263,10 @@ impl SyncTransport {
         invitation: Option<&str>,
         body: Option<Vec<u8>>,
     ) -> Result<Vec<u8>, TransportError> {
-        if !lower_hex_64(group)
-            || !lower_hex_64(token)
-            || body.as_ref().is_some_and(|b| b.len() > MAX_ENVELOPE)
-        {
+        if !lower_hex_64(group) || !lower_hex_64(token) {
+            return Err(TransportError::InvalidIdentity);
+        }
+        if body.as_ref().is_some_and(|b| b.len() > MAX_ENVELOPE) {
             return Err(TransportError::BodyTooLarge);
         }
         let url = self
@@ -375,5 +375,33 @@ mod tests {
             check_status(StatusCode::PAYLOAD_TOO_LARGE, StatusCode::NO_CONTENT),
             Err(TransportError::BodyTooLarge)
         );
+    }
+
+    #[tokio::test]
+    async fn managed_rejects_invalid_identity_before_sending() -> Result<(), TransportError> {
+        let transport = SyncTransport::new("http://127.0.0.1:1")?;
+        let valid = "a".repeat(64);
+        for (group, token) in [("invalid", valid.as_str()), (valid.as_str(), "invalid")] {
+            assert_eq!(
+                transport
+                    .managed(group, "head", reqwest::Method::GET, token, None, None)
+                    .await,
+                Err(TransportError::InvalidIdentity)
+            );
+        }
+        assert_eq!(
+            transport
+                .managed(
+                    &valid,
+                    "head",
+                    reqwest::Method::PUT,
+                    &valid,
+                    None,
+                    Some(vec![0; MAX_ENVELOPE + 1]),
+                )
+                .await,
+            Err(TransportError::BodyTooLarge)
+        );
+        Ok(())
     }
 }

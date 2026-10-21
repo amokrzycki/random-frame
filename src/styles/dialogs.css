@@ -577,7 +577,7 @@
 }
 .sync-dialog__button:disabled {
   opacity: 0.5;
-  cursor: wait;
+  cursor: default;
 }
 .sync-dialog__error {
   display: flex;
@@ -747,9 +747,6 @@
 }
 #sync-pairing-input[aria-invalid="true"] {
   border-color: var(--danger);
-}
-.sync-dialog__button:disabled {
-  cursor: default;
 }
 @media (max-width: 560px) {
   .sync-dialog .history-dialog__header {

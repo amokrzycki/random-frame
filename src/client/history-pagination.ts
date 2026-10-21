@@ -9,17 +9,17 @@ export function parsePageSize(value: unknown): PageSize {
   return PAGE_SIZES.find((allowed) => allowed === size) ?? DEFAULT_PAGE_SIZE;
 }
 
-export function loadPageSize(storage: Pick<Storage, "getItem">): PageSize {
+export function loadPageSize(storage?: Pick<Storage, "getItem">): PageSize {
   try {
-    return parsePageSize(storage.getItem(PAGE_SIZE_STORAGE_KEY));
+    return parsePageSize((storage ?? localStorage).getItem(PAGE_SIZE_STORAGE_KEY));
   } catch {
     return DEFAULT_PAGE_SIZE;
   }
 }
 
-export function savePageSize(storage: Pick<Storage, "setItem">, size: PageSize): void {
+export function savePageSize(size: PageSize, storage?: Pick<Storage, "setItem">): void {
   try {
-    storage.setItem(PAGE_SIZE_STORAGE_KEY, String(size));
+    (storage ?? localStorage).setItem(PAGE_SIZE_STORAGE_KEY, String(size));
   } catch {
     // The choice still applies for this session when storage is unavailable.
   }

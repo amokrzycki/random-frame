@@ -219,6 +219,15 @@ fn malformed_counts_ids_dates_preferences_and_overflow_are_rejected() -> Result<
         serialize_snapshot(&overflow),
         Err(SnapshotError::CounterOverflow)
     );
+    let overlap = SyncSnapshot {
+        activity: vec![discovery(1, "1", "2026-10-02")],
+        activity_removed: vec![[1; 16]],
+        ..SyncSnapshot::default()
+    };
+    assert_eq!(
+        serialize_snapshot(&overlap),
+        Err(SnapshotError::InvalidValue)
+    );
     Ok(())
 }
 #[test]
