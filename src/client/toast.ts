@@ -48,8 +48,12 @@ function positionDialogNotices(): void {
     const target = focused.getBoundingClientRect();
     const rail = layer.getBoundingClientRect();
     if (target.right > rail.left && target.left < rail.right && target.bottom > rail.top && target.top < rail.bottom) {
+      const top = scope.querySelector("header")?.getBoundingClientRect().bottom ?? dialog.top + 16;
+      const above = target.top - top - 8;
+      const below = window.innerHeight - bottom - target.bottom - 8;
       layer.style.bottom = "auto";
-      layer.style.top = `${scope.querySelector("header")?.getBoundingClientRect().bottom ?? dialog.top + 16}px`;
+      layer.style.top = `${below > above ? target.bottom + 8 : top}px`;
+      layer.style.maxHeight = `${Math.max(0, Math.min(height, Math.max(above, below)))}px`;
       return;
     }
   }
