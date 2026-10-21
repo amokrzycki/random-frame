@@ -280,7 +280,8 @@ impl<S: SecretStore> SyncEngine<S> {
             || control.state != "active"
             || control.revision < 1
             || control.epoch < 1
-            || !(2..=3).contains(&control.snapshot_schema_floor)
+            || !(2..=crate::snapshot::CURRENT_SNAPSHOT_SCHEMA)
+                .contains(&control.snapshot_schema_floor)
             || control.recovery_generation < 1
             || !valid_hex(&control.master_member_id, 16)
         {
@@ -397,7 +398,7 @@ impl<S: SecretStore> SyncEngine<S> {
         Ok((control, remote))
     }
     fn require_managed_upgrade(&self, group: &str, schema: u32) -> Result<(), SyncError> {
-        if schema < 3
+        if schema < crate::snapshot::CURRENT_SNAPSHOT_SCHEMA
             && !self
                 .data
                 .sync_upgrade_approved(group)
@@ -555,7 +556,20 @@ impl<S: SecretStore> SyncEngine<S> {
             if schema < floor {
                 return Err(SyncError::SchemaDowngrade);
             }
-            if schema == 3 && !matches!(&entry.request.mutation, Mutation::Create { .. }) {
+            // Replay exact pre-v4 envelopes under their original consent; subsequent work needs v4.
+            if schema == 3
+                && entry.source_schema < 3
+                && !matches!(&entry.request.mutation, Mutation::Create { .. })
+                && !self
+                    .data
+                    .sync_upgrade_approved_for(&entry.group_id, 3)
+                    .map_err(|_| SyncError::Persistence)?
+            {
+                return Err(SyncError::UpgradeRequired);
+            }
+            if schema == crate::snapshot::CURRENT_SNAPSHOT_SCHEMA
+                && !matches!(&entry.request.mutation, Mutation::Create { .. })
+            {
                 self.require_managed_upgrade(&entry.group_id, entry.source_schema)?;
             }
             self.data
@@ -824,8 +838,8 @@ impl<S: SecretStore> SyncEngine<S> {
         entry.generation = Some(generation);
         entry.self_record = Some(self_record);
         entry.legacy_source_id = source;
-        entry.snapshot_schema = Some(3);
-        entry.source_schema = 3; // New group; legacy consent was checked before its merge.
+        entry.snapshot_schema = Some(crate::snapshot::CURRENT_SNAPSHOT_SCHEMA);
+        entry.source_schema = crate::snapshot::CURRENT_SNAPSHOT_SCHEMA; // New group; legacy consent was checked before its merge.
         let entry = self.prepare(entry, &payload)?;
         self.commit_journal(&entry).await?;
         self.managed_creation_result(false).await
@@ -886,7 +900,7 @@ impl<S: SecretStore> SyncEngine<S> {
         self.save_observed(c, &control, source, remote.original_schema_version)?;
         self.save_vault(&vault).await?;
         if matches!(self.status_snapshot().state, SyncState::UpdatingKey)
-            || (remote.original_schema_version == 3
+            || (remote.original_schema_version == crate::snapshot::CURRENT_SNAPSHOT_SCHEMA
                 && self.status_snapshot().last_error_category.as_deref()
                     == Some("upgrade_required"))
         {
@@ -1151,7 +1165,7 @@ impl<S: SecretStore> SyncEngine<S> {
                 },
                 "snapshot",
             );
-            entry.snapshot_schema = Some(3);
+            entry.snapshot_schema = Some(crate::snapshot::CURRENT_SNAPSHOT_SCHEMA);
             entry.source_schema = remote.original_schema_version;
             entry.restore = restore;
             entry.legacy_source_id = source;
@@ -1305,7 +1319,7 @@ impl<S: SecretStore> SyncEngine<S> {
             },
         );
         entry.promote = true;
-        entry.snapshot_schema = Some(3);
+        entry.snapshot_schema = Some(crate::snapshot::CURRENT_SNAPSHOT_SCHEMA);
         entry.source_schema = remote.original_schema_version;
         entry.restore = recovering;
         entry.confirmed = !recovering;

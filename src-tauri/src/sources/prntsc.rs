@@ -11,15 +11,16 @@ use std::{
     time::Duration,
 };
 
+mod fetch;
 mod id;
 mod parser;
 
 use id::make_id;
-pub use id::validate_item_id;
 pub(crate) use id::{item_id_value, value_to_base36, LEGACY_MAX_VALUE};
-pub use parser::{extract_image_url, is_allowed_image_url};
+pub use id::{nearby_window, validate_item_id, NearbyWindow};
+pub use parser::is_allowed_image_url;
 
-const MAX_IMAGE_BYTES: usize = 15_000_000;
+pub(crate) const MAX_IMAGE_BYTES: usize = 15_000_000;
 const MAX_IMAGE_BYTES_U64: u64 = 15_000_000;
 const USER_AGENT: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/128 Safari/537.36";
@@ -40,9 +41,25 @@ struct ResolvedItem {
     source_page_url: String,
 }
 
+#[derive(Clone, Debug)]
 pub struct FetchedFrame {
     pub item: RandomItem,
-    pub bytes: Vec<u8>,
+    pub bytes: Arc<Vec<u8>>,
+}
+
+pub enum FetchOutcome {
+    Fetched(FetchedFrame),
+    ConfirmedUnavailable { reason: String },
+}
+impl FetchOutcome {
+    pub(crate) fn into_frame(self) -> Result<FetchedFrame, AppError> {
+        match self {
+            Self::Fetched(frame) => Ok(frame),
+            Self::ConfirmedUnavailable { reason } => {
+                Err(AppError::new(ErrorKind::NotFound, reason))
+            }
+        }
+    }
 }
 
 #[derive(Default)]
@@ -52,6 +69,10 @@ struct ResolvedCache {
 }
 
 impl ResolvedCache {
+    fn remove(&mut self, id: &str) {
+        self.values.remove(id);
+        self.order.retain(|key| key != id);
+    }
     fn insert(&mut self, id: String, url: String) {
         if self.values.insert(id.clone(), url).is_none() {
             self.order.push_back(id);
@@ -64,12 +85,16 @@ impl ResolvedCache {
     }
 }
 
+#[derive(Clone)]
 pub struct Prntsc {
     client: Client,
+    #[cfg(test)]
+    test_base: Option<String>,
     explored: Arc<ExplorationStore>,
     seen: Arc<SeenStore>,
     data: Arc<PersistentState>,
-    resolved: Mutex<ResolvedCache>,
+    resolved: Arc<Mutex<ResolvedCache>>,
+    fetches: Arc<fetch::Fetches>,
 }
 
 impl Prntsc {
@@ -81,11 +106,20 @@ impl Prntsc {
             .map_err(AppError::network)?;
         Ok(Self {
             client,
+            #[cfg(test)]
+            test_base: None,
             explored: Arc::clone(&data.explored),
             seen: Arc::clone(&data.seen),
             data,
-            resolved: Mutex::new(ResolvedCache::default()),
+            resolved: Arc::new(Mutex::new(ResolvedCache::default())),
+            fetches: Arc::new(fetch::Fetches::default()),
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_test_base(mut self, base: String) -> Self {
+        self.test_base = Some(base);
+        self
     }
 
     pub async fn get_random_frame(&self) -> Result<FetchedFrame, AppError> {
@@ -96,7 +130,7 @@ impl Prntsc {
 
     pub async fn get_frame(&self, id: &str) -> Result<FetchedFrame, AppError> {
         let value = item_id_value(id)?;
-        let result = self.get_thumbnail(id).await;
+        let result = self.fetch_outcome(id, false, false).await?.into_frame();
         if classify_rejection(&result) {
             record_exploration(
                 &self.data,
@@ -109,8 +143,28 @@ impl Prntsc {
     }
 
     pub async fn get_thumbnail(&self, id: &str) -> Result<FetchedFrame, AppError> {
-        let item = self.resolve_item(id).await?;
-        self.fetch_asset(item).await
+        // Reopening History/Saved retries previews once the shared cooldown has elapsed.
+        self.fetch_outcome(id, true, true).await?.into_frame()
+    }
+
+    pub async fn fetch_outcome(
+        &self,
+        id: &str,
+        preview: bool,
+        retry: bool,
+    ) -> Result<FetchOutcome, AppError> {
+        match self.raw_frame(id, preview, retry).await {
+            Ok(frame) => Ok(FetchOutcome::Fetched(frame)),
+            Err(error)
+                if error.is_upstream_status(reqwest::StatusCode::NOT_FOUND)
+                    || error.is_upstream_status(reqwest::StatusCode::GONE) =>
+            {
+                Ok(FetchOutcome::ConfirmedUnavailable {
+                    reason: error.message,
+                })
+            }
+            Err(error) => Err(error),
+        }
     }
 
     async fn resolve_item(&self, id: &str) -> Result<ResolvedItem, AppError> {
@@ -131,21 +185,40 @@ impl Prntsc {
             });
         }
 
+        #[cfg(test)]
+        let page_url = self.test_base.as_ref().map_or_else(
+            || source_page_url.clone(),
+            |base| format!("{base}/page/{id}"),
+        );
+        #[cfg(not(test))]
+        let page_url = source_page_url.clone();
         let page = self
             .client
-            .get(&source_page_url)
+            .get(&page_url)
             .header("accept", "text/html,application/xhtml+xml")
             .timeout(Duration::from_secs(12))
             .send()
             .await
             .map_err(AppError::network)?;
         if !page.status().is_success() {
-            return Err(AppError::upstream("Prnt.sc", page.status()));
+            return Err(AppError::upstream_response("Prnt.sc", &page));
         }
         let html = page.text().await.map_err(AppError::network)?;
-        let media_url = extract_image_url(&html).ok_or_else(|| {
-            AppError::new(ErrorKind::NotFound, "No image was found at this address")
-        })?;
+        let media_url = match parser::parse_page(&html) {
+            parser::PageOutcome::Image(url) => url,
+            parser::PageOutcome::Challenge => {
+                return Err(AppError::new(
+                    ErrorKind::InvalidResponse,
+                    "The source returned a challenge page",
+                ))
+            }
+            parser::PageOutcome::Unrecognized => {
+                return Err(AppError::new(
+                    ErrorKind::InvalidResponse,
+                    "The source page did not identify an image",
+                ))
+            }
+        };
         self.resolved
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -164,9 +237,16 @@ impl Prntsc {
                 "The source returned an untrusted image address",
             ));
         }
+        #[cfg(test)]
+        let asset_url = self.test_base.as_ref().map_or_else(
+            || item.media_url.clone(),
+            |base| format!("{base}/asset/{}", item.id),
+        );
+        #[cfg(not(test))]
+        let asset_url = item.media_url.clone();
         let mut response = self
             .client
-            .get(&item.media_url)
+            .get(&asset_url)
             .header("accept", "image/avif,image/webp,image/png,image/jpeg,*/*")
             .header("referer", &item.source_page_url)
             .timeout(Duration::from_secs(15))
@@ -174,7 +254,7 @@ impl Prntsc {
             .await
             .map_err(AppError::network)?;
         if !response.status().is_success() {
-            return Err(AppError::upstream("The image host", response.status()));
+            return Err(AppError::upstream_response("The image host", &response));
         }
         let mime_type = response
             .headers()
@@ -213,7 +293,7 @@ impl Prntsc {
                 source_page_url: item.source_page_url,
                 mime_type,
             },
-            bytes,
+            bytes: Arc::new(bytes),
         })
     }
 }
@@ -335,7 +415,7 @@ mod tests {
         ));
 
         assert!(!outcome_is_explored(&valid));
-        assert!(outcome_is_explored(&rejected));
+        assert!(!outcome_is_explored(&rejected));
         assert!(outcome_is_explored(&placeholder));
         assert!(!outcome_is_explored(&timeout));
         assert!(!outcome_is_explored(&limited));
@@ -495,7 +575,7 @@ mod tests {
                 source_page_url: "https://prnt.sc/abc123".to_owned(),
                 mime_type: "image/png".to_owned(),
             },
-            bytes: vec![1],
+            bytes: Arc::new(vec![1]),
         };
         seen.insert(id)?;
         assert!(matches!(

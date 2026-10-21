@@ -2,6 +2,28 @@
 
 ## 0.8.0
 
+### Nearby Frames
+
+- Open Nearby Frames from the frame-ID menu to see four Prnt.sc IDs before and after the image on screen in a 3×3 gallery. Previous 4 and Next 4 move the window by four IDs in source order, and Current marks the viewer image while it remains in the window.
+- Preview checks update IDs checked only. Opening a preview adds History and Seen without a Draw. Previews that fail and checks that cannot be saved each offer their own retry.
+- Nearby needs Sync format v4, which keeps preview availability separate from viewed IDs. Update your other devices before choosing Upgrade Sync. A previous collections upgrade does not approve this format, so Sync asks again. Older apps stop syncing and keep their local data.
+- Draw ledger thumbnails now come from the original Draw operation, so previews opened from Nearby do not appear in the ledger, and a revisited frame stays on the day you drew it.
+
+### A clearer Sync dialog
+
+- The dialog leads with the current Sync state and a Sync now button. What Sync covers, Rename this device, Recover administration, and Group administration open only when you choose them, so the main view stays short. Collapsed sections stay out of the keyboard tab order.
+- The device list is now Linked devices. The device that manages the group is called the administrator instead of HEAD, and the list says that last synced is a record of past activity, not a sign of which devices are online.
+- Add a device walks through the request, approval, and invitation steps. The pairing request is checked before it is sent, and a rejected request stays in the field with the reason beneath it.
+- Sync now and Create invitation name the operation in progress, such as Syncing or Creating invitation. After an error, or after you hide a code, focus returns to the control you used.
+
+### Sync runs in the background
+
+- While the app is open and Sync is connected, changes upload shortly after you make them. Returning to the app syncs right away when changes are waiting, and otherwise at most every 15 minutes.
+- When Sync is connected, closing or leaving the app gives waiting changes a few seconds to finish. Anything still waiting stays queued for the next launch.
+- A failed upload now shows remote changes that arrived before the failure. A manual sync waits for an automatic one instead of starting on top of it.
+- If Sync finishes but saved data cannot be reloaded, the app says so and keeps Try again available instead of reporting success.
+- If a sync reorders or removes frames while you open one, the app follows the frame you chose. A removed frame leaves an empty viewer instead of a stale image, and Stats opened during a sync show the refreshed totals.
+
 ### Saved frames and collections
 
 - Favorites is now Saved. Your existing favorites move into a collection automatically.

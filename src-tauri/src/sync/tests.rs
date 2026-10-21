@@ -952,7 +952,7 @@ async fn real_server_two_device_offline_and_startup_e2e() -> Result<(), Box<dyn 
     assert_eq!(revision, 5);
     assert_eq!(
         snapshot::parse_snapshot(&keys.decrypt_snapshot(keys.sync_id(), &envelope)?)?.seen,
-        vec![101, 202, 303, 404, 700_001, 700_002, 700_003]
+        vec![101, 202, 303, 404]
     );
 
     drop(server);
@@ -979,7 +979,7 @@ async fn real_server_two_device_offline_and_startup_e2e() -> Result<(), Box<dyn 
     assert_eq!(revision, 8);
     assert_eq!(
         snapshot::parse_snapshot(&keys.decrypt_snapshot(keys.sync_id(), &envelope)?)?.seen,
-        vec![101, 202, 303, 404, 505, 606, 700_001, 700_002, 700_003]
+        vec![101, 202, 303, 404, 505, 606]
     );
     drop(server);
     assert_eq!(a.startup_sync().await.err(), Some(SyncError::Offline));
@@ -1503,7 +1503,7 @@ async fn v1_writer_cannot_overwrite_published_v2_after_cas_conflict(
     let plain = keys.decrypt_snapshot(keys.sync_id(), &published)?;
     assert_eq!(
         snapshot::decode_snapshot(&plain)?.original_schema_version,
-        3
+        4
     );
     // The old writer already prepared a v1 PUT. It loses CAS, then its frozen decoder
     // rejects the GET result before another PUT can be built.
@@ -1515,7 +1515,7 @@ async fn v1_writer_cannot_overwrite_published_v2_after_cas_conflict(
     );
     assert!(matches!(
         snapshot::v1::parse_snapshot(&plain),
-        Err(snapshot::v1::SnapshotError::UnsupportedVersion(3))
+        Err(snapshot::v1::SnapshotError::UnsupportedVersion(4))
     ));
     assert_eq!(
         transport
@@ -1599,7 +1599,7 @@ async fn v1_upgrade_keeps_publication_floor_after_pairing_failure(
             a.join(root.recovery_key().as_str(), JoinMode::Merge).await,
             Err(SyncError::SecureStorage | SyncError::Persistence)
         ));
-        assert_eq!(a.data.schema_floor(keys.sync_id())?, 3);
+        assert_eq!(a.data.schema_floor(keys.sync_id())?, 4);
         drop(a);
         if !fail_secret_store {
             fs::remove_dir(path.join("sync-config.json.tmp"))?;
@@ -1967,7 +1967,7 @@ async fn large_migrated_activity_survives_join_cas_restart_and_third_device(
             let keys = root.derive();
             let plaintext = keys.decrypt_snapshot(keys.sync_id(), &envelope)?;
             let decoded = snapshot::decode_snapshot(&plaintext)?;
-            assert_eq!(decoded.original_schema_version, 3);
+            assert_eq!(decoded.original_schema_version, 4);
             Ok((decoded.data, plaintext.len(), envelope.len()))
         };
     let (initial, initial_plaintext_bytes, initial_envelope_bytes) = read_remote()?;
@@ -1978,8 +1978,8 @@ async fn large_migrated_activity_survives_join_cas_restart_and_third_device(
     assert!(initial_plaintext_bytes > 0);
     assert!(initial_envelope_bytes > initial_plaintext_bytes);
     let initial_diagnostics =
-        snapshot::diagnostics(&initial, 3, initial_plaintext_bytes, initial_envelope_bytes)?;
-    assert_eq!(initial_diagnostics.schema, 3);
+        snapshot::diagnostics(&initial, 4, initial_plaintext_bytes, initial_envelope_bytes)?;
+    assert_eq!(initial_diagnostics.schema, 4);
     assert_eq!(initial_diagnostics.viewed_total, 5752);
     assert_eq!(initial_diagnostics.legacy_imports, 1);
     assert_eq!(initial_diagnostics.viewed_discoveries, 0);
@@ -2056,8 +2056,8 @@ async fn large_migrated_activity_survives_join_cas_restart_and_third_device(
             assert_eq!(reencoded.len(), plaintext_bytes);
             assert!(envelope_bytes > plaintext_bytes);
             assert!(envelope_bytes <= MAX_ENVELOPE);
-            let diagnostics = snapshot::diagnostics(&data, 3, plaintext_bytes, envelope_bytes)?;
-            assert_eq!(diagnostics.schema, 3);
+            let diagnostics = snapshot::diagnostics(&data, 4, plaintext_bytes, envelope_bytes)?;
+            assert_eq!(diagnostics.schema, 4);
             assert_eq!(diagnostics.seen, 5755);
             assert_eq!(diagnostics.history, 4541);
             assert_eq!(diagnostics.history_removed, 1214);
@@ -2146,7 +2146,7 @@ async fn v1_remote_without_activity_keeps_local_large_legacy_import(
         .clone();
     let plaintext = keys.decrypt_snapshot(keys.sync_id(), &envelope)?;
     let decoded = snapshot::decode_snapshot(&plaintext)?;
-    assert_eq!(decoded.original_schema_version, 3);
+    assert_eq!(decoded.original_schema_version, 4);
     assert_eq!(
         snapshot::activity_projection(&decoded.data.activity)?.0,
         5752
@@ -2259,7 +2259,7 @@ async fn windows_published_tombstones_before_linux_import_converge_without_activ
         plaintext.len(),
         envelope.len(),
     )?;
-    assert_eq!(diagnostics.schema, 3);
+    assert_eq!(diagnostics.schema, 4);
     assert_eq!(diagnostics.history, 4541);
     assert_eq!(diagnostics.history_removed, 1214);
     assert_eq!(diagnostics.viewed_total, 5755);
@@ -2555,7 +2555,7 @@ async fn published_timestamp_survives_local_save_failure_and_recovers_from_remot
 #[tokio::test]
 async fn collection_upgrade_requires_durable_chain_specific_consent_before_join_and_sync(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    for schema in [1, 2] {
+    for schema in [1, 2, 3] {
         for mode in [JoinMode::Restore, JoinMode::Merge] {
             let (url, server, task) = server().await?;
             let path = directory("collections-upgrade-consent");
@@ -2570,8 +2570,10 @@ async fn collection_upgrade_requires_durable_chain_specific_consent_before_join_
             let keys = root.derive();
             let bytes = if schema == 1 {
                 snapshot::v1::serialize_snapshot(&snapshot::v1::SyncSnapshot::default())?
-            } else {
+            } else if schema == 2 {
                 snapshot::v2::serialize_snapshot(&snapshot::SyncSnapshot::default())?
+            } else {
+                snapshot::v3::serialize_snapshot(&snapshot::SyncSnapshot::default())?
             };
             let envelope = keys.encrypt_snapshot(&bytes)?;
             let transport = SyncTransport::new(&url)?;
@@ -2601,7 +2603,7 @@ async fn collection_upgrade_requires_durable_chain_specific_consent_before_join_
             drop(local);
             let local = device(&path, &url, secret.clone())?;
             local.join(&key, mode).await?;
-            assert_eq!(local.data.schema_floor(keys.sync_id())?, 3);
+            assert_eq!(local.data.schema_floor(keys.sync_id())?, 4);
             let published = server
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -2610,7 +2612,7 @@ async fn collection_upgrade_requires_durable_chain_specific_consent_before_join_
             assert_eq!(
                 snapshot::decode_snapshot(&keys.decrypt_snapshot(keys.sync_id(), &published)?)?
                     .original_schema_version,
-                3
+                4
             );
             // Consent is not permission to lower the version, including after restart.
             drop(local);
@@ -2769,10 +2771,10 @@ async fn collection_v2_v3_cas_contract_roundtrips_exact_encrypted_bytes_on_real_
     let plaintext = keys.decrypt_snapshot(keys.sync_id(), &bytes)?;
     assert!(matches!(
         snapshot::v2::decode_snapshot(&plaintext),
-        Err(snapshot::SnapshotError::UnsupportedVersion(3))
+        Err(snapshot::SnapshotError::UnsupportedVersion(4))
     ));
     let snapshot = snapshot::decode_snapshot(&plaintext)?;
-    assert_eq!(snapshot.original_schema_version, 3);
+    assert_eq!(snapshot.original_schema_version, 4);
     assert_eq!(snapshot.data.collections.len(), 1);
     fs::remove_dir_all(path)?;
     Ok(())
@@ -3029,5 +3031,38 @@ async fn shutdown_timeout_after_accepted_put_recovers_on_restart(
     assert_eq!(restarted.history.snapshot().history.len(), 1);
     task.abort();
     fs::remove_dir_all(path)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn nearby_v4_two_devices_converge_without_seen_history_or_activity(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (url, _, task) = server().await?;
+    let pa = directory("nearby-sync-a");
+    let pb = directory("nearby-sync-b");
+    let a = device(&pa, &url, MemorySecret::default())?;
+    let b = device(&pb, &url, MemorySecret::default())?;
+    let created = a.create().await?;
+    a.data
+        .record_check(42, crate::persistence::ExplorationOutcome::Viewed)?;
+    a.sync_now().await?;
+    b.join(&created.recovery_key, JoinMode::Merge).await?;
+    b.data
+        .record_check(42, crate::persistence::ExplorationOutcome::Rejected)?;
+    b.data
+        .record_check(43, crate::persistence::ExplorationOutcome::Viewed)?;
+    b.sync_now().await?;
+    a.sync_now().await?;
+    for data in [&a.data, &b.data] {
+        let snapshot = data.snapshot()?.0;
+        assert_eq!(snapshot.exploration.len(), 2);
+        assert!(
+            snapshot.seen.is_empty() && snapshot.history.is_empty() && snapshot.activity.is_empty()
+        );
+        assert_eq!(data.explored.evidence(42), Some(3));
+    }
+    task.abort();
+    fs::remove_dir_all(pa)?;
+    fs::remove_dir_all(pb)?;
     Ok(())
 }

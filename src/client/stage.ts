@@ -1,6 +1,6 @@
 import { elements } from "./elements.js";
 import { describeError } from "./errors.js";
-import { blobKey, blobs, cacheThumbnail, savedFrames } from "./frame-cache.js";
+import { blobKey, blobs, cacheThumbnail, releaseBlobUrl, savedFrames } from "./frame-cache.js";
 import { pickLoadingMessage } from "./loading-copy.js";
 import { adjacentPrntscId, nextHistoryIndex } from "./navigation.js";
 import { toast } from "./toast.js";
@@ -229,6 +229,24 @@ export function syncControls(): void {
   else elements.lightboxFavorite.removeAttribute("aria-haspopup");
   elements.lightboxFavorite.setAttribute("aria-label", favoriteLabel);
   elements.lightboxFavorite.dataset.tip = `${favoriteLabel} (F)`;
+  elements.nearbyGroup.hidden = current?.source !== "prntsc";
+  elements.nearbyButton.hidden = current?.source !== "prntsc";
+  let clearPending =
+    elements.historyClearGroup.hasAttribute("data-armed") || Boolean(elements.historyDialog.dataset.busy);
+  try {
+    clearPending ||= Boolean(localStorage.getItem("random-frame-history-clear-pending"));
+  } catch {
+    /* Availability still follows the viewer state. */
+  }
+  elements.nearbyButton.disabled =
+    state.loading || state.historyLoadFailed || current?.source !== "prntsc" || !currentBlob || clearPending;
+  const nearbyTip = clearPending
+    ? "Finish or cancel the History clear first"
+    : elements.nearbyButton.disabled
+      ? "Finish loading the frame first"
+      : "Nearby Frames · Inspect four source IDs before and after this frame";
+  elements.nearbyButton.dataset.tip = nearbyTip;
+  elements.nearbyButton.setAttribute("aria-description", nearbyTip);
   elements.previousId.disabled =
     state.loading || current?.source !== "prntsc" || adjacentPrntscId(current.id, -1) === null;
   elements.nextId.disabled = state.loading || current?.source !== "prntsc" || adjacentPrntscId(current.id, 1) === null;
@@ -355,7 +373,7 @@ export function showFrame(source: string, id: string, blob: Blob, url: string): 
   elements.announcer.textContent = `Showing frame ${id}`;
   // The outgoing frame may still be fading out on the ghost, so release it after the crossfade.
   if (oldUrl.startsWith("blob:") && ![...blobs.values()].some((item) => item.url === oldUrl))
-    setTimeout(() => URL.revokeObjectURL(oldUrl), 1000);
+    setTimeout(() => releaseBlobUrl(oldUrl), 1000);
 }
 
 export function restartAnimation(target: HTMLElement): void {

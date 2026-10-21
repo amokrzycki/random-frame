@@ -307,6 +307,8 @@ async fn snapshot_request(
     let state = a.data.snapshot()?.0;
     let bytes = if schema == 2 {
         snapshot::v2::serialize_snapshot(&state)?
+    } else if schema == 3 {
+        snapshot::v3::serialize_snapshot(&state)?
     } else {
         snapshot::serialize_snapshot(&state)?
     };
@@ -440,7 +442,7 @@ async fn real_server_managed_restore_retry_observes_schema_change() -> TestResul
         Some(SyncError::UpgradeRequired)
     );
     b.approve_upgrade(Some(&invite)).await?;
-    let (mut stale, _) = snapshot_request(&b, 3).await?;
+    let (mut stale, _) = snapshot_request(&b, snapshot::CURRENT_SNAPSHOT_SCHEMA).await?;
     let mut vault = b.vault().await?;
     let c = vault.current.as_mut().ok_or("no credentials")?;
     let (_, remote) = b.read_managed(c, None).await?;
@@ -630,7 +632,7 @@ async fn real_server_managed_legacy_move_keeps_upgrade_separate() -> TestResult 
     let moved = a.move_to_managed_sync().await?;
     assert_ne!(moved.group_id, keys.sync_id());
     assert_eq!(moved.source_legacy_id.as_deref(), Some(keys.sync_id()));
-    assert_eq!(a.config()?.ok_or("no config")?.highest_schema_version, 3);
+    assert_eq!(a.config()?.ok_or("no config")?.highest_schema_version, 4);
     assert_eq!(
         transport
             .get(keys.sync_id(), &keys.client_auth_token())
@@ -644,6 +646,64 @@ async fn real_server_managed_legacy_move_keeps_upgrade_separate() -> TestResult 
     assert_eq!(current.memberships, expected.memberships);
     assert_eq!(current.collections_removed, expected.collections_removed);
     assert_eq!(current.memberships_removed, expected.memberships_removed);
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires RF_SYNC_SERVER_BIN; exact v3 replay followed by independent Nearby consent4"]
+async fn real_server_exact_v3_replay_requires_new_consent_before_nearby_publication() -> TestResult
+{
+    let root = directory("nearby-v3-replay");
+    let (_server, url) = start(&root).await?;
+    let a = device(&root.join("a"), &url, MemorySecret::default())?;
+    create_v2(&a).await?;
+    let (entry, payload) = snapshot_request(&a, 3).await?;
+    crate::persistence::save_json(
+        &root.join("a/sync-upgrades.json"),
+        &std::collections::BTreeMap::from([(entry.group_id.clone(), 3)]),
+    )?;
+    let entry = a.prepare(entry, &payload)?;
+    let exact = a.request_bytes(&entry)?;
+    a.commit_journal(&entry).await?;
+    assert_eq!(a.config()?.ok_or("no config")?.highest_schema_version, 3);
+    assert_eq!(
+        exact,
+        crate::sync_protocol::encode(&entry.request, &payload)?
+    );
+    a.data
+        .record_check(42, crate::persistence::ExplorationOutcome::Viewed)?;
+    assert_eq!(a.sync_now().await.err(), Some(SyncError::UpgradeRequired));
+    assert!(!a.data.sync_upgrade_approved(&entry.group_id)?);
+    a.approve_upgrade(None).await?;
+    a.sync_now().await?;
+    assert_eq!(a.config()?.ok_or("no config")?.highest_schema_version, 4);
+    assert_eq!(a.data.snapshot()?.0.seen.len(), 0);
+    let mut vault = a.vault().await?;
+    let (_, remote) = a
+        .read_managed(vault.current.as_mut().ok_or("no credentials")?, None)
+        .await?;
+    assert_eq!(remote.original_schema_version, 4);
+    assert_eq!(remote.data.exploration.len(), 1);
+    assert_eq!(remote.data.seen.len(), 0);
+    let b_secret = MemorySecret::default();
+    let b = device(&root.join("b"), &url, b_secret.clone())?;
+    let invitation = a.create_invitation(&b.pairing_request().await?).await?;
+    b.join(&invitation, JoinMode::Restore).await?;
+    b.data
+        .record_check(43, crate::persistence::ExplorationOutcome::Rejected)?;
+    b.sync_now().await?;
+    a.sync_now().await?;
+    assert_sync_data_equal(&a.data.snapshot()?.0, &b.data.snapshot()?.0);
+    let b = device(&root.join("b"), &url, b_secret)?;
+    b.startup_sync().await?;
+    for data in [&a.data, &b.data] {
+        let snapshot = data.snapshot()?.0;
+        assert_eq!(snapshot.exploration.len(), 2);
+        assert_eq!(snapshot.seen.len(), 0);
+        assert_eq!(data.history.snapshot().history.len(), 0);
+        assert_eq!(data.activity.viewed_total(), 0);
+    }
     fs::remove_dir_all(root)?;
     Ok(())
 }

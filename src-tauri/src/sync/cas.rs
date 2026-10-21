@@ -45,7 +45,11 @@ pub(super) async fn push_with_retries(
         #[cfg(any(test, debug_assertions))]
         crate::snapshot::report_upload(&snapshot, &envelope);
         data.state
-            .begin_publication(keys.sync_id(), revision, 3)
+            .begin_publication(
+                keys.sync_id(),
+                revision,
+                crate::snapshot::CURRENT_SNAPSHOT_SCHEMA,
+            )
             .map_err(|_| SyncError::Persistence)?;
         match transport
             .ok_or(SyncError::InvalidEndpoint)?
@@ -141,7 +145,11 @@ pub(super) async fn restore_with_retries(
         #[cfg(any(test, debug_assertions))]
         crate::snapshot::report_upload(&bytes, &envelope);
         data.state
-            .begin_publication(keys.sync_id(), revision, 3)
+            .begin_publication(
+                keys.sync_id(),
+                revision,
+                crate::snapshot::CURRENT_SNAPSHOT_SCHEMA,
+            )
             .map_err(|_| SyncError::Persistence)?;
         match transport
             .update(

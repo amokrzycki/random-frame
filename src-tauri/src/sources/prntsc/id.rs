@@ -56,6 +56,44 @@ pub(crate) fn item_id_value(id: &str) -> Result<u64, AppError> {
     ))
 }
 
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NearbySlot {
+    pub index: usize,
+    pub offset: i64,
+    pub id: Option<String>,
+}
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NearbyWindow {
+    pub center_id: String,
+    pub slots: [NearbySlot; 9],
+    pub previous_center_id: Option<String>,
+    pub next_center_id: Option<String>,
+}
+pub fn nearby_window(id: &str) -> Result<NearbyWindow, AppError> {
+    let center = item_id_value(id)?;
+    let at = |offset: i64| {
+        center
+            .checked_add_signed(offset)
+            .filter(|v| *v <= LEGACY_MAX_VALUE)
+            .map(value_to_base36)
+    };
+    Ok(NearbyWindow {
+        center_id: value_to_base36(center),
+        slots: std::array::from_fn(|index| {
+            let offset = i64::try_from(index).unwrap_or(0) - 4;
+            NearbySlot {
+                index,
+                offset,
+                id: at(offset),
+            }
+        }),
+        previous_center_id: at(-4),
+        next_center_id: at(4),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,5 +225,41 @@ mod tests {
         assert_share(short, 0.4561, "<= zzzzzz");
         assert_share(leading_one, 0.4561, "1xxxxxx");
         assert_share(leading_high, 0.0878, "2xxxxxx..26y3ahr");
+    }
+}
+
+#[cfg(test)]
+mod nearby_tests {
+    use super::*;
+    #[test]
+    fn numerical_windows_are_canonical_and_never_wrap() -> Result<(), AppError> {
+        let window = nearby_window("0abc123")?;
+        assert_eq!(
+            window.slots.map(|x| x.id.unwrap_or_default()),
+            [
+                "abc11z", "abc120", "abc121", "abc122", "abc123", "abc124", "abc125", "abc126",
+                "abc127"
+            ]
+        );
+        for id in ["z", "zz", "zzzzzz", "0", "26y3ahr"] {
+            let window = nearby_window(id)?;
+            assert_eq!(
+                window.slots[4].id.as_deref(),
+                Some(window.center_id.as_str())
+            );
+            if let Some(next) = window.next_center_id {
+                assert_eq!(item_id_value(&next)? - item_id_value(id)?, 4);
+            }
+        }
+        assert_eq!(
+            nearby_window("0")?
+                .slots
+                .iter()
+                .filter(|x| x.id.is_none())
+                .count(),
+            4
+        );
+        assert!(nearby_window("26y3ahr")?.next_center_id.is_none());
+        Ok(())
     }
 }

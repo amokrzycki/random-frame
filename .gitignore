@@ -8,3 +8,4 @@ dist/
 node_modules/
 .codegraph
 .codex
+/NEARBY_VERIFICATION.md

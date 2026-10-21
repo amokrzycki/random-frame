@@ -430,7 +430,7 @@ test("a sync event during a read-only Sync dialog action still refreshes persist
 });
 
 test("ten remote frames update history, navigation and open statistics without Draw", async () => {
-  get("stats-dialog").open = true;
+  get("stats-button").click();
   get("history-dialog").open = true;
   backend.history.history.push(...Array.from({ length: 10 }, (_, i) => item(`remote${i}`)));
   await sync.runStartupSync();

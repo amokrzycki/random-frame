@@ -132,8 +132,9 @@ impl<S: SecretStore> SyncEngine<S> {
                 || !valid_hex(&j.group_id, 32)
                 || !valid_hex(&j.request.operation_id, 16)
                 || !valid_hex(&j.request_hash, 32)
-                || !(2..=3).contains(&j.source_schema)
-                || j.snapshot_schema.is_some_and(|v| !(2..=3).contains(&v))
+                || !(2..=crate::snapshot::CURRENT_SNAPSHOT_SCHEMA).contains(&j.source_schema)
+                || j.snapshot_schema
+                    .is_some_and(|v| !(2..=crate::snapshot::CURRENT_SNAPSHOT_SCHEMA).contains(&v))
             {
                 return Err(SyncError::CorruptLocalState);
             }

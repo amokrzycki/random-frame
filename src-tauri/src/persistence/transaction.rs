@@ -67,11 +67,22 @@ impl Publication {
         }
     }
     fn validate(&self) -> Result<(), AppError> {
-        if self.revision() < 0 || !(1..=3).contains(&self.schema()) {
+        if self.revision() < 0 || !(1..=snapshot::CURRENT_SNAPSHOT_SCHEMA).contains(&self.schema())
+        {
             return Err(AppError::persistence("Invalid publication metadata"));
         }
         Ok(())
     }
+}
+#[derive(Debug, PartialEq, Eq)]
+pub struct CheckCommit {
+    pub inserted: bool,
+    pub evidence_changed: bool,
+}
+#[derive(Clone, Copy)]
+enum AcceptanceOrigin {
+    Standard,
+    Nearby,
 }
 pub struct PersistentState {
     path: PathBuf,
@@ -147,6 +158,17 @@ impl PersistentState {
             identity,
         };
         state.read(|| Ok(()))?;
+        state.read(|| {
+            let receipt = directory.join("seen-reconciliation-v4.json");
+            let complete: bool = load_json(&receipt)?;
+            if !complete {
+                let mut legacy = state.snapshot_unlocked()?;
+                snapshot::reconcile_legacy_seen(&mut legacy);
+                state.transact(&legacy, false)?;
+                save_json(&receipt, &true)?;
+            }
+            Ok(())
+        })?;
         let clears: Clears = load_json(&state.clear_path)?;
         // A prepared clear survives closing the app during its Undo window.
         for (id, request) in clears.requests {
@@ -449,7 +471,10 @@ impl PersistentState {
     pub fn schema_floor(&self, sync_id: &str) -> Result<u32, AppError> {
         self.read(|| {
             let floors: BTreeMap<String, u32> = load_json(&self.schema_path)?;
-            if floors.values().any(|v| !(1..=3).contains(v)) {
+            if floors
+                .values()
+                .any(|v| !(1..=snapshot::CURRENT_SNAPSHOT_SCHEMA).contains(v))
+            {
                 return Err(AppError::persistence("Invalid schema floor"));
             }
             Ok(floors.get(sync_id).copied().unwrap_or(1))
@@ -508,17 +533,23 @@ impl PersistentState {
     pub fn approve_sync_upgrade(&self, sync_id: &str) -> Result<(), AppError> {
         self.read(|| {
             let mut upgrades: BTreeMap<String, u32> = load_json(&self.upgrade_path)?;
-            upgrades.insert(sync_id.into(), 3);
+            upgrades.insert(sync_id.into(), snapshot::CURRENT_SNAPSHOT_SCHEMA);
             save_json(&self.upgrade_path, &upgrades)
         })
     }
     pub fn sync_upgrade_approved(&self, sync_id: &str) -> Result<bool, AppError> {
+        self.sync_upgrade_approved_for(sync_id, snapshot::CURRENT_SNAPSHOT_SCHEMA)
+    }
+    pub fn sync_upgrade_approved_for(&self, sync_id: &str, schema: u32) -> Result<bool, AppError> {
         self.read(|| {
             let upgrades: BTreeMap<String, u32> = load_json(&self.upgrade_path)?;
-            if upgrades.values().any(|v| *v != 3) {
+            if upgrades
+                .values()
+                .any(|v| !(3..=snapshot::CURRENT_SNAPSHOT_SCHEMA).contains(v))
+            {
                 return Err(AppError::persistence("Invalid Sync upgrade consent"));
             }
-            Ok(upgrades.get(sync_id) == Some(&3))
+            Ok(upgrades.get(sync_id).is_some_and(|v| *v >= schema))
         })
     }
     pub fn merge_versioned(
@@ -535,6 +566,39 @@ impl PersistentState {
             snapshot::merge_snapshots(&self.snapshot_unlocked()?, incoming)
                 .map_err(|error| AppError::invalid_input(error.to_string()))?;
             self.transact_versioned(incoming, false, false, Some((sync_id.into(), schema)))
+        })
+    }
+    pub fn record_check(
+        &self,
+        id: u64,
+        outcome: ExplorationOutcome,
+    ) -> Result<CheckCommit, AppError> {
+        self.read(|| {
+            if id > crate::sources::prntsc::LEGACY_MAX_VALUE {
+                return Err(AppError::invalid_input("Invalid image identifier"));
+            }
+            let previous = self.explored.evidence(id);
+            // Evidence is a bitmask: bit 0 (1) = viewed, bit 1 (2) = rejected.
+            // OR-ing outcomes accumulates them; an item viewed then rejected has evidence = 3.
+            let evidence = previous.unwrap_or(0) | outcome.evidence();
+            let changed = previous != Some(evidence);
+            if changed {
+                self.transact(
+                    &SyncSnapshot {
+                        exploration: vec![ExplorationRecord {
+                            source: "prntsc".into(),
+                            id: crate::sources::prntsc::value_to_base36(id),
+                            evidence,
+                        }],
+                        ..SyncSnapshot::default()
+                    },
+                    false,
+                )?;
+            }
+            Ok(CheckCommit {
+                inserted: previous.is_none(),
+                evidence_changed: changed,
+            })
         })
     }
     pub fn discover(
@@ -562,7 +626,14 @@ impl PersistentState {
             return Err(AppError::invalid_input("Invalid image identifier"));
         }
         snapshot::validate_day(day).map_err(AppError::persistence)?;
-        if self.explored.contains(id) {
+        if let Some(previous) = self.explored.evidence(id) {
+            if previous & outcome.evidence() == 0 {
+                effects.exploration.push(ExplorationRecord {
+                    source: "prntsc".into(),
+                    id: crate::sources::prntsc::value_to_base36(id),
+                    evidence: previous | outcome.evidence(),
+                });
+            }
             return Ok(());
         }
         let id = crate::sources::prntsc::value_to_base36(id);
@@ -588,6 +659,17 @@ impl PersistentState {
         &self,
         item: &HistoryItem,
         legacy_import: bool,
+    ) -> Result<HistorySnapshot, AppError> {
+        self.accept_with_origin(item, legacy_import, AcceptanceOrigin::Standard)
+    }
+    pub fn accept_nearby(&self, item: &HistoryItem) -> Result<HistorySnapshot, AppError> {
+        self.accept_with_origin(item, false, AcceptanceOrigin::Nearby)
+    }
+    fn accept_with_origin(
+        &self,
+        item: &HistoryItem,
+        legacy_import: bool,
+        origin: AcceptanceOrigin,
     ) -> Result<HistorySnapshot, AppError> {
         self.read(|| {
             snapshot::validate_fields(&item.source, &item.id, &item.source_page_url)
@@ -624,7 +706,13 @@ impl PersistentState {
             if item.source == "prntsc" {
                 let id = crate::sources::prntsc::item_id_value(&item.id)?;
                 effects.seen.push(id);
-                if !legacy_import {
+                if matches!(origin, AcceptanceOrigin::Nearby) {
+                    effects.exploration.push(ExplorationRecord {
+                        source: "prntsc".into(),
+                        id: crate::sources::prntsc::value_to_base36(id),
+                        evidence: 1,
+                    });
+                } else if !legacy_import {
                     self.discovery_effects(
                         &mut effects,
                         id,

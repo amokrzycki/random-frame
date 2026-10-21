@@ -20,6 +20,47 @@ impl ThumbnailCache {
         Ok(format!("prntsc-{id}.jpg"))
     }
 
+    pub(crate) fn read_preview(&self, id: &str) -> Result<Option<Vec<u8>>, AppError> {
+        let value = prntsc::item_id_value(id)?;
+        let mut paths = vec![self.0.join(Self::filename(&format!("prntsc:{id}"))?)];
+        // Historical leading-zero aliases keep their filenames and trusted provenance.
+        if !paths[0].exists() {
+            match fs::read_dir(&self.0) {
+                Ok(entries) => {
+                    for entry in entries {
+                        let entry = entry.map_err(AppError::persistence)?;
+                        if entry
+                            .file_name()
+                            .to_str()
+                            .and_then(|name| name.strip_prefix("prntsc-"))
+                            .and_then(|name| name.strip_suffix(".jpg"))
+                            .is_some_and(|alias| prntsc::item_id_value(alias).ok() == Some(value))
+                        {
+                            paths.push(entry.path());
+                        }
+                    }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(AppError::persistence(e)),
+            }
+        }
+        for path in paths {
+            match fs::metadata(&path) {
+                Ok(meta)
+                    if meta.is_file()
+                        && meta.len() > 0
+                        && meta.len() <= MAX_THUMBNAIL_BYTES as u64 =>
+                {
+                    return fs::read(path).map(Some).map_err(AppError::persistence)
+                }
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                    return Err(AppError::persistence(e))
+                }
+                _ => {}
+            }
+        }
+        Ok(None)
+    }
     fn load(&self) -> Result<Vec<Thumbnail>, AppError> {
         let files = match fs::read_dir(&self.0) {
             Ok(files) => files,

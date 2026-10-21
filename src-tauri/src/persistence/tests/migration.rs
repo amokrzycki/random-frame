@@ -196,7 +196,7 @@ fn remote_exploration_merge_does_not_create_activity() -> Result<(), AppError> {
     })?;
     a.discover(1, ExplorationOutcome::Viewed, 1, "2026-10-02")?;
     assert_eq!(a.activity.viewed_total(), 0);
-    assert!(a.seen.contains(1));
+    assert!(!a.seen.contains(1));
     fs::remove_dir_all(dir).map_err(AppError::persistence)
 }
 

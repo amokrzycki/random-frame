@@ -171,13 +171,6 @@ pub(crate) fn reconcile_seen(snapshot: &mut SyncSnapshot) {
         .iter()
         .filter(|x| x.source == "prntsc")
         .map(|x| &x.id)
-        .chain(
-            snapshot
-                .exploration
-                .iter()
-                .filter(|x| x.source == "prntsc" && x.evidence & 1 != 0)
-                .map(|x| &x.id),
-        )
         .filter_map(|id| crate::sources::prntsc::item_id_value(id).ok());
     snapshot.seen = snapshot
         .seen
@@ -187,4 +180,16 @@ pub(crate) fn reconcile_seen(snapshot: &mut SyncSnapshot) {
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
+}
+
+/// Only legacy ingestion may interpret historical availability as viewed evidence.
+pub(crate) fn reconcile_legacy_seen(snapshot: &mut SyncSnapshot) {
+    snapshot.seen.extend(
+        snapshot
+            .exploration
+            .iter()
+            .filter(|x| x.source == "prntsc" && x.evidence & 1 != 0)
+            .filter_map(|x| crate::sources::prntsc::item_id_value(&x.id).ok()),
+    );
+    reconcile_seen(snapshot);
 }

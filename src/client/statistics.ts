@@ -11,7 +11,7 @@ export function formatExploredBreakdown(
     viewable + unavailable + unclassified !== explored
   )
     throw new Error("Inconsistent exploration counts");
-  const breakdown = `${viewable.toLocaleString("en-US")} drawn · ${unavailable.toLocaleString("en-US")} unavailable`;
+  const breakdown = `${viewable.toLocaleString("en-US")} available · ${unavailable.toLocaleString("en-US")} unavailable`;
   return unclassified ? `${breakdown} · ${unclassified.toLocaleString("en-US")} unclassified` : breakdown;
 }
 
@@ -104,23 +104,25 @@ export function ledgerDays(
   sourceViews?: readonly FrameView[],
 ): LedgerDay[] {
   const frames = new Map<string, number[]>();
-  const newestFirst = viewedAt
-    .flatMap((millis, index) => (millis === null ? [] : [{ millis, index }]))
-    .sort((a, b) => b.millis - a.millis || b.index - a.index);
   // ponytail: Two code paths for historical reasons. sourceViews provides server-authoritative
   // day keys (preserved across timezone changes), while localViewTimes requires inferring the
   // day from the local timestamp. The sourceViews path is preferred when available (v2 sync),
   // but localViewTimes fallback supports v1 data or unsynced history.
   if (sourceViews) {
-    const positions = new Map(history.map((item, index) => [`${item.source}\0${item.id}`, index]));
+    const frameKey = ({ source, id }: { source: string; id: string }) =>
+      `${source}\0${source === "prntsc" && /^[a-z0-9]{1,7}$/.test(id) ? Number.parseInt(id, 36).toString(36) : id}`;
+    const positions = new Map(history.map((item, index) => [frameKey(item), index]));
     for (const view of [...sourceViews].sort((a, b) => b.atMs - a.atMs)) {
-      const index = positions.get(`${view.source}\0${view.id}`);
+      const index = positions.get(frameKey(view));
       if (index === undefined) continue;
       const day = frames.get(view.day);
       if (day) day.push(index);
       else frames.set(view.day, [index]);
     }
   } else {
+    const newestFirst = viewedAt
+      .flatMap((millis, index) => (millis === null ? [] : [{ millis, index }]))
+      .sort((a, b) => b.millis - a.millis || b.index - a.index);
     for (const { millis, index } of newestFirst) {
       const key = localDayKey(millis);
       const day = frames.get(key);

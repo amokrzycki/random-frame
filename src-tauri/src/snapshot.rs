@@ -1,7 +1,10 @@
-//! Canonical, device-independent snapshot v3; envelope and membership versions are independent.
+//! Canonical, device-independent snapshot v4; envelope and membership versions are independent.
 #[cfg(any(test, debug_assertions))]
 mod diagnostics;
 mod merge;
+#[allow(dead_code, reason = "frozen v3 codec for compatibility tests")]
+pub(crate) mod v3;
+pub const CURRENT_SNAPSHOT_SCHEMA: u32 = 4;
 #[allow(dead_code, reason = "frozen v2 encoder supports compatibility tests")]
 pub(crate) mod v2;
 #[cfg(test)]
@@ -16,7 +19,7 @@ pub(crate) mod v1;
 use crate::sources::prntsc::LEGACY_MAX_VALUE;
 use chrono::{NaiveDate, TimeZone, Utc};
 pub use merge::merge_snapshots;
-pub(crate) use merge::reconcile_seen;
+pub(crate) use merge::{reconcile_legacy_seen, reconcile_seen};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, fmt};
 
@@ -334,7 +337,7 @@ impl DecodedSnapshot {
                     | SyncDomain::Memberships
                     | SyncDomain::MembershipRemovals
             ),
-            3 => true,
+            3 | 4 => true,
             // Unsupported schemas cannot reach Restore through decode_snapshot.
             _ => false,
         }
@@ -694,7 +697,7 @@ pub fn serialize_snapshot(s: &SyncSnapshot) -> Result<Vec<u8>, SnapshotError> {
     validate_snapshot(s)?;
     let mut w = Writer(Vec::new());
     w.bytes(MAGIC)?;
-    w.u32(3)?;
+    w.u32(CURRENT_SNAPSHOT_SCHEMA)?;
     w.count(s.seen.len())?;
     for x in &s.seen {
         w.u64(*x)?;
@@ -825,15 +828,18 @@ pub fn decode_snapshot(bytes: &[u8]) -> Result<DecodedSnapshot, SnapshotError> {
     }
     let version = r.u32()?;
     if version == 1 {
-        return decode_v1(bytes);
+        let mut decoded = decode_v1(bytes)?;
+        reconcile_legacy_seen(&mut decoded.data);
+        return Ok(decoded);
     }
     if version == 2 {
         let mut decoded = v2::decode_snapshot(bytes)?;
         migrate_legacy_collections(&mut decoded.data);
         decoded.needs_upgrade = true;
+        reconcile_legacy_seen(&mut decoded.data);
         return Ok(decoded);
     }
-    if version != 3 {
+    if version != 3 && version != CURRENT_SNAPSHOT_SCHEMA {
         return Err(SnapshotError::UnsupportedVersion(version));
     }
     let mut s = SyncSnapshot::default();
@@ -966,10 +972,13 @@ pub fn decode_snapshot(bytes: &[u8]) -> Result<DecodedSnapshot, SnapshotError> {
     }
     validate_snapshot(&s)?;
     normalize_seeded_collection_name(&mut s);
+    if version < CURRENT_SNAPSHOT_SCHEMA {
+        reconcile_legacy_seen(&mut s);
+    }
     Ok(DecodedSnapshot {
-        original_schema_version: 3,
+        original_schema_version: version,
         data: s,
-        needs_upgrade: false,
+        needs_upgrade: version < CURRENT_SNAPSHOT_SCHEMA,
     })
 }
 fn decode_v1(bytes: &[u8]) -> Result<DecodedSnapshot, SnapshotError> {

@@ -49,7 +49,10 @@ impl SyncData<'_> {
             }
             _ => SyncError::InvalidRemoteData,
         })?;
-        debug_assert_eq!(remote.needs_upgrade, remote.original_schema_version < 3);
+        debug_assert_eq!(
+            remote.needs_upgrade,
+            remote.original_schema_version < crate::snapshot::CURRENT_SNAPSHOT_SCHEMA
+        );
         #[cfg(any(test, debug_assertions))]
         snapshot::report_diagnostics(
             "after_remote_decode",
@@ -80,7 +83,7 @@ impl SyncData<'_> {
         keys: &SyncKeys,
         schema: u32,
     ) -> Result<(), SyncError> {
-        if schema < 3
+        if schema < crate::snapshot::CURRENT_SNAPSHOT_SCHEMA
             && !self
                 .state
                 .sync_upgrade_approved(keys.sync_id())
@@ -209,7 +212,7 @@ impl SyncData<'_> {
                     snapshot::report_diagnostics(
                         "after_merge",
                         &merged,
-                        3,
+                        snapshot::CURRENT_SNAPSHOT_SCHEMA,
                         bytes.len(),
                         bytes.len() + crate::sync_crypto::ENVELOPE_OVERHEAD,
                     );

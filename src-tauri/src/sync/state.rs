@@ -26,13 +26,13 @@ impl SyncLocalConfig {
             managed: None,
             sync_id,
             last_accepted_revision: Some(revision),
-            highest_schema_version: 3,
+            highest_schema_version: crate::snapshot::CURRENT_SNAPSHOT_SCHEMA,
             last_success_at: None,
         }
     }
 
     pub(super) fn validate(&self) -> Result<(), SyncError> {
-        if !(1..=3).contains(&self.highest_schema_version)
+        if !(1..=crate::snapshot::CURRENT_SNAPSHOT_SCHEMA).contains(&self.highest_schema_version)
             || !matches!(
                 (self.protocol_version, &self.managed),
                 (1, None) | (2, Some(_))

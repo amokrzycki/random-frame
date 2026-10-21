@@ -205,6 +205,32 @@ impl ActivityStore {
         };
         self.merge_sync_state(vec![op], Vec::new(), false)
     }
+    pub fn draw_frame_views(&self) -> Vec<super::history::FrameView> {
+        let data = self
+            .data
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        data.operations
+            .iter()
+            .filter_map(|op| match op {
+                ActivityOperation::Discovery {
+                    source,
+                    id,
+                    outcome: crate::snapshot::Outcome::Viewed,
+                    occurred_at_ms,
+                    day,
+                    ..
+                } => Some(super::history::FrameView {
+                    source: source.clone(),
+                    id: id.clone(),
+                    at_ms: *occurred_at_ms,
+                    day: day.clone(),
+                    day_inferred: false,
+                }),
+                _ => None,
+            })
+            .collect()
+    }
     pub fn viewed_total(&self) -> u64 {
         let data = self
             .data

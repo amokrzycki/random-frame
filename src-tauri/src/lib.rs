@@ -1,4 +1,5 @@
 mod error;
+mod nearby;
 mod persistence;
 mod rate_limit;
 mod secure_storage;
@@ -14,13 +15,13 @@ mod time;
 
 use chrono::Local;
 use error::{AppError, ErrorKind};
+#[cfg(test)]
+use persistence::SeenStore;
 use persistence::{
     activity_day, day_key, ActivityStore, CollectionEditorRequest, ExplorationStore, FavoriteItem,
     FavoriteStore, FrameView, HistoryItem, HistorySnapshot, HistoryStore, PersistentState,
-    RemoveSavedRequest, RemovedFrame, RemovedSaved, SavedLibrary, SavedUndo, SeenStore,
-    UserPreferences,
+    RemoveSavedRequest, RemovedFrame, RemovedSaved, SavedLibrary, SavedUndo, UserPreferences,
 };
-use rate_limit::RateLimiter;
 use reqwest::StatusCode;
 use secure_storage::SecureStorage;
 use serde::Serialize;
@@ -41,7 +42,7 @@ use tauri::{ipc::Response, Manager, State};
 struct PendingFrame {
     source: String,
     id: String,
-    bytes: Vec<u8>,
+    bytes: Arc<Vec<u8>>,
 }
 
 struct AppState {
@@ -52,6 +53,7 @@ struct AppState {
     #[cfg(desktop)]
     shutdown_finished: AtomicBool,
     prntsc: Prntsc,
+    nearby: nearby::Nearby,
     history: Arc<HistoryStore>,
     favorites: Arc<FavoriteStore>,
     explored: Arc<ExplorationStore>,
@@ -59,7 +61,6 @@ struct AppState {
     seen: Arc<SeenStore>,
     sync: Option<SyncEngine<SecureStorage>>,
     activity: Arc<ActivityStore>,
-    rate_limiter: Mutex<RateLimiter>,
     // UI loads one frame at a time; use a keyed cache if concurrent consumers are added.
     pending: Mutex<Option<PendingFrame>>,
 }
@@ -70,9 +71,10 @@ impl AppState {
         let explored = Arc::clone(&data.explored);
         let activity = Arc::clone(&data.activity);
         let history = Arc::clone(&data.history);
+        #[cfg(test)]
         let seen = Arc::clone(&data.seen);
         let favorites = Arc::clone(&data.favorites);
-        reconcile_seen(&seen, &history, &explored)?;
+
         let sync = Some(SyncEngine::new(
             data_directory,
             Arc::clone(&data),
@@ -85,6 +87,7 @@ impl AppState {
         ));
         Ok(Self {
             prntsc: Prntsc::new(Arc::clone(&data))?,
+            nearby: nearby::Nearby::default(),
             data,
             imports_ready: tokio::sync::watch::channel(false).0,
             #[cfg(desktop)]
@@ -98,7 +101,6 @@ impl AppState {
             seen,
             sync,
             activity,
-            rate_limiter: Mutex::new(RateLimiter::new()),
             pending: Mutex::new(None),
         })
     }
@@ -125,13 +127,6 @@ impl AppState {
         }
     }
 
-    fn take_api_token(&self) -> Result<(), AppError> {
-        self.rate_limiter
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take()
-    }
-
     fn store_pending(&self, frame: &mut FetchedFrame) {
         let pending = PendingFrame {
             source: frame.item.source.clone(),
@@ -144,7 +139,7 @@ impl AppState {
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(pending);
     }
 
-    fn take_pending(&self, source: &str, id: &str) -> Option<Vec<u8>> {
+    fn take_pending(&self, source: &str, id: &str) -> Option<Arc<Vec<u8>>> {
         let mut pending = self
             .pending
             .lock()
@@ -158,25 +153,6 @@ impl AppState {
             None
         }
     }
-}
-
-fn reconcile_seen(
-    seen: &SeenStore,
-    history: &HistoryStore,
-    explored: &ExplorationStore,
-) -> Result<(), AppError> {
-    let from_history = history
-        .snapshot()
-        .history
-        .into_iter()
-        .filter(|item| item.source == "prntsc")
-        .filter_map(|item| prntsc::item_id_value(&item.id).ok());
-    let from_explored = explored
-        .viewed_ids()
-        .into_iter()
-        .filter(|id| *id <= prntsc::LEGACY_MAX_VALUE);
-    seen.merge(from_history.chain(from_explored))?;
-    Ok(())
 }
 
 const LEGACY_ID_SPACE_SIZE: u64 = 4_773_622_240;
@@ -239,7 +215,6 @@ async fn get_random_frame(
     state: State<'_, AppState>,
 ) -> Result<prntsc::RandomItem, AppError> {
     let source = select_source(source.as_deref().unwrap_or("prntsc"))?;
-    state.take_api_token()?;
     let mut frame = random_frame(source, &state).await?;
     let item = frame.item.clone();
     state.store_pending(&mut frame);
@@ -250,13 +225,23 @@ async fn get_random_frame(
 async fn get_frame_by_id(
     source: Option<String>,
     id: String,
+    intent: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<prntsc::RandomItem, AppError> {
     let source = select_source(source.as_deref().unwrap_or("prntsc"))?;
     prntsc::validate_item_id(&id)?;
-    state.take_api_token()?;
     let mut frame = match source {
-        Source::Prntsc => state.prntsc.get_frame(&id).await?,
+        Source::Prntsc => {
+            if nearby_intent(intent.as_deref())? {
+                if let Some(frame) = state.nearby.take_handoff(&id) {
+                    frame
+                } else {
+                    nearby_full(&state, &id).await?
+                }
+            } else {
+                state.prntsc.get_frame(&id).await?
+            }
+        }
         Source::InternetArchive => {
             return Err(AppError::new(
                 ErrorKind::UnavailableSource,
@@ -273,17 +258,27 @@ async fn get_frame_by_id(
 async fn get_frame_image(
     source: Option<String>,
     id: String,
+    intent: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Response, AppError> {
     let source = select_source(source.as_deref().unwrap_or("prntsc"))?;
     prntsc::validate_item_id(&id)?;
     if let Some(bytes) = state.take_pending(source.id(), &id) {
-        return Ok(Response::new(bytes));
+        return Ok(Response::new((*bytes).clone()));
     }
 
-    state.take_api_token()?;
     let frame = match source {
-        Source::Prntsc => state.prntsc.get_frame(&id).await?,
+        Source::Prntsc => {
+            if nearby_intent(intent.as_deref())? {
+                if let Some(frame) = state.nearby.take_handoff(&id) {
+                    frame
+                } else {
+                    nearby_full(&state, &id).await?
+                }
+            } else {
+                state.prntsc.get_frame(&id).await?
+            }
+        }
         Source::InternetArchive => {
             return Err(AppError::new(
                 ErrorKind::UnavailableSource,
@@ -291,7 +286,104 @@ async fn get_frame_image(
             ));
         }
     };
-    Ok(Response::new(frame.bytes))
+    Ok(Response::new((*frame.bytes).clone()))
+}
+
+fn nearby_intent(intent: Option<&str>) -> Result<bool, AppError> {
+    match intent {
+        None | Some("standard") => Ok(false),
+        Some("nearby") => Ok(true),
+        _ => Err(AppError::invalid_input("Invalid fetch intent")),
+    }
+}
+async fn nearby_full(state: &AppState, id: &str) -> Result<FetchedFrame, AppError> {
+    let result = state.prntsc.fetch_outcome(id, false, true).await?;
+    if matches!(&result, prntsc::FetchOutcome::ConfirmedUnavailable { .. }) {
+        state.data.record_check(
+            prntsc::item_id_value(id)?,
+            persistence::ExplorationOutcome::Rejected,
+        )?;
+    }
+    result.into_frame()
+}
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri commands require owned arguments and state extractors"
+)]
+fn set_nearby_window(
+    session_id: String,
+    generation: u64,
+    center_id: String,
+    anchor_id: String,
+    state: State<'_, AppState>,
+) -> Result<nearby::WindowState, AppError> {
+    state
+        .ensure_imports_ready()
+        .map_err(|_| AppError::persistence("Finish initialization first"))?;
+    state
+        .nearby
+        .set_window(&session_id, generation, &center_id, &anchor_id, &state.data)
+}
+#[tauri::command]
+async fn resolve_nearby_frame(
+    session_id: String,
+    generation: u64,
+    id: String,
+    retry: Option<bool>,
+    state: State<'_, AppState>,
+    files: State<'_, thumbnail_cache::ThumbnailCache>,
+) -> Result<nearby::Resolution, AppError> {
+    state
+        .nearby
+        .resolve(
+            &session_id,
+            generation,
+            &id,
+            retry.unwrap_or(false),
+            &state.prntsc,
+            &state.data,
+            &files,
+        )
+        .await
+}
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri commands require owned arguments and state extractors"
+)]
+fn get_nearby_thumbnail(
+    session_id: String,
+    thumbnail_handle: String,
+    state: State<'_, AppState>,
+) -> Result<Response, AppError> {
+    state
+        .nearby
+        .thumbnail(&session_id, &thumbnail_handle)
+        .map(Response::new)
+}
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri commands require owned arguments and state extractors"
+)]
+fn close_nearby(
+    session_id: String,
+    selected_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), AppError> {
+    state.nearby.close(&session_id, selected_id.as_deref())
+}
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri commands require owned arguments and state extractors"
+)]
+fn record_nearby_history_item(
+    item: HistoryItem,
+    state: State<'_, AppState>,
+) -> Result<HistorySnapshot, AppError> {
+    state.data.accept_nearby(&item)
 }
 
 #[tauri::command]
@@ -302,7 +394,6 @@ async fn get_thumbnail_image(
 ) -> Result<Response, AppError> {
     let source = select_source(source.as_deref().unwrap_or("prntsc"))?;
     prntsc::validate_item_id(&id)?;
-    state.take_api_token()?;
     let frame = match source {
         Source::Prntsc => state.prntsc.get_thumbnail(&id).await?,
         Source::InternetArchive => {
@@ -312,7 +403,7 @@ async fn get_thumbnail_image(
             ));
         }
     };
-    Ok(Response::new(frame.bytes))
+    Ok(Response::new((*frame.bytes).clone()))
 }
 
 #[tauri::command]
@@ -615,14 +706,39 @@ fn get_viewing_activity(state: State<'_, AppState>) -> Result<ViewingActivity, A
                 rejected: daily.rejected,
             })
             .collect();
-        let frame_views = state.history.frame_views();
+        let frame_views = state.activity.draw_frame_views();
         Ok(ViewingActivity {
             viewed_total: state.activity.viewed_total(),
             days,
-            local_view_times: frame_views.iter().map(|view| Some(view.at_ms)).collect(),
+            local_view_times: draw_view_times(&state.history.snapshot().history, &frame_views),
             frame_views,
         })
     })
+}
+
+fn draw_view_times(history: &[HistoryItem], frame_views: &[FrameView]) -> Vec<Option<u64>> {
+    let normalized_id = |source: &str, id: &str| {
+        if source == "prntsc" {
+            prntsc::item_id_value(id).map_or_else(|_| id.to_owned(), prntsc::value_to_base36)
+        } else {
+            id.to_owned()
+        }
+    };
+    let mut times = std::collections::HashMap::with_capacity(frame_views.len());
+    for view in frame_views {
+        // Preserve the first discovery, including historical leading-zero aliases.
+        times
+            .entry((view.source.as_str(), normalized_id(&view.source, &view.id)))
+            .or_insert(view.at_ms);
+    }
+    history
+        .iter()
+        .map(|item| {
+            times
+                .get(&(item.source.as_str(), normalized_id(&item.source, &item.id)))
+                .copied()
+        })
+        .collect()
 }
 
 /// One-shot migration of the legacy client-side viewing counter into the backend store.
@@ -1027,6 +1143,11 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             get_platform_capabilities,
             #[cfg(target_os = "android")]
             exit_app,
+            set_nearby_window,
+            resolve_nearby_frame,
+            get_nearby_thumbnail,
+            close_nearby,
+            record_nearby_history_item,
             get_random_frame,
             get_frame_by_id,
             get_frame_image,
@@ -1358,5 +1479,77 @@ mod startup_guard_tests {
         state.imports_ready.send_replace(true);
         assert_eq!(state.ensure_imports_ready(), Ok(()));
         std::fs::remove_dir_all(directory).map_err(AppError::persistence)
+    }
+}
+
+#[cfg(test)]
+mod stats_performance_tests {
+    use super::*;
+    #[test]
+    fn stats_join_preserves_first_draw_aliases_and_provider_boundaries() {
+        let history: Vec<_> = [
+            ("prntsc", "0b"),
+            ("prntsc", "b"),
+            ("other", "0b"),
+            ("other", "b"),
+            ("prntsc", "c"),
+        ]
+        .into_iter()
+        .map(|(source, id)| HistoryItem {
+            source: source.into(),
+            id: id.into(),
+            source_page_url: String::new(),
+            viewed_at: 999,
+        })
+        .collect();
+        let views: Vec<_> = [
+            ("prntsc", "b", 10),
+            ("prntsc", "0b", 20),
+            ("other", "b", 30),
+        ]
+        .into_iter()
+        .map(|(source, id, at_ms)| FrameView {
+            source: source.into(),
+            id: id.into(),
+            at_ms,
+            day: "2026-10-19".into(),
+            day_inferred: false,
+        })
+        .collect();
+        assert_eq!(
+            draw_view_times(&history, &views),
+            vec![Some(10), Some(10), None, Some(30), None]
+        );
+    }
+    #[test]
+    #[ignore = "manual stats read benchmark"]
+    #[allow(
+        clippy::print_stderr,
+        reason = "measurement is reported from an ignored test"
+    )]
+    fn stats_join_timing() {
+        let history: Vec<_> = (0..10_000)
+            .map(|i| HistoryItem {
+                source: "prntsc".into(),
+                id: format!("a{i:06}"),
+                source_page_url: String::new(),
+                viewed_at: 0,
+            })
+            .collect();
+        let views: Vec<_> = history
+            .iter()
+            .enumerate()
+            .map(|(i, x)| FrameView {
+                source: x.source.clone(),
+                id: x.id.clone(),
+                at_ms: i as u64,
+                day: "2026-10-19".into(),
+                day_inferred: false,
+            })
+            .collect();
+        let start = std::time::Instant::now();
+        let times = std::hint::black_box(draw_view_times(&history, &views));
+        assert_eq!(times.last(), Some(&Some(9_999)));
+        eprintln!("stats 10k history/view join: {:?}", start.elapsed());
     }
 }

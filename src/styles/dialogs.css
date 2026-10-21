@@ -985,6 +985,21 @@
   text-align: center;
 }
 
+#stats-dialog .history-dialog__content {
+  height: min(82dvh, 760px);
+}
+.stats-status {
+  flex: 0 0 auto;
+  min-height: 1.5em;
+  margin: 12px 28px 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.stats-dialog__body[aria-busy="true"] .stats-headline__detail > span:last-child {
+  min-height: 1.45em;
+}
+
 .stats-dialog__body {
   min-height: 0;
   flex: 1;

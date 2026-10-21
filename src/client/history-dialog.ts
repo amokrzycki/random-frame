@@ -18,7 +18,7 @@ import {
   ensureThumbnail,
   persistThumbnails,
   releaseAllBlobs,
-  thumbnails,
+  thumbnailFor,
 } from "./frame-cache.js";
 import { goTo, loadById } from "./frame-loader.js";
 import { historyPage, PAGE_SIZES, pageOf, parsePageSize, savePageSize } from "./history-pagination.js";
@@ -127,7 +127,7 @@ async function loadTile(tile: PendingTile): Promise<void> {
   } catch {
     // The tile falls back to the striped placeholder.
   }
-  const src = thumbnails.get(key);
+  const src = thumbnailFor(key);
   tile.button.removeAttribute("data-loading");
   thumbnailObserver?.unobserve(tile.button);
   watched.delete(tile.button);
@@ -265,7 +265,7 @@ function renderHistoryPage(scroll = elements.historyBody.scrollTop): void {
     if (itemIndex >= 0 && itemIndex === state.index) button.setAttribute("aria-current", "true");
     if (favorite) button.dataset.favorite = "";
     const key = blobKey(source, id);
-    const thumbnailSrc = blobs.get(key)?.url ?? thumbnails.get(key) ?? "";
+    const thumbnailSrc = blobs.get(key)?.url ?? thumbnailFor(key) ?? "";
     if (!thumbnailSrc && failedThumbnails.has(key)) button.setAttribute("data-empty", "true");
     else if (!thumbnailSrc) {
       button.setAttribute("data-loading", "true");

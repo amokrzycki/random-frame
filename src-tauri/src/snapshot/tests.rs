@@ -18,14 +18,14 @@ fn v1_snapshot_preserves_operations_and_tombstones() -> Result<(), SnapshotError
 }
 
 #[test]
-fn v3_roundtrip_is_canonical_and_old_decoders_reject_it() -> Result<(), SnapshotError> {
+fn v4_roundtrip_is_canonical_and_old_decoders_reject_it() -> Result<(), SnapshotError> {
     let value = SyncSnapshot::default();
     let bytes = serialize_snapshot(&value)?;
-    assert_eq!(decode_snapshot(&bytes)?.original_schema_version, 3);
+    assert_eq!(decode_snapshot(&bytes)?.original_schema_version, 4);
     assert_eq!(parse_snapshot(&bytes)?, value);
     assert!(matches!(
         v1::parse_snapshot(&bytes),
-        Err(v1::SnapshotError::UnsupportedVersion(3))
+        Err(v1::SnapshotError::UnsupportedVersion(4))
     ));
     Ok(())
 }
@@ -434,7 +434,7 @@ fn frozen_v2_migration_and_v3_collection_sections_are_bounded_and_canonical(
     assert_eq!(parse_snapshot(&serialize_snapshot(&converted)?)?, converted);
     assert!(matches!(
         v2::decode_snapshot(&serialize_snapshot(&converted)?),
-        Err(SnapshotError::UnsupportedVersion(3))
+        Err(SnapshotError::UnsupportedVersion(4))
     ));
     let mut corrupt = converted.clone();
     corrupt.collections[0].name.value = "bad\nname".into();
@@ -490,5 +490,35 @@ fn seeded_collection_english_name_converges_without_changing_user_names(
     legacy.collections[0].name.clock = 0;
     legacy.collections[0].name.value = "Ulubione".into();
     assert_eq!(parse_snapshot(&serialize_snapshot(&legacy)?)?, legacy);
+    Ok(())
+}
+
+#[test]
+fn nearby_v4_separates_availability_from_seen_and_legacy_import_preserves_views(
+) -> Result<(), SnapshotError> {
+    let state = SyncSnapshot {
+        exploration: vec![ExplorationRecord {
+            source: "prntsc".into(),
+            id: "abc123".into(),
+            evidence: 1,
+        }],
+        ..SyncSnapshot::default()
+    };
+    let current = serialize_snapshot(&state)?;
+    assert_eq!(decode_snapshot(&current)?.original_schema_version, 4);
+    assert_eq!(decode_snapshot(&current)?.data.seen.len(), 0);
+    assert!(matches!(
+        v3::decode_snapshot(&current),
+        Err(SnapshotError::UnsupportedVersion(4))
+    ));
+    let old = v3::serialize_snapshot(&state)?;
+    let decoded = decode_snapshot(&old)?;
+    assert_eq!(decoded.original_schema_version, 3);
+    assert!(decoded.needs_upgrade);
+    assert_eq!(
+        decoded.data.seen,
+        vec![crate::sources::prntsc::item_id_value("abc123")
+            .map_err(|_| SnapshotError::InvalidLength)?]
+    );
     Ok(())
 }

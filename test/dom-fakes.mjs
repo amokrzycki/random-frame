@@ -109,7 +109,9 @@ class FakeElement extends EventTarget {
 
   // Blobs whose first byte is 255 stand in for images that will not decode.
   async decode() {
-    const [first] = new Uint8Array(await resolveObjectURL(this.src).arrayBuffer());
+    const [first] = this.src.startsWith("data:")
+      ? Buffer.from(this.src.slice(this.src.indexOf(",") + 1), "base64")
+      : new Uint8Array(await resolveObjectURL(this.src).arrayBuffer());
     if (first === 255) throw new Error("EncodingError");
   }
 
@@ -225,6 +227,17 @@ export const testCapabilities = {
 };
 
 export const ids = [
+  "nearby-button",
+  "nearby-menu-group",
+  "nearby-dialog",
+  "nearby-close",
+  "nearby-grid",
+  "nearby-status",
+  "nearby-live",
+  "nearby-retry",
+  "nearby-previous",
+  "nearby-next",
+  "nearby-center",
   "image",
   "image-zoom",
   "image-ghost",
@@ -394,6 +407,7 @@ export const ids = [
   "draw-button",
   "draw-label",
   "stats-body",
+  "stats-status",
   "ledger-list",
   "ledger-empty",
   "ledger-more",

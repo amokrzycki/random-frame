@@ -12,12 +12,12 @@ import {
 } from "../dist/test-client/statistics.js";
 
 test("formats the explored breakdown plainly once every explored id is classified", () => {
-  assert.equal(formatExploredBreakdown(101, 49, 52, 0), "49 drawn · 52 unavailable");
+  assert.equal(formatExploredBreakdown(101, 49, 52, 0), "49 available · 52 unavailable");
 });
 
 test("shows every explored category and rejects inconsistent counts", () => {
-  assert.equal(formatExploredBreakdown(101, 49, 50, 2), "49 drawn · 50 unavailable · 2 unclassified");
-  assert.equal(formatExploredBreakdown(10, 0, 0, 10), "0 drawn · 0 unavailable · 10 unclassified");
+  assert.equal(formatExploredBreakdown(101, 49, 50, 2), "49 available · 50 unavailable · 2 unclassified");
+  assert.equal(formatExploredBreakdown(10, 0, 0, 10), "0 available · 0 unavailable · 10 unclassified");
   assert.throws(() => formatExploredBreakdown(101, 49, 50, 0), /Inconsistent exploration counts/);
 });
 
@@ -115,4 +115,17 @@ test("ledger uses the source day and frame key after recovery", () => {
   const sourceViews = [{ source: "prntsc", id: "b", atMs: 0, day: "2026-10-02", dayInferred: false }];
   const ledger = ledgerDays([{ date: "2026-10-02", viewed: 1, rejected: 0 }], [null, null], frames, sourceViews);
   assert.deepEqual(ledger[0].frames, [1]);
+});
+
+test("Draw attribution joins legacy numeric aliases without including Nearby or other providers", () => {
+  const history = [
+    { source: "prntsc", id: "0b", viewedAt: 99 },
+    { source: "internet-archive", id: "b", viewedAt: 99 },
+    { source: "prntsc", id: "c", viewedAt: 99 },
+  ];
+  const activity = [{ source: "prntsc", id: "b", atMs: 1, day: "2026-10-02", dayInferred: false }];
+  assert.deepEqual(
+    ledgerDays([{ date: "2026-10-02", viewed: 1, rejected: 0 }], [null, null, null], history, activity)[0].frames,
+    [0],
+  );
 });
