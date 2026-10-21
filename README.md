@@ -19,7 +19,7 @@ Images come from [prnt.sc](https://prnt.sc/). The Rust backend resolves variable
 
 ### Nearby Frames
 
-Open the frame-ID menu and choose Nearby Frames to inspect four source IDs before and after the current image. Previous 4 and Next 4 move in base-36 source order; Current marks the viewer image even after the center moves. The current image appears immediately, and previews fill independently. Retry a failed tile; confirmed unavailable IDs stay distinct from source, decoder and storage errors.
+Use the Nearby Frames action beside Draw to inspect four source IDs before and after the current image. Previous 4 and Next 4 move in base-36 source order; Current marks the viewer image even after the center moves. The current image appears immediately, and previews fill independently. Retry a failed tile; confirmed unavailable IDs stay distinct from source, decoder and storage errors.
 
 Preview checks update IDs checked only. They do not add History, Seen IDs or Draw activity. Opening a thumbnail uses its full image and adds History/Seen with no Draw. Closing preserves the viewer and its History/Saved navigation. Completed checks survive restart, History clearing and Sync; grid position and thumbnails are not synced.
 
@@ -31,20 +31,26 @@ Click the star or press `F` to keep a frame in All saved. For an already saved f
 
 History → Saved lets you browse All saved, an individual collection, or Without a collection when that filter has images. Create, rename and delete collections there. Deleting a collection keeps its images saved. In a collection, open a tile’s Collections form to move the image: choose a destination, then Apply. Its other collections stay selected. Remove from all saved removes the global save and its assignments, with Undo; it leaves history and downloaded files alone. Clear all saved is available only in All saved and keeps empty collections.
 
-Existing favorites migrate once to a normal collection named **Ulubione**. You may rename or delete it. Saved frames retain links and metadata rather than permanent copies of the source images; an upstream image can disappear.
+Existing favorites migrate once to a normal collection named **Favourite**. You may rename it (for example, to Ulubione) or delete it. Saved frames retain links and metadata rather than permanent copies of the source images; an upstream image can disappear.
 
 ## Keyboard shortcuts
 
-| Key                 | Action                           |
-| ------------------- | -------------------------------- |
-| `N`, `Space`, `Enter` | Draw a new random image        |
-| `←` / `→`           | Previous / next frame in history |
-| `S`                 | Save the current image           |
-| `C`                 | Copy the current image           |
-| `F`                 | Save frame or open collections         |
-| `H`                 | Open History                     |
-| `?`                 | Toggle Keyboard shortcuts        |
-| `Esc`               | Close dialogs                    |
+Outside dialogs and menus, use these shortcuts. Toolbar arrows move within the focused toolbar; menu arrows move between its choices. `?` also closes its own shortcut sheet.
+
+| Key | Action |
+| --- | --- |
+| `N` | Draw a new random image |
+| `Space`, `Enter` | Draw when no control has focus |
+| `←` / `→` | Previous / next frame in the active History or Saved view, including a selected collection |
+| `S` | Save the current image to a file |
+| `C` | Copy the current image on supported platforms |
+| `F` | Save frame to the library or open Collections |
+| `H` | Open History |
+| `T` | Open Stats |
+| `?` | Toggle Keyboard shortcuts |
+| `Esc` | Close a dialog or cancel a draw |
+
+Open the image to inspect it in the enlarged view, which follows the same active History or Saved list. There, `←` / `→` step frames, `S` saves an image file, and `F` saves the frame or opens Collections. Use the zoom buttons, actual-size control, or `Ctrl` + scroll to zoom; `Shift` + arrows pans a zoomed image. On touch screens, pinch to zoom and drag to pan.
 
 ## Download
 
@@ -63,13 +69,15 @@ npx tauri dev
 
 `npm run dev` only watches and rebuilds the static frontend; Tauri runs the application.
 
-Sync needs a server endpoint. Set `RANDOM_FRAME_SYNC_BASE_URL` to a validated HTTPS URL for production, or a loopback HTTP URL for local testing, before launching or building the app. Without it, the gallery still works locally and Sync setup reports that the server is not configured. Sync is opt-in. Seen IDs, history, saved frames, collections and assignments, exploration progress, Activity Stats, theme, and history page size are sent only as an encrypted snapshot. Start a new Sync on the device that should become HEAD. Save its separate administration code: it can recover that same logical HEAD on a new installation, replacing the former installation’s access. To connect another device, generate a pairing request there, approve it on HEAD, then redeem the one-use invitation on the requesting device. The invitation lasts 24 hours, or until the group’s key changes; it contains neither the root nor the administration code. Choose Restore to adopt remote data, or Merge to preserve local changes and previous deletions. An empty device uses Restore. HEAD can remove other devices (remaining devices automatically update keys, including after several offline epochs) or dissolve the whole group. Local copies and saved image files remain on removed devices; downloaded knowledge cannot be erased remotely. HEAD cannot disconnect without recovery on another installation or dissolve. The server-verified membership list has separate HEAD and This device badges; Last synced does not mean online.
+Sync needs a server endpoint. Set `RANDOM_FRAME_SYNC_BASE_URL` to a validated HTTPS URL for production, or a loopback HTTP URL for local testing, before launching or building the app. Without it, the gallery still works locally and Sync setup reports that the server is not configured. Sync is opt-in. Seen IDs, history, saved frames, collections and assignments, exploration progress, Activity Stats, theme, and history page size are sent only as an encrypted snapshot. Start a new Sync on the device that should become the administrator. Save its separate administration code: it can recover that same logical administrator on a new installation, replacing the former installation’s access. To connect another device, generate a pairing request there, approve it on the administrator’s device, then redeem the one-use invitation on the requesting device. The invitation lasts 24 hours, or until the group’s key changes; it contains neither the root nor the administration code. Choose Restore to adopt remote data, or Merge to preserve local changes and previous deletions. An empty device uses Restore. The administrator can remove other devices (remaining devices automatically update keys, including after several offline epochs) or dissolve the whole group. Local copies and saved image files remain on removed devices; downloaded knowledge cannot be erased remotely. The administrator cannot disconnect without recovery on another installation or dissolve. The server-verified membership list has separate Administrator and This device badges; Last synced does not mean online.
 
-Existing keys remain on the legacy protocol, without a historical HEAD claim or administration actions. “Move to managed Sync” creates a separate group from the current legacy/local merge, preserving data, operation IDs and deletions. This device becomes its founder; other devices must join again. The old group remains unchanged and may remain accessible. Closing that old ID is a separate one-time operator action with confirmed agreement; creating v2 is not a global cutover. Old servers require an update for managed groups; the client never falls back to legacy credentials.
+With Sync connected, the app tries to upload changes shortly after you make them. It also tries to sync at startup and when you choose Sync now. Returning to the app tries to sync waiting changes immediately; when nothing is waiting, return checks run at most once every 15 minutes. When you close or leave, the app briefly tries to finish waiting changes. Anything unfinished stays queued for a later attempt.
 
-Membership protocol v2, its authenticated server control, envelope v2, and collection snapshot v4 are independent formats. The server's `snapshotSchemaFloor = 2` is the minimum supported plaintext format, not the format of its opaque current blob; it remains unchanged. There is no separate control signature in this protocol: HTTPS and the authenticated membership endpoint establish server authority, while HPKE and AEAD bind group, epoch and key ID. Clients enforce the maximum of that minimum, their accepted schema, config, and pending publication floor. The journal records the actual prepared schema; replay verifies it against the exact decrypted request and retains the expected revision before HTTP and the accepted revision after success.
+Existing keys remain on the legacy protocol, without a historical administrator claim or administration actions. “Move to managed Sync” creates a separate group from the current legacy/local merge, preserving data, operation IDs and deletions. This device becomes its founder; other devices must join again. The old group remains unchanged and may remain accessible. Closing that old ID is a separate one-time operator action with confirmed agreement; creating v2 is not a global cutover. Old servers require an update for managed groups; the client never falls back to legacy credentials.
 
-All managed publications preserve the whole library, including empty user collections, name registers, memberships, and tombstones. Existing managed v2 groups pause before merge, destructive Restore, rotation, recovery, or a v3 upload until Upgrade Sync is approved for the stable group ID. Invitations and administration codes identify that same group for consent; rotating its data key does not reset approval. Remote v3 needs no repeat approval. Moving legacy checks the old chain's upgrade consent independently before creating a new managed group. Restore keeps only domains absent from an older schema; a CAS retry that observes v3 stops preserving local collections. A transaction receipt prevents replay of an already applied managed Restore from erasing subsequent local edits.
+The administrator (HEAD in the protocol) is distinct from a member device. Membership protocol v2, its authenticated server control, envelope v2, and snapshot v4 (including collections and Nearby availability) are independent formats. The server's `snapshotSchemaFloor = 2` is the minimum supported plaintext format, not the format of its opaque current blob; it remains unchanged. There is no separate control signature in this protocol: HTTPS and the authenticated membership endpoint establish server authority, while HPKE and AEAD bind group, epoch and key ID. Clients enforce the maximum of that minimum, their accepted schema, config, and pending publication floor. The journal records the actual prepared schema; replay verifies it against the exact decrypted request and retains the expected revision before HTTP and the accepted revision after success.
+
+All managed publications preserve the whole library, including empty user collections, name registers, memberships, and tombstones. Existing chains with snapshot v1–v3, including managed groups using membership protocol v2, pause before merge, destructive Restore, rotation, recovery, or a v4 upload until Upgrade Sync is approved for the stable group ID. Invitations and administration codes identify that same group for consent; rotating its data key does not reset approval. Remote v4 needs no repeat approval; previous collection-format consent does not approve v4. Moving legacy checks the old chain's upgrade consent independently before creating a new managed group. Restore keeps only domains absent from an older schema; a CAS retry that observes v3 or newer stops preserving local collections, while v4 separately distinguishes available IDs from viewed IDs. A transaction receipt prevents replay of an already applied managed Restore from erasing subsequent local edits.
 
 The client stores v2 credentials and pending secrets in a separate OS keyring entry (the existing Keystore adapter and backup exclusions on Android). `sync-admin.json` contains only operation metadata and hashes; the exact encrypted request is journaled before HTTP and survives a lost response/restart. Administration recovery first prepares the new code, then requires confirmation that it was saved before committing. The old code becomes invalid only after successful commit. Images saved to files are not backed up.
 
@@ -95,7 +103,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
 
-Collections use snapshot v4 with the existing encrypted envelope and HTTP API. Before upgrading an existing v1/v2 Sync, the app asks you to update your other devices and explicitly choose Upgrade Sync. Later leaves local edits waiting; no replacement v2 snapshot is uploaded. Older apps stop syncing after the upgrade, but keep their local data. A new Sync requires collection-capable clients from the start. The known-device list does not confirm their app versions or presence.
+Collections arrived in snapshot v3; current snapshot v4 also separates Nearby availability from viewing, using the existing encrypted envelope and HTTP API. Before upgrading an existing v1–v3 chain, the app asks you to update your other devices and explicitly choose Upgrade Sync. Later leaves local edits waiting; no replacement older-format snapshot is uploaded. Older apps stop syncing after the upgrade, but keep their local data. A new Sync requires Nearby-capable clients from the start. The known-device list does not confirm their app versions or presence.
 
 ## Privacy
 

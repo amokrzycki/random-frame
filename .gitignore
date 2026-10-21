@@ -9,3 +9,5 @@ node_modules/
 .codegraph
 .codex
 /NEARBY_VERIFICATION.md
+/UX_DECISIONS.md
+/AGENTS.override.md

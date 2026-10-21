@@ -193,8 +193,8 @@ main,
 @media (forced-colors: active) {
   .history-filter__option[aria-selected="true"],
   .theme-picker button[aria-checked="true"],
-  #favorite-button[aria-pressed="true"],
-  .lightbox-favorite[aria-pressed="true"] {
+  #favorite-button[data-saved],
+  .lightbox-favorite[data-saved] {
     forced-color-adjust: none;
     color: HighlightText;
     background: Highlight;

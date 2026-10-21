@@ -8,7 +8,7 @@ web
 
 ## Stack
 
-Tauri 2 desktop application with a plain HTML, CSS and TypeScript interface and a Rust backend. The backend resolves public Prnt.sc images because the source blocks cross-origin framing.
+Tauri 2 desktop application with a plain HTML, CSS and TypeScript interface and a Rust backend. The on-device Rust backend resolves and fetches public Prnt.sc images because the source blocks cross-origin framing.
 
 ## Users
 
@@ -26,12 +26,14 @@ Instead of an endless feed, Random Frame offers one deliberate draw at a time ac
 
 The gallery is used as a focused desktop utility in a resizable window, primarily with keyboard and mouse. History can Sync across linked devices and can be cleared; known removals propagate through Sync, while new history created offline may appear later. Saved frames, their collection assignments, and Seen IDs can Sync and survive History clearing. Local activity Stats (Frames drawn, Today, streak, and daily results) reset with History. Prnt.sc exploration progress is durable across History clearing and restarts, and Syncs with the rest. The Sync dialog states what Sync covers, that images saved to files are not backed up, when this device last synced, and server-verified membership for managed groups, with separate Administrator and This device labels. Legacy lists only devices known from past syncs; neither list implies online presence. The administrator approves pairing requests, removes other devices with automatic key rotation, and can dissolve the group. A separate administration code recovers the same logical administrator on a new installation, replacing its previous credentials. Moving legacy creates a new group and leaves the old group unchanged.
 
+With Sync connected, local mutations are batched after a one-second quiet period for an upload attempt. Startup, Sync now, and return to the app also trigger attempts; return checks are throttled to 15 minutes only when nothing is waiting. Close/leave briefly tries to finish queued changes, with a five-second Sync budget after a possible separate five-second startup-import wait. Failed or unfinished changes stay queued for a later trigger; there is no periodic failure-retry timer.
+
 ## Capabilities and Constraints
 
 - The current implementation uses Prnt.sc and its variable-length lowercase alphanumeric identifiers within the known legacy range.
 - Imgur is not a planned provider because new developer accounts cannot currently be registered.
 - Wikimedia Commons, Internet Archive, and other sources with accessible APIs remain candidates; provider choice, selection rules, attribution, moderation, and mixed-source behavior are open decisions for the next planning phase.
-- Prnt.sc blocks cross-origin framing, so the current app resolves and proxies its public image through the server.
+- Prnt.sc blocks cross-origin framing, so the on-device Rust backend resolves the source page and fetches the image bytes for the webview. These provider requests originate from the device; there is no separate image-proxy service.
 - Previous/next navigation and direct image download are required.
 - The star and `F` save an unsaved frame immediately without assigning a collection. For a saved frame they open Collections. A frame can belong to zero or many collections; deleting a collection or its last assignment keeps the global save. Global removal and Clear all saved offer Undo and keep history and downloaded files.
 - Existing favorites migrate once into a normal collection named Favourite, which can be renamed or deleted. Saved frames retain source links and metadata, not permanent copies of upstream images.

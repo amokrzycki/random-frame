@@ -127,8 +127,16 @@ test("quick save, collection drafts, stable Apply retry, filtering, stale recove
   const get = (id) => document.querySelector(`#${id}`);
   const star = get("favorite-button"),
     dialog = get("collections-dialog");
-  assert.equal(star.getAttribute("aria-label"), "Save frame");
-  assert.equal(star.getAttribute("aria-pressed"), "false");
+  const assertSavedCommands = (saved) => {
+    for (const button of [star, get("lightbox-favorite")]) {
+      assert.equal(button.tagName, "BUTTON");
+      assert.equal(button.hasAttribute("aria-pressed"), false);
+      assert.equal(button.getAttribute("aria-label"), saved ? "Saved frame, open collections" : "Save frame");
+      assert.equal(button.hasAttribute("data-saved"), saved);
+      assert.equal(button.getAttribute("aria-haspopup"), saved ? "dialog" : null);
+    }
+  };
+  assertSavedCommands(false);
   holdSave = true;
   star.click();
   star.click();
@@ -137,8 +145,7 @@ test("quick save, collection drafts, stable Apply retry, filtering, stale recove
   pauseSave();
   await flush();
   holdSave = false;
-  assert.equal(star.hasAttribute("data-saved"), true);
-  assert.equal(star.getAttribute("aria-haspopup"), "dialog");
+  assertSavedCommands(true);
   star.click();
   assert.equal(dialog.open, true);
   get("collections-name").value = "Canceled";
@@ -210,12 +217,14 @@ test("quick save, collection drafts, stable Apply retry, filtering, stale recove
   await flush();
   assert.equal(dialog.open, false);
   assert.equal(library.items.length, 1);
+  assertSavedCommands(false);
   const notices = document.body.children.flatMap((region) => region.children);
   const undo = notices.at(-1).children[0];
   assert.equal(undo.textContent, "Undo");
   undo.click();
   await flush();
   assert.equal(library.items.length, 2);
+  assertSavedCommands(true);
   // Hiding the empty Without a collection destination is a product requirement.
   library.memberships = library.items.map((saved, i) => ({
     operationId: Array(16).fill(i + 20),

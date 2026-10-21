@@ -2467,14 +2467,14 @@
 
 /* Leave a stable overlay gap below collection surfaces; notices never resize
    the content or sit on the fixed actions. The list alone absorbs small windows. */
-:is(#history-dialog, .collections-dialog) {
+:root:not([data-platform="android"]) :is(#history-dialog, .collections-dialog) {
   --collection-dialog-height: min(82dvh, calc(100dvh - 160px), 760px);
   max-height: var(--collection-dialog-height);
 }
-:is(#history-dialog, .collections-dialog) > .history-dialog__content {
+:root:not([data-platform="android"]) :is(#history-dialog, .collections-dialog) > .history-dialog__content {
   max-height: var(--collection-dialog-height);
 }
-#history-dialog .history-dialog__content {
+:root:not([data-platform="android"]) #history-dialog .history-dialog__content {
   height: var(--collection-dialog-height);
 }
 
