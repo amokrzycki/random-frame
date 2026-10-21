@@ -94,6 +94,28 @@ function installFixture() {
   })();
 }
 
+async function waitForNearby(evaluate, centerId) {
+  return evaluate(`(async () => {
+    const deadline = Date.now() + 15000;
+    let state;
+    do {
+      const fixture = window.__nearbySmoke;
+      state = {
+        open: document.querySelector('#nearby-dialog').open,
+        center: document.querySelector('#nearby-center').textContent,
+        active: fixture.active, maximum: fixture.maximum, resolves: fixture.resolves,
+        tiles: [...document.querySelectorAll('#nearby-grid .nearby-tile')].map(tile => ({
+          id: tile.querySelector('.nearby-id').textContent, state: tile.dataset.state, message: tile.title,
+        })),
+      };
+      if (state.open && state.center === ${JSON.stringify(centerId)} && state.tiles.length === 9 &&
+          state.active === 0 && state.tiles.every(tile => !['queued', 'loading'].includes(tile.state))) return state;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    } while (Date.now() < deadline);
+    throw new Error('Nearby timed out waiting for settled previews: ' + JSON.stringify(state));
+  })()`);
+}
+
 export async function runNearbySmoke({ adb, evaluate, check, sleep }) {
   check(await evaluate(`(${installFixture.toString()})()`), "Nearby fixture full image is displayed");
   const before = await evaluate(
@@ -105,12 +127,10 @@ export async function runNearbySmoke({ adb, evaluate, check, sleep }) {
     ),
     "Nearby shows Current before preview completion",
   );
-  await sleep(1200);
+  const initial = await waitForNearby(evaluate, "abc123");
   check(
-    await evaluate(
-      `window.__nearbySmoke.maximum===2 && window.__nearbySmoke.resolves===8 && document.querySelector('#nearby-grid').children.length===9`,
-    ),
-    "Nearby starts eight fixture checks with two resolves maximum",
+    initial.maximum === 2 && initial.resolves === 8,
+    `Nearby starts eight fixture checks with two resolves maximum: ${JSON.stringify(initial)}`,
   );
   check(
     await evaluate(
@@ -119,12 +139,13 @@ export async function runNearbySmoke({ adb, evaluate, check, sleep }) {
     "Android Nearby keeps controls visible, 48px targets and no document scroll",
   );
   await evaluate(`document.querySelector('#nearby-next').click();true`);
-  await sleep(1000);
+  const moved = await waitForNearby(evaluate, "abc127");
   check(
-    await evaluate(
-      `document.querySelector('#nearby-center').textContent==='abc127' && document.querySelector('#nearby-grid').children[0].querySelector('[aria-current="true"]')!==null && window.__nearbySmoke.resolves===12`,
-    ),
-    "Next 4 retains Current and introduces exactly four fixture checks",
+    moved.resolves === 12 &&
+      (await evaluate(
+        `document.querySelector('#nearby-grid').children[0].querySelector('[aria-current="true"]')!==null`,
+      )),
+    `Next 4 retains Current and introduces exactly four fixture checks: ${JSON.stringify(moved)}`,
   );
   adb("shell", "input", "keyevent", "KEYCODE_BACK");
   await sleep(1000);
@@ -143,7 +164,7 @@ export async function runNearbySmoke({ adb, evaluate, check, sleep }) {
     "Nearby fixture inspection and Back preserve native History and Activity",
   );
   await evaluate(`document.querySelector('#nearby-button').click();true`);
-  await sleep(400);
+  await waitForNearby(evaluate, "abc123");
   await evaluate(`document.querySelector('[aria-current="true"]').click();true`);
   await sleep(400);
   check(
@@ -155,7 +176,7 @@ export async function runNearbySmoke({ adb, evaluate, check, sleep }) {
     "activating Current makes no native persistence changes",
   );
   await evaluate(`document.querySelector('#nearby-button').click();true`);
-  await sleep(400);
+  await waitForNearby(evaluate, "abc123");
   await evaluate(`document.querySelector('[aria-label="Open Prnt.sc frame abc124"]').click();true`);
   await sleep(1200);
   const after = await evaluate(
