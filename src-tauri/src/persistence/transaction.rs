@@ -800,13 +800,7 @@ impl PersistentState {
                     return Ok(id);
                 }
             }
-            let id = operation_id()
-                .iter()
-                .fold(String::with_capacity(32), |mut output, byte| {
-                    use std::fmt::Write;
-                    let _ = write!(output, "{byte:02x}");
-                    output
-                });
+            let id = hex::encode(operation_id());
             clears.requests.insert(
                 id.clone(),
                 Some(ClearRequest {

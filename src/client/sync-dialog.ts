@@ -173,8 +173,8 @@ function totalDeletions(summary: LocalSyncSummary): number {
     summary.historyRemovals +
     summary.favoriteRemovals +
     summary.activityRemovals +
-    (summary.collectionRemovals ?? 0) +
-    (summary.membershipRemovals ?? 0)
+    summary.collectionRemovals +
+    summary.membershipRemovals
   );
 }
 
@@ -321,15 +321,16 @@ function deviceRow(device: DeviceSummary): HTMLLIElement {
     row.append(badge);
   }
   if (device.status && device.status !== "active") meta.textContent += ` · ${device.status}`;
-  if (isMaster() && !device.thisDevice && device.status === "active" && device.memberId) {
+  const memberId = device.memberId;
+  if (isMaster() && !device.thisDevice && device.status === "active" && memberId) {
     const remove = document.createElement("button");
     remove.className = "sync-dialog__button sync-dialog__button--danger";
     remove.type = "button";
     remove.textContent = "Remove device";
-    remove.setAttribute("aria-label", `Remove ${device.displayName}, ${device.memberId.slice(0, 8)}`);
+    remove.setAttribute("aria-label", `Remove ${device.displayName}, ${memberId.slice(0, 8)}`);
     remove.disabled = busy;
     remove.addEventListener("click", () => {
-      removeTarget = { memberId: device.memberId as string, name: device.displayName };
+      removeTarget = { memberId, name: device.displayName };
       elements.syncRemoveTarget.textContent = `${removeTarget.name} · member ${removeTarget.memberId.slice(0, 8)}`;
       elements.syncRemoveConfirm.hidden = false;
       render();

@@ -8,8 +8,6 @@ repository = "https://github.com/amokrzycki/random-frame"
 edition = "2021"
 rust-version = "1.90"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [lib]
 name = "random_frame_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]

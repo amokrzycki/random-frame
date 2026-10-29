@@ -102,9 +102,6 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-
-Collections arrived in snapshot v3; current snapshot v4 also separates Nearby availability from viewing, using the existing encrypted envelope and HTTP API. Before upgrading an existing v1–v3 chain, the app asks you to update your other devices and explicitly choose Upgrade Sync. Later leaves local edits waiting; no replacement older-format snapshot is uploaded. Older apps stop syncing after the upgrade, but keep their local data. A new Sync requires Nearby-capable clients from the start. The known-device list does not confirm their app versions or presence.
-
 ## Privacy
 
 Random Frame has no accounts, analytics, telemetry, or ads. Settings and statistics are stored on your device. Optional Sync sends an encrypted snapshot of Seen IDs, history, saved frames, collections and assignments, exploration progress, Activity Stats, and preferences to a Sync server; its operator cannot read the plaintext contents but can see connection metadata, group/member IDs, public keys and membership state, transfer size and timing. The app also connects to prnt.sc for images and GitHub for updates. Files are saved only where you choose.

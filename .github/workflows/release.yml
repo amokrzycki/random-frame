@@ -133,10 +133,8 @@ jobs:
           # Tauri rewrites cached plugins; exclude dependencies in every linuxdeploy invocation instead.
           export LINUXDEPLOY_EXCLUDED_LIBRARIES='libwayland-*.so*;libxkbcommon*.so*;libxcb-*.so*;libXau.so*;libXdmcp.so*'
 
-          # 1. Run the actual Tauri build with all passed arguments
           npx tauri "$@"
 
-          # 2. Safely locate built AppImage using nullglob
           shopt -s nullglob
           appimages=(src-tauri/target/release/bundle/appimage/*.AppImage)
           shopt -u nullglob
@@ -156,7 +154,6 @@ jobs:
             chmod +x "$APPIMAGE"
             "$APPIMAGE" --appimage-extract > /dev/null
 
-            # Ensure none of the excluded display-stack libraries remain bundled
             FORBIDDEN_LIBS=$(find squashfs-root/usr/lib* -type f \( \
               -name "libwayland-*.so*" -o \
               -name "libxkbcommon*.so*" -o \
@@ -191,46 +188,6 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
           tauriScript: ${{ matrix.tauriScript }}
-
-      - name: Verify AppImage bundled libraries
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          shopt -s nullglob
-          appimages=(src-tauri/target/release/bundle/appimage/*.AppImage)
-          shopt -u nullglob
-
-          if [ ${#appimages[@]} -eq 0 ]; then
-            echo "::error::AppImage artifact not found in target directory!"
-            exit 1
-          fi
-
-          APPIMAGE="$(realpath "${appimages[0]}")"
-          echo "Verifying AppImage: $APPIMAGE"
-          VERIFY_DIR=$(mktemp -d)
-          trap 'rm -rf "$VERIFY_DIR"' EXIT
-
-          (
-            cd "$VERIFY_DIR"
-            chmod +x "$APPIMAGE"
-            "$APPIMAGE" --appimage-extract > /dev/null
-
-            # Ensure none of the excluded display-stack libraries remain bundled
-            FORBIDDEN_LIBS=$(find squashfs-root/usr/lib* -type f \( \
-              -name "libwayland-*.so*" -o \
-              -name "libxkbcommon*.so*" -o \
-              -name "libxcb-*.so*" -o \
-              -name "libXau.so*" -o \
-              -name "libXdmcp.so*" \
-            \) 2>/dev/null)
-
-            if [ -n "$FORBIDDEN_LIBS" ]; then
-              echo "::error::Forbidden display-stack libraries detected in AppImage:"
-              echo "$FORBIDDEN_LIBS"
-              exit 1
-            fi
-          )
-
-          echo "AppImage verification passed: No conflicting display-stack libraries found."
 
   # Builds and verifies the signed APK, but never touches the release: publish attaches it only after
   # the physical-device test of this exact artifact.

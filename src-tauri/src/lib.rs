@@ -434,12 +434,9 @@ fn record_accepted_frame(
     legacy_import: bool,
 ) -> Result<HistorySnapshot, AppError> {
     let source = select_source(&item.source)?;
-    let legacy_id = if source == Source::Prntsc {
-        Some(prntsc::item_id_value(&item.id)?)
-    } else {
-        None
-    };
-    let _ = legacy_id;
+    if source == Source::Prntsc {
+        prntsc::item_id_value(&item.id)?;
+    }
     state.data.accept(item, legacy_import)
 }
 

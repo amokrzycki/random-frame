@@ -583,10 +583,11 @@ let savedClearAttempted = false;
 async function clearSavedFavorites(): Promise<void> {
   if (state.loading || state.savedFilter !== "all") return;
   savedClearRequest ??= { requestId: newOperationId(), frames: state.favorites.map(savedFrameRef) };
+  const request = savedClearRequest;
   savedClearAttempted = true;
   try {
     const result = await mutateSavedLibrary(async () => {
-      const result = await clearSavedFrames(savedClearRequest as RemoveSavedRequest);
+      const result = await clearSavedFrames(request);
       applySavedLibrary(result.library);
       return result;
     });
