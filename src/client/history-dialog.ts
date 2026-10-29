@@ -360,7 +360,6 @@ function showFilter(next: HistoryDialogTab): void {
   filter = next;
   state.historyTab = next;
   restoreView();
-  elements.historyBody.dataset.tabTransition = next;
 }
 
 function restoreView(): void {
@@ -376,7 +375,6 @@ function restoreView(): void {
 
 export function openHistory(returnFocus?: HTMLElement): void {
   if (state.loading) return;
-  delete elements.historyBody.dataset.tabTransition;
   if (returnFocus) state.historyReturnFocus = returnFocus;
   elements.historyClear.disabled = !state.history.length;
   failedThumbnails.clear();

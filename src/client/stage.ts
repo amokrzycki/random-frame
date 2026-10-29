@@ -33,22 +33,9 @@ const statePanels: Record<ViewState, HTMLElement> = {
 // Scripted motion is reliable in the desktop webview; CSS owns the delayed entrance.
 const reducedMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)");
 let focusAnimations: Animation[] = [];
-let captionWidth: Animation | undefined;
-
-// The caption sizes the whole button, so tween its width between the measured old and new text.
 function setImageId(id: string) {
   if (elements.imageIdValue.textContent === id) return;
-  const caption = elements.imageIdValue.parentElement;
-  const from = caption?.getBoundingClientRect().width;
-  captionWidth?.cancel();
   elements.imageIdValue.textContent = id;
-  if (!caption || !from) return;
-  const to = caption.getBoundingClientRect().width;
-  if (reducedMotion?.matches || from === to) return;
-  captionWidth = caption.animate(
-    { width: [`${from}px`, `${to}px`] },
-    { duration: 320, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
-  );
 }
 let loadingSince = 0;
 let messageTimer: ReturnType<typeof setTimeout> | undefined;
@@ -381,10 +368,12 @@ let releaseGhost: (() => void) | undefined;
 export function swapImage(url: string, id: string): void {
   const { image, imageGhost: ghost } = elements;
   const outgoing = image.src;
-  const crossfade = !elements.imageZoom.hidden && outgoing.startsWith("blob:") && outgoing !== url;
+  const interrupted = image.getAnimations?.().some((effect) => ["running", "paused"].includes(effect.playState));
+  const crossfade = !interrupted && !elements.imageZoom.hidden && outgoing.startsWith("blob:") && outgoing !== url;
   releaseGhost?.();
   releaseGhost = crossfade ? borrowBlobUrl(outgoing) : undefined;
   ghost.hidden = !crossfade;
+  if (!crossfade) ghost.src = "";
   delete ghost.dataset.dimmed;
   if (crossfade) {
     ghost.src = outgoing;
@@ -393,7 +382,9 @@ export function swapImage(url: string, id: string): void {
   }
   image.src = url;
   image.alt = `Public image from Prnt.sc with identifier ${id}`;
-  restartAnimation(image);
+  // A rapid replacement settles immediately instead of promoting a partial exposure to an opaque ghost.
+  if (interrupted) image.style.animation = "none";
+  else restartAnimation(image);
   setState("image");
 }
 

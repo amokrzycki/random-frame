@@ -39,7 +39,9 @@
   .toast,
   .toast--leaving,
   .entry-consent input::before,
-  .entry-consent input:checked::before {
+  .entry-consent input:checked::before,
+  .sync-dialog__saved input::before,
+  .sync-dialog__saved input:checked::before {
     transform: none;
   }
 
@@ -129,6 +131,8 @@
     transform: none !important;
   }
 
+  .frame-id:active,
+  .ledger__thumb:active,
   .history-item:active,
   .history-pager__step:active:not(:disabled),
   .history-pager__select select:active,
@@ -152,6 +156,8 @@
   /* Presses still register, as a dip instead of a squeeze. */
   :is(
     .nav-button,
+    .frame-id,
+    .ledger__thumb,
     .history-item,
     .primary-action,
     .info-icon,

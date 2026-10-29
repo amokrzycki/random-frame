@@ -42,6 +42,7 @@ let lastNotice = "";
 let selected: string | undefined;
 const nodes = new Map<string, TileNode>();
 let animation: Animation | undefined;
+let motionGeneration = 0;
 let loadingTimer: ReturnType<typeof setTimeout> | undefined;
 let summaryTimer: ReturnType<typeof setTimeout> | undefined;
 let pauseTimer: ReturnType<typeof setTimeout> | undefined;
@@ -52,6 +53,7 @@ let bound = false;
 const reduced = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)");
 
 function settleMotion(): void {
+  motionGeneration++;
   animation?.cancel();
   animation = undefined;
   for (const node of nodes.values())
@@ -263,10 +265,11 @@ async function move(direction: -1 | 1): Promise<void> {
   button.focus();
   settleMotion();
   const generation = moving.generation + 1;
+  const motion = motionGeneration;
   await moving.move(center);
   if (session !== moving || !moving.active || moving.generation !== generation) return;
   elements.nearbyLive.textContent = `Nearby frames centered on ${center}, in source order`;
-  if (!reduced?.matches)
+  if (motion === motionGeneration && !document.hidden && !moving.paused && !reduced?.matches)
     animation = elements.nearbyGrid.animate?.(
       [
         { transform: `translateX(${direction * 4}px)`, opacity: 0.85 },
