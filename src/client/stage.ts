@@ -1,6 +1,6 @@
 import { elements } from "./elements.js";
 import { describeError } from "./errors.js";
-import { blobKey, blobs, cacheThumbnail, releaseBlobUrl, savedFrames } from "./frame-cache.js";
+import { blobKey, blobs, borrowBlobUrl, cacheBlob, cacheThumbnail, savedFrames } from "./frame-cache.js";
 import { pickLoadingMessage } from "./loading-copy.js";
 import { adjacentPrntscId, nextHistoryIndex } from "./navigation.js";
 import { toast } from "./toast.js";
@@ -362,16 +362,12 @@ export async function decodedUrl(blob: Blob): Promise<string> {
 }
 
 export function showFrame(source: string, id: string, blob: Blob, url: string): void {
-  const oldUrl = elements.image.src;
   const key = blobKey(source, id);
-  blobs.set(key, { blob, url });
-  void cacheThumbnail(key, blob);
   swapImage(url, id);
+  cacheBlob(key, { blob, url });
+  void cacheThumbnail(key, blob);
   syncControls();
   elements.announcer.textContent = `Showing frame ${id}`;
-  // The outgoing frame may still be fading out on the ghost, so release it after the crossfade.
-  if (oldUrl.startsWith("blob:") && ![...blobs.values()].some((item) => item.url === oldUrl))
-    setTimeout(() => releaseBlobUrl(oldUrl), 1000);
 }
 
 export function restartAnimation(target: HTMLElement): void {
@@ -381,10 +377,13 @@ export function restartAnimation(target: HTMLElement): void {
 }
 
 // The outgoing frame fades out beneath the incoming one, so a draw never cuts through an empty stage.
+let releaseGhost: (() => void) | undefined;
 export function swapImage(url: string, id: string): void {
   const { image, imageGhost: ghost } = elements;
   const outgoing = image.src;
   const crossfade = !elements.imageZoom.hidden && outgoing.startsWith("blob:") && outgoing !== url;
+  releaseGhost?.();
+  releaseGhost = crossfade ? borrowBlobUrl(outgoing) : undefined;
   ghost.hidden = !crossfade;
   delete ghost.dataset.dimmed;
   if (crossfade) {
@@ -413,5 +412,8 @@ export function bindStageEvents(): void {
   });
   elements.imageGhost.addEventListener("animationend", () => {
     elements.imageGhost.hidden = true;
+    elements.imageGhost.src = "";
+    releaseGhost?.();
+    releaseGhost = undefined;
   });
 }

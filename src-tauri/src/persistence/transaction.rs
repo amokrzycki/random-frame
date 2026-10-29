@@ -225,9 +225,12 @@ impl PersistentState {
         mut generation: Generation,
     ) -> Result<Generation, AppError> {
         self.read(|| {
+            let before = self.preferences.generation();
             self.preferences
                 .merge(crate::snapshot::PreferencesV2::default(), vec![record])?;
-            generation[5] = self.preferences.generation();
+            if generation[5] == before {
+                generation[5] = self.preferences.generation();
+            }
             Ok(generation)
         })
     }

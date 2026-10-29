@@ -63,10 +63,24 @@ struct AppState {
     activity: Arc<ActivityStore>,
     // UI loads one frame at a time; use a keyed cache if concurrent consumers are added.
     pending: Mutex<Option<PendingFrame>>,
+    _profile_lock: std::fs::File,
 }
 
 impl AppState {
     fn new(data_directory: &Path, app_handle: Option<tauri::AppHandle>) -> Result<Self, AppError> {
+        std::fs::create_dir_all(data_directory).map_err(AppError::persistence)?;
+        let profile_lock = std::fs::File::options()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(data_directory.join("profile.lock"))
+            .map_err(AppError::persistence)?;
+        profile_lock.try_lock().map_err(|error| {
+            AppError::persistence(format!(
+                "Cannot lock app data; another Random Frame may be running: {error}"
+            ))
+        })?;
         let data = Arc::new(PersistentState::new(data_directory)?);
         let explored = Arc::clone(&data.explored);
         let activity = Arc::clone(&data.activity);
@@ -102,6 +116,7 @@ impl AppState {
             sync,
             activity,
             pending: Mutex::new(None),
+            _profile_lock: profile_lock,
         })
     }
 
@@ -1209,6 +1224,53 @@ mod tests {
     use super::*;
 
     #[test]
+    fn profile_lock_blocks_other_processes_until_exit() -> Result<(), Box<dyn Error>> {
+        const DIRECTORY: &str = "RF_TEST_LOCK_DIRECTORY";
+        if let Some(directory) = std::env::var_os(DIRECTORY) {
+            let state = AppState::new(Path::new(&directory), None);
+            assert_eq!(
+                state.is_ok(),
+                std::env::var_os("RF_TEST_LOCK_AVAILABLE").is_some()
+            );
+            return Ok(());
+        }
+        let directory = test_state_directory("profile-lock");
+        let state = AppState::new(&directory, None)?;
+        record_accepted_frame(&history_item("abc123"), &state, false)?;
+        let history = std::fs::read(directory.join("history-v3.json"))?;
+        let child = |available: bool| {
+            let mut command = std::process::Command::new(std::env::current_exe()?);
+            command.args([
+                "--exact",
+                "tests::profile_lock_blocks_other_processes_until_exit",
+            ]);
+            command.env(DIRECTORY, &directory);
+            command.env_remove("RF_TEST_LOCK_AVAILABLE");
+            if available {
+                command.env("RF_TEST_LOCK_AVAILABLE", "1");
+            }
+            command.output()
+        };
+        let output = child(false)?;
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        assert_eq!(std::fs::read(directory.join("history-v3.json"))?, history);
+        drop(state);
+        assert!(child(true)?.status.success());
+        assert!(AppState::new(&directory, None)?
+            .history
+            .snapshot()
+            .history
+            .iter()
+            .any(|x| x.id == "abc123"));
+        std::fs::remove_dir_all(directory)?;
+        Ok(())
+    }
+
+    #[test]
     fn preserves_retry_decisions_and_linear_backoff() {
         let missing = AppError::upstream("source", StatusCode::NOT_FOUND);
         let forbidden = AppError::upstream("source", StatusCode::FORBIDDEN);
@@ -1313,6 +1375,7 @@ mod tests {
         assert_eq!(restarted.explored.count(), 1);
         assert_eq!(restarted.explored.viewable_count(), 1);
         assert_eq!(restarted.activity.viewed_total(), 0);
+        drop(restarted);
         std::fs::remove_dir_all(directory).map_err(AppError::persistence)
     }
 
@@ -1327,6 +1390,7 @@ mod tests {
         record_accepted_frame(&history_item("abc123"), &state, false)?;
         assert_eq!(state.history.snapshot().history.len(), 1);
         assert_eq!(state.activity.viewed_total(), 1);
+        drop(state);
         std::fs::remove_dir_all(directory).map_err(AppError::persistence)
     }
 
@@ -1363,6 +1427,7 @@ mod tests {
         let restarted = AppState::new(&directory, None)?;
         assert!(restarted.seen.contains(42));
         assert_eq!(restarted.explored.count(), 0);
+        drop(restarted);
         std::fs::remove_dir_all(directory).map_err(AppError::persistence)
     }
 
@@ -1438,6 +1503,7 @@ mod tests {
         ));
         assert_eq!(state.explored.count(), 0);
         assert_eq!(state.activity.viewed_total(), 0);
+        drop(state);
         std::fs::remove_dir_all(directory).map_err(AppError::persistence)
     }
 }
@@ -1461,6 +1527,7 @@ mod startup_guard_tests {
         let started = tokio::time::Instant::now();
         state.flush_before_exit().await;
         assert_eq!(started.elapsed(), Duration::from_secs(5));
+        drop(state);
         std::fs::remove_dir_all(path).map_err(AppError::persistence)?;
         Ok(())
     }
@@ -1475,6 +1542,7 @@ mod startup_guard_tests {
         );
         state.imports_ready.send_replace(true);
         assert_eq!(state.ensure_imports_ready(), Ok(()));
+        drop(state);
         std::fs::remove_dir_all(directory).map_err(AppError::persistence)
     }
 }

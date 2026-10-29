@@ -19,6 +19,23 @@ let clearGeneration = 0;
 const pendingThumbnails = new Map<string, Promise<boolean>>();
 
 export const blobs = new Map<string, CachedBlob>();
+const FRAME_BYTE_LIMIT = 32 * 1024 * 1024;
+const FRAME_LIMIT = 20;
+
+export function cacheBlob(key: string, image: CachedBlob): void {
+  const previous = blobs.get(key);
+  blobs.delete(key);
+  blobs.set(key, image);
+  if (previous && previous.url !== image.url) releaseBlobUrl(previous.url);
+  let bytes = [...blobs.values()].reduce((total, entry) => total + entry.blob.size, 0);
+  for (const [candidate, entry] of blobs) {
+    if (blobs.size <= FRAME_LIMIT && bytes <= FRAME_BYTE_LIMIT) break;
+    if (candidate === key) continue;
+    blobs.delete(candidate);
+    bytes -= entry.blob.size;
+    releaseBlobUrl(entry.url);
+  }
+}
 // Blob keys saved to disk this session, so revisiting a saved frame still shows its check.
 export const savedFrames = new Set<string>();
 

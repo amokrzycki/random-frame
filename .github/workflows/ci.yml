@@ -66,6 +66,63 @@ jobs:
       - name: Tauri build
         run: npx tauri build --no-bundle
 
+  managed-sync:
+    # Fork PRs cannot access the private server repository or its read-only credential.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Check server read access
+        env:
+          SYNC_SERVER_READ_TOKEN: ${{ secrets.SYNC_SERVER_READ_TOKEN }}
+        run: |
+          if [ -z "$SYNC_SERVER_READ_TOKEN" ]; then
+            echo "::error::Set SYNC_SERVER_READ_TOKEN with read-only Contents access to amokrzycki/random-frame-server."
+            exit 1
+          fi
+
+      - name: Checkout compatible Sync server
+        uses: actions/checkout@v7
+        with:
+          repository: amokrzycki/random-frame-server
+          ref: 5fc35aee7b4dbe3131768bacf6f5916f83cafe04
+          path: .sync-server
+          token: ${{ secrets.SYNC_SERVER_READ_TOKEN }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.99.0
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
+
+      - name: Build frontend
+        run: npm ci && npm run build
+
+      - name: Build pinned Sync server
+        run: cargo build --locked --manifest-path .sync-server/Cargo.toml
+
+      - name: Run real-server Sync tests
+        env:
+          RF_SYNC_SERVER_BIN: ${{ github.workspace }}/.sync-server/target/debug/random-frame-sync-server
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml ::real_server_ -- --ignored
+
   # Every PR: the Android build compiles, keeps its permissions, ABIs and 16 KB alignment.
   android:
     runs-on: ubuntu-24.04

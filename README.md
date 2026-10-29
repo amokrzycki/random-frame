@@ -102,6 +102,17 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
+CI also runs the local real-server Sync tests against `random-frame-server` commit
+`5fc35aee7b4dbe3131768bacf6f5916f83cafe04`. The server repository is private, so set
+the app repository's `SYNC_SERVER_READ_TOKEN` secret to a token with read-only
+Contents access to `amokrzycki/random-frame-server`. This job runs on main pushes
+and same-repository pull requests; fork pull requests do not receive the credential.
+To run the same tests locally after building that server:
+
+```bash
+RF_SYNC_SERVER_BIN=/absolute/path/to/random-frame-sync-server cargo test --locked --manifest-path src-tauri/Cargo.toml ::real_server_ -- --ignored
+```
+
 ## Privacy
 
 Random Frame has no accounts, analytics, telemetry, or ads. Settings and statistics are stored on your device. Optional Sync sends an encrypted snapshot of Seen IDs, history, saved frames, collections and assignments, exploration progress, Activity Stats, and preferences to a Sync server; its operator cannot read the plaintext contents but can see connection metadata, group/member IDs, public keys and membership state, transfer size and timing. The app also connects to prnt.sc for images and GitHub for updates. Files are saved only where you choose.

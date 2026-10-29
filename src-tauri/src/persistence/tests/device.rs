@@ -3,6 +3,46 @@ use crate::persistence::{device::DeviceIdentity, PreferenceStore};
 use std::sync::Arc;
 
 #[test]
+fn upload_acknowledgement_keeps_inflight_preferences_dirty() -> Result<(), AppError> {
+    let dir = test_directory("preference-upload-race");
+    let data = PersistentState::new(&dir)?;
+    let (published, generation) = data.snapshot_for_publication(1_000_000)?;
+    let record = published.devices[0].clone();
+    data.read(|| {
+        data.preferences.set(
+            UserPreferences {
+                theme: Some("dark".into()),
+                history_page_size: None,
+            },
+            false,
+        )
+    })?;
+    let acknowledged = data.record_published_self(record, generation)?;
+    assert!(published.preferences.theme.is_none());
+    assert_ne!(acknowledged, data.generation());
+    assert_eq!(data.preferences.get().theme.as_deref(), Some("dark"));
+    let (next, generation) = data.snapshot_for_publication(1_000_001)?;
+    let acknowledged = data.record_published_self(next.devices[0].clone(), generation)?;
+    assert_eq!(acknowledged, data.generation());
+    fs::remove_dir_all(dir).map_err(AppError::persistence)
+}
+
+#[test]
+fn failed_device_rename_preserves_memory_and_disk() -> Result<(), AppError> {
+    let dir = test_directory("failed-device-rename");
+    let identity = DeviceIdentity::new(&dir)?;
+    let before = identity.display_name();
+    fs::create_dir(dir.join("device-identity.json.tmp")).map_err(AppError::persistence)?;
+    assert!(identity.set_display_name("Unsaved name").is_err());
+    assert_eq!(identity.display_name(), before);
+    fs::remove_dir(dir.join("device-identity.json.tmp")).map_err(AppError::persistence)?;
+    assert_eq!(DeviceIdentity::new(&dir)?.display_name(), before);
+    identity.set_display_name("Saved name")?;
+    assert_eq!(DeviceIdentity::new(&dir)?.display_name(), "Saved name");
+    fs::remove_dir_all(dir).map_err(AppError::persistence)
+}
+
+#[test]
 fn device_identity_generates_and_persists_stable_id() -> Result<(), AppError> {
     let dir = test_directory("device-id");
     let first = DeviceIdentity::new(&dir)?;
