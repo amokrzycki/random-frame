@@ -251,6 +251,8 @@ function renderHistoryPage(scroll = elements.historyBody.scrollTop): void {
   if (focused === elements.historyPagePrevious && view.page === 0) elements.historyPageNext.focus();
   if (focused === elements.historyPageNext && view.page === view.pages - 1) elements.historyPagePrevious.focus();
 
+  const dayFormat = new Intl.DateTimeFormat();
+  const timeFormat = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
   for (const [position, { source, id, index: itemIndex, timestamp }] of visible.entries()) {
     const tile = document.createElement("div");
     const button = document.createElement("button");
@@ -282,8 +284,8 @@ function renderHistoryPage(scroll = elements.historyBody.scrollTop): void {
     time.className = "history-item__time";
     time.id = `history-time-${position}`;
     time.dateTime = date.toISOString();
-    day.textContent = date.toLocaleDateString();
-    clock.textContent = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+    day.textContent = dayFormat.format(date);
+    clock.textContent = timeFormat.format(date);
     time.append(day, clock);
     button.setAttribute("aria-describedby", time.id);
     button.append(image, label, time);

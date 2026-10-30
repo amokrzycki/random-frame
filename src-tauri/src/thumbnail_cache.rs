@@ -1,8 +1,10 @@
 use crate::{error::AppError, sources::prntsc};
+use base64::{engine::general_purpose::STANDARD, Engine};
 use std::{collections::HashSet, fs, path::PathBuf};
 use tauri::{Manager, State};
 
 type Thumbnail = (String, Vec<u8>);
+type EncodedThumbnail = (String, String);
 const MAX_THUMBNAIL_BYTES: usize = 128 * 1024;
 
 pub(crate) struct ThumbnailCache(PathBuf);
@@ -61,7 +63,7 @@ impl ThumbnailCache {
         }
         Ok(None)
     }
-    fn load(&self) -> Result<Vec<Thumbnail>, AppError> {
+    fn load(&self) -> Result<Vec<EncodedThumbnail>, AppError> {
         let files = match fs::read_dir(&self.0) {
             Ok(files) => files,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -93,7 +95,12 @@ impl ThumbnailCache {
             {
                 continue;
             }
-            thumbnails.push((key, fs::read(file.path()).map_err(AppError::persistence)?));
+            let bytes = fs::read(file.path()).map_err(AppError::persistence)?;
+            // Number-array JSON expands pinned caches before the WebView can display a frame.
+            thumbnails.push((
+                key,
+                format!("data:image/jpeg;base64,{}", STANDARD.encode(bytes)),
+            ));
         }
         Ok(thumbnails)
     }
@@ -147,7 +154,7 @@ impl ThumbnailCache {
 )]
 pub(crate) fn load_thumbnail_cache(
     cache: State<'_, ThumbnailCache>,
-) -> Result<Vec<Thumbnail>, AppError> {
+) -> Result<Vec<EncodedThumbnail>, AppError> {
     cache.load()
 }
 
@@ -190,6 +197,10 @@ mod tests {
         let key = "prntsc:abc123".to_owned();
         let other = "prntsc:def456".to_owned();
         cache.save(&[(key.clone(), vec![1, 2, 3])], std::slice::from_ref(&key))?;
+        assert_eq!(
+            serde_json::to_value(cache.load()?)?,
+            serde_json::json!([[key, "data:image/jpeg;base64,AQID"]])
+        );
         let original_time = fs::metadata(directory.join("prntsc-abc123.jpg"))?.modified()?;
         cache.save(&[(other.clone(), vec![4, 5])], &[key.clone(), other])?;
         assert_eq!(
@@ -208,9 +219,12 @@ mod tests {
             .is_err());
         assert_eq!(cache.load()?.len(), 2);
         cache.save(&[], std::slice::from_ref(&key))?;
-        assert_eq!(cache.load()?, vec![(key, vec![1, 2, 3])]);
+        assert_eq!(
+            cache.load()?,
+            vec![(key, "data:image/jpeg;base64,AQID".into())]
+        );
         cache.save(&[], &[])?;
-        assert_eq!(cache.load()?, Vec::<Thumbnail>::new());
+        assert_eq!(cache.load()?, Vec::<EncodedThumbnail>::new());
         fs::remove_dir_all(directory)?;
         Ok(())
     }

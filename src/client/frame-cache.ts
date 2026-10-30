@@ -13,7 +13,6 @@ const THUMBNAIL_MAX_DIMENSION = 384;
 // Small JPEG files; only non-favourites count toward this budget.
 const THUMBNAIL_LIMIT = 300;
 // Thumbnail byte budget: 8MB balances cache density with storage limits.
-// ponytail: O(n) scan for normalized key lookup; acceptable at n≤300, add Map index if grid grows
 const THUMBNAIL_BYTE_LIMIT = 8 * 1024 * 1024;
 let clearGeneration = 0;
 const pendingThumbnails = new Map<string, Promise<boolean>>();
@@ -48,13 +47,14 @@ export function thumbnailFor(key: string): string | undefined {
   if (exact) return exact;
   const id = key.startsWith("prntsc:") ? key.slice(7) : "";
   if (!PRNTSC_ID_PATTERN.test(id)) return undefined;
-  const value = Number.parseInt(id, 36);
-  return [...thumbnails].find(
-    ([other]) =>
-      other.startsWith("prntsc:") &&
-      PRNTSC_ID_PATTERN.test(other.slice(7)) &&
-      Number.parseInt(other.slice(7), 36) === value,
-  )?.[1];
+  let alias = Number.parseInt(id, 36).toString(36);
+  // Leading zeros are the only aliases in the one-to-seven-character ID namespace.
+  while (alias.length <= 7) {
+    const image = thumbnails.get(`prntsc:${alias}`);
+    if (image) return image;
+    alias = `0${alias}`;
+  }
+  return undefined;
 }
 function pendingThumbnailKey(key: string): string {
   const id = key.startsWith("prntsc:") ? key.slice(7) : "";
@@ -64,7 +64,6 @@ export function discardThumbnail(key: string, expected: string): void {
   for (const [candidate, image] of thumbnails)
     if (image === expected && pendingThumbnailKey(candidate) === pendingThumbnailKey(key)) {
       thumbnails.delete(candidate);
-      savedThumbnails.delete(candidate);
     }
 }
 
@@ -86,6 +85,7 @@ export const thumbnails = new Map<string, string>();
 const savedThumbnails = new Map<string, string>();
 let initializing: Promise<boolean> | undefined;
 let initialized = false;
+let persisted = false;
 let retainedAfterClear: Set<string> | undefined;
 let saveQueue: Promise<boolean> = Promise.resolve(true);
 
@@ -98,9 +98,8 @@ export function initializeThumbnailCache(): Promise<boolean> {
   if (initializing) return initializing;
   initializing = (async () => {
     try {
-      const entries = await invoke<[string, number[]][]>("load_thumbnail_cache");
-      for (const [key, bytes] of entries) {
-        const image = `data:image/jpeg;base64,${btoa(bytes.map((byte) => String.fromCharCode(byte)).join(""))}`;
+      const entries = await invoke<[string, string][]>("load_thumbnail_cache");
+      for (const [key, image] of entries) {
         if ((!retainedAfterClear || retainedAfterClear.has(pendingThumbnailKey(key))) && !thumbnails.has(key))
           thumbnails.set(key, image);
         savedThumbnails.set(key, image);
@@ -116,6 +115,7 @@ export function initializeThumbnailCache(): Promise<boolean> {
           keep: [...thumbnails.keys()],
         });
         for (const [key, image] of entries) savedThumbnails.set(key, image);
+        persisted = true;
       }
       // Remove the old value only after every legacy thumbnail was saved successfully.
       try {
@@ -150,7 +150,6 @@ function trimThumbnails(): void {
     bytes -= encodedSize(thumbnails.get(key) ?? "");
     count--;
     thumbnails.delete(key);
-    savedThumbnails.delete(key);
   }
 }
 
@@ -161,15 +160,21 @@ export function persistThumbnails(): Promise<boolean> {
     trimThumbnails();
     const entries = [...thumbnails].filter(([key, image]) => savedThumbnails.get(key) !== image);
     const keep = [...thumbnails.keys()];
+    const removed = [...savedThumbnails.keys()].some((key) => !thumbnails.has(key));
+    if (persisted && !entries.length && !removed) return true;
     try {
       await invoke("save_thumbnail_cache", {
         entries: entries.map(([key, image]) => [key, thumbnailBytes(image)]),
         keep,
       });
-      for (const key of savedThumbnails.keys()) if (!keep.includes(key)) savedThumbnails.delete(key);
+      const retained = new Set(keep);
+      for (const key of savedThumbnails.keys()) if (!retained.has(key)) savedThumbnails.delete(key);
       for (const [key, image] of entries) savedThumbnails.set(key, image);
+      persisted = true;
       return true;
     } catch {
+      persisted = false;
+      savedThumbnails.clear();
       return false;
     }
   });

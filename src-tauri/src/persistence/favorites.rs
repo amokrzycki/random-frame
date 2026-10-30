@@ -11,7 +11,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
     sync::{
@@ -34,6 +34,7 @@ pub struct FavoriteSyncState {
     #[serde(default)]
     pub memberships_removed: Vec<OperationId>,
 }
+
 impl FavoriteSyncState {
     pub fn from_snapshot(s: &SyncSnapshot) -> Self {
         Self {
@@ -222,6 +223,13 @@ fn check_save(data: &FavoriteData, frame: &SavedFrameRef) -> Result<(), AppError
 fn projection(data: &FavoriteData) -> SavedLibrary {
     let mut records: Vec<_> = data.state.favorites.iter().collect();
     records.sort_by_key(|x| (x.added_at, x.operation_id));
+    let mut operations: HashMap<(&str, &str), Vec<OperationId>> = HashMap::new();
+    for record in &data.state.favorites {
+        operations
+            .entry((&record.source, &record.id))
+            .or_default()
+            .push(record.operation_id);
+    }
     let mut seen = HashSet::new();
     let items = records
         .into_iter()
@@ -233,13 +241,9 @@ fn projection(data: &FavoriteData) -> SavedLibrary {
                 source_page_url: x.source_page_url.clone(),
                 added_at: x.added_at,
             },
-            save_operation_ids: data
-                .state
-                .favorites
-                .iter()
-                .filter(|op| op.source == x.source && op.id == x.id)
-                .map(|op| op.operation_id)
-                .collect(),
+            save_operation_ids: operations
+                .remove(&(x.source.as_str(), x.id.as_str()))
+                .unwrap_or_default(),
         })
         .collect();
     let collections = data
@@ -756,5 +760,76 @@ impl FavoriteStore {
             frames,
         })
         .map(|_| ())
+    }
+}
+
+#[cfg(test)]
+mod performance_tests {
+    use super::*;
+
+    fn fixture(count: u64) -> FavoriteData {
+        FavoriteData {
+            state: FavoriteSyncState {
+                favorites: (0..count)
+                    .map(|i| FavoriteRecord {
+                        operation_id: u128::from(i).to_le_bytes(),
+                        added_at: i,
+                        source: "prntsc".into(),
+                        id: format!("a{i:06}"),
+                        source_page_url: String::new(),
+                    })
+                    .collect(),
+                ..FavoriteSyncState::default()
+            },
+            ..FavoriteData::default()
+        }
+    }
+
+    #[test]
+    fn projection_preserves_concurrent_saves_order_and_source_identity() {
+        let mut data = fixture(3);
+        let mut duplicate = data.state.favorites[0].clone();
+        duplicate.operation_id = [99; 16];
+        duplicate.added_at = 99;
+        data.state.favorites.insert(0, duplicate.clone());
+        let mut other_source = duplicate;
+        other_source.source = "other".into();
+        other_source.operation_id = [100; 16];
+        data.state.favorites.push(other_source);
+        let library = projection(&data);
+        assert_eq!(library.items.len(), 4);
+        assert_eq!(library.items[0].item.added_at, 0);
+        assert_eq!(library.items[0].save_operation_ids, vec![[99; 16], [0; 16]]);
+        assert_eq!(library.items[3].item.source, "other");
+        assert_eq!(library.items[3].save_operation_ids, vec![[100; 16]]);
+        // Projection is read-only; it must retain every operation for merge/undo.
+        assert_eq!(data.state.favorites.len(), 5);
+    }
+
+    #[test]
+    #[ignore = "manual performance benchmark; run with --release --ignored --nocapture"]
+    #[allow(
+        clippy::print_stdout,
+        reason = "manual benchmark emits local measurements"
+    )]
+    fn saved_projection_timing() {
+        for count in [100, 1_000, 10_000] {
+            let data = fixture(count);
+            for _ in 0..5 {
+                std::hint::black_box(projection(&data));
+            }
+            let mut samples = Vec::new();
+            for _ in 0..40 {
+                let start = std::time::Instant::now();
+                let library = std::hint::black_box(projection(&data));
+                samples.push(start.elapsed().as_secs_f64() * 1_000.0);
+                assert_eq!(library.items.len() as u64, count);
+            }
+            samples.sort_by(f64::total_cmp);
+            println!(
+                "saved-projection count={count} median_ms={:.4} p95_ms={:.4}",
+                samples[20], samples[37]
+            );
+        }
     }
 }

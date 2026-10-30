@@ -19,7 +19,11 @@ test("migrates thumbnail storage and writes only changed files, with retry and e
         if (command === "get_user_preferences" || command === "set_user_preferences")
           return { theme: null, historyPageSize: null };
         if (command === "import_session_history") return window.__TAURI_INTERNALS__.invoke("get_history");
-        if (command === "load_thumbnail_cache") return [...disk];
+        if (command === "load_thumbnail_cache")
+          return [...disk].map(([key, bytes]) => [
+            key,
+            `data:image/jpeg;base64,${Buffer.from(bytes).toString("base64")}`,
+          ]);
         assert.equal(command, "save_thumbnail_cache");
         saves.push(structuredClone(args));
         if (fail) throw new Error("Disk full");
@@ -36,8 +40,9 @@ test("migrates thumbnail storage and writes only changed files, with retry and e
   assert.equal(await cache.initializeThumbnailCache(), true);
   assert.equal(storage.getItem(legacyKey), null);
   assert.deepEqual(disk.get("prntsc:old"), [0]);
+  const migratedSaves = saves.length;
   await cache.persistThumbnails();
-  assert.deepEqual(saves.at(-1).entries, [], "saved files are not rewritten");
+  assert.equal(saves.length, migratedSaves, "unchanged saved files need no native call");
   state.favorites = [{ source: "prntsc", id: "old" }];
   for (let i = 0; i < 301; i++) cache.thumbnails.set(`prntsc:new${i}`, image);
   assert.equal(await cache.persistThumbnails(), true);
@@ -52,7 +57,8 @@ test("migrates thumbnail storage and writes only changed files, with retry and e
   assert.equal(await cache.persistThumbnails(), true);
   assert.deepEqual(
     saves.at(-1).entries.map(([key]) => key),
-    ["prntsc:latest"],
+    [...cache.thumbnails.keys()],
+    "a failed native save may have partially written files, so retry reconciles the complete cache",
   );
   await cache.clearThumbnails(state.favorites);
   assert.deepEqual([...disk.keys()], ["prntsc:old"]);

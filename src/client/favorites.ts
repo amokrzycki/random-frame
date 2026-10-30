@@ -49,7 +49,12 @@ export interface RemovedSaved {
   library: SavedLibrary;
   undo: SavedUndo;
 }
-export const operationKey = (id: OperationId): string => id.map((byte) => byte.toString(16).padStart(2, "0")).join("");
+export function operationKey(id: OperationId): string {
+  const hex = "0123456789abcdef";
+  let key = "";
+  for (const byte of id) key += hex.charAt(byte >>> 4) + hex.charAt(byte & 15);
+  return key;
+}
 export const newOperationId = (): OperationId => Array.from(crypto.getRandomValues(new Uint8Array(16)));
 export const savedFrameRef = (item: SavedItem): SavedFrameRef => ({
   source: item.source,
