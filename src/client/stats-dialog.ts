@@ -61,8 +61,8 @@ function ledgerRow(day: LedgerDay, todayIso: string): HTMLLIElement {
   counts.textContent = formatLedgerCounts(day.drawn, day.unavailable);
   strip.className = "ledger__strip";
   const thumbs: HTMLButtonElement[] = [];
-  for (const itemIndex of day.frames) {
-    if (thumbs.length === LEDGER_STRIP_MAX) break;
+  // Only these frames were hydrated; later ones may or may not still be in memory.
+  for (const itemIndex of day.frames.slice(0, LEDGER_STRIP_MAX)) {
     const thumb = ledgerThumbnail(itemIndex);
     if (thumb) thumbs.push(thumb);
   }

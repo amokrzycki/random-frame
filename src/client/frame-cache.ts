@@ -10,10 +10,16 @@ export interface CachedBlob {
 
 const thumbnailStorageKey = "prntsc-gallery-thumbnails";
 const THUMBNAIL_MAX_DIMENSION = 384;
-// Small JPEG files; only non-favourites count toward this budget.
+// Small JPEG files; only non-favourites count toward this on-disk budget.
 const THUMBNAIL_LIMIT = 300;
 // Thumbnail byte budget: 8MB balances cache density with storage limits.
 const THUMBNAIL_BYTE_LIMIT = 8 * 1024 * 1024;
+// In-memory bound over every evictable (already saved) thumbnail, Saved or not. Evicting from memory never
+// deletes a file: the entry is read from disk again on demand. 300 entries cover two
+// 100-tile pages plus a 84-thumbnail Stats page; the byte cap still admits 128
+// entries at the 128 KiB per-file maximum.
+const MEMORY_LIMIT = 300;
+const MEMORY_BYTE_LIMIT = 16 * 1024 * 1024;
 let clearGeneration = 0;
 const pendingThumbnails = new Map<string, Promise<boolean>>();
 // Keys known to be on disk with their file size. Bytes stay there until a view asks.
@@ -22,6 +28,8 @@ let diskKeys = new Map<string, number>();
 const deletedKeys = new Set<string>();
 // Keys whose bytes failed to decode this session. They are not read again until replaced.
 const discardedKeys = new Set<string>();
+// One native read per key, shared by every view that wants the same file right now.
+const pendingReads = new Map<string, Promise<string | null>>();
 
 export const blobs = new Map<string, CachedBlob>();
 const FRAME_BYTE_LIMIT = 32 * 1024 * 1024;
@@ -64,7 +72,15 @@ function probe<T>(lookup: (key: string) => T | undefined, key: string): T | unde
   return undefined;
 }
 export function thumbnailFor(key: string): string | undefined {
-  return probe((candidate) => thumbnails.get(candidate), key);
+  return probe((candidate) => {
+    const image = thumbnails.get(candidate);
+    // Reinsert on use so Map order is recency: visible tiles are evicted last.
+    if (image !== undefined) {
+      thumbnails.delete(candidate);
+      thumbnails.set(candidate, image);
+    }
+    return image;
+  }, key);
 }
 function storedThumbnailKey(key: string): string | undefined {
   return probe((candidate) => (diskKeys.has(candidate) ? candidate : undefined), key);
@@ -76,7 +92,7 @@ function pendingThumbnailKey(key: string): string {
 export function discardThumbnail(key: string, expected: string): void {
   for (const [candidate, image] of thumbnails)
     if (image === expected && pendingThumbnailKey(candidate) === pendingThumbnailKey(key)) {
-      thumbnails.delete(candidate);
+      dropLoaded(candidate);
       discardedKeys.add(candidate);
       // A pinned file is the offline copy; keep it until a replacement is written.
       if (!isPinnedThumbnail(candidate)) {
@@ -101,7 +117,13 @@ function loadThumbnails(): Map<string, string> {
 }
 
 export const thumbnails = new Map<string, string>();
+// Subset of `thumbnails` whose exact bytes are on disk. It shares the strings, so it
+// must shrink together with `thumbnails` or evicting would free nothing.
 const savedThumbnails = new Map<string, string>();
+function dropLoaded(key: string): void {
+  thumbnails.delete(key);
+  savedThumbnails.delete(key);
+}
 let initializing: Promise<boolean> | undefined;
 let initialized = false;
 let persisted = false;
@@ -164,6 +186,7 @@ export function initializeThumbnailCache(): Promise<boolean> {
         for (const key of pruned) deletedKeys.delete(key);
         setDiskKeys(keep);
         persisted = true;
+        trimLoadedThumbnails();
       }
       // Remove the old value only after every legacy thumbnail was saved successfully.
       try {
@@ -188,30 +211,27 @@ function isPinnedThumbnail(key: string): boolean {
     ({ source, id }) => pendingThumbnailKey(blobKey(source, id)) === pendingThumbnailKey(key),
   );
 }
-// Hydration only needs the in-memory bound; evicted files stay on disk for later.
-function trimLoadedThumbnails(): void {
-  if (thumbnails.size <= THUMBNAIL_LIMIT) {
-    let bytes = 0;
-    for (const image of thumbnails.values()) {
-      bytes += encodedSize(image);
-      if (bytes > THUMBNAIL_BYTE_LIMIT) break;
-    }
-    if (bytes <= THUMBNAIL_BYTE_LIMIT) return;
-  }
-  const pinned = new Set(state.favorites.map(({ source, id }) => pendingThumbnailKey(blobKey(source, id))));
+// Memory bound for hydrated and saved thumbnails, pinned or not. Only a clean entry (its
+// exact bytes are known to be on disk) may leave memory, oldest use first, so only clean
+// entries count toward the bound: unsaved ones cannot be evicted and must not push out the
+// clean entries a view just hydrated. Nothing here touches diskKeys or deletedKeys, so the
+// file stays and the next save still keeps it. `fresh` is the entry a caller is about to
+// read and is never its own victim.
+function trimLoadedThumbnails(fresh?: string): void {
+  const evictable = (key: string, image: string) => savedThumbnails.get(key) === image && diskKeys.has(key);
   let bytes = 0;
   let count = 0;
+  for (const [key, image] of thumbnails)
+    if (evictable(key, image)) {
+      bytes += encodedSize(image);
+      count++;
+    }
   for (const [key, image] of thumbnails) {
-    if (pinned.has(pendingThumbnailKey(key))) continue;
-    bytes += encodedSize(image);
-    count++;
-  }
-  for (const [key, image] of thumbnails) {
-    if (count <= THUMBNAIL_LIMIT && bytes <= THUMBNAIL_BYTE_LIMIT) break;
-    if (pinned.has(pendingThumbnailKey(key))) continue;
+    if (count <= MEMORY_LIMIT && bytes <= MEMORY_BYTE_LIMIT) break;
+    if (key === fresh || !evictable(key, image)) continue;
     bytes -= encodedSize(image);
     count--;
-    thumbnails.delete(key);
+    dropLoaded(key);
   }
 }
 
@@ -234,7 +254,7 @@ function trimThumbnails(): void {
     if (count <= THUMBNAIL_LIMIT && bytes <= THUMBNAIL_BYTE_LIMIT) break;
     bytes -= size;
     count--;
-    thumbnails.delete(key);
+    dropLoaded(key);
     diskKeys.delete(key);
     deletedKeys.add(key);
   }
@@ -258,14 +278,19 @@ export function persistThumbnails(): Promise<boolean> {
       });
       const retained = new Set(keep);
       for (const key of savedThumbnails.keys()) if (!retained.has(key)) savedThumbnails.delete(key);
-      for (const [key, image] of entries) savedThumbnails.set(key, image);
+      // An entry that left memory during the write must not leave a stale copy behind.
+      for (const [key, image] of entries) if (thumbnails.get(key) === image) savedThumbnails.set(key, image);
       for (const key of pruned) deletedKeys.delete(key);
       setDiskKeys(keep);
       persisted = true;
+      // Entries that were dirty are clean now and may leave memory.
+      trimLoadedThumbnails();
       return true;
     } catch {
       persisted = false;
-      savedThumbnails.clear();
+      // Files of this call may be half written; those entries are resent. Entries not in
+      // the call were not touched, and keeping them clean keeps them evictable.
+      for (const [key] of entries) savedThumbnails.delete(key);
       return false;
     }
   });
@@ -364,7 +389,7 @@ async function loadStoredThumbnail(key: string, generation: number): Promise<boo
   if (!stored || deletedKeys.has(stored) || discardedKeys.has(stored)) return false;
   let image: string | null;
   try {
-    image = await invoke<string | null>("read_thumbnail_cache", { key: stored });
+    image = await readStoredThumbnail(stored);
   } catch {
     return false;
   }
@@ -373,10 +398,24 @@ async function loadStoredThumbnail(key: string, generation: number): Promise<boo
     return false;
   }
   if (generation !== clearGeneration && !isPinnedThumbnail(key)) return false;
+  // The file may have been pruned or discarded while the read was in flight.
+  if (!diskKeys.has(stored) || deletedKeys.has(stored) || discardedKeys.has(stored)) return false;
+  // A newer in-memory value, or a concurrent reader's identical one, already won.
+  if (thumbnails.has(stored)) return true;
   thumbnails.set(stored, image);
-  trimLoadedThumbnails();
   savedThumbnails.set(stored, image);
+  trimLoadedThumbnails(stored);
   return true;
+}
+
+function readStoredThumbnail(key: string): Promise<string | null> {
+  const pending = pendingReads.get(key);
+  if (pending) return pending;
+  const read = invoke<string | null>("read_thumbnail_cache", { key }).finally(() => {
+    if (pendingReads.get(key) === read) pendingReads.delete(key);
+  });
+  pendingReads.set(key, read);
+  return read;
 }
 
 export async function ensureThumbnail(frame: { source: string; id: string }, persist = true): Promise<boolean> {
@@ -430,9 +469,9 @@ export async function clearThumbnails(keep: readonly { source: string; id: strin
   const retained = new Set(keep.map(({ source, id }) => pendingThumbnailKey(blobKey(source, id))));
   retainedAfterClear = retained;
   await initializeThumbnailCache();
-  for (const key of thumbnails.keys())
+  for (const key of [...thumbnails.keys()])
     if (!retained.has(pendingThumbnailKey(key))) {
-      thumbnails.delete(key);
+      dropLoaded(key);
       deletedKeys.add(key);
     }
   // Unloaded disk entries are pruned too; retained ones stay untouched on disk.

@@ -58,8 +58,8 @@ test("migrates thumbnail storage and writes only changed files, with retry and e
   assert.equal(await cache.persistThumbnails(), true);
   assert.deepEqual(
     saves.at(-1).entries.map(([key]) => key),
-    [...cache.thumbnails.keys()],
-    "a failed native save may have partially written files, so retry reconciles the complete cache",
+    ["prntsc:latest"],
+    "a failed native save may have partially written its own files, so retry resends exactly those entries",
   );
   await cache.clearThumbnails(state.favorites);
   assert.deepEqual([...disk.keys()], ["prntsc:old"]);
@@ -78,7 +78,7 @@ test("migrates thumbnail storage and writes only changed files, with retry and e
   assert.equal(storage.getItem(legacyKey), null);
 });
 
-test("encoded Nearby JPEGs share pending keys and obey byte budget while Saved stays pinned", async () => {
+test("encoded Nearby JPEGs share pending keys and obey byte budget while Saved stays on disk", async () => {
   const cache = await import("../dist/test-client/frame-cache.js");
   const { state } = await import("../dist/test-client/viewer-state.js");
   cache.thumbnails.clear();

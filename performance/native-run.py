@@ -71,6 +71,25 @@ def profile(path, count, thumbnail, unique=False):
     assert len(list(cache.iterdir())) == count
 
 
+def pss(entry):
+    # Proportional set size apportions shared pages; RSS counts them once per process.
+    try:
+        for line in (entry / "smaps_rollup").read_text().splitlines():
+            if line.startswith("Pss:"):
+                return int(line.split()[1])
+    except (OSError, ValueError):
+        pass
+    return 0
+
+
+def disk_fingerprint(cache):
+    digest = hashlib.sha256()
+    names = sorted(cache.glob("*.jpg"))
+    for file in names:
+        digest.update(file.name.encode() + file.read_bytes())
+    return {"files": len(names), "sha256": digest.hexdigest(), "tmp": len(list(cache.glob("*.tmp")))}
+
+
 def processes(root):
     all_stats = {}
     for entry in Path("/proc").iterdir():
@@ -79,7 +98,7 @@ def processes(root):
         try:
             text = (entry / "stat").read_text()
             fields = text.rsplit(")", 1)[1].split()
-            all_stats[int(entry.name)] = {"pid": int(entry.name), "name": text.split("(", 1)[1].rsplit(")", 1)[0], "ppid": int(fields[1]), "cpuTicks": int(fields[11]) + int(fields[12]), "rssKiB": int(fields[21]) * os.sysconf("SC_PAGE_SIZE") // 1024}
+            all_stats[int(entry.name)] = {"pid": int(entry.name), "name": text.split("(", 1)[1].rsplit(")", 1)[0], "ppid": int(fields[1]), "cpuTicks": int(fields[11]) + int(fields[12]), "rssKiB": int(fields[21]) * os.sysconf("SC_PAGE_SIZE") // 1024, "pssKiB": pss(entry)}
         except (OSError, ValueError, IndexError):
             continue
     selected = {root}
@@ -94,11 +113,12 @@ def processes(root):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("build", type=Path)
-    parser.add_argument("--count", type=int, choices=[100, 1000, 10000], default=100)
+    parser.add_argument("--count", type=int, choices=[100, 1000, 5000, 10000], default=100)
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--samples", type=int, default=20)
     parser.add_argument("--long-ms", type=int, default=0)
     parser.add_argument("--unique-thumbnails", action="store_true")
+    parser.add_argument("--mode", choices=["", "retention"], default="")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
@@ -133,21 +153,23 @@ def main():
     profile(run_profile, args.count, thumbnail, args.unique_thumbnails)
     metadata = {"count": args.count, "thumbnailBytes": len(thumbnail), "distinctThumbnailURLs": args.unique_thumbnails, "thumbnailSHA256": hashlib.sha256(thumbnail).hexdigest(), "imageBytes": len(large), "imageSHA256": hashlib.sha256(large).hexdigest(), "dimensions": [1920, 1080], "clockTicks": os.sysconf("SC_CLK_TCK"), "build": json.loads((args.build / "build-info.json").read_text()), "display": os.environ.get("DISPLAY"), "cacheState": "First launch: fresh synthetic profile, OS page cache uncontrolled. Subsequent launches reuse profile and OS caches; not disk-cold."}
     (args.output / "metadata.json").write_text(json.dumps(metadata, indent=2))
+    cache_dir = run_profile / "cache/dev.randomframe.desktop/thumbnails"
+    fingerprints = {"before": disk_fingerprint(cache_dir)}
     for run in range(args.runs):
         result = args.output.resolve() / f"run-{run}.json"
-        env = {**os.environ, "XDG_DATA_HOME": str(run_profile / "data"), "XDG_CACHE_HOME": str(run_profile / "cache"), "XDG_CONFIG_HOME": str(run_profile / "config"), "RF_RESULT": str(result), "RF_LAUNCH_MS": str(time.time_ns() // 1000000), "RF_LONG_MS": str(args.long_ms), "RF_SAMPLES": str(args.samples), "RF_FIXTURE_URL": f"http://127.0.0.1:{server.server_port}"}
+        env = {**os.environ, "XDG_DATA_HOME": str(run_profile / "data"), "XDG_CACHE_HOME": str(run_profile / "cache"), "XDG_CONFIG_HOME": str(run_profile / "config"), "RF_RESULT": str(result), "RF_LAUNCH_MS": str(time.time_ns() // 1000000), "RF_LONG_MS": str(args.long_ms), "RF_SAMPLES": str(args.samples), "RF_MODE": args.mode, "RF_FIXTURE_URL": f"http://127.0.0.1:{server.server_port}"}
         # Use real Wayland/GPU settings from this desktop; do not disable compositing or animations.
         started = time.monotonic()
         with (args.output / f"run-{run}.log").open("w") as log:
             process = subprocess.Popen([str(args.build.resolve() / "random-frame")], env=env, stdout=log, stderr=log, start_new_session=True)
             resources = []
-            deadline = started + 240 + args.long_ms / 1000
+            deadline = started + 240 + args.long_ms / 1000 + (3000 if args.mode else 0)
             next_progress = 45
             try:
                 while process.poll() is None:
                     stats = processes(process.pid)
-                    resources.append({"elapsed": time.monotonic() - started, "processes": stats, "rssKiB": sum(stat["rssKiB"] for stat in stats)})
-                    if args.long_ms and resources[-1]["elapsed"] >= next_progress:
+                    resources.append({"elapsed": time.monotonic() - started, "epochMs": time.time() * 1000, "processes": stats, "rssKiB": sum(stat["rssKiB"] for stat in stats), "pssKiB": sum(stat["pssKiB"] for stat in stats)})
+                    if (args.long_ms or args.mode) and resources[-1]["elapsed"] >= next_progress:
                         print(json.dumps({"elapsedSeconds": round(resources[-1]["elapsed"]), "rssMiB": round(resources[-1]["rssKiB"] / 1024)}), flush=True)
                         next_progress += 30
                     if time.monotonic() > deadline:
@@ -160,6 +182,8 @@ def main():
                 (args.output / f"resources-{run}.json").write_text(json.dumps(resources))
         if not result.exists():
             raise RuntimeError(f"App exited {process.returncode} without result; see {log.name}")
+        fingerprints[f"after-run-{run}"] = disk_fingerprint(cache_dir)
+        (args.output / "disk-fingerprints.json").write_text(json.dumps(fingerprints, indent=2))
         report = json.loads(result.read_text())
         if "error" in report:
             raise RuntimeError(f"Native workload failed: {report['error']}; see {result}")
@@ -174,7 +198,7 @@ def main():
                 continue
             trace.append({"name": "Process-tree RSS (shared pages counted per process)", "ph": "C", "ts": (sample["elapsed"] * 1000 - report["startup"]["launchToTimeOrigin"]) * 1000, "pid": 1, "tid": "resources", "args": {"MiB": sample["rssKiB"] / 1024}})
         (args.output / f"trace-{run}.json").write_text(json.dumps({"traceEvents": trace}))
-        print(json.dumps({"run": run, "startup": report["startup"], "peakRssMiB": max(sample["rssKiB"] for sample in resources) / 1024, "navigations": report["observations"]["longNavigations"]}), flush=True)
+        print(json.dumps({"run": run, "startup": report["startup"], "peakRssMiB": max(sample["rssKiB"] for sample in resources) / 1024, "navigations": report["observations"].get("longNavigations", 0)}), flush=True)
     (args.output / "fixture-requests.json").write_text(json.dumps(requests))
     server.shutdown()
 

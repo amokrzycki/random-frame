@@ -35,7 +35,7 @@ rust += `\n#[tauri::command]\nfn performance_report(payload: serde_json::Value, 
     app.exit(0); Ok(())
 }\n`;
 rust += `\n#[tauri::command]\nfn performance_config() -> serde_json::Value {
-    serde_json::json!({"launch": std::env::var("RF_LAUNCH_MS").unwrap(), "longMs": std::env::var("RF_LONG_MS").unwrap_or_else(|_| "0".into()), "samples": std::env::var("RF_SAMPLES").unwrap_or_else(|_| "20".into())})
+    serde_json::json!({"launch": std::env::var("RF_LAUNCH_MS").unwrap(), "longMs": std::env::var("RF_LONG_MS").unwrap_or_else(|_| "0".into()), "samples": std::env::var("RF_SAMPLES").unwrap_or_else(|_| "20".into()), "mode": std::env::var("RF_MODE").unwrap_or_default()})
 }\n`;
 await writeFile(`${destination}/src-tauri/src/lib.rs`, rust);
 const sourcePath = `${destination}/src-tauri/src/sources/prntsc.rs`;

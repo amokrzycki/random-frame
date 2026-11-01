@@ -9,6 +9,7 @@ import { openNearby } from "../src/client/nearby-dialog.ts";
 import { getViewState } from "../src/client/stage.ts";
 import { refreshPersistedView, state } from "../src/client/viewer-state.ts";
 import { assertNavigationSucceeded } from "./native-navigation.mjs";
+import { retentionWorkload } from "./native-retention.mjs";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const paint = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -92,6 +93,23 @@ async function run() {
   ).length;
   if (startupReads > 2) throw Error(`Startup read ${startupReads} thumbnail files eagerly`);
   checkpoint("startup");
+  if (config.mode === "retention") {
+    const retention = await retentionWorkload();
+    await invoke("performance_report", {
+      payload: {
+        startup,
+        observations,
+        retention,
+        ipc: __rf.ipc,
+        frames: __rf.frames,
+        spans: __rf.spans,
+        userAgent: navigator.userAgent,
+        count: state.history.length,
+        done: true,
+      },
+    });
+    return;
+  }
   await sleep(700);
   // The first actual thumbnail-consuming view is measured before the sampled loops,
   // because their warmups would otherwise hide its one-time cost.

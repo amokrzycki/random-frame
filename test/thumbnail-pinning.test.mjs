@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { FakeDocument, FakeStorage, fakeThumbnailCache, ids } from "./dom-fakes.mjs";
 
-test("favourite thumbnails share the cache but never consume its eviction budget", async (t) => {
+test("favourite thumbnails share the cache but never consume its on-disk eviction budget", async (t) => {
   const names = ["document", "localStorage", "window", "createImageBitmap"];
   const originals = new Map(names.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
   t.after(() => {

@@ -1,6 +1,6 @@
 # Performance audit — 2026-10-29, extended 2026-10-30
 
-The October 29 phase below records four component optimizations and their original verification boundaries. The **October 30 native validation extension** adds real Linux Tauri/WebKitGTK release-process measurements, further evidence-backed changes, and current limitations. Its internal thumbnail-load IPC format supersedes the prior phase's unchanged-IPC statement; disk files, save commands, sync formats, image retrieval, admission limits, and motion remain unchanged. The **final demand-loaded thumbnail phase at the end** replaces that eager startup load with per-file access; its measurements supersede the startup and pinned-thumbnail rows above. Committed baseline for the final phase: `d6e3c100b428a3be25df49a32cda62c18c92b1e5`.
+The October 29 phase below records four component optimizations and their original verification boundaries. The **October 30 native validation extension** adds real Linux Tauri/WebKitGTK release-process measurements, further evidence-backed changes, and current limitations. Its internal thumbnail-load IPC format supersedes the prior phase's unchanged-IPC statement; disk files, save commands, sync formats, image retrieval, admission limits, and motion remain unchanged. The **demand-loaded thumbnail phase** replaces that eager startup load with per-file access; its measurements supersede the startup and pinned-thumbnail rows above. Committed baseline for the final phase: `d6e3c100b428a3be25df49a32cda62c18c92b1e5`.
 
 ## Confirmed bottlenecks and changes
 
@@ -454,7 +454,7 @@ Round two verified the original repros still fail on the old logic and pass now,
 
 ### Remaining limitations
 
-- Pinned Saved thumbnails are still exempt from the in-memory count and byte bounds (existing semantics). Demand loading defers the large-profile startup cost; deliberately paging through all 10,000 Saved entries can still load the full data-URL set. A bounded pinned LRU would be a separate, measurable change.
+- ~~Pinned Saved thumbnails are still exempt from the in-memory count and byte bounds.~~ **Superseded by the bounded-memory phase below**: every clean thumbnail, pinned or not, now counts toward a 300-entry / 16 MiB memory bound.
 - `trimThumbnails`/`trimLoadedThumbnails` are O(favorites + known disk keys) when the bound is exceeded. With 10,000 pinned entries this is noticeable per save or per hydrated tile, though it is not on the startup path.
 - Stats ledger hydration can issue up to 84 disk reads per page. Paging through a very large ledger therefore performs many sequential local reads; it does not start source requests.
 - Pagination at 100 entries regressed from 50 to 70 ms median per Next + Previous pair. At 1,000 entries it is unchanged (70 ms); at 10,000 it also regressed (54 to 67 ms). These timers include frame callbacks and do not isolate disk reads from layout or scheduling. The existing cancellation behavior was preserved.
@@ -476,3 +476,149 @@ Final artifacts are under [performance/results/native](performance/results/nativ
 - `v9-demand.patch`: exact production delta and SHA-256 used by the final builds.
 
 Raw JSON is gzip-compressed without changing its contents. The native runner's fixture hashes and build provenance are in each `metadata.json`; no profile directories, identities or user data are retained.
+
+## Bounded thumbnail memory — 2026-11-01 (final phase)
+
+### Problem
+
+After v9, startup no longer reads the library, but every Saved thumbnail a view had ever loaded stayed in `thumbnails` for the whole session (pinned entries were exempt from every bound). The readiness assessment measured 600 → 1,744 MiB process-tree PSS at 10,000 Saved entries and classified it P2. A second strong reference compounded it: `savedThumbnails` held the same data-URL strings, so evicting from `thumbnails` alone would have freed nothing.
+
+### Representations traced
+
+| Representation | Owner / lifetime | Before | After |
+| --- | --- | --- | --- |
+| JPEG file on disk (`diskKeys`) | Native cache; durable | Kept for pinned entries; ordinary entries pruned by the 300-file / 8 MiB disk budget | Unchanged |
+| Data-URL string in `thumbnails` | Frame cache | Pinned: never evicted. Ordinary: evicted by the disk budget | Any *clean* entry (bytes known to be on disk) is evictable, oldest use first; bound 300 entries / 16 MiB |
+| Same string in `savedThumbnails` ("clean" record) | Frame cache | Retained until the next successful save, independent of `thumbnails` | Always a subset of `thumbnails`; removed with it (`dropLoaded`) |
+| Unsaved (dirty) entries | Frame cache | In `thumbnails` until saved | Never evicted (only copy); excluded from the bound so they cannot squeeze out freshly read entries |
+| Pending native read | `pendingReads` | One read per `ensureThumbnail` key; `hydrateThumbnail` could duplicate it | One read per stored key, shared by Stats, Nearby and History |
+| `<img src=dataURL>` of visible tiles | DOM / WebKit | Own copy of the string and decoded image; independent of the Map | Unchanged. An evicted entry does not invalidate a displayed tile |
+| Full-frame Blob URLs | `blobs` / `borrowBlobUrl` | 20 frames / 32 MiB, borrow-counted | Unchanged |
+
+JavaScript object counts are not used as evidence of reclamation: the evidence below is process-tree PSS from `/proc/<pid>/smaps_rollup` of the real WebKitGTK app.
+
+### What the measurements show about WebKit memory
+
+v9 retained 401 MiB of data-URL characters at 10,000 entries, about 42 KiB per entry, yet its PSS grew 0.6–1.3 GiB (60–130 KiB per entry), with a large run-to-run spread on the identical binary (closed-idle PSS 1,802 vs 1,117 MiB in two v9 runs). The JS string is therefore at most about a third of the cost. The rest was not separately isolated (decoded images, WebKit's per-URL resource entries and allocator fragmentation are candidates). What is established is the consequence: once the strings are released, PSS stops tracking the visited count (table below), so WebKit does **not** keep an independent per-entry copy beyond the live JS references. Eviction does not give an instant drop: after a traversal PSS decays over seconds and stays in a band of roughly 500–700 MiB, with transient peaks above it during fast paging.
+
+### Design
+
+Smallest change that satisfied the requirements, in `src/client/frame-cache.ts` (no Rust change, no new dependency, no new index):
+
+- **One memory bound over all clean entries**, `MEMORY_LIMIT = 300` and `MEMORY_BYTE_LIMIT = 16 MiB` (encoded bytes). 300 covers two 100-tile pages plus an 84-thumbnail Stats page; the byte cap still admits 128 entries at the 128 KiB per-file maximum. The old ordinary 300 / 8 MiB budget is now only the *on-disk* budget for non-Saved previews.
+- **Clean means** `savedThumbnails.get(key) === thumbnails.get(key)` and `diskKeys.has(key)`. Eviction (`trimLoadedThumbnails`) never touches `diskKeys` or `deletedKeys`, so the file stays and `keepKeys()` still lists it: memory eviction cannot prune a file. It needs no pinned set, so it does not add the O(favorites) cost of the old trim.
+- **LRU by Map order**: `thumbnailFor` re-inserts on a hit, so tiles being rendered are evicted last. A caller's just-read entry is never its own victim.
+- **Dirty entries are never evicted**, and a save marks them clean and then trims, so memory returns to the bound after the write.
+- **Failed save** now un-saves only that call's entries instead of clearing every record. Native `save` writes only the call's entries and prunes by `keep`, so those are the only files a failure can half-write; keeping the rest clean keeps them evictable on a failing disk.
+- **Deduplicated reads**: `readStoredThumbnail` shares one native read per stored key. After the await, `loadStoredThumbnail` rechecks `diskKeys`, `deletedKeys`, `discardedKeys` and the clear generation, and a newer in-memory value is never overwritten. A read finishing after a prune, discard, Clear or Saved removal therefore cannot resurrect an entry or cancel its pending prune.
+- Legacy migration and every `dropLoaded` site (clear, discard, ordinary prune) shrink `thumbnails` and `savedThumbnails` together.
+- `stats-dialog.ts`: a ledger strip now draws only the frames that were hydrated (the first six of the day) instead of any later frame that happened to still be in memory, so strips no longer depend on residency.
+
+**Deliberate semantic change.** "Pinned" now means *durable on disk*, not *resident in memory*. Saved thumbnails are evicted from memory like any other clean entry and read back on demand. Consumers already read `thumbnailFor` immediately after the awaited hydrate and copy the string into `img.src`; none relies on residency.
+
+Alternatives rejected: FIFO (no recency, so the page being viewed could be evicted first; the touch costs one delete/set); a separate pinned-LRU tier (second index, same memory policy); evicting by file mtime or a database (persistence change, no measured need); revoking/using blob URLs for tiles (new lifecycle for a problem the plateau shows is solved).
+
+### Method
+
+Linux Tauri/WebKitGTK 2.54.2 release executables built by `performance/native-build.mjs` into disposable `/tmp` copies; isolated synthetic profiles (`performance/native-run.py --mode retention`) with 1,000 / 5,000 / 10,000 Saved entries, distinct 31,536-byte JPEG thumbnails, ten collections, page size 100. The baseline is the committed v9 tree (`--ref=HEAD`); "bounded" is the working tree. Each cell is one fresh process, run **twice** per build (the second run is the "repeat" in the raw artifacts). Workload (`performance/native-retention.mjs`):
+
+1. Complete traversal of every Saved page, scrolling each row so every tile loads and decodes; checkpoint every 1,000 entries.
+2. Close Saved, 15 s idle.
+3. Second complete traversal, close, 15 s idle.
+4. 20 Next + Previous pairs at the middle page; six cold revisits of distant pages via Next/Previous; final 15 s idle.
+
+The process-tree sampler records PSS and RSS every 250 ms from `smaps_rollup`; checkpoints are matched to the nearest live sample. After every run the cache directory is fingerprinted (file count and SHA-256 of names and bytes) and compared with the pre-run fingerprint; the driver fails if a source request occurs or the native file list changes. The first harness round used `openHistory()` to jump to page 0 and silently stayed on the remembered last page, so its second traversal and revisits were no-ops for both builds. It was discarded and the driver now jumps with the real Previous/Next controls and checks the landing page. Results below are from the corrected driver.
+
+```bash
+node performance/native-build.mjs /tmp/rf-ret-v9 --ref=HEAD     # baseline
+node performance/native-build.mjs /tmp/rf-ret-b2                 # working tree
+python performance/native-run.py /tmp/rf-ret-b2 --count 10000 --runs 1 --mode retention --unique-thumbnails --output /tmp/rf-ret-b2-10000
+python performance/native-retention-summary.py /tmp/rf-ret-b2-10000
+```
+
+### Results (two runs per cell, written run 1 / run 2)
+
+Process-tree PSS in MiB. "Start" is after startup readiness. "Closed" is Saved closed after the first complete traversal; "idle 2" is after the second traversal and 15 s idle.
+
+| Saved | Build | Start | Closed | Idle 2 | Peak PSS | Peak RSS | Live thumbnails (end) | Data-URL chars (end) |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1,000 | v9 | 405 / 382 | 554 / 503 | 623 / 513 | 761 / 703 | 990 / 934 | 999 | 40.1 MiB |
+| 1,000 | bounded | 403 / 409 | 532 / 518 | 550 / 522 | 667 / 651 | 896 / 882 | 300 | 12.0 MiB |
+| 5,000 | v9 | 440 / 429 | 985 / 846 | 1,174 / 1,057 | 1,903 / 1,763 | 2,132 / 1,995 | 4,999 | 200.6 MiB |
+| 5,000 | bounded | 438 / 439 | 588 / 572 | 563 / 609 | 1,151 / 937 | 1,379 / 1,172 | 300 | 12.0 MiB |
+| 10,000 | v9 | 494 / 474 | 1,802 / 1,117 | 1,929 / 1,825 | 3,139 / 3,441 | 3,369 / 3,673 | 9,999 | 401.2 MiB |
+| 10,000 | bounded | 465 / 480 | 653 / 617 | 707 / 610 | 1,117 / 1,112 | 1,348 / 1,347 | 300 | 12.0 MiB |
+
+After the final revisits and idle, v9 held 691 / 618, 1,253 / 933 and 2,641 / 3,010 MiB; bounded held 523 / 501, 800 / 548 and 482 / 575 MiB. Bounded idle PSS sits in a 480–800 MiB band at every library size, while v9 grows with the visited set and, notably, grows further when the second traversal re-renders from its retained strings (10,000 entries: peak 3.1–3.4 GiB, RSS 3.4–3.7 GiB). **Plateau criterion met**: 1,000 → 10,000 entries raises bounded closed-idle PSS by about 100 MiB (532 → 653), within the run-to-run spread, while peak PSS is 1,117 vs 1,150 MiB at 10,000 vs 5,000. Peaks exceed the idle band by roughly 450 MiB during fast paging (decode and allocation churn); that transient does not scale with the library. Closing Saved lowered PSS by only 20–60 MiB in both builds (bounded 10,000: 709 → 653 and 668 → 617 MiB between the end of the first traversal and the closed checkpoint; v9 1,822 → 1,802 and 1,142 → 1,117), and neither returns to the start value because the allocator keeps pages.
+
+Latency, **median / P95 ms** (run 1; run 2 is within a few ms unless noted). Each page transition includes rendering, tile loading and decoding of every visible tile, with frame callbacks; reads are mean native `read_thumbnail_cache` calls per transition.
+
+| Transition | Saved | v9 | Bounded |
+| --- | ---: | ---: | ---: |
+| Next, first traversal (18 reads, all misses in both builds) | 1,000 | 60 / 61 | 65 / 67 |
+| | 5,000 | 94 / 110 | 71 / 77 |
+| | 10,000 | 133 / 153 | 75 / 78 |
+| Next, second traversal | 1,000 | 113 / 116 (0 reads) | 60 / 69 (18 reads) |
+| | 5,000 | 113 / 129 (0 reads) | 77 / 86 (18 reads) |
+| | 10,000 | 120 / 137 (0 reads) | 84 / 93 (18 reads) |
+| Next / Previous at the middle page | 1,000 | 65 / 83 · 65 / 84 | 41 / 56 · 42 / 48 |
+| | 5,000 | 83 / 94 · 83 / 112 | 48 / 67 · 48 / 59 |
+| | 10,000 | 81 / 94 · 73 / 87 | 52 / 62 · 52 / 61 |
+| Cold revisit of a distant page | 1,000 | 81 / 99 (0 reads) | 52 / 61 (13 reads) |
+| | 5,000 | 87 / 92 | 58 / 90 (15 reads) |
+| | 10,000 | 94 / 129 | 72 / 91 (15 reads) |
+
+Cache behaviour: in bounded runs the pair test misses only on its first transition (0.9 reads/transition average); a revisit reads only the visible-row tiles (13–15 files), not the whole 100-tile page. Total native reads across both traversals, pairs and revisits were 2,173 / 10,230 / 20,230 (1,000 / 5,000 / 10,000) versus 999 / 4,999 / 9,999 in v9. A full traversal of a library larger than the cache therefore always misses, as intended; each miss is one local file read of about 31 KiB. First-traversal cost no longer grows with library size (75 ms at 10,000, versus 133 ms in v9, whose first-traversal pages carried the growing heap). It is not established why v9's cached transitions are slower than bounded cold ones; the machine was not isolated and no causal attribution is claimed. Pagination latency is therefore not worse under the bound in this fixture.
+
+CPU over the traversal workload (process tree, seconds, two runs): v9 19.8 / 19.7, 80.9 / 83.0, 178.5 / 181.8; bounded 17.3 / 18.0, 64.9 / 65.8, 126.2 / 130.1. Startup readiness (launch to restored image + 2 rAF) is unchanged: 1,000: 180 / 176 vs 178 / 190 ms; 5,000: 230 / 224 vs 220 / 226; 10,000: 297 / 318 vs 301 / 321 ms (v9 vs bounded). Startup still issues zero thumbnail reads beyond the restored frame's.
+
+Durability and offline: in all 12 native runs the cache directory fingerprint (file count and SHA-256 over names and contents) was identical before and after, equal to the fixture (1,000 / 5,000 / 10,000 files), and the driver recorded zero `get_thumbnail_image` source calls, including all post-eviction revisits. Aliases, migration, Clear/Undo, Saved removal, discard, failed and partial saves and generation invalidation are covered by the deterministic tests below, not by the native run (which does not exercise them).
+
+### Tests
+
+New in `test/thumbnail-demand.test.mjs` (after the "Bounded in-memory retention" marker), all deterministic with the native double enforcing `entry ∈ keep`:
+
+- traversal of 1,000 pinned files stays ≤ 300 resident; a later save still keeps all 1,001 files; an evicted file hydrates again with zero source calls;
+- an evicted entry re-added with equal bytes is written again (the clean record is dropped with the entry);
+- byte bound binds at 128 entries for 128 KiB files and a hydrated 84-thumbnail Stats page is fully readable;
+- recently used entries are evicted last;
+- four concurrent views share one native read;
+- a read landing after the file was pruned, or after a newer in-memory value was stored, neither resurrects nor clobbers;
+- 350 unsaved pinned entries survive hydration and do not squeeze out clean entries; they leave memory once written; 320 unsaved entries do not starve an 84-thumbnail Stats page;
+- a failed save retries exactly its own entry, and a failing disk does not unbound memory;
+- Saved removal plus Clear prunes evicted files, rejects a stale in-flight read and keeps every other file;
+- legacy migration of 400 pinned entries ends bounded with all files on disk;
+- a cleared entry re-added with the same bytes after an in-flight save is written again (observed to pass with and without the reviewer's stale-record guard, so it only guards the re-add scenario; the guard is a memory hygiene fix).
+
+The first eleven new tests were verified to fail on the v9 `frame-cache.ts` (the stale-read test only after the harness captured bytes when a read starts, as a real file read does); the two later dirty-entry/Stats tests were verified by the mutation below instead. Mutation checks: counting unsaved entries toward the bound fails the two dirty-entry tests; clearing all records on a failed save fails the failed-save test. Existing tests changed: the failed-save retry now expects only the failed call's entries; `history-thumbnails` awaits the lazy hydration of Saved tiles evicted by 301 injected entries and asserts no source call; two test titles no longer say Saved stays "pinned".
+
+### Independent review
+
+A separate read-only reviewer inspected the diff and every consumer. No P0/P1. It found: P2 dirty entries counted toward the bound and could squeeze a Stats page when saves fail (fixed: only clean entries count); P3 a save completing after an entry left memory re-marked it clean (fixed with an identity guard); P3 Stats strips depended on residency (fixed); test weaknesses in the dirty-entry, failed-save and Stats tests (rewritten so they fail under the mutations above). It confirmed no dirty or unwritten entry can be evicted, `keep` always lists evicted files, and that un-saving only the failed call's entries is safe against native `save`. Not acted on: P3 `trimThumbnails` is O(disk keys + favorites) per new thumbnail (existing); `img.src` strings in the retained Stats ledger/last history page stay alive independent of the cap (bounded by what was rendered); a Nearby tile without the native "saved" bit refetches even if its file exists (existing). Its review was read-only, so the primary assessor ran all tests.
+
+### Gates
+
+```text
+npm run typecheck                           pass
+npm run lint                                pass (141 files)
+npm test                                    230 passed; 0 failed
+cargo fmt --check                           pass
+cargo clippy --locked --workspace --all-targets --all-features -- -D warnings   pass
+cargo test --locked --workspace --all-features    241 passed on one run; see below
+PYTHONDONTWRITEBYTECODE=1 python performance/test_native_summary.py   pass
+```
+
+**Rust flake, not caused by this change.** `nearby::tests::nearby_service_reuses_overlap_persists_only_checks_and_retries_without_refetch` ("a four-step shift introduces four source jobs") failed in about half of the runs today (5/10 standalone; 3 of 5 full runs) with `src-tauri` byte-identical to HEAD, and had passed in the previous assessment. The full suite passed (241) once. It was not investigated or changed here and remains an open release risk until the race is understood.
+
+### Remaining risks
+
+- Windows WebView2, physical Android and Android's WebView memory behaviour were not rerun; the change is platform-neutral frontend code, but only Linux WebKitGTK is measured. Android's earlier 1,000-thumbnail result (about 348 MiB peak) predates the bound.
+- Peak PSS during fast paging still exceeds the idle band by about 450 MiB, and JavaScriptCore/WebKit release memory on its own schedule; idle decay is seconds, not instant, and run-to-run spread is ±100–300 MiB. This is a bounded-plateau result, not an hours-long soak.
+- A persistently failing disk (or one entry the native side rejects, which fails every later save) leaves unsaved entries unevictable, so memory grows with new thumbnails in that state. The entries are the only copies, and the bound excludes them deliberately.
+- Every traversal of a library larger than 300 entries re-reads files: about 18 reads of 31 KiB per page transition. Disk-cold behaviour was not measured (OS cache warm).
+- `trimThumbnails` and `keepKeys` remain O(disk keys + favorites) per persist, as in v9.
+- Sustained fast paging while thumbnails are first being written leaves up to a full library of unsaved entries in memory until the debounced save; this is unchanged v9 behaviour.
+
+### Retained evidence
+
+[`performance/results/native/v10-bounded-*`](performance/results/native): `baseline-v9`, `baseline-v9-repeat`, `final`, `final-repeat` for 1,000 / 5,000 / 10,000 (run report, 250 ms process-tree samples with PSS/RSS, metadata, disk fingerprints, all gzip), `v10-bounded-summary.json`, and `v10-bounded.patch` (`git diff HEAD -- src`, SHA-256 `7094c5c6d0da2a8efedb5ab115e849f78156f3ad3f79040fac56e29424462910`; it is the production delta measured by the `final` and `final-repeat` builds). Raw profiles are not retained. The discarded first-round runs are not archived.

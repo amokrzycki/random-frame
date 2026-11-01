@@ -178,10 +178,15 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
   assert.deepEqual(Object.keys(stored).sort(), ["prntsc:id1", "prntsc:id10", "prntsc:id11"]);
   get("history-tool-button").click();
   get("history-filter-favorites").click();
+  // The 301 overflow entries pushed older saved thumbnails out of memory; their tiles
+  // hydrate from the retained files without any source request.
+  const sourceCalls = fetchedIds().length;
+  for (let i = 0; i < 6; i++) await flush();
   assert.deepEqual(
     get("history-grid").children.map((tile) => tile.children[0].children[0].src),
     [stored["prntsc:id11"], stored["prntsc:id10"], stored["prntsc:id1"]],
   );
+  assert.equal(fetchedIds().length, sourceCalls, "evicted Saved thumbnails never reach the source");
 
   await t.test("History and Saved reuse canonical thumbnails for leading-zero IDs", async () => {
     const alias = item("0abc123");
