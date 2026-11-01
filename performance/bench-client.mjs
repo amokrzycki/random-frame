@@ -9,7 +9,8 @@ globalThis.window = new EventTarget();
 let saves = 0;
 window.__TAURI_INTERNALS__ = {
   async invoke(command) {
-    if (command === "load_thumbnail_cache") return [];
+    if (command === "list_thumbnail_cache") return [];
+    if (command === "read_thumbnail_cache") return null;
     assert.equal(command, "save_thumbnail_cache");
     saves++;
   },

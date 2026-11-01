@@ -9,7 +9,12 @@ Object.assign(globalThis, {
   localStorage: new FakeStorage(),
   window: {
     __TAURI_INTERNALS__: {
-      invoke: async (command) => (command === "load_thumbnail_cache" ? [] : undefined),
+      invoke: async (command) =>
+        ["list_thumbnail_cache", "read_thumbnail_cache"].includes(command)
+          ? command === "list_thumbnail_cache"
+            ? []
+            : null
+          : undefined,
     },
   },
 });

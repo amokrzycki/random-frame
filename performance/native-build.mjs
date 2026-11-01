@@ -9,7 +9,6 @@ const root = process.cwd();
 const destination = resolve(process.argv[2]);
 const ref = process.argv.find((arg) => arg.startsWith("--ref="))?.slice(6);
 const trace = process.argv.includes("--trace");
-const binaryThumbnails = process.argv.includes("--binary-thumbnails");
 if (!destination.startsWith("/tmp/") || destination === "/tmp") throw Error("Use a fresh /tmp/ destination");
 await mkdir(destination, { recursive: false });
 execFileSync("bash", ["-c", 'git archive "$1" | tar -x -C "$2"', "native-build", ref ?? "HEAD", destination]);
@@ -50,26 +49,6 @@ source = source.replace(
   'let asset_url = format!("{}/asset/{}", std::env::var("RF_FIXTURE_URL").expect("fixture URL"), item.id);',
 );
 await writeFile(sourcePath, source);
-if (binaryThumbnails) {
-  const cachePath = `${destination}/src-tauri/src/thumbnail_cache.rs`;
-  let cache = await readFile(cachePath, "utf8");
-  const original = ") -> Result<Vec<EncodedThumbnail>, AppError> {\n    cache.load()\n}";
-  if (!cache.includes(original)) throw Error("Binary experiment requires the encoded response variant");
-  cache = cache.replace(
-    original,
-    ") -> Result<tauri::ipc::Response, AppError> {\n    let bytes = serde_json::to_vec(&cache.load()?).map_err(AppError::persistence)?;\n    Ok(tauri::ipc::Response::new(bytes))\n}",
-  );
-  await writeFile(cachePath, cache);
-  const clientPath = `${destination}/src/client/frame-cache.ts`;
-  const client = await readFile(clientPath, "utf8");
-  await writeFile(
-    clientPath,
-    client.replace(
-      'const entries = await invoke<[string, string][]>("load_thumbnail_cache");',
-      'const bytes = await invoke<ArrayBuffer>("load_thumbnail_cache");\n      const entries: [string, string][] = JSON.parse(new TextDecoder().decode(bytes));',
-    ),
-  );
-}
 execFileSync("node", ["build.mjs"], { cwd: destination, stdio: "inherit" });
 await writeFile(
   `${destination}/performance/native-entry.mjs`,
@@ -150,7 +129,6 @@ await writeFile(
       baseline: hash,
       workingTree: !ref,
       trace,
-      binaryThumbnails,
       productionPatchSHA256: createHash("sha256").update(productionPatch).digest("hex"),
       sourceFiles: await readdir(`${destination}/dist`),
     },

@@ -91,7 +91,8 @@ export async function startApp(t, capabilities) {
       if (command === "get_history" || command === "import_session_history") return { history: [], index: -1 };
       if (command === "get_saved_library") return libraryOf();
       if (command === "startup_sync" || command === "get_sync_status") return syncStatus;
-      if (command === "load_thumbnail_cache") return [];
+      if (command === "list_thumbnail_cache") return [];
+      if (command === "read_thumbnail_cache") return null;
       return null;
     },
   };

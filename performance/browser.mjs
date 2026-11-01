@@ -6,7 +6,8 @@ import { state } from "../src/client/viewer-state.ts";
 let ipc = 0;
 window.__TAURI_INTERNALS__ = {
   async invoke(command) {
-    if (command === "load_thumbnail_cache") return [];
+    if (command === "list_thumbnail_cache") return [];
+    if (command === "read_thumbnail_cache") return null;
     if (command === "save_thumbnail_cache") {
       ipc++;
       return;

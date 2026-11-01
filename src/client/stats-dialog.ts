@@ -1,6 +1,6 @@
 import { closeDialog, onDialogClosed, openDialog } from "./dialogs.js";
 import { elements } from "./elements.js";
-import { blobKey, blobs, thumbnailFor } from "./frame-cache.js";
+import { blobKey, blobs, hydrateThumbnail, thumbnailFor } from "./frame-cache.js";
 import { goTo } from "./frame-loader.js";
 import { getExplorationStats, getViewingActivity, migrateViewingStats } from "./persistence.js";
 import type { LedgerDay } from "./statistics.js";
@@ -79,11 +79,31 @@ function ledgerRow(day: LedgerDay, todayIso: string): HTMLLIElement {
 }
 
 // Rows render in pages of LEDGER_PAGE_DAYS, so months of activity never build one long list up front.
-function renderLedgerPage(): HTMLLIElement | undefined {
+let ledgerRenderQueue: Promise<unknown> = Promise.resolve();
+function renderLedgerPage(): Promise<HTMLLIElement | undefined> {
+  // A page queued before a refresh must not advance the refreshed ledger.
+  const generation = statsGeneration;
+  const next = ledgerRenderQueue.then(() =>
+    generation === statsGeneration ? renderLedgerPageNow(generation) : undefined,
+  );
+  ledgerRenderQueue = next.catch(() => undefined);
+  return next;
+}
+
+async function renderLedgerPageNow(generation: number): Promise<HTMLLIElement | undefined> {
   const todayIso = localDayKey(Date.now());
-  const rows = state.ledger
-    .slice(state.ledgerShown, state.ledgerShown + LEDGER_PAGE_DAYS)
-    .map((day) => ledgerRow(day, todayIso));
+  const days = state.ledger.slice(state.ledgerShown, state.ledgerShown + LEDGER_PAGE_DAYS);
+  // Strips show cached thumbnails; read them from disk without starting source requests.
+  await Promise.allSettled(
+    days.flatMap((day) =>
+      day.frames.slice(0, LEDGER_STRIP_MAX).map((itemIndex) => {
+        const item = state.history[itemIndex];
+        return item ? hydrateThumbnail(blobKey(item.source, item.id)) : false;
+      }),
+    ),
+  );
+  if (generation !== statsGeneration || !elements.statsDialog.open) return;
+  const rows = days.map((day) => ledgerRow(day, todayIso));
   elements.ledgerList.append(...rows);
   state.ledgerShown += rows.length;
   elements.ledgerMore.hidden = state.ledgerShown >= state.ledger.length;
@@ -96,7 +116,7 @@ function renderLedger(days: LedgerDay[]): void {
   elements.ledgerList.replaceChildren();
   elements.ledgerEmpty.hidden = days.length > 0;
   elements.statsBody.scrollTop = 0;
-  renderLedgerPage();
+  void renderLedgerPage();
 }
 
 let statsGeneration = 0;
@@ -183,7 +203,7 @@ export function bindStatsDialogEvents(): void {
     if (generation !== statsGeneration || !elements.statsDialog.open) return;
     if (!elements.statsError.hidden) toast.error("Stats still couldn’t be read");
   });
-  elements.ledgerMore.addEventListener("click", () => renderLedgerPage()?.focus());
+  elements.ledgerMore.addEventListener("click", async () => (await renderLedgerPage())?.focus());
   elements.statsClose.addEventListener("click", () => closeDialog(elements.statsDialog));
   // A sync that lands while Stats is open must not leave the old ledger on screen.
   document.addEventListener("persisted-view-refreshed", () => {

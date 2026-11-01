@@ -12,7 +12,8 @@ test("thumbnail aliases use bounded lookups and unchanged persistence skips nati
   globalThis.window = {
     __TAURI_INTERNALS__: {
       async invoke(command, args) {
-        if (command === "load_thumbnail_cache") return [];
+        if (command === "list_thumbnail_cache") return [];
+        if (command === "read_thumbnail_cache") return null;
         assert.equal(command, "save_thumbnail_cache");
         calls++;
         if (fail) throw new Error("Disk full");

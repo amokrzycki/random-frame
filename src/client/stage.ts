@@ -1,6 +1,6 @@
 import { elements } from "./elements.js";
 import { describeError } from "./errors.js";
-import { blobKey, blobs, borrowBlobUrl, cacheBlob, cacheThumbnail, savedFrames } from "./frame-cache.js";
+import { blobKey, blobs, borrowBlobUrl, cacheBlob, cacheThumbnailIfMissing, savedFrames } from "./frame-cache.js";
 import { pickLoadingMessage } from "./loading-copy.js";
 import { adjacentPrntscId, nextHistoryIndex } from "./navigation.js";
 import { toast } from "./toast.js";
@@ -352,7 +352,7 @@ export function showFrame(source: string, id: string, blob: Blob, url: string): 
   const key = blobKey(source, id);
   swapImage(url, id);
   cacheBlob(key, { blob, url });
-  void cacheThumbnail(key, blob);
+  cacheThumbnailIfMissing(key, blob);
   syncControls();
   elements.announcer.textContent = `Showing frame ${id}`;
 }

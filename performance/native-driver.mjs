@@ -84,9 +84,47 @@ async function run() {
     timeOrigin: performance.timeOrigin,
   };
   if (state.historyLoadFailed) throw Error("Native startup failed");
-  if (!__rf.ipc.some((span) => span.name === "load_thumbnail_cache")) throw Error("IPC probe did not run");
+  if (!__rf.ipc.some((span) => span.name === "list_thumbnail_cache")) throw Error("IPC probe did not run");
+  // Demand loading is the point of this build: readiness may read the restored frame's
+  // thumbnail, but never the whole library.
+  const startupReads = __rf.ipc.filter(
+    (span) => span.name === "read_thumbnail_cache" && span.phase === "startup",
+  ).length;
+  if (startupReads > 2) throw Error(`Startup read ${startupReads} thumbnail files eagerly`);
   checkpoint("startup");
   await sleep(700);
+  // The first actual thumbnail-consuming view is measured before the sampled loops,
+  // because their warmups would otherwise hide its one-time cost.
+  const firstOpen = async (tab) => {
+    state.historyTab = tab;
+    const start = performance.now();
+    openHistory();
+    await paint();
+    const rendered = performance.now() - start;
+    // Visible-tile completion: every on-screen skeleton resolved to an image or placeholder.
+    const visibleTiles = () => {
+      const body = elements.historyBody.getBoundingClientRect();
+      return [...elements.historyGrid.querySelectorAll(".history-item")].filter((tile) => {
+        const rect = tile.getBoundingClientRect();
+        return rect.width > 0 && rect.bottom > body.top && rect.top < body.bottom;
+      });
+    };
+    await until(() => {
+      const tiles = visibleTiles();
+      return tiles.length > 0 && tiles.every((tile) => !tile.hasAttribute("data-loading"));
+    }, 30000);
+    await paint();
+    const ready = performance.now() - start;
+    await closeHistory();
+    return { rendered, ready };
+  };
+  __rf.phase = "firstThumbnailOpen";
+  const firstHistory = await firstOpen("history");
+  observations.firstHistoryOpen = [firstHistory.rendered];
+  observations.firstHistoryReady = [firstHistory.ready];
+  const firstSaved = await firstOpen("favourites");
+  observations.firstSavedOpen = [firstSaved.rendered];
+  observations.firstSavedReady = [firstSaved.ready];
   await sample(
     "historyOpen",
     async () => {

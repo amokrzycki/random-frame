@@ -23,7 +23,8 @@ test("Nearby cancels pending shift cues on resize, visibility and motion prefere
             );
           });
         if (command === "close_nearby") return null;
-        if (command === "load_thumbnail_cache") return [];
+        if (command === "list_thumbnail_cache") return [];
+        if (command === "read_thumbnail_cache") return null;
         throw Error(`Unexpected ${command}`);
       },
     },

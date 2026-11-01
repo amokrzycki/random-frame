@@ -8,6 +8,7 @@ import {
   cacheEncodedThumbnail,
   cacheThumbnail,
   discardThumbnail,
+  hydrateThumbnail,
   persistThumbnails,
   shareThumbnail,
   thumbnailFor,
@@ -375,7 +376,12 @@ export function openNearby(): void {
         await Promise.all(
           session.tiles.map(async (tile) => {
             const key = tile.id && blobKey("prntsc", tile.id);
-            const cached = key && thumbnailFor(key);
+            let cached = key ? thumbnailFor(key) : undefined;
+            // A saved thumbnail proves the native cache without re-encoding it there.
+            if (!cached && key && tile.id && !tile.current && (result.evidence[tile.id] ?? 0) & 1) {
+              await hydrateThumbnail(key);
+              cached = thumbnailFor(key);
+            }
             if (tile.id && !tile.current && tile.phase === "queued" && (result.evidence[tile.id] ?? 0) & 1 && cached) {
               const probe = document.createElement("img");
               probe.src = cached;

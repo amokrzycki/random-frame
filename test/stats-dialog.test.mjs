@@ -10,7 +10,12 @@ test("Stats opens before reads, discards late responses, and refreshes without s
   const requests = [];
   globalThis.window = Object.assign(new EventTarget(), {
     __TAURI_INTERNALS__: {
-      invoke: (command) => new Promise((resolve, reject) => requests.push({ command, resolve, reject })),
+      invoke: (command) => {
+        // The ledger hydrates cached thumbnails before rendering its rows.
+        if (command === "list_thumbnail_cache") return Promise.resolve([]);
+        if (command === "read_thumbnail_cache") return Promise.resolve(null);
+        return new Promise((resolve, reject) => requests.push({ command, resolve, reject }));
+      },
     },
   });
   const { elements: e } = await import("../dist/test-client/elements.js");

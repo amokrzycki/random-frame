@@ -1,6 +1,6 @@
 # Performance audit — 2026-10-29, extended 2026-10-30
 
-The October 29 phase below records four component optimizations and their original verification boundaries. The **October 30 native validation extension at the end** adds real Linux Tauri/WebKitGTK release-process measurements, further evidence-backed changes, and current limitations. Its internal thumbnail-load IPC format supersedes the prior phase's unchanged-IPC statement; disk files, save commands, sync formats, image retrieval, admission limits, and motion remain unchanged.
+The October 29 phase below records four component optimizations and their original verification boundaries. The **October 30 native validation extension** adds real Linux Tauri/WebKitGTK release-process measurements, further evidence-backed changes, and current limitations. Its internal thumbnail-load IPC format supersedes the prior phase's unchanged-IPC statement; disk files, save commands, sync formats, image retrieval, admission limits, and motion remain unchanged. The **final demand-loaded thumbnail phase at the end** replaces that eager startup load with per-file access; its measurements supersede the startup and pinned-thumbnail rows above. Committed baseline for the final phase: `d6e3c100b428a3be25df49a32cda62c18c92b1e5`.
 
 ## Confirmed bottlenecks and changes
 
@@ -130,7 +130,7 @@ Independent review used a separate default-model agent, read-only, in two rounds
 1. Profile actual cold/warm launches on each supported platform using an isolated synthetic profile, fixed saved selection, and a local fixture server. Record process start → controls enabled → restored frame decoded → paint separately. Report OS-cache state rather than claiming a cold launch after merely restarting the app.
 2. Measure full draw/restore with deterministic locally served images, then a separately labelled live upstream sample. Keep request/queue time, backend byte transfer, decoder time and presentation time separate; retain cooldown/backoff unchanged. Add device-scale image dimensions and Android codec coverage before altering decode or binary transfer.
 3. Large collection switching still costs about 69–92 ms for two switches in this fixture. Profile repeated operation-ID stringification, uncollected checks and repeated full-list projections before adding generation-scoped indexes. Check sync invalidation and concurrent save operations if introducing them. No speculative state cache was added here.
-4. Measure pinned-thumbnail startup bytes and process retention with realistic JPEGs. Startup currently reads every saved thumbnail and expands bytes into base64; pinned Saved thumbnails have no ordinary-cache cap. Consider lazy native thumbnail access only after measuring it, preserving persistence, aliases, clear recovery and offline behavior.
+4. ~~Measure pinned-thumbnail startup bytes and process retention with realistic JPEGs. Startup currently reads every saved thumbnail and expands bytes into base64; pinned Saved thumbnails have no ordinary-cache cap. Consider lazy native thumbnail access only after measuring it, preserving persistence, aliases, clear recovery and offline behavior.~~ **Addressed in the final phase below**: startup now lists keys only and reads one file per visible tile. Pinned entries still have no in-memory cap; see that phase's remaining limitations.
 5. Capture main-thread and renderer traces for zoom/pan, progressive Nearby loading, and encrypted sync under realistic device load. Do not remove existing transitions or transactional `fsync` operations to improve a score. History selection still persists the existing whole-file representation; changing that needs a separate durability design and measured disk workload.
 
 Use `npm test` in CI for deterministic complexity/recovery guards: alias lookup must not iterate the cache, unchanged snapshots must issue zero IPC, and partial failures must reconcile. Keep the release Rust and browser benchmarks as local or scheduled CI artifacts on a fixed runner; compare medians/P95 and dataset scaling against a baseline from the same runner, with an initial warning-only budget for timing noise. The scripts operate on synthetic local data, retain no user history, and add no telemetry, analytics, external endpoints, or production instrumentation.
@@ -322,3 +322,157 @@ The strongest verified gains are large-cache startup, peak startup RSS/CPU, real
 See [native artifacts and index](performance/results/native/README.md), [matrix summary](performance/results/native/matrix-summary.json), [follow-up summary](performance/results/native/followup-summary.json), and [the measured production patch](performance/results/native/production.patch). Raw JSON is gzip-compressed without changing its contents; `native-summary.py` reads compressed or original reports. Only synthetic reports/logs are retained, never profile directories or generated identities. The matrix uses v6; populated switching, soaks and Android use v7. Archived v6/v7 drivers preserve the workloads used for those results; v8 adds the review-requested navigation-success assertions.
 
 Environment additions: Python 3.14.8, Pillow 13.0.0, kernel 7.3.0-4-cachyos, with the previously documented Linux machine/toolchain and existing desktop session. The resumed Android build/final host gate run used Node 26.12.1; the earlier Linux matrix used the version documented above. No commit or publication was performed.
+
+## Demand-loaded thumbnails — 2026-10-30 (final phase)
+
+### Root cause
+
+The previous phase had already replaced the number-array wire format with encoded data URLs, but startup still called `load_thumbnail_cache`, which read **every** thumbnail file and returned all of them as base64 strings. At 10,000 pinned Saved thumbnails (31,532-byte JPEGs, about 301 MiB on disk) the frontend received roughly 420 MiB of data-URL strings and retained them in two Maps. The existing `trace-compact-10000` artifact shows the cost directly: `load_thumbnail_cache` took **8,024 ms of the 8,329 ms** WebView-origin readiness time. A matched v8 rerun of the previously optimized build reproduced **8,588 ms** median readiness (8,332–9,492 ms), **10.63 s** startup CPU, and **2,587 MiB** startup peak tree RSS.
+
+Only one of those thumbnails is needed to show a restored frame, and none is needed until History, Saved, Nearby, or Stats is opened. The eager load was therefore unnecessary work and retained memory for the entire session.
+
+### Alternatives considered and rejected
+
+| Alternative | Why it was not chosen |
+| --- | --- |
+| Keep eager loading; improve transport again | Already tried in the prior phase (`trace-binary-10000`: 8,356 ms vs 8,666 ms, no CPU win). The remaining cost is reading, decoding, encoding and retaining the whole library, not just JSON framing. |
+| Load only pinned Saved thumbnails at startup | The pinned Saved set is exactly the unbounded set causing the problem. |
+| Warm a bounded prefix (for example the newest 200) | Still leaves an unbounded remainder, adds a second cache tier, and does not remove the 10,000-file stall. |
+| Start the eager load after readiness, in the background | Would still perform the same I/O, allocate the same strings, compete with the first interactions, and make readiness a misleading metric. |
+| Replace the file cache with a database/index | Not required: the directory listing plus existing filenames already answer "which keys exist" in 16 ms at 10,000 entries. Changing persistence would add migration risk for no measured benefit. |
+| Keep the eager cache solely to keep Stats/Nearby warm | Measured startup cost dominates; demand hydration brings warm Nearby back to parity (below). |
+
+### Implemented architecture
+
+**Rust (`src-tauri/src/thumbnail_cache.rs`)**
+
+- `list_thumbnail_cache()` returns `(key, file size)` pairs, oldest first by modification time. It filters empty/oversized/invalid files and reads **no image bytes**. The size and order let the frontend keep the existing ordinary-cache bounds without decoding anything.
+- `read_thumbnail_cache(key)` validates the key, reads exactly one file, and returns its JPEG data URL. It does not scan the directory; the frontend resolves leading-zero aliases against the listed keys, so a missing canonical file never triggers an O(directory) scan on the request path.
+- `save_thumbnail_cache(entries, keep)` is unchanged. `keep` now includes unloaded keys, so a file is never pruned merely because this session did not read it.
+- Filenames, leading-zero alias spellings, the 128 KiB per-file limit, atomic `.tmp` writes, `.tmp`/orphan pruning and unchanged-file mtime preservation are unchanged.
+
+**Frontend (`src/client/frame-cache.ts`)**
+
+- `diskKeys` is a `Map<key, bytes>` of files known to exist; `deletedKeys` tracks pending prunes; `discardedKeys` remembers images that failed to decode this session.
+- `initializeThumbnailCache()` lists keys only. The first reconciliation still runs at startup, so crash artifacts and `.tmp` files are pruned as before.
+- `ensureThumbnail()` resolves in order: memory → stored file → source. A stored file is used as-is, so offline History/Saved tiles never reach the network.
+- `hydrateThumbnail()` is disk-only and is used by Stats and Nearby. It does not share `ensureThumbnail`'s pending map, so a disk miss cannot swallow the source fallback.
+- `cacheThumbnailIfMissing()` lets the stage skip both reading and regenerating when a file already exists; showing a frame never rewrites a thumbnail.
+- `trimThumbnails()` keeps the existing ordinary-cache budget (300 entries / 8 MiB) across **unloaded disk files first, then loaded entries**, so the oldest file is evicted, not the one just read. Pinned Saved thumbnails remain exempt (existing semantics). `trimLoadedThumbnails()` enforces only the in-memory bound during hydration.
+- `clearThumbnails()` prunes unloaded non-retained files too; the existing clear generation rejects stale in-flight reads; `retainedAfterClear` is cleared after a successful save. Partial-write retries still resend the complete loaded cache and keep unloaded files.
+- `collections-dialog.ts` re-ensures only the frames in the Undo batch, not every Saved item.
+
+**Consumers**
+
+- History/Saved keep the existing `IntersectionObserver` + three-at-a-time loader; only the visible page's tiles are requested. Pagination still cancels queued work for the page being left.
+- Nearby hydrates a saved tile from disk when native evidence says its preview exists, otherwise it resolves through the existing backend/handle path.
+- Stats hydrates the visible ledger page (at most 14 days × 6 thumbnails) before rendering; "Show earlier days" is serialized so rapid activation cannot duplicate or skip days.
+
+No dependencies were added. The command names and wire shapes are internal; disk formats, save semantics, sync behavior, aliases, animations and admission limits are unchanged.
+
+### Measured results
+
+Method is the same as the native extension above: Linux Tauri/WebKitGTK release executables, isolated synthetic profiles, 100/1,000/10,000 native History and Saved entries, ten collections, 80% membership, 31,532-byte distinct JPEG thumbnails, three sequential fresh processes per cell (one fresh-profile launch plus two reopens), 20 retained interaction samples per process, v8 navigation-success assertions. "Before" is the previously optimized commit `d6e3c10`; "after" is the same commit plus `v9-demand.patch` (SHA-256 `5af416c82ee3929b6461be933fc26efc5b255d6beb859fff8be757e21efa04f5`). The before binary predates the new cold-open one-shot samples; its warm `historyOpenOnly`/`savedOpenOnly` rows are the comparison for first-use latency.
+
+Startup is process launch → restored image shown + two animation-frame callbacks. Peak RSS is sampled at 250 ms intervals; the startup column stops at readiness. Medians are across the three processes; ranges are shown because three launches do not support a P95 claim.
+
+| Entries | Readiness before | Readiness after | Startup peak RSS before | Startup peak RSS after | Startup CPU before | Startup CPU after |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 100 | 393 ms (385–408) | 367 ms (354–371) | 453 MiB | 452 MiB | 0.30 s | 0.30 s |
+| 1,000 | 558 ms (551–570) | 381 ms (369–390) | 828 MiB | 453 MiB | 0.84 s | 0.31 s |
+| 10,000 | 8,588 ms (8,332–9,492) | 520 ms (512–619) | 2,587 MiB | 452 MiB | 10.63 s | 0.31 s |
+
+At 10,000 entries the whole measured workload (all interactions) used **22.57 → 12.02 CPU seconds**; whole-workload peak tree RSS was **2,587 → 935 MiB**. The startup trace build shows `list_thumbnail_cache` at **16 ms**, `save_thumbnail_cache` at **5 ms**, and **zero** `read_thumbnail_cache` calls before readiness. The same trace records 23 on-demand reads during the first History open.
+
+Interactions are **median / P95 ms**, pooled across the three processes (60 retained samples for opening/paging, 30 refreshes, 36 navigations). Nearby uses only three samples per cell, so its P95 is the maximum.
+
+| Interaction | Entries | Before | After |
+| --- | ---: | ---: | ---: |
+| History opening (warm) | 100 | 20 / 22 | 19 / 20 |
+| History opening (warm) | 1,000 | 20 / 21 | 19 / 20 |
+| History opening (warm) | 10,000 | 31 / 38 | 26 / 27 |
+| Saved opening (warm) | 100 | 20 / 23 | 19 / 20 |
+| Saved opening (warm) | 1,000 | 20 / 22 | 19 / 20 |
+| Saved opening (warm) | 10,000 | 31 / 37 | 27 / 29 |
+| Saved Next + Previous | 100 | 50 / 51 | 70 / 72 |
+| Saved Next + Previous | 1,000 | 70 / 71 | 70 / 71 |
+| Saved Next + Previous | 10,000 | 54 / 68 | 67 / 70 |
+| Populated two-collection switch | 100 | 50 / 51 | 53 / 54 |
+| Populated two-collection switch | 1,000 | 50 / 51 | 53 / 70 |
+| Populated two-collection switch | 10,000 | 65 / 70 | 70 / 82 |
+| Native persisted-view refresh | 1,000 | 36 / 38 | 37 / 38 |
+| Native persisted-view refresh | 10,000 | 58 / 65 | 59 / 83 |
+| Nearby warm grid (3 samples) | 100 | 53 / 93 | 47 / 143 |
+| Nearby warm grid (3 samples) | 1,000 | 46 / 128 | 42 / 175 |
+| Nearby warm grid (3 samples) | 10,000 | 54 / 504 | 60 / 504 |
+| Nearby progressive boundary (3 samples) | 1,000 | 42 / 266 | 55 / 251 |
+| Nearby progressive boundary (3 samples) | 10,000 | 49 / 661 | 44 / 616 |
+| Navigation, transport, decode, 2 rAF | 100 | 37 / 787 | 37 / 787 |
+| Navigation, transport, decode, 2 rAF | 1,000 | 37 / 787 | 37 / 787 |
+| Navigation, transport, decode, 2 rAF | 10,000 | 51 / 789 | 37 / 797 |
+
+First actual thumbnail-consuming views were measured before the sampled loops, because their warmups would hide the one-time cost:
+
+| First cold view | 100 | 1,000 | 10,000 |
+| --- | ---: | ---: | ---: |
+| History rendered / visible tiles ready | 49 / 85 ms | 51 / 85 ms | 59 / 101 ms |
+| Saved rendered / visible tiles ready | 34 / 67 ms | 34 / 66 ms | 51 / 83 ms |
+
+The first History open's visible-tile completion is 66–75 ms slower than the same session's warm open (85 vs 19 ms at 100/1,000 entries; 101 vs 26 ms at 10,000) because it performs 23 disk reads at 7–23 ms each with three in flight. That is the deliberate first-use cost of not reading 10,000 files at launch; it is bounded by the visible page and remains far below the 8.6 s the previous build spent before readiness.
+
+### Correctness and regression testing
+
+The change keeps the existing test suites and adds focused coverage:
+
+- `test/thumbnail-demand.test.mjs` (14 tests): 10,000-key initialization with zero reads; concurrent request deduplication; disk hit never reaches the source; missing/unreadable file fallback; clear pruning unloaded files; pinned survival; stale in-flight read rejection; eviction and rehydration; stage reuse without rewriting; discard-then-re-add; hydrate-versus-ensure; clear during an in-flight save; self-eviction; legacy-value precedence; alias preservation; hydrate-only memory bound; pinned discard not resurrected.
+- `test/stats-ledger.test.mjs`: rapid "Show earlier days" activation renders distinct pages without duplicates or skipped days.
+- Test doubles now enforce the native `entry ∈ keep` rule, so a frontend save that omits a written entry fails the test.
+- Existing migration, partial-write failure/retry, deletion-only pruning, alias pinning, queued clear, stale refresh, collection conflict/Undo, focus, keyboard, reduced-motion, cancellation and admission tests still pass.
+
+Final gates:
+
+```text
+npm run typecheck
+npm run lint
+npm test                                    217 passed; 0 failed
+cargo fmt --manifest-path src-tauri/Cargo.toml --check
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+cargo test --manifest-path src-tauri/Cargo.toml    241 passed; 22 ignored
+```
+
+The native harness now asserts that startup issues at most two `read_thumbnail_cache` calls (the measured runs issue zero), that `list_thumbnail_cache` ran, and that every navigation lands on the decoded target. A visible-tile completion predicate measures the first cold History/Saved open.
+
+### Independent review
+
+Two review rounds used a separate default-model reviewer, read-only. Round one found no P0 but a P1 and several P2 issues in the first implementation:
+
+- P1: a thumbnail discarded after a decode failure and then re-added stayed in `deletedKeys`, so `keep` omitted it while `entries` included it. The native save rejected the request forever. Fixed by keeping re-added keys, clearing the pending prune when fresh bytes are stored, and adding the `entry ∈ keep` assertion to test doubles.
+- P2: hydration could evict the thumbnail it had just read (fixed by oldest-disk-first, loaded-last trim order); a clear during an in-flight save could be resurrected (fixed by snapshotting the prunes covered by each save and filtering the post-save key set); `hydrateThumbnail` shared `ensureThumbnail`'s pending map and could swallow the source fallback (fixed by a direct disk read); Stats lost ledger thumbnails on a fresh launch (fixed by page hydration); discarding a pinned tile could delete the offline copy (fixed by pruning only non-pinned keys).
+- P3s fixed: legacy `localStorage` could override a newer disk file; `cacheThumbnailIfMissing` did not capture the clear generation; `retainedAfterClear` was not cleared after a successful save; the legacy migration save did not use the same in-flight-prune bookkeeping.
+
+Round two verified the original repros still fail on the old logic and pass now, then found two remaining P2s: hydrate-only paths could grow the in-memory cache past its bound (fixed with `trimLoadedThumbnails`, verified 1,000 hydrates ≤ 300), and rapid "Show earlier days" could duplicate rows (fixed by serializing page renders, covered by `stats-ledger.test.mjs`). It also found a P3 where a pinned discarded tile could be re-read (fixed with `discardedKeys`) and a P3 legacy-migration bookkeeping race (fixed). A final round found one P3: a Stats page queued before a persisted-view refresh could advance the refreshed ledger; the render queue now captures the generation at enqueue and drops stale pages. The round-three repro now renders 14 rows after a refresh while a normal double activation still renders 30 distinct days. No unresolved actionable production defect remains from these reviews.
+
+### Remaining limitations
+
+- Pinned Saved thumbnails are still exempt from the in-memory count and byte bounds (existing semantics). Demand loading defers the large-profile startup cost; deliberately paging through all 10,000 Saved entries can still load the full data-URL set. A bounded pinned LRU would be a separate, measurable change.
+- `trimThumbnails`/`trimLoadedThumbnails` are O(favorites + known disk keys) when the bound is exceeded. With 10,000 pinned entries this is noticeable per save or per hydrated tile, though it is not on the startup path.
+- Stats ledger hydration can issue up to 84 disk reads per page. Paging through a very large ledger therefore performs many sequential local reads; it does not start source requests.
+- Pagination at 100 entries regressed from 50 to 70 ms median because the next page now loads on demand and leaving a page cancels its queued tiles. At 1,000 and 10,000 entries it is unchanged or better. The existing cancellation behavior was preserved.
+- Nearby's first-ever grid in a fresh profile still takes about 0.5 s because four boundary neighbours have no history or disk preview and are fetched from the fixture source. Warm reopens are about 60 ms at 10,000 entries.
+- Startup peak RSS, whole-workload peak RSS and CPU are process-tree sums with shared pages counted per process, not PSS/private heap or GPU VRAM. The desktop session and OS page cache were not isolated; disk-cold boot is still NOT_TESTED.
+- Android and Windows were not rerun for this phase. The change is platform-neutral Rust/frontend code, but only Linux WebKitGTK is verified here.
+- Duplicate canonical and leading-zero alias files can both remain on disk; `discardThumbnail` removes only the exact spelling it matched. `discardedKeys` is session-scoped, so after a restart a pinned file that failed to decode can be read again until a replacement is written.
+- `trimLoadedThumbnails` can evict an older memory-only thumbnail that has not yet been persisted when the in-memory bound is exceeded (newest entries survive; the debounced save normally runs first). A lost entry is regenerated or re-fetched on demand.
+- No compositor/GPU presentation timestamp, physical touch/drag, assistive-technology or long-session soak was added for this phase.
+
+### Retained evidence
+
+Final artifacts are under [performance/results/native](performance/results/native):
+
+- `v9-demand-baseline-{100,1000,10000}`: previously optimized commit `d6e3c10` rerun with the v8 driver.
+- `v9-demand-final-{100,1000,10000}`: measured demand-loaded build.
+- `v9-demand-trace-10000`: function/IPC trace of the final build.
+- `v9-demand-summary-*.json`: recomputed summaries.
+- `v9-demand.patch`: exact production delta and SHA-256 used by the final builds.
+
+Raw JSON is gzip-compressed without changing its contents. The native runner's fixture hashes and build provenance are in each `metadata.json`; no profile directories, identities or user data are retained.

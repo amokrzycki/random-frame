@@ -19,14 +19,15 @@ test("migrates thumbnail storage and writes only changed files, with retry and e
         if (command === "get_user_preferences" || command === "set_user_preferences")
           return { theme: null, historyPageSize: null };
         if (command === "import_session_history") return window.__TAURI_INTERNALS__.invoke("get_history");
-        if (command === "load_thumbnail_cache")
-          return [...disk].map(([key, bytes]) => [
-            key,
-            `data:image/jpeg;base64,${Buffer.from(bytes).toString("base64")}`,
-          ]);
+        if (command === "list_thumbnail_cache") return [...disk].map(([key, bytes]) => [key, bytes.length]);
+        if (command === "read_thumbnail_cache") {
+          const bytes = disk.get(args.key);
+          return bytes ? `data:image/jpeg;base64,${Buffer.from(bytes).toString("base64")}` : null;
+        }
         assert.equal(command, "save_thumbnail_cache");
         saves.push(structuredClone(args));
         if (fail) throw new Error("Disk full");
+        for (const [key] of args.entries) if (!args.keep.includes(key)) throw new Error(`Thumbnail ${key} is not kept`);
         for (const [key, bytes] of args.entries) disk.set(key, bytes);
         for (const key of disk.keys()) if (!args.keep.includes(key)) disk.delete(key);
       },

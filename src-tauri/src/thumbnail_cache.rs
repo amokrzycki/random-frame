@@ -4,7 +4,6 @@ use std::{collections::HashSet, fs, path::PathBuf};
 use tauri::{Manager, State};
 
 type Thumbnail = (String, Vec<u8>);
-type EncodedThumbnail = (String, String);
 const MAX_THUMBNAIL_BYTES: usize = 128 * 1024;
 
 pub(crate) struct ThumbnailCache(PathBuf);
@@ -63,19 +62,19 @@ impl ThumbnailCache {
         }
         Ok(None)
     }
-    fn load(&self) -> Result<Vec<EncodedThumbnail>, AppError> {
+    // Enumerating keys is cheap enough to reconcile the disk cache at startup; reading
+    // every image is not, so bytes stay on disk until a view actually needs them. The
+    // size and oldest-first order let the frontend keep its ordinary-cache bounds
+    // without decoding anything.
+    fn keys(&self) -> Result<Vec<(String, u64)>, AppError> {
         let files = match fs::read_dir(&self.0) {
             Ok(files) => files,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
             Err(error) => return Err(AppError::persistence(error)),
         };
-        let mut thumbnails = Vec::new();
-        let mut files = files
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(AppError::persistence)?;
-        // Preserve insertion order across restarts for oldest-first eviction.
-        files.sort_by_cached_key(|file| file.metadata().and_then(|m| m.modified()).ok());
+        let mut keys = Vec::new();
         for file in files {
+            let file = file.map_err(AppError::persistence)?;
             let name = file.file_name();
             let Some(id) = name
                 .to_str()
@@ -84,8 +83,7 @@ impl ThumbnailCache {
             else {
                 continue;
             };
-            let key = format!("prntsc:{id}");
-            if Self::filename(&key).is_err() {
+            if prntsc::validate_item_id(id).is_err() {
                 continue;
             }
             let metadata = file.metadata().map_err(AppError::persistence)?;
@@ -95,14 +93,36 @@ impl ThumbnailCache {
             {
                 continue;
             }
-            let bytes = fs::read(file.path()).map_err(AppError::persistence)?;
-            // Number-array JSON expands pinned caches before the WebView can display a frame.
-            thumbnails.push((
-                key,
-                format!("data:image/jpeg;base64,{}", STANDARD.encode(bytes)),
-            ));
+            let modified = metadata.modified().ok();
+            keys.push((modified, format!("prntsc:{id}"), metadata.len()));
         }
-        Ok(thumbnails)
+        // Preserve the old insertion order for oldest-first ordinary eviction.
+        keys.sort_by_cached_key(|(modified, _, _)| *modified);
+        Ok(keys
+            .into_iter()
+            .map(|(_, key, bytes)| (key, bytes))
+            .collect())
+    }
+
+    // The frontend resolves leading-zero aliases against the key list, so this reads
+    // exactly the requested file and never scans the directory.
+    fn read_encoded(&self, key: &str) -> Result<Option<String>, AppError> {
+        let path = self.0.join(Self::filename(key)?);
+        match fs::metadata(&path) {
+            Ok(meta)
+                if meta.is_file() && meta.len() > 0 && meta.len() <= MAX_THUMBNAIL_BYTES as u64 =>
+            {
+                let bytes = fs::read(path).map_err(AppError::persistence)?;
+                Ok(Some(format!(
+                    "data:image/jpeg;base64,{}",
+                    STANDARD.encode(bytes)
+                )))
+            }
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                Err(AppError::persistence(error))
+            }
+            _ => Ok(None),
+        }
     }
 
     #[allow(
@@ -152,10 +172,22 @@ impl ThumbnailCache {
     clippy::needless_pass_by_value,
     reason = "Tauri command state extractors must be passed by value"
 )]
-pub(crate) fn load_thumbnail_cache(
+pub(crate) fn list_thumbnail_cache(
     cache: State<'_, ThumbnailCache>,
-) -> Result<Vec<EncodedThumbnail>, AppError> {
-    cache.load()
+) -> Result<Vec<(String, u64)>, AppError> {
+    cache.keys()
+}
+
+#[tauri::command]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Tauri command arguments must be owned"
+)]
+pub(crate) fn read_thumbnail_cache(
+    key: String,
+    cache: State<'_, ThumbnailCache>,
+) -> Result<Option<String>, AppError> {
+    cache.read_encoded(&key)
 }
 
 #[tauri::command]
@@ -183,6 +215,52 @@ mod tests {
     use super::*;
     use std::time::SystemTime;
 
+    fn temporary_cache() -> (ThumbnailCache, PathBuf) {
+        let directory = std::env::temp_dir().join(format!(
+            "random-frame-thumbnails-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |elapsed| elapsed.as_nanos())
+        ));
+        (ThumbnailCache::new(directory.clone()), directory)
+    }
+
+    #[test]
+    fn lists_keys_without_reading_bytes_and_reads_one_file_on_demand(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let (cache, directory) = temporary_cache();
+        assert_eq!(cache.keys()?, Vec::<(String, u64)>::new());
+        let key = "prntsc:abc123".to_owned();
+        let other = "prntsc:def456".to_owned();
+        cache.save(
+            &[(key.clone(), vec![1, 2, 3]), (other.clone(), vec![4, 5])],
+            &[key.clone(), other.clone()],
+        )?;
+        let mut keys = cache.keys()?;
+        keys.sort();
+        assert_eq!(keys, vec![(key.clone(), 3), (other, 2)]);
+        assert_eq!(
+            cache.read_encoded(&key)?,
+            Some("data:image/jpeg;base64,AQID".into())
+        );
+        assert_eq!(cache.read_encoded("prntsc:1")?, None);
+        assert!(cache.read_encoded("prntsc:../escape").is_err());
+        // Empty and oversized files are not offered to the frontend, so the first
+        // reconciliation prunes them instead of keeping them forever.
+        fs::write(directory.join("prntsc-empty.jpg"), [])?;
+        fs::write(
+            directory.join("prntsc-huge.jpg"),
+            vec![0; MAX_THUMBNAIL_BYTES + 1],
+        )?;
+        assert_eq!(cache.keys()?.len(), 2);
+        cache.save(&[], &[key])?;
+        assert!(!directory.join("prntsc-empty.jpg").exists());
+        assert!(!directory.join("prntsc-huge.jpg").exists());
+        fs::remove_dir_all(directory)?;
+        Ok(())
+    }
+
     #[test]
     fn stores_individual_files_and_prunes_only_after_success(
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -198,8 +276,8 @@ mod tests {
         let other = "prntsc:def456".to_owned();
         cache.save(&[(key.clone(), vec![1, 2, 3])], std::slice::from_ref(&key))?;
         assert_eq!(
-            serde_json::to_value(cache.load()?)?,
-            serde_json::json!([[key, "data:image/jpeg;base64,AQID"]])
+            cache.read_encoded(&key)?,
+            Some("data:image/jpeg;base64,AQID".into())
         );
         let original_time = fs::metadata(directory.join("prntsc-abc123.jpg"))?.modified()?;
         cache.save(&[(other.clone(), vec![4, 5])], &[key.clone(), other])?;
@@ -207,7 +285,7 @@ mod tests {
             fs::metadata(directory.join("prntsc-abc123.jpg"))?.modified()?,
             original_time
         );
-        assert_eq!(cache.load()?.len(), 2);
+        assert_eq!(cache.keys()?.len(), 2);
         assert!(cache
             .save(&[("prntsc:../escape".into(), vec![0])], &[])
             .is_err());
@@ -217,14 +295,15 @@ mod tests {
                 std::slice::from_ref(&key)
             )
             .is_err());
-        assert_eq!(cache.load()?.len(), 2);
+        assert_eq!(cache.keys()?.len(), 2);
         cache.save(&[], std::slice::from_ref(&key))?;
+        assert_eq!(cache.keys()?, vec![(key.clone(), 3)]);
         assert_eq!(
-            cache.load()?,
-            vec![(key, "data:image/jpeg;base64,AQID".into())]
+            cache.read_encoded(&key)?,
+            Some("data:image/jpeg;base64,AQID".into())
         );
         cache.save(&[], &[])?;
-        assert_eq!(cache.load()?, Vec::<EncodedThumbnail>::new());
+        assert_eq!(cache.keys()?, Vec::<(String, u64)>::new());
         fs::remove_dir_all(directory)?;
         Ok(())
     }

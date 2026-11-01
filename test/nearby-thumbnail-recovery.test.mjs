@@ -37,7 +37,8 @@ test("an expired Nearby handle re-resolves once, while a repeated miss stays ret
           if (++reads === 1 || alwaysMiss) throw { kind: "not-found", message: "Preview cache miss" };
           return new Uint8Array([1]).buffer;
         }
-        if (command === "load_thumbnail_cache") return [];
+        if (command === "list_thumbnail_cache") return [];
+        if (command === "read_thumbnail_cache") return null;
         if (["save_thumbnail_cache", "close_nearby"].includes(command)) return null;
         throw new Error(command);
       },

@@ -228,7 +228,8 @@ export async function restoreSavedUndo(undo: SavedUndo): Promise<boolean> {
   try {
     await mutateSavedLibrary(async () => applySavedLibrary(await restoreSavedFrames(undo)));
     notifyLibrary();
-    for (const item of state.favorites) void ensureThumbnail(item).catch(() => false);
+    // Only the restored frames lost their pin; re-ensure those instead of the whole library.
+    for (const { item } of undo.frames) void ensureThumbnail(item).catch(() => false);
     return true;
   } catch (error) {
     toast.error(

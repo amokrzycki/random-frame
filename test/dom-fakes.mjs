@@ -457,15 +457,20 @@ export const ids = [
 // Native thumbnail commands shared by client integration tests.
 export function fakeThumbnailCache() {
   const disk = new Map();
+  const reads = [];
   return {
     disk,
+    reads,
     invoke(command, args) {
-      if (command === "load_thumbnail_cache")
-        return [...disk].map(([key, bytes]) => [
-          key,
-          `data:image/jpeg;base64,${Buffer.from(bytes).toString("base64")}`,
-        ]);
+      if (command === "list_thumbnail_cache") return [...disk].map(([key, bytes]) => [key, bytes.length]);
+      if (command === "read_thumbnail_cache") {
+        reads.push(args.key);
+        const bytes = disk.get(args.key);
+        return bytes ? `data:image/jpeg;base64,${Buffer.from(bytes).toString("base64")}` : null;
+      }
       if (command !== "save_thumbnail_cache") return undefined;
+      // Mirror the native contract: every written entry must also be kept.
+      for (const [key] of args.entries) if (!args.keep.includes(key)) throw new Error(`Thumbnail ${key} is not kept`);
       for (const [key, bytes] of args.entries) disk.set(key, bytes);
       for (const key of disk.keys()) if (!args.keep.includes(key)) disk.delete(key);
       return null;
