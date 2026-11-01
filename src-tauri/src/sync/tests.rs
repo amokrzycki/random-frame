@@ -878,6 +878,9 @@ async fn real_server_two_device_offline_and_startup_e2e() -> Result<(), Box<dyn 
     let url = format!("http://{address}");
     let database = root.join("sync.db");
     let start = || -> Result<Server, Box<dyn std::error::Error>> {
+        // A child holds duplicates of open descriptors until it execs; keep that window out of
+        // another test's profile-lock open.
+        let _spawning = crate::child_spawn_guard();
         Ok(Server(
             Command::new(&binary)
                 .env("RF_SYNC_BIND", address.to_string())
@@ -999,10 +1002,16 @@ async fn production_https_two_device_e2e() -> Result<(), Box<dyn std::error::Err
     use std::process::Command;
 
     fn service(key: &str, target: &str, action: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let status = Command::new("ssh")
-            .args(["-F", "/dev/null", "-i", key, "-o", "BatchMode=yes", target])
-            .arg(format!("sudo -n systemctl {action} random-frame-sync"))
-            .status()?;
+        // Same descriptor-inheritance window as the local server fixtures; only the pre-exec
+        // window needs the gate, not the remote command's runtime.
+        let mut child = {
+            let _spawning = crate::child_spawn_guard();
+            Command::new("ssh")
+                .args(["-F", "/dev/null", "-i", key, "-o", "BatchMode=yes", target])
+                .arg(format!("sudo -n systemctl {action} random-frame-sync"))
+                .spawn()?
+        };
+        let status = child.wait()?;
         if !status.success() {
             return Err(format!("remote systemctl {action} failed: {status}").into());
         }

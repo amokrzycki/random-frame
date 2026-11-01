@@ -465,9 +465,10 @@ impl Nearby {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{application_request, probe, ApplicationRequest};
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
-        net::{TcpListener, TcpStream},
+        net::TcpListener,
     };
 
     /// Loopback traffic seen by the fixture. Only `/page/<id>` and `/asset/<id>` are source
@@ -482,23 +483,25 @@ mod tests {
         app_agent: Option<String>,
     }
     impl Traffic {
-        fn record(&mut self, request: &str) {
-            let id = |prefix: &str| {
-                request
-                    .strip_prefix(prefix)
-                    .map(|rest| rest.split(' ').next().unwrap_or_default().to_owned())
-            };
-            if let Some(id) = id("GET /page/") {
-                self.app_agent = request.lines().find_map(|line| {
-                    let (name, value) = line.split_once(':')?;
-                    name.eq_ignore_ascii_case("user-agent")
-                        .then(|| value.trim().to_owned())
-                });
-                self.pages.push(id);
-            } else if let Some(id) = id("GET /asset/") {
-                self.assets.push(id);
-            } else {
-                self.foreign.push(request.to_owned());
+        fn record(&mut self, request: &str) -> Option<ApplicationRequest> {
+            match application_request(request) {
+                Some((ApplicationRequest::Page, id)) => {
+                    self.app_agent = request.lines().find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("user-agent")
+                            .then(|| value.trim().to_owned())
+                    });
+                    self.pages.push(id.to_owned());
+                    Some(ApplicationRequest::Page)
+                }
+                Some((ApplicationRequest::Asset, id)) => {
+                    self.assets.push(id.to_owned());
+                    Some(ApplicationRequest::Asset)
+                }
+                None => {
+                    self.foreign.push(request.to_owned());
+                    None
+                }
             }
         }
     }
@@ -511,42 +514,24 @@ mod tests {
                 let mut buf = [0; 2048];
                 let n = stream.read(&mut buf).await.unwrap_or(0);
                 let request = String::from_utf8_lossy(&buf[..n]).into_owned();
-                traffic
+                let request_kind = traffic
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .record(&request);
-                let (status, content, body) = if request.starts_with("GET /asset/") {
-                    ("200 OK", "image/png", image)
-                } else if request.starts_with("GET /page/") {
-                    (
+                let (status, content, body) = match request_kind {
+                    Some(ApplicationRequest::Asset) => ("200 OK", "image/png", image),
+                    Some(ApplicationRequest::Page) => (
                         "200 OK",
                         "text/html",
                         b"<img id='screenshot-image' src='https://i.imgur.com/test.png'>".to_vec(),
-                    )
-                } else {
-                    ("404 Not Found", "text/plain", Vec::new())
+                    ),
+                    None => ("404 Not Found", "text/plain", Vec::new()),
                 };
                 let header = format!("HTTP/1.1 {status}\r\nContent-Length: {}\r\nContent-Type: {content}\r\nConnection: close\r\n\r\n", body.len());
                 let _ = stream.write_all(header.as_bytes()).await;
                 let _ = stream.write_all(&body).await;
             });
         }
-    }
-
-    /// Sends what real port scanners were observed to send, and waits for the reply so the
-    /// fixture has recorded the request before this returns.
-    async fn probe(address: &str) -> Result<(), std::io::Error> {
-        for payload in [
-            &b"GET / HTTP/1.1\r\nhost: localhost\r\nuser-agent: node\r\n\r\n"[..],
-            &[
-                0x16, 0x03, 0x01, 0x05, 0xc8, 0x01, 0x00, 0x05, 0xc4, 0x03, 0x03,
-            ][..],
-        ] {
-            let mut stream = TcpStream::connect(address).await?;
-            stream.write_all(payload).await?;
-            let _ = stream.read_to_end(&mut Vec::new()).await;
-        }
-        Ok(())
     }
 
     fn assert_available(resolution: &Resolution, label: &str, traffic: &Mutex<Traffic>) {
@@ -593,7 +578,7 @@ mod tests {
             "\u{16}\u{3}\u{1}\u{5}",
             "",
         ] {
-            traffic.record(request);
+            let _ = traffic.record(request);
         }
         assert_eq!(traffic.pages, ["abc123"]);
         assert_eq!(traffic.assets, ["abc123"]);
