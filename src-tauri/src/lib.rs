@@ -66,8 +66,20 @@ struct AppState {
     _profile_lock: std::fs::File,
 }
 
+/// Held by a test for the whole life of a child process it spawns (`output()` waits for exit). Until the child execs, it holds a duplicate of
+/// every open descriptor, and a `flock` outlives the parent's `close` while any duplicate exists, so
+/// another test's drop-then-reopen of a profile would fail with "would block".
+#[cfg(test)]
+static CHILD_SPAWN: Mutex<()> = Mutex::new(());
+
 impl AppState {
     fn new(data_directory: &Path, app_handle: Option<tauri::AppHandle>) -> Result<Self, AppError> {
+        #[cfg(test)]
+        drop(
+            CHILD_SPAWN
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
         std::fs::create_dir_all(data_directory).map_err(AppError::persistence)?;
         let profile_lock = std::fs::File::options()
             .read(true)
@@ -1240,6 +1252,9 @@ mod tests {
         record_accepted_frame(&history_item("abc123"), &state, false)?;
         let history = std::fs::read(directory.join("history-v3.json"))?;
         let child = |available: bool| {
+            let _spawning = CHILD_SPAWN
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             let mut command = std::process::Command::new(std::env::current_exe()?);
             command.args([
                 "--exact",
