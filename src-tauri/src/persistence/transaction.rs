@@ -225,9 +225,12 @@ impl PersistentState {
         mut generation: Generation,
     ) -> Result<Generation, AppError> {
         self.read(|| {
+            let before = self.preferences.generation();
             self.preferences
                 .merge(crate::snapshot::PreferencesV2::default(), vec![record])?;
-            generation[5] = self.preferences.generation();
+            if generation[5] == before {
+                generation[5] = self.preferences.generation();
+            }
             Ok(generation)
         })
     }
@@ -800,13 +803,7 @@ impl PersistentState {
                     return Ok(id);
                 }
             }
-            let id = operation_id()
-                .iter()
-                .fold(String::with_capacity(32), |mut output, byte| {
-                    use std::fmt::Write;
-                    let _ = write!(output, "{byte:02x}");
-                    output
-                });
+            let id = hex::encode(operation_id());
             clears.requests.insert(
                 id.clone(),
                 Some(ClearRequest {

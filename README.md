@@ -102,8 +102,16 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
+CI also runs the local real-server Sync tests against `random-frame-server` commit
+`5fc35aee7b4dbe3131768bacf6f5916f83cafe04`. The server repository is private, so set
+the app repository's `SYNC_SERVER_READ_TOKEN` secret to a token with read-only
+Contents access to `amokrzycki/random-frame-server`. This job runs on main pushes
+and same-repository pull requests; fork pull requests do not receive the credential.
+To run the same tests locally after building that server:
 
-Collections arrived in snapshot v3; current snapshot v4 also separates Nearby availability from viewing, using the existing encrypted envelope and HTTP API. Before upgrading an existing v1–v3 chain, the app asks you to update your other devices and explicitly choose Upgrade Sync. Later leaves local edits waiting; no replacement older-format snapshot is uploaded. Older apps stop syncing after the upgrade, but keep their local data. A new Sync requires Nearby-capable clients from the start. The known-device list does not confirm their app versions or presence.
+```bash
+RF_SYNC_SERVER_BIN=/absolute/path/to/random-frame-sync-server cargo test --locked --manifest-path src-tauri/Cargo.toml ::real_server_ -- --ignored
+```
 
 ## Privacy
 

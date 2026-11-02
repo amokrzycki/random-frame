@@ -45,14 +45,16 @@ export function setViewerLoading(loading: boolean): Promise<void> | undefined {
 
 export function applyHistory(snapshot: HistorySnapshot): void {
   historyGeneration++;
-  state.history.splice(0, state.history.length, ...snapshot.history);
+  state.history.length = 0;
+  for (const item of snapshot.history) state.history.push(item);
   state.index = snapshot.index;
 }
 
 export function applySavedLibrary(library: SavedLibrary): void {
   favoritesGeneration++;
   state.library = library;
-  state.favorites.splice(0, state.favorites.length, ...library.items);
+  state.favorites.length = 0;
+  for (const item of library.items) state.favorites.push(item);
   const collectionExists = library.collections.some((c) => operationKey(c.collectionId) === state.savedFilter);
   if (state.savedFilter !== "all" && state.savedFilter !== "none" && !collectionExists) state.savedFilter = "all";
   if (state.savedFilter === "none" && !uncollectedItems().length) state.savedFilter = "all";

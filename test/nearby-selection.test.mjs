@@ -33,7 +33,8 @@ test("full-image Nearby selection preserves intent through image failure, retry 
           return new Uint8Array([1]).buffer;
         }
         if (command === "record_nearby_history_item") return { history: [original, other], index: 1 };
-        if (command === "load_thumbnail_cache") return [];
+        if (command === "list_thumbnail_cache") return [];
+        if (command === "read_thumbnail_cache") return null;
         if (command === "save_thumbnail_cache") return null;
         throw new Error(`Unexpected ${command}`);
       },

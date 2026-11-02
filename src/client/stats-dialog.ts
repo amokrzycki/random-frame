@@ -1,6 +1,6 @@
 import { closeDialog, onDialogClosed, openDialog } from "./dialogs.js";
 import { elements } from "./elements.js";
-import { blobKey, blobs, thumbnailFor } from "./frame-cache.js";
+import { blobKey, blobs, hydrateThumbnail, thumbnailFor } from "./frame-cache.js";
 import { goTo } from "./frame-loader.js";
 import { getExplorationStats, getViewingActivity, migrateViewingStats } from "./persistence.js";
 import type { LedgerDay } from "./statistics.js";
@@ -45,7 +45,7 @@ function ledgerThumbnail(itemIndex: number): HTMLButtonElement | null {
   return button;
 }
 
-function ledgerRow(day: LedgerDay, todayIso: string): HTMLLIElement {
+function ledgerRow(day: LedgerDay, todayIso: string, thumbs: HTMLButtonElement[]): HTMLLIElement {
   const row = document.createElement("li");
   const date = document.createElement("span");
   const counts = document.createElement("span");
@@ -60,12 +60,6 @@ function ledgerRow(day: LedgerDay, todayIso: string): HTMLLIElement {
   counts.className = "ledger__counts";
   counts.textContent = formatLedgerCounts(day.drawn, day.unavailable);
   strip.className = "ledger__strip";
-  const thumbs: HTMLButtonElement[] = [];
-  for (const itemIndex of day.frames) {
-    if (thumbs.length === LEDGER_STRIP_MAX) break;
-    const thumb = ledgerThumbnail(itemIndex);
-    if (thumb) thumbs.push(thumb);
-  }
   strip.append(...thumbs);
   const overflow = Math.max(day.drawn, day.frames.length) - thumbs.length;
   if (thumbs.length && overflow > 0) {
@@ -79,11 +73,38 @@ function ledgerRow(day: LedgerDay, todayIso: string): HTMLLIElement {
 }
 
 // Rows render in pages of LEDGER_PAGE_DAYS, so months of activity never build one long list up front.
-function renderLedgerPage(): HTMLLIElement | undefined {
+let ledgerRenderQueue: Promise<unknown> = Promise.resolve();
+function renderLedgerPage(): Promise<HTMLLIElement | undefined> {
+  // A page queued before a refresh must not advance the refreshed ledger.
+  const generation = statsGeneration;
+  const next = ledgerRenderQueue.then(() =>
+    generation === statsGeneration ? renderLedgerPageNow(generation) : undefined,
+  );
+  ledgerRenderQueue = next.catch(() => undefined);
+  return next;
+}
+
+async function renderLedgerPageNow(generation: number): Promise<HTMLLIElement | undefined> {
   const todayIso = localDayKey(Date.now());
-  const rows = state.ledger
-    .slice(state.ledgerShown, state.ledgerShown + LEDGER_PAGE_DAYS)
-    .map((day) => ledgerRow(day, todayIso));
+  const days = state.ledger.slice(state.ledgerShown, state.ledgerShown + LEDGER_PAGE_DAYS);
+  // Strips show cached thumbnails; read them from disk without starting source requests.
+  const rows = await Promise.all(
+    days.map(async (day) => {
+      const thumbs: HTMLButtonElement[] = [];
+      for (const itemIndex of day.frames) {
+        const item = state.history[itemIndex];
+        if (!item) continue;
+        const key = blobKey(item.source, item.id);
+        if (!blobs.has(key)) await hydrateThumbnail(key).catch(() => false);
+        if (generation !== statsGeneration || !elements.statsDialog.open) break;
+        const thumb = ledgerThumbnail(itemIndex);
+        if (thumb) thumbs.push(thumb);
+        if (thumbs.length === LEDGER_STRIP_MAX) break;
+      }
+      return ledgerRow(day, todayIso, thumbs);
+    }),
+  );
+  if (generation !== statsGeneration || !elements.statsDialog.open) return;
   elements.ledgerList.append(...rows);
   state.ledgerShown += rows.length;
   elements.ledgerMore.hidden = state.ledgerShown >= state.ledger.length;
@@ -96,7 +117,7 @@ function renderLedger(days: LedgerDay[]): void {
   elements.ledgerList.replaceChildren();
   elements.ledgerEmpty.hidden = days.length > 0;
   elements.statsBody.scrollTop = 0;
-  renderLedgerPage();
+  void renderLedgerPage();
 }
 
 let statsGeneration = 0;
@@ -183,7 +204,7 @@ export function bindStatsDialogEvents(): void {
     if (generation !== statsGeneration || !elements.statsDialog.open) return;
     if (!elements.statsError.hidden) toast.error("Stats still couldn’t be read");
   });
-  elements.ledgerMore.addEventListener("click", () => renderLedgerPage()?.focus());
+  elements.ledgerMore.addEventListener("click", async () => (await renderLedgerPage())?.focus());
   elements.statsClose.addEventListener("click", () => closeDialog(elements.statsDialog));
   // A sync that lands while Stats is open must not leave the old ledger on screen.
   document.addEventListener("persisted-view-refreshed", () => {

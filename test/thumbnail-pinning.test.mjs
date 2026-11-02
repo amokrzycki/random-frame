@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { FakeDocument, FakeStorage, fakeThumbnailCache, ids } from "./dom-fakes.mjs";
 
-test("favourite thumbnails share the cache but never consume its eviction budget", async (t) => {
+test("favourite thumbnails share the cache but never consume its on-disk eviction budget", async (t) => {
   const names = ["document", "localStorage", "window", "createImageBitmap"];
   const originals = new Map(names.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
   t.after(() => {
@@ -37,7 +37,8 @@ test("favourite thumbnails share the cache but never consume its eviction budget
       if (command === "get_user_preferences" || command === "set_user_preferences")
         return { theme: null, historyPageSize: null };
       if (command === "import_session_history") return window.__TAURI_INTERNALS__.invoke("get_history");
-      if (command === "load_thumbnail_cache" || command === "save_thumbnail_cache") return native.invoke(command, args);
+      if (["list_thumbnail_cache", "read_thumbnail_cache", "save_thumbnail_cache"].includes(command))
+        return native.invoke(command, args);
       assert.equal(command, "get_thumbnail_image");
       requests++;
       await new Promise((resolve) => {
@@ -96,9 +97,11 @@ test("favourite thumbnails share the cache but never consume its eviction budget
 
   const restarted = await import(`../dist/test-client/frame-cache.js?restart=${Date.now()}`);
   await restarted.initializeThumbnailCache();
+  assert.equal(restarted.thumbnails.get(key("history1")), undefined, "restart keeps bytes on disk");
+  assert.equal(await restarted.hydrateThumbnail(key("history1")), true);
   assert.equal(restarted.thumbnails.get(key("history1")), image);
   await restarted.clearThumbnails(state.favorites);
-  assert.equal(stored()[key("history1")], image);
+  assert.equal(stored()[key("history1")], image, "a pinned file never loaded stays on disk");
   assert.equal(stored()[key("newest")], undefined);
 
   // A failed file write leaves saved favourites intact and retries the new entry.

@@ -19,10 +19,15 @@ test("migrates thumbnail storage and writes only changed files, with retry and e
         if (command === "get_user_preferences" || command === "set_user_preferences")
           return { theme: null, historyPageSize: null };
         if (command === "import_session_history") return window.__TAURI_INTERNALS__.invoke("get_history");
-        if (command === "load_thumbnail_cache") return [...disk];
+        if (command === "list_thumbnail_cache") return [...disk].map(([key, bytes]) => [key, bytes.length]);
+        if (command === "read_thumbnail_cache") {
+          const bytes = disk.get(args.key);
+          return bytes ? `data:image/jpeg;base64,${Buffer.from(bytes).toString("base64")}` : null;
+        }
         assert.equal(command, "save_thumbnail_cache");
         saves.push(structuredClone(args));
         if (fail) throw new Error("Disk full");
+        for (const [key] of args.entries) if (!args.keep.includes(key)) throw new Error(`Thumbnail ${key} is not kept`);
         for (const [key, bytes] of args.entries) disk.set(key, bytes);
         for (const key of disk.keys()) if (!args.keep.includes(key)) disk.delete(key);
       },
@@ -36,8 +41,9 @@ test("migrates thumbnail storage and writes only changed files, with retry and e
   assert.equal(await cache.initializeThumbnailCache(), true);
   assert.equal(storage.getItem(legacyKey), null);
   assert.deepEqual(disk.get("prntsc:old"), [0]);
+  const migratedSaves = saves.length;
   await cache.persistThumbnails();
-  assert.deepEqual(saves.at(-1).entries, [], "saved files are not rewritten");
+  assert.equal(saves.length, migratedSaves, "unchanged saved files need no native call");
   state.favorites = [{ source: "prntsc", id: "old" }];
   for (let i = 0; i < 301; i++) cache.thumbnails.set(`prntsc:new${i}`, image);
   assert.equal(await cache.persistThumbnails(), true);
@@ -53,6 +59,7 @@ test("migrates thumbnail storage and writes only changed files, with retry and e
   assert.deepEqual(
     saves.at(-1).entries.map(([key]) => key),
     ["prntsc:latest"],
+    "a failed native save may have partially written its own files, so retry resends exactly those entries",
   );
   await cache.clearThumbnails(state.favorites);
   assert.deepEqual([...disk.keys()], ["prntsc:old"]);
@@ -71,7 +78,7 @@ test("migrates thumbnail storage and writes only changed files, with retry and e
   assert.equal(storage.getItem(legacyKey), null);
 });
 
-test("encoded Nearby JPEGs share pending keys and obey byte budget while Saved stays pinned", async () => {
+test("encoded Nearby JPEGs share pending keys and obey byte budget while Saved stays on disk", async () => {
   const cache = await import("../dist/test-client/frame-cache.js");
   const { state } = await import("../dist/test-client/viewer-state.js");
   cache.thumbnails.clear();

@@ -19,7 +19,8 @@ test("Nearby shows borrowed current pixels before acknowledgement and cancels at
             acknowledge = () => resolve({ window: nearbyWindow(args.centerId), evidence: { abc123: 1 } });
           });
         if (command === "close_nearby") return null;
-        if (command === "load_thumbnail_cache") return [];
+        if (command === "list_thumbnail_cache") return [];
+        if (command === "read_thumbnail_cache") return null;
         if (command === "save_thumbnail_cache") return null;
         throw new Error(`Unexpected ${command}`);
       },

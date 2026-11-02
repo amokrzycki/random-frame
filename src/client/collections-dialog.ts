@@ -195,16 +195,15 @@ async function applyEditor(): Promise<void> {
       .filter((m) => !editor.selected.has(operationKey(m.collectionId)))
       .map((m) => m.operationId),
   };
+  const request = editor.request;
   setBusy(true);
   try {
-    await mutateSavedLibrary(async () =>
-      applySavedLibrary(await commitCollectionEditor(editor.request as CollectionEditorRequest)),
-    );
+    await mutateSavedLibrary(async () => applySavedLibrary(await commitCollectionEditor(request)));
     notifyLibrary();
     setBusy(false);
     closeDialog(elements.collectionsDialog);
-    const added = editor.request.addToCollectionIds.length;
-    const removed = editor.request.removeMembershipOperationIds.length;
+    const added = request.addToCollectionIds.length;
+    const removed = request.removeMembershipOperationIds.length;
     toast.success(
       !editor.selected.size && removed
         ? "Collection assignments removed. Frame stays in All saved."
@@ -229,7 +228,8 @@ export async function restoreSavedUndo(undo: SavedUndo): Promise<boolean> {
   try {
     await mutateSavedLibrary(async () => applySavedLibrary(await restoreSavedFrames(undo)));
     notifyLibrary();
-    for (const item of state.favorites) void ensureThumbnail(item).catch(() => false);
+    // Only the restored frames lost their pin; re-ensure those instead of the whole library.
+    for (const { item } of undo.frames) void ensureThumbnail(item).catch(() => false);
     return true;
   } catch (error) {
     toast.error(

@@ -465,11 +465,126 @@ impl Nearby {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use crate::test_support::{application_request, probe, ApplicationRequest};
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
         net::TcpListener,
     };
+
+    /// Loopback traffic seen by the fixture. Only `/page/<id>` and `/asset/<id>` are source
+    /// requests. Anything else is foreign: other local software probes freshly opened loopback
+    /// ports (a bare `GET /`, a TLS `ClientHello`, an empty connect), and counting those as source
+    /// pages made the job-count assertion depend on the machine, not on `Nearby`.
+    #[derive(Debug, Default)]
+    struct Traffic {
+        pages: Vec<String>,
+        assets: Vec<String>,
+        foreign: Vec<String>,
+        app_agent: Option<String>,
+    }
+    impl Traffic {
+        fn record(&mut self, request: &str) -> Option<ApplicationRequest> {
+            match application_request(request) {
+                Some((ApplicationRequest::Page, id)) => {
+                    self.app_agent = request.lines().find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("user-agent")
+                            .then(|| value.trim().to_owned())
+                    });
+                    self.pages.push(id.to_owned());
+                    Some(ApplicationRequest::Page)
+                }
+                Some((ApplicationRequest::Asset, id)) => {
+                    self.assets.push(id.to_owned());
+                    Some(ApplicationRequest::Asset)
+                }
+                None => {
+                    self.foreign.push(request.to_owned());
+                    None
+                }
+            }
+        }
+    }
+
+    async fn serve(listener: TcpListener, image: Vec<u8>, traffic: Arc<Mutex<Traffic>>) {
+        while let Ok((mut stream, _)) = listener.accept().await {
+            let (image, traffic) = (image.clone(), traffic.clone());
+            // One task per connection: a silent probe must not stall real source requests.
+            tokio::spawn(async move {
+                let mut buf = [0; 2048];
+                let n = stream.read(&mut buf).await.unwrap_or(0);
+                let request = String::from_utf8_lossy(&buf[..n]).into_owned();
+                let request_kind = traffic
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .record(&request);
+                let (status, content, body) = match request_kind {
+                    Some(ApplicationRequest::Asset) => ("200 OK", "image/png", image),
+                    Some(ApplicationRequest::Page) => (
+                        "200 OK",
+                        "text/html",
+                        b"<img id='screenshot-image' src='https://i.imgur.com/test.png'>".to_vec(),
+                    ),
+                    None => ("404 Not Found", "text/plain", Vec::new()),
+                };
+                let header = format!("HTTP/1.1 {status}\r\nContent-Length: {}\r\nContent-Type: {content}\r\nConnection: close\r\n\r\n", body.len());
+                let _ = stream.write_all(header.as_bytes()).await;
+                let _ = stream.write_all(&body).await;
+            });
+        }
+    }
+
+    fn assert_available(resolution: &Resolution, label: &str, traffic: &Mutex<Traffic>) {
+        assert!(
+            matches!(resolution, Resolution::Available { .. }),
+            "{label} resolved to {}; traffic: {:?}",
+            serde_json::to_string(resolution).unwrap_or_default(),
+            traffic
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+        );
+    }
+
+    /// The filter may only ever discard traffic the app did not send, or it could mask a real
+    /// duplicate request.
+    fn assert_foreign_traffic_is_not_the_apps(
+        traffic: &Mutex<Traffic>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let (foreign, agent) = {
+            let t = traffic
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            (t.foreign.clone(), t.app_agent.clone())
+        };
+        assert!(
+            foreign.len() >= 2,
+            "the injected probes were recorded as foreign, not as source requests"
+        );
+        let agent = agent.ok_or("no app user-agent captured")?;
+        assert!(
+            foreign.iter().all(|r| !r.contains(&agent)),
+            "ignored traffic must never be the app's own: {foreign:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn fixture_counts_only_source_requests() {
+        let mut traffic = Traffic::default();
+        for request in [
+            "GET /page/abc123 HTTP/1.1\r\n",
+            "GET /asset/abc123 HTTP/1.1\r\n",
+            "GET / HTTP/1.1\r\nuser-agent: node\r\n",
+            "\u{16}\u{3}\u{1}\u{5}",
+            "",
+        ] {
+            let _ = traffic.record(request);
+        }
+        assert_eq!(traffic.pages, ["abc123"]);
+        assert_eq!(traffic.assets, ["abc123"]);
+        assert_eq!(traffic.foreign.len(), 3);
+    }
+
     #[tokio::test]
     async fn nearby_service_reuses_overlap_persists_only_checks_and_retries_without_refetch(
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -478,59 +593,53 @@ mod tests {
         let data = Arc::new(PersistentState::new(&directory)?);
         let files = ThumbnailCache::new(directory.join("thumbnails"));
         let listener = TcpListener::bind("127.0.0.1:0").await?;
-        let base = format!("http://{}", listener.local_addr()?);
-        let hits = Arc::new(AtomicUsize::new(0));
-        let hit_count = hits.clone();
+        let address = listener.local_addr()?.to_string();
+        let base = format!("http://{address}");
+        let traffic = Arc::new(Mutex::new(Traffic::default()));
         let mut image_bytes = std::io::Cursor::new(Vec::new());
         image::DynamicImage::new_rgb8(32, 24)
             .write_to(&mut image_bytes, image::ImageFormat::Png)?;
-        let image_bytes = image_bytes.into_inner();
-        let task = tokio::spawn(async move {
-            while let Ok((mut stream, _)) = listener.accept().await {
-                let mut buf = [0; 2048];
-                let n = stream.read(&mut buf).await.unwrap_or(0);
-                let request = String::from_utf8_lossy(&buf[..n]);
-                let asset = request.starts_with("GET /asset/");
-                if !asset {
-                    hit_count.fetch_add(1, Ordering::SeqCst);
-                }
-                let body = if asset {
-                    image_bytes.clone()
-                } else {
-                    b"<img id='screenshot-image' src='https://i.imgur.com/test.png'>".to_vec()
-                };
-                let content = if asset { "image/png" } else { "text/html" };
-                let header = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: {content}\r\nConnection: close\r\n\r\n",body.len());
-                let _ = stream.write_all(header.as_bytes()).await;
-                let _ = stream.write_all(&body).await;
-            }
-        });
+        let task = tokio::spawn(serve(listener, image_bytes.into_inner(), traffic.clone()));
+        let seen = || {
+            let t = traffic
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            (t.pages.clone(), t.assets.clone())
+        };
         let source = Prntsc::new(data.clone())?.with_test_base(base);
         let nearby = Nearby::default();
         nearby.set_window("test", 1, "abc123", "abc123", &data)?;
-        for id in [
+        let first = [
             "abc11z", "abc120", "abc121", "abc122", "abc124", "abc125", "abc126", "abc127",
-        ] {
-            assert!(matches!(
-                nearby
-                    .resolve("test", 1, id, false, &source, &data, &files)
-                    .await?,
-                Resolution::Available { .. }
-            ));
+        ];
+        for id in first {
+            let resolution = nearby
+                .resolve("test", 1, id, false, &source, &data, &files)
+                .await?;
+            assert_available(&resolution, &format!("{id}@1"), &traffic);
         }
-        assert_eq!(hits.load(Ordering::SeqCst), 8);
+        assert_eq!(
+            seen(),
+            (
+                first.map(String::from).to_vec(),
+                first.map(String::from).to_vec()
+            )
+        );
         let snapshot = data.snapshot()?.0;
         assert_eq!(snapshot.exploration.len(), 8);
         assert!(
             snapshot.history.is_empty() && snapshot.seen.is_empty() && snapshot.activity.is_empty()
         );
+        // Foreign loopback probes mid-run must not be mistaken for source jobs.
+        probe(&address).await?;
         nearby.set_window("test", 2, "abc127", "abc123", &data)?;
         for id in ["abc124", "abc125", "abc126", "abc127"] {
-            nearby
+            let resolution = nearby
                 .resolve("test", 2, id, false, &source, &data, &files)
                 .await?;
+            assert_available(&resolution, &format!("{id}@2"), &traffic);
         }
-        assert_eq!(hits.load(Ordering::SeqCst), 8);
+        assert_eq!(seen().0, first, "overlap is reused, not refetched");
         // A commit failure retains verified bytes; retry cannot hit upstream again.
         std::fs::create_dir(directory.join("exploration-v2.json.tmp"))?;
         assert!(matches!(
@@ -540,23 +649,30 @@ mod tests {
             Resolution::Unsaved { .. }
         ));
         std::fs::remove_dir(directory.join("exploration-v2.json.tmp"))?;
-        assert!(matches!(
-            nearby
-                .resolve("test", 2, "abc128", true, &source, &data, &files)
-                .await?,
-            Resolution::Available { .. }
-        ));
-        assert_eq!(hits.load(Ordering::SeqCst), 9);
+        let retried = nearby
+            .resolve("test", 2, "abc128", true, &source, &data, &files)
+            .await?;
+        assert_available(&retried, "abc128 retry", &traffic);
+        assert_eq!(seen().0.len(), 9, "retry must not fetch abc128 again");
         for id in ["abc129", "abc12a", "abc12b"] {
-            nearby
+            let resolution = nearby
                 .resolve("test", 2, id, false, &source, &data, &files)
                 .await?;
+            assert_available(&resolution, &format!("{id}@2"), &traffic);
         }
+        let (pages, assets) = seen();
+        let expected: Vec<String> = first
+            .iter()
+            .copied()
+            .chain(["abc128", "abc129", "abc12a", "abc12b"])
+            .map(String::from)
+            .collect();
         assert_eq!(
-            hits.load(Ordering::SeqCst),
-            12,
-            "a four-step shift introduces four source jobs"
+            pages, expected,
+            "a four-step shift introduces exactly four source jobs"
         );
+        assert_eq!(assets, expected, "each source job fetches its asset once");
+        assert_foreign_traffic_is_not_the_apps(&traffic)?;
         nearby.close("test", None)?;
         assert!(nearby.thumbnail("test", "abc124").is_err());
         assert!(nearby

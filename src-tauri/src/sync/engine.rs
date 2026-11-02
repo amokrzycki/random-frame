@@ -495,7 +495,6 @@ impl<S: SecretStore> SyncEngine<S> {
             .is_none_or(|floor| revision > floor)
         {
             config.last_accepted_revision = Some(revision);
-            self.save(&config)?;
         }
         self.save(&config)?;
         let (revision, generation) = push_with_retries(

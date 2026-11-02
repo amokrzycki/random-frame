@@ -119,8 +119,12 @@ impl DeviceIdentity {
             .data
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        data.display_name = trimmed.into();
-        save_json(&self.path, &*data)
+        let mut next = data.clone();
+        next.display_name = trimmed.into();
+        save_json(&self.path, &next)?;
+        *data = next;
+        drop(data);
+        Ok(())
     }
 }
 

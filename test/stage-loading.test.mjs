@@ -75,8 +75,18 @@ test("loading preserves the frame and settles only its delayed entrance before c
   assert.equal(loading.hidden, true);
   assert.equal(zoom.dataset.dimmed, undefined);
   assert.equal(zoom.inert, false);
+  image.getAnimations = () => [{ playState: "running" }];
   swapImage("blob:third", "third");
+  assert.equal(image.src, "blob:third");
+  assert.equal(image.style.animation, "none");
+  assert.equal(ghost.hidden, true);
+  assert.equal(ghost.src, "");
   assert.equal(ghost.dataset.dimmed, undefined); // Cached navigation must not inherit the loading treatment.
+  image.getAnimations = () => [{ playState: "finished" }];
+  swapImage("blob:fourth", "fourth");
+  assert.equal(image.style.animation, "");
+  assert.equal(ghost.hidden, false);
+  assert.equal(ghost.src, "blob:third");
 
   // Constant randomness must still avoid repeats, including the previous draw's second message.
   t.mock.method(Math, "random", () => 0);

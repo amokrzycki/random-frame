@@ -76,7 +76,8 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
         return { theme: null, historyPageSize: 10 };
       if (command === "import_session_history") return window.__TAURI_INTERNALS__.invoke("get_history");
       calls.push({ command, args });
-      if (command === "load_thumbnail_cache" || command === "save_thumbnail_cache") return native.invoke(command, args);
+      if (["list_thumbnail_cache", "read_thumbnail_cache", "save_thumbnail_cache"].includes(command))
+        return native.invoke(command, args);
       if (command === "get_history") return structuredClone(history);
       if (command === "get_saved_library") return libraryOf(structuredClone(favorites));
       if (command === "prepare_history_clear") return "clear-request";
@@ -177,10 +178,15 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
   assert.deepEqual(Object.keys(stored).sort(), ["prntsc:id1", "prntsc:id10", "prntsc:id11"]);
   get("history-tool-button").click();
   get("history-filter-favorites").click();
+  // The 301 overflow entries pushed older saved thumbnails out of memory; their tiles
+  // hydrate from the retained files without any source request.
+  const sourceCalls = fetchedIds().length;
+  for (let i = 0; i < 6; i++) await flush();
   assert.deepEqual(
     get("history-grid").children.map((tile) => tile.children[0].children[0].src),
     [stored["prntsc:id11"], stored["prntsc:id10"], stored["prntsc:id1"]],
   );
+  assert.equal(fetchedIds().length, sourceCalls, "evicted Saved thumbnails never reach the source");
 
   await t.test("History and Saved reuse canonical thumbnails for leading-zero IDs", async () => {
     const alias = item("0abc123");

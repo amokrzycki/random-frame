@@ -21,12 +21,11 @@ pub(crate) fn value_to_base36(mut value: u64) -> String {
     }
     let mut digits = Vec::new();
     while value > 0 {
-        digits.push(BASE36_ALPHABET[(value % 36) as usize]);
+        digits.push(char::from(BASE36_ALPHABET[(value % 36) as usize]));
         value /= 36;
     }
     digits.reverse();
-    String::from_utf8(digits)
-        .unwrap_or_else(|invalid| String::from_utf8_lossy(invalid.as_bytes()).into_owned())
+    digits.into_iter().collect()
 }
 
 fn base36_to_value(id: &str) -> Option<u64> {

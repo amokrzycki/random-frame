@@ -33,15 +33,20 @@ pub(super) async fn start_with_limit(
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let address = listener.local_addr()?;
     drop(listener);
-    let server = Server(
-        Command::new(std::env::var("RF_SYNC_SERVER_BIN")?)
-            .env("RF_SYNC_BIND", address.to_string())
-            .env("RF_SYNC_DB", root.join("sync.db"))
-            .env("RF_SYNC_MAX_PAYLOAD", limit.to_string())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()?,
-    );
+    let server = {
+        // A child holds duplicates of open descriptors until it execs; keep that window out of
+        // another test's profile-lock open.
+        let _spawning = crate::child_spawn_guard();
+        Server(
+            Command::new(std::env::var("RF_SYNC_SERVER_BIN")?)
+                .env("RF_SYNC_BIND", address.to_string())
+                .env("RF_SYNC_DB", root.join("sync.db"))
+                .env("RF_SYNC_MAX_PAYLOAD", limit.to_string())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()?,
+        )
+    };
     let url = format!("http://{address}");
     for _ in 0..40 {
         if reqwest::get(format!("{url}/health"))

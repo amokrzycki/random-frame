@@ -1,6 +1,6 @@
 import { elements } from "./elements.js";
 import { describeError } from "./errors.js";
-import { blobKey, blobs, cacheThumbnail, releaseBlobUrl, savedFrames } from "./frame-cache.js";
+import { blobKey, blobs, borrowBlobUrl, cacheBlob, cacheThumbnailIfMissing, savedFrames } from "./frame-cache.js";
 import { pickLoadingMessage } from "./loading-copy.js";
 import { adjacentPrntscId, nextHistoryIndex } from "./navigation.js";
 import { toast } from "./toast.js";
@@ -33,22 +33,9 @@ const statePanels: Record<ViewState, HTMLElement> = {
 // Scripted motion is reliable in the desktop webview; CSS owns the delayed entrance.
 const reducedMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)");
 let focusAnimations: Animation[] = [];
-let captionWidth: Animation | undefined;
-
-// The caption sizes the whole button, so tween its width between the measured old and new text.
 function setImageId(id: string) {
   if (elements.imageIdValue.textContent === id) return;
-  const caption = elements.imageIdValue.parentElement;
-  const from = caption?.getBoundingClientRect().width;
-  captionWidth?.cancel();
   elements.imageIdValue.textContent = id;
-  if (!caption || !from) return;
-  const to = caption.getBoundingClientRect().width;
-  if (reducedMotion?.matches || from === to) return;
-  captionWidth = caption.animate(
-    { width: [`${from}px`, `${to}px`] },
-    { duration: 320, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
-  );
 }
 let loadingSince = 0;
 let messageTimer: ReturnType<typeof setTimeout> | undefined;
@@ -362,16 +349,12 @@ export async function decodedUrl(blob: Blob): Promise<string> {
 }
 
 export function showFrame(source: string, id: string, blob: Blob, url: string): void {
-  const oldUrl = elements.image.src;
   const key = blobKey(source, id);
-  blobs.set(key, { blob, url });
-  void cacheThumbnail(key, blob);
   swapImage(url, id);
+  cacheBlob(key, { blob, url });
+  cacheThumbnailIfMissing(key, blob);
   syncControls();
   elements.announcer.textContent = `Showing frame ${id}`;
-  // The outgoing frame may still be fading out on the ghost, so release it after the crossfade.
-  if (oldUrl.startsWith("blob:") && ![...blobs.values()].some((item) => item.url === oldUrl))
-    setTimeout(() => releaseBlobUrl(oldUrl), 1000);
 }
 
 export function restartAnimation(target: HTMLElement): void {
@@ -381,11 +364,16 @@ export function restartAnimation(target: HTMLElement): void {
 }
 
 // The outgoing frame fades out beneath the incoming one, so a draw never cuts through an empty stage.
+let releaseGhost: (() => void) | undefined;
 export function swapImage(url: string, id: string): void {
   const { image, imageGhost: ghost } = elements;
   const outgoing = image.src;
-  const crossfade = !elements.imageZoom.hidden && outgoing.startsWith("blob:") && outgoing !== url;
+  const interrupted = image.getAnimations?.().some((effect) => ["running", "paused"].includes(effect.playState));
+  const crossfade = !interrupted && !elements.imageZoom.hidden && outgoing.startsWith("blob:") && outgoing !== url;
+  releaseGhost?.();
+  releaseGhost = crossfade ? borrowBlobUrl(outgoing) : undefined;
   ghost.hidden = !crossfade;
+  if (!crossfade) ghost.src = "";
   delete ghost.dataset.dimmed;
   if (crossfade) {
     ghost.src = outgoing;
@@ -394,7 +382,9 @@ export function swapImage(url: string, id: string): void {
   }
   image.src = url;
   image.alt = `Public image from Prnt.sc with identifier ${id}`;
-  restartAnimation(image);
+  // A rapid replacement settles immediately instead of promoting a partial exposure to an opaque ghost.
+  if (interrupted) image.style.animation = "none";
+  else restartAnimation(image);
   setState("image");
 }
 
@@ -413,5 +403,8 @@ export function bindStageEvents(): void {
   });
   elements.imageGhost.addEventListener("animationend", () => {
     elements.imageGhost.hidden = true;
+    elements.imageGhost.src = "";
+    releaseGhost?.();
+    releaseGhost = undefined;
   });
 }

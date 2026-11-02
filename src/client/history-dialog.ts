@@ -251,6 +251,8 @@ function renderHistoryPage(scroll = elements.historyBody.scrollTop): void {
   if (focused === elements.historyPagePrevious && view.page === 0) elements.historyPageNext.focus();
   if (focused === elements.historyPageNext && view.page === view.pages - 1) elements.historyPagePrevious.focus();
 
+  const dayFormat = new Intl.DateTimeFormat();
+  const timeFormat = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
   for (const [position, { source, id, index: itemIndex, timestamp }] of visible.entries()) {
     const tile = document.createElement("div");
     const button = document.createElement("button");
@@ -282,8 +284,8 @@ function renderHistoryPage(scroll = elements.historyBody.scrollTop): void {
     time.className = "history-item__time";
     time.id = `history-time-${position}`;
     time.dateTime = date.toISOString();
-    day.textContent = date.toLocaleDateString();
-    clock.textContent = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+    day.textContent = dayFormat.format(date);
+    clock.textContent = timeFormat.format(date);
     time.append(day, clock);
     button.setAttribute("aria-describedby", time.id);
     button.append(image, label, time);
@@ -360,7 +362,6 @@ function showFilter(next: HistoryDialogTab): void {
   filter = next;
   state.historyTab = next;
   restoreView();
-  elements.historyBody.dataset.tabTransition = next;
 }
 
 function restoreView(): void {
@@ -376,7 +377,6 @@ function restoreView(): void {
 
 export function openHistory(returnFocus?: HTMLElement): void {
   if (state.loading) return;
-  delete elements.historyBody.dataset.tabTransition;
   if (returnFocus) state.historyReturnFocus = returnFocus;
   elements.historyClear.disabled = !state.history.length;
   failedThumbnails.clear();
@@ -583,10 +583,11 @@ let savedClearAttempted = false;
 async function clearSavedFavorites(): Promise<void> {
   if (state.loading || state.savedFilter !== "all") return;
   savedClearRequest ??= { requestId: newOperationId(), frames: state.favorites.map(savedFrameRef) };
+  const request = savedClearRequest;
   savedClearAttempted = true;
   try {
     const result = await mutateSavedLibrary(async () => {
-      const result = await clearSavedFrames(savedClearRequest as RemoveSavedRequest);
+      const result = await clearSavedFrames(request);
       applySavedLibrary(result.library);
       return result;
     });

@@ -250,22 +250,25 @@ impl Prntsc {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{application_request, probe};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
         net::TcpListener,
         sync::Notify,
     };
+
     #[tokio::test]
     async fn shared_jobs_coalesce_and_last_consumer_cancels_all_admission(
     ) -> Result<(), Box<dyn std::error::Error>> {
         let directory = std::env::temp_dir().join(format!("nearby-raw-{}", rand::random::<u64>()));
         let data = Arc::new(crate::persistence::PersistentState::new(&directory)?);
         let listener = TcpListener::bind("127.0.0.1:0").await?;
-        let base = format!("http://{}", listener.local_addr()?);
-        let pages = Arc::new(AtomicUsize::new(0));
+        let address = listener.local_addr()?.to_string();
+        let base = format!("http://{address}");
+        let requests = Arc::new(AtomicUsize::new(0));
         let waiting = Arc::new(Notify::new());
-        let count = pages.clone();
+        let count = requests.clone();
         let release = waiting.clone();
         let server = tokio::spawn(async move {
             while let Ok((mut stream, _)) = listener.accept().await {
@@ -273,26 +276,37 @@ mod tests {
                 let release = release.clone();
                 tokio::spawn(async move {
                     let mut request = [0; 1024];
-                    let _ = stream.read(&mut request).await;
+                    let n = stream.read(&mut request).await.unwrap_or(0);
+                    if application_request(&String::from_utf8_lossy(&request[..n])).is_none() {
+                        let _=stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await;
+                        return;
+                    }
                     count.fetch_add(1, Ordering::SeqCst);
                     release.notified().await;
                     let _=stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await;
                 });
             }
         });
+        probe(&address).await?;
         let source = super::Prntsc::new(data)?.with_test_base(base);
         let a = source.clone();
         let first = tokio::spawn(async move { a.raw_frame("abc123", true, false).await });
         let b = source.clone();
         let second = tokio::spawn(async move { b.raw_frame("0abc123", false, false).await });
         for _ in 0..100 {
-            if pages.load(Ordering::SeqCst) == 1 {
+            if requests.load(Ordering::SeqCst) == 1 {
                 break;
             }
             tokio::task::yield_now().await;
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
-        assert_eq!(pages.load(Ordering::SeqCst), 1);
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+        probe(&address).await?;
+        assert_eq!(
+            requests.load(Ordering::SeqCst),
+            1,
+            "foreign probes are not application requests"
+        );
         first.abort(); // The viewer consumer keeps the shared pipeline alive.
         waiting.notify_waiters();
         assert_eq!(
@@ -311,14 +325,21 @@ mod tests {
             s.raw_frame("abc128", false, false).await
         }));
         for _ in 0..100 {
-            if source.fetches.total.available_permits() == 0 && pages.load(Ordering::SeqCst) == 4 {
+            if source.fetches.total.available_permits() == 0 && requests.load(Ordering::SeqCst) == 4
+            {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
         assert_eq!(source.fetches.total.available_permits(), 0);
         assert_eq!(source.fetches.previews.available_permits(), 0);
-        assert_eq!(pages.load(Ordering::SeqCst), 4); // Two previews, one viewer, plus the earlier shared request.
+        assert_eq!(requests.load(Ordering::SeqCst), 4); // Two previews, one viewer, plus the earlier shared request.
+        probe(&address).await?;
+        assert_eq!(
+            requests.load(Ordering::SeqCst),
+            4,
+            "foreign probes do not consume queued admissions"
+        );
         for handle in pending {
             handle.abort();
         }
@@ -332,7 +353,7 @@ mod tests {
         assert_eq!(source.fetches.total.available_permits(), 3);
         assert_eq!(source.fetches.previews.available_permits(), 2);
         assert_eq!(
-            pages.load(Ordering::SeqCst),
+            requests.load(Ordering::SeqCst),
             4,
             "queued obsolete jobs never start"
         );
@@ -342,6 +363,10 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "One fixture body keeps pause, retry, cooldown and admission transitions together"
+    )]
     async fn upstream_pause_keeps_nearby_explicit_and_library_thumbnails_respect_cooldown(
     ) -> Result<(), Box<dyn std::error::Error>> {
         for (status, retry_after) in [
@@ -353,23 +378,35 @@ mod tests {
                 std::env::temp_dir().join(format!("nearby-pause-{}", rand::random::<u64>()));
             let data = Arc::new(crate::persistence::PersistentState::new(&directory)?);
             let listener = TcpListener::bind("127.0.0.1:0").await?;
-            let base = format!("http://{}", listener.local_addr()?);
-            let pages = Arc::new(AtomicUsize::new(0));
-            let count = pages.clone();
+            let address = listener.local_addr()?.to_string();
+            let base = format!("http://{address}");
+            let requests = Arc::new(AtomicUsize::new(0));
+            let count = requests.clone();
             let server = tokio::spawn(async move {
                 while let Ok((mut stream, _)) = listener.accept().await {
-                    let mut request = [0; 1024];
-                    let _ = stream.read(&mut request).await;
-                    let first = count.fetch_add(1, Ordering::SeqCst) == 0;
-                    let response = if first {
-                        format!("HTTP/1.1 {status} Paused\r\nRetry-After: {retry_after}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
-                    } else {
-                        "HTTP/1.1 410 Gone\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-                            .to_owned()
-                    };
-                    let _ = stream.write_all(response.as_bytes()).await;
+                    let count = count.clone();
+                    // One task per connection: a silent probe must not stall application requests.
+                    tokio::spawn(async move {
+                        let mut request = [0; 1024];
+                        let n = stream.read(&mut request).await.unwrap_or(0);
+                        if application_request(&String::from_utf8_lossy(&request[..n])).is_none() {
+                            let _=stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await;
+                            return;
+                        }
+                        // Only an application request may consume the first pause response.
+                        let first = count.fetch_add(1, Ordering::SeqCst) == 0;
+                        let response = if first {
+                            format!("HTTP/1.1 {status} Paused\r\nRetry-After: {retry_after}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                        } else {
+                            "HTTP/1.1 410 Gone\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                                .to_owned()
+                        };
+                        let _ = stream.write_all(response.as_bytes()).await;
+                    });
                 }
             });
+            // A scanner arriving first must not receive the pause response meant for the app.
+            probe(&address).await?;
             let source = Prntsc::new(data)?.with_test_base(base);
             let error = source
                 .raw_frame("abc123", true, false)
@@ -387,9 +424,15 @@ mod tests {
                 Some(error.kind)
             );
             assert_eq!(
-                pages.load(Ordering::SeqCst),
+                requests.load(Ordering::SeqCst),
                 1,
                 "automatic work remains paused"
+            );
+            probe(&address).await?;
+            assert_eq!(
+                requests.load(Ordering::SeqCst),
+                1,
+                "foreign probes do not start application work"
             );
             assert_eq!(
                 source
@@ -400,7 +443,7 @@ mod tests {
                 Some(ErrorKind::NotFound)
             );
             assert_eq!(
-                pages.load(Ordering::SeqCst),
+                requests.load(Ordering::SeqCst),
                 2,
                 "only explicit retry restarts source work"
             );
@@ -417,7 +460,7 @@ mod tests {
                 Some(error.kind)
             );
             assert_eq!(
-                pages.load(Ordering::SeqCst),
+                requests.load(Ordering::SeqCst),
                 2,
                 "cooldown blocks library work"
             );
@@ -432,7 +475,7 @@ mod tests {
                 Some(ErrorKind::NotFound)
             );
             assert_eq!(
-                pages.load(Ordering::SeqCst),
+                requests.load(Ordering::SeqCst),
                 3,
                 "library work resumes after cooldown"
             );
