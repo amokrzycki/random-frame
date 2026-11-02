@@ -227,10 +227,10 @@ async function runResourceChecks({ adb, evaluate, check, sleep }) {
     if(!blob || blob.size>128*1024) throw new Error('Native memory fixture exceeds JPEG budget');
     const bytes=Array.from(new Uint8Array(await blob.arrayBuffer()));
     const start=parseInt('abc200',36), ids=Array.from({length:41},(_,i)=>(start+i).toString(36));
-    const existing=await invoke('load_thumbnail_cache');
+    const existing=await invoke('list_thumbnail_cache');
     for(const id of ids)await invoke('record_nearby_history_item',{item:{source:'prntsc',id,sourcePageUrl:'https://prnt.sc/'+id,viewedAt:Date.now()}});
     await invoke('save_thumbnail_cache',{entries:ids.map(id=>['prntsc:'+id,bytes]),keep:[...existing.map(x=>x[0]),...ids.map(id=>'prntsc:'+id)]});
-    const saved=new Set((await invoke('load_thumbnail_cache')).map(x=>x[0]));
+    const saved=new Set((await invoke('list_thumbnail_cache')).map(x=>x[0]));
     if(ids.some(id=>!saved.has('prntsc:'+id)))throw new Error('Native fixture was not persisted; refuse source fallback');
     await invoke('select_history_item',{index:0,source:'prntsc',id:'0'});
     window.__nearbyMemory={start,ids};
