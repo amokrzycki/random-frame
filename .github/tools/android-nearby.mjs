@@ -198,16 +198,27 @@ export async function runNearbySmoke({ adb, evaluate, check, sleep }) {
 async function runResourceChecks({ adb, evaluate, check, sleep }) {
   check(
     await evaluate(`(async () => {
-    const live=new Set(), create=URL.createObjectURL.bind(URL), revoke=URL.revokeObjectURL.bind(URL);
-    URL.createObjectURL=(blob)=>{const url=create(blob);live.add(url);return url;};
-    URL.revokeObjectURL=(url)=>{live.delete(url);revoke(url);};
-    for(let i=0;i<12;i++){
-      document.querySelector('#nearby-button').click();
-      await new Promise(r=>setTimeout(r,100));document.querySelector('#nearby-close').click();
-      await new Promise(r=>setTimeout(r,220));
+    const live=new Set(), create=URL.createObjectURL, revoke=URL.revokeObjectURL;
+    URL.createObjectURL=(blob)=>{const url=create.call(URL,blob);live.add(url);return url;};
+    URL.revokeObjectURL=(url)=>{live.delete(url);revoke.call(URL,url);};
+    const deadline=Date.now()+45000;
+    try {
+      for(let i=0;i<12;i++){
+        document.querySelector('#nearby-button').click();
+        if(!document.querySelector('#nearby-dialog').open)throw new Error('Nearby did not open for resource cycle '+(i+1));
+        await new Promise(r=>setTimeout(r,100));document.querySelector('#nearby-close').click();
+        while(true){
+          const state={cycle:i+1,open:document.querySelector('#nearby-dialog').open,
+            tiles:document.querySelectorAll('.nearby-tile').length,liveUrls:live.size,active:window.__nearbySmoke.active};
+          if(!state.open && state.tiles===0 && state.liveUrls===0 && state.active===0)break;
+          if(Date.now()>=deadline)throw new Error('Nearby cleanup timed out: '+JSON.stringify(state));
+          await new Promise(r=>setTimeout(r,50));
+        }
+      }
+      return true;
+    } finally {
+      URL.createObjectURL=create;URL.revokeObjectURL=revoke;
     }
-    URL.createObjectURL=create;URL.revokeObjectURL=revoke;
-    return live.size===0 && !document.querySelector('#nearby-dialog').open && document.querySelectorAll('.nearby-tile').length===0;
   })()`),
     "twelve Android open/close cycles release gallery URLs and image nodes",
   );
