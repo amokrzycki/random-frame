@@ -9,7 +9,7 @@ globalThis.window = new EventTarget();
 let saves = 0;
 window.__TAURI_INTERNALS__ = {
   async invoke(command) {
-    if (command === "list_thumbnail_cache") return [];
+    if (command === "list_thumbnail_cache" || command === "load_thumbnail_cache") return [];
     if (command === "read_thumbnail_cache") return null;
     assert.equal(command, "save_thumbnail_cache");
     saves++;
@@ -19,7 +19,7 @@ const { state } = await import("../dist/test-client/viewer-state.js");
 const cache = await import("../dist/test-client/frame-cache.js");
 const { bindHistoryDialogEvents, openHistory } = await import("../dist/test-client/history-dialog.js");
 bindHistoryDialogEvents();
-await cache.initializeThumbnailCache();
+assert.equal(await cache.initializeThumbnailCache(), true, "Thumbnail cache initialization failed");
 state.loading = false;
 state.pageSize = 50;
 const get = (id) => document.querySelector(`#${id}`);
@@ -74,9 +74,16 @@ for (const size of [100, 1000, 10000]) {
   await measure("thumbnail-miss-100", size, () => {
     for (let i = 0; i < 100; i++) assert.equal(cache.thumbnailFor("prntsc:zzzzzz"), undefined);
   });
-  await cache.persistThumbnails();
+  assert.equal(await cache.persistThumbnails(), true, "Thumbnail cache persistence failed");
   const before = saves;
-  await measure("thumbnail-unchanged-save", size, () => cache.persistThumbnails(), 20);
+  await measure(
+    "thumbnail-unchanged-save",
+    size,
+    async () => {
+      assert.equal(await cache.persistThumbnails(), true, "Thumbnail cache persistence failed");
+    },
+    20,
+  );
   results.push({ name: "unchanged-save-ipc-calls", size, calls: saves - before, requests: 25 });
 }
 process.stdout.write(`${JSON.stringify({ node: process.version, platform: process.platform, results }, null, 2)}\n`);

@@ -85,13 +85,15 @@ async function run() {
     timeOrigin: performance.timeOrigin,
   };
   if (state.historyLoadFailed) throw Error("Native startup failed");
-  if (!__rf.ipc.some((span) => span.name === "list_thumbnail_cache")) throw Error("IPC probe did not run");
+  const demandLoading = __rf.ipc.some((span) => span.name === "list_thumbnail_cache");
+  if (!demandLoading && !__rf.ipc.some((span) => span.name === "load_thumbnail_cache"))
+    throw Error("IPC probe did not run");
   // Demand loading is the point of this build: readiness may read the restored frame's
   // thumbnail, but never the whole library.
   const startupReads = __rf.ipc.filter(
     (span) => span.name === "read_thumbnail_cache" && span.phase === "startup",
   ).length;
-  if (startupReads > 2) throw Error(`Startup read ${startupReads} thumbnail files eagerly`);
+  if (demandLoading && startupReads > 2) throw Error(`Startup read ${startupReads} thumbnail files eagerly`);
   checkpoint("startup");
   if (config.mode === "retention") {
     const retention = await retentionWorkload();

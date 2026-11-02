@@ -6,7 +6,7 @@ import { state } from "../src/client/viewer-state.ts";
 let ipc = 0;
 window.__TAURI_INTERNALS__ = {
   async invoke(command) {
-    if (command === "list_thumbnail_cache") return [];
+    if (command === "list_thumbnail_cache" || command === "load_thumbnail_cache") return [];
     if (command === "read_thumbnail_cache") return null;
     if (command === "save_thumbnail_cache") {
       ipc++;
@@ -22,7 +22,7 @@ state.loading = false;
 state.pageSize = 50;
 get("entry-dialog").close();
 window.runPerformanceBenchmark = async () => {
-  await cache.initializeThumbnailCache();
+  if (!(await cache.initializeThumbnailCache())) throw new Error("Thumbnail cache initialization failed");
   const results = [];
   async function measure(name, size, work) {
     for (let i = 0; i < 5; i++) {
@@ -80,9 +80,11 @@ window.runPerformanceBenchmark = async () => {
     await measure("thumbnail-miss-100", size, () => {
       for (let i = 0; i < 100; i++) cache.thumbnailFor("prntsc:zzzzzz");
     });
-    await cache.persistThumbnails();
+    if (!(await cache.persistThumbnails())) throw new Error("Thumbnail cache persistence failed");
     const before = ipc;
-    await measure("thumbnail-unchanged-save", size, () => cache.persistThumbnails());
+    await measure("thumbnail-unchanged-save", size, async () => {
+      if (!(await cache.persistThumbnails())) throw new Error("Thumbnail cache persistence failed");
+    });
     results.push({ name: "unchanged-save-ipc-calls", size, calls: ipc - before, requests: 45 });
     state.library.collections = Array.from({ length: 10 }, (_, i) => ({
       collectionId: operationId(i + 20000),

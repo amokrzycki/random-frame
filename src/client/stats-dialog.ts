@@ -45,7 +45,7 @@ function ledgerThumbnail(itemIndex: number): HTMLButtonElement | null {
   return button;
 }
 
-function ledgerRow(day: LedgerDay, todayIso: string): HTMLLIElement {
+function ledgerRow(day: LedgerDay, todayIso: string, thumbs: HTMLButtonElement[]): HTMLLIElement {
   const row = document.createElement("li");
   const date = document.createElement("span");
   const counts = document.createElement("span");
@@ -60,12 +60,6 @@ function ledgerRow(day: LedgerDay, todayIso: string): HTMLLIElement {
   counts.className = "ledger__counts";
   counts.textContent = formatLedgerCounts(day.drawn, day.unavailable);
   strip.className = "ledger__strip";
-  const thumbs: HTMLButtonElement[] = [];
-  // Only these frames were hydrated; later ones may or may not still be in memory.
-  for (const itemIndex of day.frames.slice(0, LEDGER_STRIP_MAX)) {
-    const thumb = ledgerThumbnail(itemIndex);
-    if (thumb) thumbs.push(thumb);
-  }
   strip.append(...thumbs);
   const overflow = Math.max(day.drawn, day.frames.length) - thumbs.length;
   if (thumbs.length && overflow > 0) {
@@ -94,16 +88,23 @@ async function renderLedgerPageNow(generation: number): Promise<HTMLLIElement | 
   const todayIso = localDayKey(Date.now());
   const days = state.ledger.slice(state.ledgerShown, state.ledgerShown + LEDGER_PAGE_DAYS);
   // Strips show cached thumbnails; read them from disk without starting source requests.
-  await Promise.allSettled(
-    days.flatMap((day) =>
-      day.frames.slice(0, LEDGER_STRIP_MAX).map((itemIndex) => {
+  const rows = await Promise.all(
+    days.map(async (day) => {
+      const thumbs: HTMLButtonElement[] = [];
+      for (const itemIndex of day.frames) {
         const item = state.history[itemIndex];
-        return item ? hydrateThumbnail(blobKey(item.source, item.id)) : false;
-      }),
-    ),
+        if (!item) continue;
+        const key = blobKey(item.source, item.id);
+        if (!blobs.has(key)) await hydrateThumbnail(key).catch(() => false);
+        if (generation !== statsGeneration || !elements.statsDialog.open) break;
+        const thumb = ledgerThumbnail(itemIndex);
+        if (thumb) thumbs.push(thumb);
+        if (thumbs.length === LEDGER_STRIP_MAX) break;
+      }
+      return ledgerRow(day, todayIso, thumbs);
+    }),
   );
   if (generation !== statsGeneration || !elements.statsDialog.open) return;
-  const rows = days.map((day) => ledgerRow(day, todayIso));
   elements.ledgerList.append(...rows);
   state.ledgerShown += rows.length;
   elements.ledgerMore.hidden = state.ledgerShown >= state.ledger.length;
