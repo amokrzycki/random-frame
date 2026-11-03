@@ -15,6 +15,7 @@ import {
   blobKey,
   blobs,
   clearThumbnails,
+  discardThumbnail,
   ensureThumbnail,
   persistThumbnails,
   releaseAllBlobs,
@@ -97,8 +98,12 @@ interface PendingTile {
 }
 
 // Thumbnails load only for tiles scrolled into view, a few at a time, and are saved in one debounced write.
-const failedThumbnails = new Set<string>();
+const failedThumbnails = new Map<string, "retryable" | "unavailable">();
 const thumbnailQueue: PendingTile[] = [];
+let currentTiles: PendingTile[] = [];
+let retriedPreviews = false;
+let thumbnailPauseUntil = 0;
+let pauseTimer: ReturnType<typeof setTimeout> | undefined;
 const watched = new Map<Element, PendingTile>();
 let thumbnailObserver: IntersectionObserver | undefined;
 let activeFetches = 0;
@@ -109,6 +114,67 @@ function stopThumbnailWork(): void {
   thumbnailObserver?.disconnect();
   watched.clear();
   thumbnailQueue.length = 0;
+  currentTiles = [];
+  clearTimeout(pauseTimer);
+  pauseTimer = undefined;
+}
+
+function renderPreviewFeedback(): void {
+  const failures = currentTiles.map((tile) => failedThumbnails.get(blobKey(tile.source, tile.id)));
+  const retryable = failures.includes("retryable");
+  const unavailable = failures.includes("unavailable");
+  const pending = currentTiles.some((tile) => tile.started && tile.button.hasAttribute("data-loading"));
+  const paused = Date.now() < thumbnailPauseUntil;
+  elements.historyPreviewFeedback.hidden = !retryable && !unavailable && !retriedPreviews;
+  let message = retryable ? "Some previews could not load. You can still open full frames." : "";
+  if (unavailable) message += `${message ? " " : ""}Some frames are unavailable at the source.`;
+  if (paused && retryable) message += " Please wait a moment before retrying.";
+  if (retriedPreviews && pending) message = "Retrying previews. You can still open full frames.";
+  else if (retriedPreviews && !retryable && !unavailable) message = "Previews loaded.";
+  if (elements.historyPreviewStatus.textContent !== message) elements.historyPreviewStatus.textContent = message;
+  // Keep the action in place after recovery so keyboard focus never falls out of the dialog.
+  elements.historyPreviewRetry.hidden = !retryable && !retriedPreviews;
+  elements.historyPreviewRetry.setAttribute("aria-disabled", String(!retryable || pending || paused));
+}
+
+function failPreview(tile: PendingTile, unavailable = false): void {
+  if (!currentTiles.includes(tile)) return;
+  failedThumbnails.set(blobKey(tile.source, tile.id), unavailable ? "unavailable" : "retryable");
+  tile.button.removeAttribute("data-loading");
+  tile.button.setAttribute("data-empty", "true");
+  tile.button.setAttribute(
+    "aria-description",
+    unavailable
+      ? "This frame is unavailable at the source."
+      : "Preview could not load. You can still open the full frame.",
+  );
+  renderPreviewFeedback();
+}
+
+function failedImage(tile: PendingTile, src: string): void {
+  if (!src || tile.image.src !== src || !currentTiles.includes(tile)) return;
+  discardThumbnail(blobKey(tile.source, tile.id), src);
+  tile.image.removeAttribute("src");
+  failPreview(tile);
+}
+
+function retryPreviews(): void {
+  if (elements.historyPreviewRetry.getAttribute("aria-disabled") === "true") return;
+  // A shorter recovery message must not enlarge the scroller and clamp its bottom offset.
+  elements.historyPreviewFeedback.style.minHeight = `${elements.historyPreviewFeedback.getBoundingClientRect().height}px`;
+  retriedPreviews = true;
+  for (const tile of currentTiles) {
+    const key = blobKey(tile.source, tile.id);
+    if (failedThumbnails.get(key) !== "retryable") continue;
+    failedThumbnails.delete(key);
+    tile.started = false;
+    tile.button.removeAttribute("data-empty");
+    tile.button.removeAttribute("aria-description");
+    tile.button.setAttribute("data-loading", "true");
+    thumbnailQueue.push(tile);
+  }
+  pumpThumbnails();
+  renderPreviewFeedback();
 }
 
 async function saveThumbnails(): Promise<void> {
@@ -122,25 +188,52 @@ async function saveThumbnails(): Promise<void> {
 async function loadTile(tile: PendingTile): Promise<void> {
   const key = blobKey(tile.source, tile.id);
   let ok = false;
+  let unavailable = false;
   try {
     ok = await ensureThumbnail(tile, false);
-  } catch {
-    // The tile falls back to the striped placeholder.
+  } catch (error) {
+    const kind = typeof error === "object" && error !== null && "kind" in error ? error.kind : undefined;
+    unavailable = kind === "not-found";
+    if (kind === "rate-limited" || kind === "upstream-rate-limited" || kind === "upstream-forbidden") {
+      thumbnailPauseUntil = Math.max(thumbnailPauseUntil, Date.now() + describeError(error).cooldownSeconds * 1000);
+    }
   }
+  if (!currentTiles.includes(tile)) return;
   const src = thumbnailFor(key);
-  tile.button.removeAttribute("data-loading");
   thumbnailObserver?.unobserve(tile.button);
   watched.delete(tile.button);
   if (ok && src) {
+    // Requested retries may now be offscreen; lazy decoding would occupy every queue slot indefinitely.
+    tile.image.loading = "eager";
     tile.image.src = src;
+    try {
+      await tile.image.decode();
+    } catch {
+      failedImage(tile, src);
+      return;
+    }
+    if (!currentTiles.includes(tile)) return;
+    failedThumbnails.delete(key);
+    tile.button.removeAttribute("data-loading");
+    tile.button.removeAttribute("data-empty");
+    tile.button.removeAttribute("aria-description");
     saveTimer ??= setTimeout(saveThumbnails, SAVE_DELAY_MS);
   } else {
-    failedThumbnails.add(key);
-    tile.button.setAttribute("data-empty", "true");
+    failPreview(tile, unavailable);
   }
+  renderPreviewFeedback();
 }
 
 function pumpThumbnails(): void {
+  if (Date.now() < thumbnailPauseUntil) {
+    if (currentTiles.length && !pauseTimer)
+      pauseTimer = setTimeout(() => {
+        pauseTimer = undefined;
+        pumpThumbnails();
+        renderPreviewFeedback();
+      }, thumbnailPauseUntil - Date.now());
+    return;
+  }
   while (activeFetches < THUMBNAIL_CONCURRENCY) {
     const tile = thumbnailQueue.shift();
     if (!tile) return;
@@ -155,10 +248,16 @@ function pumpThumbnails(): void {
 
 function watchTiles(tiles: PendingTile[]): void {
   stopThumbnailWork();
-  if (!tiles.length) return;
+  currentTiles = tiles;
+  const loading = tiles.filter((tile) => tile.button.hasAttribute("data-loading"));
+  renderPreviewFeedback();
+  if (!loading.length) {
+    pumpThumbnails();
+    return;
+  }
   // Without IntersectionObserver every tile counts as visible; the queue still throttles.
   if (typeof IntersectionObserver === "undefined") {
-    thumbnailQueue.push(...tiles);
+    thumbnailQueue.push(...loading);
     pumpThumbnails();
     return;
   }
@@ -176,7 +275,7 @@ function watchTiles(tiles: PendingTile[]): void {
     },
     { root: elements.historyBody, rootMargin: "120px 0px" },
   );
-  for (const tile of tiles) {
+  for (const tile of loading) {
     watched.set(tile.button, tile);
     thumbnailObserver.observe(tile.button);
   }
@@ -184,6 +283,8 @@ function watchTiles(tiles: PendingTile[]): void {
 
 // Only the current page is laid out, so the dialog never builds thousands of DOM nodes.
 function renderHistoryPage(scroll = elements.historyBody.scrollTop): void {
+  retriedPreviews = false;
+  elements.historyPreviewFeedback.style.minHeight = "";
   const entries = gridEntries();
   const favoritesView = filter === "favourites";
   const view = historyPage(entries.length, state.pageIndex, state.pageSize);
@@ -267,13 +368,25 @@ function renderHistoryPage(scroll = elements.historyBody.scrollTop): void {
     if (itemIndex >= 0 && itemIndex === state.index) button.setAttribute("aria-current", "true");
     if (favorite) button.dataset.favorite = "";
     const key = blobKey(source, id);
+    const pendingTile = { button, image, source, id, started: false };
+    loading.push(pendingTile);
     const thumbnailSrc = blobs.get(key)?.url ?? thumbnailFor(key) ?? "";
-    if (!thumbnailSrc && failedThumbnails.has(key)) button.setAttribute("data-empty", "true");
-    else if (!thumbnailSrc) {
+    if (!thumbnailSrc && failedThumbnails.has(key)) {
+      button.setAttribute("data-empty", "true");
+      button.setAttribute(
+        "aria-description",
+        failedThumbnails.get(key) === "unavailable"
+          ? "This frame is unavailable at the source."
+          : "Preview could not load. You can still open the full frame.",
+      );
+    } else if (!thumbnailSrc) {
       button.setAttribute("data-loading", "true");
-      loading.push({ button, image, source, id, started: false });
     }
-    image.src = thumbnailSrc;
+    image.addEventListener("error", () => failedImage(pendingTile, image.src));
+    if (thumbnailSrc) {
+      image.src = thumbnailSrc;
+      void image.decode().catch(() => failedImage(pendingTile, thumbnailSrc));
+    }
     image.alt = "";
     image.loading = "lazy";
     label.textContent = `${number} · ${id}`;
@@ -291,7 +404,7 @@ function renderHistoryPage(scroll = elements.historyBody.scrollTop): void {
     button.append(image, label, time);
     button.addEventListener("click", () => {
       if (state.loading) return;
-      state.navigationMode = favorite ? "favourites" : "history";
+      state.navigationMode = filter;
       state.navigationSavedFilter = favoritesView ? state.savedFilter : "all";
       state.historyTab = state.navigationMode;
       syncControls();
@@ -698,6 +811,7 @@ function bindClearConfirmation(
 }
 
 export function bindHistoryDialogEvents(): void {
+  elements.historyPreviewRetry.addEventListener("click", retryPreviews);
   bindSavedSwitcher();
   bindCollectionActions();
   elements.savedFilter.addEventListener("change", () => {

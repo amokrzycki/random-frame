@@ -1411,6 +1411,41 @@
   gap: 12px;
 }
 
+.history-preview-feedback {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 8px 28px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.history-preview-feedback[hidden] {
+  display: none;
+}
+#history-preview-status {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+#history-preview-retry {
+  flex: 0 0 auto;
+}
+#history-preview-retry[aria-disabled="true"] {
+  color: var(--muted);
+  cursor: default;
+}
+:root[data-platform="android"] .history-preview-feedback {
+  padding-inline: var(--mobile-gutter);
+  flex-wrap: wrap;
+}
+:root[data-platform="android"] #history-preview-retry {
+  min-height: 48px;
+}
+
 .history-tile {
   position: relative;
   min-width: 0;

@@ -37,10 +37,10 @@ test("history remembers each tab's page and scroll, uses entry dates, and keeps 
     localStorage: new FakeStorage(),
     getComputedStyle: () => ({ gridTemplateColumns: "138px 138px 138px" }),
   });
-  const { state } = await import("../dist/test-client/viewer-state.js");
+  const { state, navigationView } = await import("../dist/test-client/viewer-state.js");
   const { thumbnails } = await import("../dist/test-client/frame-cache.js");
   const { bindHistoryDialogEvents } = await import("../dist/test-client/history-dialog.js");
-  const { bindNavigationEvents } = await import("../dist/test-client/frame-loader.js");
+  const { bindNavigationEvents, goNext } = await import("../dist/test-client/frame-loader.js");
   state.loading = false;
   state.history = Array.from({ length: 60 }, (_, i) => ({
     source: "prntsc",
@@ -128,13 +128,30 @@ test("history remembers each tab's page and scroll, uses entry dates, and keeps 
   );
   assert.equal(key(get("history-grid"), button, "ArrowRight", { ctrlKey: true }).defaultPrevented, false);
 
-  // Selecting a starred tile in All keeps the frame action and opens Favorites next time.
+  // Owner-approved scope: opening a saved History tile keeps History, independent of save membership.
   tiles()[6].children[0].click(); // id28 is starred
   for (let i = 0; i < 4; i++) await flush();
   assert.equal(state.history[state.index].id, "id28");
+  assert.equal(state.navigationMode, "history");
+  assert.equal(navigationView().items.length, 60);
+  assert.equal(navigationView().index, 28);
+  goNext();
+  for (let i = 0; i < 4; i++) await flush();
+  assert.equal(state.history[state.index].id, "id29", "History neighbors follow History order");
   get("history-tool-button").click();
-  assert.equal(get("history-filter-favorites").getAttribute("aria-selected"), "true");
-  get("history-close-button").click();
+  assert.equal(get("history-filter-all").getAttribute("aria-selected"), "true");
+  assert.equal(get("history-page-input").value, "2");
+  assert.equal(get("history-body").scrollTop, 240);
+  get("history-filter-favorites").click();
+  assert.equal(get("history-body").scrollTop, 110);
+  tiles()[0].children[0].click(); // newest Saved frame, id29
+  for (let i = 0; i < 4; i++) await flush();
+  assert.equal(state.navigationMode, "favourites");
+  assert.equal(navigationView().items.length, 30);
+  assert.equal(navigationView().index, 0);
+  goNext();
+  for (let i = 0; i < 4; i++) await flush();
+  assert.equal(state.history[state.index].id, "id28", "Saved neighbors keep their newest-first order");
   get("draw-button").click();
   for (let i = 0; i < 4; i++) await flush();
   assert.equal(state.history[state.index].id, "new123");

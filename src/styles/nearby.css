@@ -201,7 +201,7 @@ button.nearby-tile {
 }
 .nearby-feedback {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: 8px;
   min-height: 2.9em;
@@ -215,24 +215,16 @@ button.nearby-tile {
   min-width: 0;
   margin: 0;
 }
-#nearby-retry {
-  grid-area: 1 / 2;
-  flex: 0 0 auto;
-  min-height: 24px;
-  min-width: 24px;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: var(--ink);
-  text-decoration: underline;
-  cursor: pointer;
-  font: inherit;
-}
 .nearby-navigation {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
+}
+.nearby-navigation__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .nearby-navigation > p {
   min-width: 0;
@@ -330,6 +322,7 @@ button.nearby-tile {
 }
 :root[data-platform="android"] .nearby-grid {
   gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 :root[data-platform="android"] .nearby-dialog h2 {
@@ -358,6 +351,12 @@ button.nearby-tile {
     margin: -1px;
     overflow: hidden;
     clip-path: inset(50%);
+  }
+}
+@media (max-height: 599px) and (min-width: 441px) {
+  :root[data-platform="android"] .nearby-well {
+    aspect-ratio: auto;
+    height: clamp(80px, calc(100dvh - 260px), 160px);
   }
 }
 @media (forced-colors: active) {
@@ -399,11 +398,6 @@ button.nearby-tile {
   visibility: hidden;
   grid-area: 1 / 1;
 }
-.nearby-feedback::after {
-  content: "Retry failed";
-  visibility: hidden;
-  grid-area: 1 / 2;
-}
 :root[data-platform="android"] .nearby-feedback {
   min-height: max(48px, 2.9em);
 }
@@ -420,7 +414,8 @@ button.nearby-tile {
   }
 }
 @media (max-width: 440px) {
-  .nearby-grid {
+  .nearby-grid,
+  :root[data-platform="android"] .nearby-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -430,4 +425,29 @@ button.nearby-tile {
 }
 :root[data-platform="android"] .nearby-dialog .history-dialog__content {
   max-height: 100dvh;
+}
+
+/* A desktop contact sheet keeps numerical overview; enlarged captions can still scroll. */
+:root:not([data-platform="android"]) .nearby-dialog {
+  width: min(880px, calc(100vw - 32px));
+}
+:root:not([data-platform="android"]) .nearby-dialog .history-dialog__header {
+  padding: 16px 20px;
+}
+:root:not([data-platform="android"]) .nearby-dialog .nearby-body {
+  padding: 12px 20px;
+}
+:root:not([data-platform="android"]) .nearby-grid {
+  gap: 8px;
+}
+:root:not([data-platform="android"]) .nearby-well {
+  aspect-ratio: auto;
+  /* Leave room for the title, navigation, feedback and three readable captions. */
+  height: clamp(60px, calc((100dvh - var(--titlebar-height) - 368px) / 3), 164px);
+}
+:root:not([data-platform="android"]) .nearby-footer {
+  padding: 8px 20px;
+}
+:root:not([data-platform="android"]) .nearby-feedback {
+  min-height: 1.45em;
 }
