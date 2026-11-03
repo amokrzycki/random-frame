@@ -198,7 +198,11 @@ async function loadTile(tile: PendingTile): Promise<void> {
       thumbnailPauseUntil = Math.max(thumbnailPauseUntil, Date.now() + describeError(error).cooldownSeconds * 1000);
     }
   }
-  if (!currentTiles.includes(tile)) return;
+  if (!currentTiles.includes(tile)) {
+    // A page switch must not strand a fetched thumbnail in memory without a pending save.
+    if (ok) saveTimer ??= setTimeout(saveThumbnails, SAVE_DELAY_MS);
+    return;
+  }
   const src = thumbnailFor(key);
   thumbnailObserver?.unobserve(tile.button);
   watched.delete(tile.button);
@@ -383,12 +387,13 @@ function renderHistoryPage(scroll = elements.historyBody.scrollTop): void {
       button.setAttribute("data-loading", "true");
     }
     image.addEventListener("error", () => failedImage(pendingTile, image.src));
+    image.alt = "";
+    // Lazy before src, so offscreen thumbnails are neither fetched nor decoded until scrolled near.
+    image.loading = "lazy";
     if (thumbnailSrc) {
       image.src = thumbnailSrc;
       void image.decode().catch(() => failedImage(pendingTile, thumbnailSrc));
     }
-    image.alt = "";
-    image.loading = "lazy";
     label.textContent = `${number} · ${id}`;
     const date = new Date(timestamp);
     const time = document.createElement("time");

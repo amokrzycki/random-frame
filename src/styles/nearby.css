@@ -418,6 +418,14 @@ button.nearby-tile {
   :root[data-platform="android"] .nearby-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+  /* Narrow screens: the centre label takes its own row so Retry, Previous and Next keep full-size targets. */
+  .nearby-navigation > p {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+  .nearby-navigation__actions {
+    justify-self: end;
+  }
 }
 :root[data-platform="android"] .nearby-dialog {
   top: 0;

@@ -18,20 +18,17 @@ test("gallery preview recovery preserves scope, nodes, focus, accounting and ret
   const document = new FakeDocument(ids);
   const create = document.createElement.bind(document);
   let retryOffscreen = false;
-  document.createElement = (tag) =>
-    tag === "canvas"
-      ? {
-          getContext: () => ({
-            drawImage() {
-              /* Canvas double. */
-            },
-          }),
-          toDataURL: () => "data:image/jpeg;base64,AQ==",
-        }
-      : create(tag);
-  const createWithCanvas = document.createElement;
   document.createElement = (tag) => {
-    const element = createWithCanvas(tag);
+    if (tag === "canvas")
+      return {
+        getContext: () => ({
+          drawImage() {
+            /* Canvas double. */
+          },
+        }),
+        toDataURL: () => "data:image/jpeg;base64,AQ==",
+      };
+    const element = create(tag);
     if (tag === "img") {
       const decode = element.decode.bind(element);
       element.decode = async () => {
