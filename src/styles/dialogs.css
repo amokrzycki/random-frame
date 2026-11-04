@@ -2649,6 +2649,37 @@
   min-width: 0;
   overflow-wrap: anywhere;
 }
+:root[data-platform="android"]
+  :is(
+    .saved-switcher,
+    .saved-switcher__option,
+    .collection-create,
+    .collection-actions,
+    .collection-actions-menu .tools-menu__item,
+    .collections-choice,
+    .collections-form input[type="text"],
+    .collections-form select,
+    .collections-form button,
+    #collections-dialog .collections-actions > button,
+    #collection-manage-dialog .collections-actions > button
+  ) {
+  min-height: var(--touch-target);
+}
+:root[data-platform="android"] :is(.collection-create, .collection-actions) {
+  min-width: var(--touch-target);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+:root[data-platform="android"] .saved-switcher {
+  padding-block: 8px;
+}
+:root[data-platform="android"] .saved-switcher__value {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+:root[data-platform="android"] :is(#collections-dialog, #collection-manage-dialog) .collections-actions {
+  flex-wrap: wrap;
+}
 @media (hover: none), (pointer: coarse) {
   .collection-create,
   .collection-actions,
