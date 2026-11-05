@@ -43,12 +43,13 @@ pub(super) async fn start_with_limit(
                 .env("RF_SYNC_DB", root.join("sync.db"))
                 .env("RF_SYNC_MAX_PAYLOAD", limit.to_string())
                 .stdout(Stdio::null())
-                .stderr(Stdio::null())
+                .stderr(Stdio::inherit())
                 .spawn()?,
         )
     };
     let url = format!("http://{address}");
-    for _ in 0..40 {
+    // Parallel CI tests can delay a healthy server's startup; allow up to ten seconds.
+    for _ in 0..200 {
         if reqwest::get(format!("{url}/health"))
             .await
             .is_ok_and(|r| r.status().is_success())

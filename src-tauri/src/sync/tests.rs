@@ -886,12 +886,13 @@ async fn real_server_two_device_offline_and_startup_e2e() -> Result<(), Box<dyn 
                 .env("RF_SYNC_BIND", address.to_string())
                 .env("RF_SYNC_DB", &database)
                 .stdout(Stdio::null())
-                .stderr(Stdio::null())
+                .stderr(Stdio::inherit())
                 .spawn()?,
         ))
     };
     let ready = || async {
-        for _ in 0..40 {
+        // Parallel CI tests can delay a healthy server's startup; allow up to ten seconds.
+        for _ in 0..200 {
             if reqwest::get(format!("{url}/health"))
                 .await
                 .is_ok_and(|response| response.status().is_success())
