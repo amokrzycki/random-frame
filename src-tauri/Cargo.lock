@@ -3610,7 +3610,7 @@ dependencies = [
 
 [[package]]
 name = "random-frame"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "android-native-keyring-store",
  "base64 0.22.1",

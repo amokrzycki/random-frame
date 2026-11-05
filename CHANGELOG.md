@@ -1,5 +1,30 @@
 # Random Frame release notes
 
+## 0.8.1
+
+### Lighter startup and browsing
+
+- Startup reads the thumbnail list first and loads images from disk as you browse, instead of reading every thumbnail at launch. Saved thumbnails stay on disk when they leave memory.
+- The app limits how many full frames and thumbnails it keeps in memory during long browsing sessions. Browsing large Saved libraries also takes less work.
+- Stats loads its thumbnail strips from the local cache without fetching images from the source.
+
+### Retry previews in History and Saved
+
+- If previews fail to load, the gallery explains what happened and offers Retry previews. You can still try opening the full frames. Frames that are unavailable at the source have a separate message.
+- Retrying affects only failed previews on the current page and keeps your scroll position and keyboard focus. If the source asks the app to wait, retries pause until the cooldown ends.
+
+### A more compact Nearby gallery
+
+- On desktop, Nearby Frames uses shorter previews and tighter spacing to fit the 3×3 gallery in the window. On Android, it uses two columns where space allows and one on narrow screens.
+- Retry failed sits beside Next 4. On narrow screens, the center ID gets its own row so the buttons keep their touch targets. Saved and collection controls also have larger touch targets on Android.
+
+### Small fixes
+
+- Opening a saved frame from History keeps you browsing History. Opening it from Saved keeps the selected Saved filter.
+- If copying a source link fails, a visible message says so and suggests trying again or opening the source page.
+- If renaming this device cannot be saved, the previous name stays in use.
+- A second Random Frame process cannot open the same app data while the first is running, which prevents the two from overwriting each other's changes.
+
 ## 0.8.0
 
 ### Nearby Frames
