@@ -1411,6 +1411,41 @@
   gap: 12px;
 }
 
+.history-preview-feedback {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 8px 28px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.history-preview-feedback[hidden] {
+  display: none;
+}
+#history-preview-status {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+#history-preview-retry {
+  flex: 0 0 auto;
+}
+#history-preview-retry[aria-disabled="true"] {
+  color: var(--muted);
+  cursor: default;
+}
+:root[data-platform="android"] .history-preview-feedback {
+  padding-inline: var(--mobile-gutter);
+  flex-wrap: wrap;
+}
+:root[data-platform="android"] #history-preview-retry {
+  min-height: 48px;
+}
+
 .history-tile {
   position: relative;
   min-width: 0;
@@ -2613,6 +2648,37 @@
 .saved-switcher__name {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+:root[data-platform="android"]
+  :is(
+    .saved-switcher,
+    .saved-switcher__option,
+    .collection-create,
+    .collection-actions,
+    .collection-actions-menu .tools-menu__item,
+    .collections-choice,
+    .collections-form input[type="text"],
+    .collections-form select,
+    .collections-form button,
+    #collections-dialog .collections-actions > button,
+    #collection-manage-dialog .collections-actions > button
+  ) {
+  min-height: var(--touch-target);
+}
+:root[data-platform="android"] :is(.collection-create, .collection-actions) {
+  min-width: var(--touch-target);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+:root[data-platform="android"] .saved-switcher {
+  padding-block: 8px;
+}
+:root[data-platform="android"] .saved-switcher__value {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+:root[data-platform="android"] :is(#collections-dialog, #collection-manage-dialog) .collections-actions {
+  flex-wrap: wrap;
 }
 @media (hover: none), (pointer: coarse) {
   .collection-create,

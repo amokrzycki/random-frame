@@ -71,7 +71,7 @@ async function copySourceLink(): Promise<void> {
     await writeText(elements.source.href);
     toast.success("Copied source link");
   } catch {
-    elements.announcer.textContent = "Could not copy the source link";
+    toast.error("Could not copy the source link. Try again, or open the source page.");
   }
 }
 

@@ -87,12 +87,14 @@
         <footer class="nearby-footer">
           <div class="nearby-feedback">
             <p id="nearby-status"></p>
-            <button id="nearby-retry" type="button" hidden>Retry failed</button>
           </div>
           <nav class="nearby-navigation" aria-label="Source order">
             <button id="nearby-previous" type="button">Previous 4</button>
             <p>Center <span id="nearby-center"></span></p>
-            <button id="nearby-next" type="button">Next 4</button>
+            <div class="nearby-navigation__actions">
+              <button id="nearby-retry" type="button" hidden>Retry failed</button>
+              <button id="nearby-next" type="button">Next 4</button>
+            </div>
           </nav>
         </footer>
         <p id="nearby-live" class="sr-only" aria-live="polite" aria-atomic="true"></p>
@@ -205,6 +207,10 @@
             <p id="history-empty-title">No frames drawn yet.</p>
             <span id="history-empty-detail">Draw a frame to begin your history.</span>
           </div>
+        </div>
+        <div class="history-preview-feedback" id="history-preview-feedback" hidden>
+          <p id="history-preview-status" role="status" aria-live="polite" aria-atomic="true"></p>
+          <button class="history-clear" id="history-preview-retry" type="button">Retry previews</button>
         </div>
         <footer class="history-footer">
           <div class="history-clear-group" id="history-clear-group">
