@@ -192,7 +192,7 @@ async fn real_server_managed_collection_publication_timeout_and_restart() -> Tes
     let retried = a.commit_journal(&entry).await?;
     assert_eq!(retried.revision, accepted.revision); // No duplicate operation or revision.
     a.startup_sync().await?;
-    assert_eq!(a.data.snapshot()?.0, before);
+    assert_sync_data_equal(&a.data.snapshot()?.0, &before);
     fs::remove_dir_all(root)?;
     Ok(())
 }
