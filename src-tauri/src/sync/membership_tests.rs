@@ -349,8 +349,6 @@ fn windows_move_config_promotion_requires_its_pending_journal(
         confirmed: true,
         generation: None,
         self_record: None,
-        snapshot_schema: Some(3),
-        source_schema: 3,
     };
     crate::persistence::save_json(&root.join("sync-admin.json"), &Some(j))?;
     let recovered = load_config(&path)?.ok_or("missing config")?;

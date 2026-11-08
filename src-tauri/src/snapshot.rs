@@ -1,23 +1,14 @@
-//! Canonical, device-independent snapshot v4; envelope and membership versions are independent.
+//! Canonical, device-independent snapshot. The format is unversioned; envelope and
+//! membership versions are independent.
 #[cfg(any(test, debug_assertions))]
 mod diagnostics;
 mod merge;
-#[allow(dead_code, reason = "frozen v3 codec for compatibility tests")]
-pub(crate) mod v3;
-pub const CURRENT_SNAPSHOT_SCHEMA: u32 = 4;
-#[allow(dead_code, reason = "frozen v2 encoder supports compatibility tests")]
-pub(crate) mod v2;
+use crate::sources::prntsc::LEGACY_MAX_VALUE;
+use chrono::{NaiveDate, TimeZone, Utc};
 #[cfg(test)]
 pub use diagnostics::diagnostics;
 #[cfg(any(test, debug_assertions))]
 pub(crate) use diagnostics::{diagnostics_enabled, report_diagnostics, report_upload};
-#[allow(
-    dead_code,
-    reason = "frozen v1 codec is retained for compatibility and mixed-version tests"
-)]
-pub(crate) mod v1;
-use crate::sources::prntsc::LEGACY_MAX_VALUE;
-use chrono::{NaiveDate, TimeZone, Utc};
 pub use merge::merge_snapshots;
 pub(crate) use merge::{reconcile_legacy_seen, reconcile_seen};
 use serde::{Deserialize, Serialize};
@@ -26,7 +17,7 @@ use std::{collections::BTreeMap, fmt};
 pub const MAX_PLAINTEXT: usize = 67_108_864 - crate::sync_crypto::ENVELOPE_OVERHEAD;
 #[cfg(test)]
 pub const MAX_ENTRIES: usize = (MAX_PLAINTEXT - 32) / 8;
-// Only the frozen v1 decoder has a per-section cap. V2 is bounded by bytes, never trimmed.
+// Historical per-section cap; snapshots are bounded by bytes, never trimmed.
 #[cfg(test)]
 pub const MAX_SECTION: usize = 100_000;
 pub type OperationId = [u8; 16];
@@ -295,59 +286,10 @@ impl SyncSnapshot {
     }
 }
 
-/// Schema capability, independent of whether a represented section happens to be empty.
-#[derive(Clone, Copy)]
-pub(crate) enum SyncDomain {
-    Seen,
-    History,
-    HistoryRemovals,
-    Favorites,
-    FavoriteRemovals,
-    Collections,
-    CollectionRemovals,
-    Memberships,
-    MembershipRemovals,
-    Exploration,
-    Activity,
-    ActivityRemovals,
-    Preferences,
-    Devices,
-}
-#[derive(Debug)]
-pub struct DecodedSnapshot {
-    pub original_schema_version: u32,
-    pub data: SyncSnapshot,
-    pub needs_upgrade: bool,
-}
-impl DecodedSnapshot {
-    pub(crate) fn represents(&self, domain: SyncDomain) -> bool {
-        match self.original_schema_version {
-            1 => matches!(
-                domain,
-                SyncDomain::Seen
-                    | SyncDomain::History
-                    | SyncDomain::HistoryRemovals
-                    | SyncDomain::Favorites
-                    | SyncDomain::FavoriteRemovals
-            ),
-            2 => !matches!(
-                domain,
-                SyncDomain::Collections
-                    | SyncDomain::CollectionRemovals
-                    | SyncDomain::Memberships
-                    | SyncDomain::MembershipRemovals
-            ),
-            3 | 4 => true,
-            // Unsupported schemas cannot reach Restore through decode_snapshot.
-            _ => false,
-        }
-    }
-}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SnapshotError {
     TruncatedHeader,
     InvalidMagic,
-    UnsupportedVersion(u32),
     TooManyEntries,
     PayloadTooLarge,
     InvalidLength,
@@ -362,9 +304,6 @@ impl fmt::Display for SnapshotError {
         match self {
             Self::TruncatedHeader => f.write_str("Sync snapshot header is too short"),
             Self::InvalidMagic => f.write_str("Sync snapshot has invalid magic bytes"),
-            Self::UnsupportedVersion(version) => {
-                write!(f, "Unsupported sync snapshot version: {version}")
-            }
             Self::TooManyEntries => f.write_str("Sync snapshot has too many entries"),
             Self::PayloadTooLarge => f.write_str("Sync snapshot exceeds payload limit"),
             Self::InvalidLength => f.write_str("Sync snapshot has invalid length or field size"),
@@ -381,7 +320,8 @@ impl fmt::Display for SnapshotError {
     }
 }
 impl std::error::Error for SnapshotError {}
-const MAGIC: &[u8; 8] = b"RFSNAP\0\0";
+// Changed when the unversioned format replaced the versioned one, so old blobs fail cleanly.
+const MAGIC: &[u8; 8] = b"RFSNAP\x01\0";
 
 pub fn validate_day(day: &str) -> Result<(), SnapshotError> {
     if day.len() != 10
@@ -689,7 +629,6 @@ pub fn serialize_snapshot(s: &SyncSnapshot) -> Result<Vec<u8>, SnapshotError> {
     validate_snapshot(s)?;
     let mut w = Writer(Vec::new());
     w.bytes(MAGIC)?;
-    w.u32(CURRENT_SNAPSHOT_SCHEMA)?;
     w.count(s.seen.len())?;
     for x in &s.seen {
         w.u64(*x)?;
@@ -800,39 +739,20 @@ pub fn serialize_snapshot(s: &SyncSnapshot) -> Result<Vec<u8>, SnapshotError> {
     }
     Ok(w.0)
 }
-pub fn parse_snapshot(bytes: &[u8]) -> Result<SyncSnapshot, SnapshotError> {
-    Ok(decode_snapshot(bytes)?.data)
-}
 #[allow(
     clippy::too_many_lines,
     reason = "explicit ordered wire sections keep the binary format reviewable"
 )]
-pub fn decode_snapshot(bytes: &[u8]) -> Result<DecodedSnapshot, SnapshotError> {
+pub fn parse_snapshot(bytes: &[u8]) -> Result<SyncSnapshot, SnapshotError> {
     if bytes.len() > MAX_PLAINTEXT {
         return Err(SnapshotError::PayloadTooLarge);
     }
-    if bytes.len() < 12 {
+    if bytes.len() < MAGIC.len() {
         return Err(SnapshotError::TruncatedHeader);
     }
     let mut r = Reader { bytes, pos: 0 };
-    if r.bytes(8)? != MAGIC {
+    if r.bytes(MAGIC.len())? != MAGIC {
         return Err(SnapshotError::InvalidMagic);
-    }
-    let version = r.u32()?;
-    if version == 1 {
-        let mut decoded = decode_v1(bytes)?;
-        reconcile_legacy_seen(&mut decoded.data);
-        return Ok(decoded);
-    }
-    if version == 2 {
-        let mut decoded = v2::decode_snapshot(bytes)?;
-        migrate_legacy_collections(&mut decoded.data);
-        decoded.needs_upgrade = true;
-        reconcile_legacy_seen(&mut decoded.data);
-        return Ok(decoded);
-    }
-    if version != 3 && version != CURRENT_SNAPSHOT_SCHEMA {
-        return Err(SnapshotError::UnsupportedVersion(version));
     }
     let mut s = SyncSnapshot::default();
     for _ in 0..r.count(8)? {
@@ -964,57 +884,7 @@ pub fn decode_snapshot(bytes: &[u8]) -> Result<DecodedSnapshot, SnapshotError> {
     }
     validate_snapshot(&s)?;
     normalize_seeded_collection_name(&mut s);
-    if version < CURRENT_SNAPSHOT_SCHEMA {
-        reconcile_legacy_seen(&mut s);
-    }
-    Ok(DecodedSnapshot {
-        original_schema_version: version,
-        data: s,
-        needs_upgrade: version < CURRENT_SNAPSHOT_SCHEMA,
-    })
-}
-fn decode_v1(bytes: &[u8]) -> Result<DecodedSnapshot, SnapshotError> {
-    let old = v1::parse_snapshot(bytes).map_err(|e| match e {
-        v1::SnapshotError::UnsupportedVersion(v) => SnapshotError::UnsupportedVersion(v),
-        v1::SnapshotError::PayloadTooLarge => SnapshotError::PayloadTooLarge,
-        _ => SnapshotError::InvalidLength,
-    })?;
-    let mut s = SyncSnapshot {
-        seen: old.seen,
-        history: old
-            .history
-            .into_iter()
-            .map(|x| SyncRecord {
-                operation_id: x.operation_id,
-                order_at: x.first_at,
-                last_view: ViewStamp::inferred(x.second_at),
-                source: x.source,
-                id: x.id,
-                source_page_url: x.source_page_url,
-            })
-            .collect(),
-        history_removed: old.history_removed,
-        favorites: old
-            .favorites
-            .into_iter()
-            .map(|x| FavoriteRecord {
-                operation_id: x.operation_id,
-                added_at: x.added_at,
-                source: x.source,
-                id: x.id,
-                source_page_url: x.source_page_url,
-            })
-            .collect(),
-        favorites_removed: old.favorites_removed,
-        ..SyncSnapshot::default()
-    };
-    migrate_legacy_collections(&mut s);
-    validate_snapshot(&s)?;
-    Ok(DecodedSnapshot {
-        original_schema_version: 1,
-        data: s,
-        needs_upgrade: true,
-    })
+    Ok(s)
 }
 #[cfg(test)]
 #[path = "snapshot/tests.rs"]

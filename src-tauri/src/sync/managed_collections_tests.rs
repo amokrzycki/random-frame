@@ -3,16 +3,15 @@
     reason = "End-to-end transitions keep all assertions together"
 )]
 use super::{
-    admin::{Credentials, Journal},
+    admin::Journal,
     membership_tests::start,
     tests::{assert_sync_data_equal, device, directory, MemorySecret},
     *,
 };
 use crate::{
     persistence::{CollectionEditorRequest, SavedFrameRef},
-    snapshot,
-    sync_membership_crypto::{self as crypto, AdminRecoverySecret},
-    sync_protocol::{Mutation, Recipient, RecoveryRegistration, Request},
+    snapshot, sync_membership_crypto as crypto,
+    sync_protocol::{Mutation, Request},
 };
 use std::fs;
 
@@ -49,90 +48,6 @@ pub(super) fn seed_library(a: &SyncEngine<MemorySecret>) -> TestResult {
     s.favorites_removed.push([25; 16]);
     a.data.merge(&s)?;
     Ok(())
-}
-
-// Produce the exact pre-collections HEAD payload, without pretending v3 was already accepted.
-async fn create_v2(a: &SyncEngine<MemorySecret>) -> Result<String, Box<dyn std::error::Error>> {
-    let group = hex::encode(crypto::random_secret());
-    let mut c = Credentials::new(group.clone(), crypto::random_id());
-    let admin = AdminRecoverySecret::generate();
-    c.admin_secret = Some(*admin.0);
-    c.recovery_generation = 1;
-    let member = c.pairing(hex::encode(a.data.identity.id()))?;
-    let (auth, _, public_key) = admin.derive_credentials(&group)?;
-    let recovery = RecoveryRegistration {
-        generation: 1,
-        token_verifier: crypto::verifier(&auth),
-        public_key,
-    };
-    let recipients = [
-        Recipient {
-            kind: "member".into(),
-            id: c.member_id.clone(),
-            version: 1,
-            public_key: member.wrapping_public_key.clone(),
-        },
-        Recipient {
-            kind: "admin_recovery".into(),
-            id: c.member_id.clone(),
-            version: 1,
-            public_key: recovery.public_key.clone(),
-        },
-    ];
-    let root = c.root()?;
-    let packages = recipients
-        .iter()
-        .map(|r| crypto::seal_root(&group, 1, r, &root))
-        .collect::<Result<Vec<_>, _>>()?;
-    let payload = root.derive().encrypt_managed(
-        &group,
-        1,
-        &snapshot::v2::serialize_snapshot(&a.data.snapshot()?.0)?,
-    )?;
-    let entry = Journal {
-        version: 2,
-        group_id: group.clone(),
-        request: Request {
-            operation_id: crypto::random_id(),
-            expected_revision: 0,
-            expected_epoch: 0,
-            mutation: Mutation::Create {
-                member,
-                recovery,
-                key_id: root.derive().sync_id().into(),
-                packages,
-            },
-        },
-        request_hash: String::new(),
-        route: "create".into(),
-        promote: true,
-        restore: false,
-        legacy_source_id: None,
-        join_mode: None,
-        confirmed: true,
-        generation: None,
-        self_record: None,
-        snapshot_schema: Some(2),
-        source_schema: 2,
-    };
-    let mut vault = a.vault().await?;
-    vault.pending = Some(c);
-    a.save_vault(&vault).await?;
-    let entry = a.prepare(entry, &payload)?;
-    let mut old_manifest = serde_json::to_value(&entry)?;
-    old_manifest
-        .as_object_mut()
-        .ok_or("invalid journal")?
-        .remove("snapshotSchema");
-    old_manifest
-        .as_object_mut()
-        .ok_or("invalid journal")?
-        .remove("sourceSchema");
-    crate::persistence::save_json(&a.admin_path(), &Some(old_manifest))?;
-    let entry = a.journal()?.ok_or("no legacy journal")?;
-    a.commit_journal(&entry).await?;
-    assert_eq!(a.config()?.ok_or("no config")?.highest_schema_version, 2);
-    Ok(admin.code(&group, 1).to_string())
 }
 
 #[tokio::test]
@@ -201,117 +116,13 @@ async fn real_server_managed_collections_offline_and_deletions() -> TestResult {
     Ok(())
 }
 
-#[tokio::test]
-#[ignore = "requires RF_SYNC_SERVER_BIN; HEAD v2 upgrade gates and schema-aware Restore/Merge"]
-async fn real_server_managed_v2_upgrade_consent_and_migration() -> TestResult {
-    for mode in [JoinMode::Restore, JoinMode::Merge] {
-        let root = directory("managed-v2-consent");
-        let (_server, url) = start(&root).await?;
-        let a = device(&root.join("a"), &url, MemorySecret::default())?;
-        // Both installations carry the same old save, hence deterministic collection/membership IDs.
-        let mut old = snapshot::SyncSnapshot::default();
-        old.favorites.push(snapshot::FavoriteRecord {
-            operation_id: [10; 16],
-            added_at: 42,
-            source: "prntsc".into(),
-            id: "abc123".into(),
-            source_page_url: "https://prnt.sc/abc123".into(),
-        });
-        a.data.merge(&old)?;
-        let admin = create_v2(&a).await?;
-        let b_secret = MemorySecret::default();
-        let b = device(&root.join("b"), &url, b_secret.clone())?;
-        let mut migrated = old;
-        snapshot::migrate_legacy_collections(&mut migrated);
-        b.data.merge(&migrated)?;
-        b.data.favorites.create_collection("Local empty")?;
-        let before = b.data.snapshot()?.0;
-        let invite = a.create_invitation(&b.pairing_request().await?).await?;
-        assert_eq!(
-            b.join(&invite, mode).await.err(),
-            Some(SyncError::UpgradeRequired)
-        );
-        assert_eq!(b.data.snapshot()?.0, before);
-        assert_eq!(a.sync_now().await.err(), Some(SyncError::UpgradeRequired));
-        assert_eq!(
-            a.startup_sync().await.err(),
-            Some(SyncError::UpgradeRequired)
-        );
-        let member = b
-            .config()?
-            .ok_or("no config")?
-            .managed
-            .ok_or("no member")?
-            .member_id;
-        assert_eq!(
-            a.remove_device(&member).await.err(),
-            Some(SyncError::UpgradeRequired)
-        );
-        let e = device(&root.join("e"), &url, MemorySecret::default())?;
-        assert_eq!(
-            e.recover_admin(&admin, false).await.err(),
-            Some(SyncError::UpgradeRequired)
-        );
-        assert!(e.journal()?.is_none());
-        e.approve_upgrade(Some(&admin)).await?;
-        assert!(e.recover_admin(&admin, false).await?.prepared);
-        e.cancel_admin_recovery().await?;
-        assert_eq!(a.config()?.ok_or("no config")?.highest_schema_version, 2);
-        // Approving another group does not unlock this one. Consent survives restart.
-        b.data.approve_sync_upgrade("another-group")?;
-        assert_eq!(
-            b.startup_sync().await.err(),
-            Some(SyncError::UpgradeRequired)
-        );
-        b.approve_upgrade(Some(&invite)).await?;
-        drop(b);
-        let b = device(&root.join("b"), &url, b_secret)?;
-        b.startup_sync().await?;
-        assert!(b
-            .data
-            .favorites
-            .library()
-            .collections
-            .iter()
-            .any(|c| c.name == "Local empty"));
-        // Remote v3 is an already completed upgrade; A needs no second approval.
-        a.sync_now().await?;
-        let legacy = snapshot::hash_id(&[b"rf/collections/legacy-favorites/v1"]);
-        a.data.favorites.delete_collection(legacy)?;
-        a.sync_now().await?;
-        // A later v2 migration of the same save cannot resurrect the deleted seed collection.
-        b.data.merge(&migrated)?;
-        b.sync_now().await?;
-        a.sync_now().await?;
-        assert_sync_data_equal(&a.data.snapshot()?.0, &b.data.snapshot()?.0);
-        assert!(!b
-            .data
-            .favorites
-            .library()
-            .collections
-            .iter()
-            .any(|c| c.collection_id == legacy));
-        assert!(b.data.favorites.library().memberships.is_empty());
-        fs::remove_dir_all(root)?;
-    }
-    Ok(())
-}
-
 async fn snapshot_request(
     a: &SyncEngine<MemorySecret>,
-    schema: u32,
 ) -> Result<(Journal, Vec<u8>), Box<dyn std::error::Error>> {
     let mut vault = a.vault().await?;
     let c = vault.current.as_mut().ok_or("missing credentials")?;
-    let (control, remote) = a.read_managed(c, None).await?;
-    let state = a.data.snapshot()?.0;
-    let bytes = if schema == 2 {
-        snapshot::v2::serialize_snapshot(&state)?
-    } else if schema == 3 {
-        snapshot::v3::serialize_snapshot(&state)?
-    } else {
-        snapshot::serialize_snapshot(&state)?
-    };
+    let (control, _) = a.read_managed(c, None).await?;
+    let bytes = snapshot::serialize_snapshot(&a.data.snapshot()?.0)?;
     let payload = c
         .root()?
         .derive()
@@ -343,36 +154,27 @@ async fn snapshot_request(
             confirmed: true,
             generation: None,
             self_record: None,
-            snapshot_schema: Some(schema),
-            source_schema: remote.original_schema_version,
         },
         payload,
     ))
 }
 
 #[tokio::test]
-#[ignore = "requires RF_SYNC_SERVER_BIN; accepted PUT, journal replay and downgrade after restart"]
+#[ignore = "requires RF_SYNC_SERVER_BIN; accepted PUT and journal replay after restart"]
 async fn real_server_managed_collection_publication_timeout_and_restart() -> TestResult {
-    let root = directory("managed-publication-floor");
+    let root = directory("managed-publication-replay");
     let (_server, url) = start(&root).await?;
     let secret = MemorySecret::default();
     let a = device(&root.join("a"), &url, secret.clone())?;
-    create_v2(&a).await?;
+    a.create_managed().await?;
     seed_library(&a)?;
     let before = a.data.snapshot()?.0;
-    let (entry, payload) = snapshot_request(&a, 3).await?;
+    let (entry, payload) = snapshot_request(&a).await?;
     let entry = a.prepare(entry, &payload)?;
-    // The final send guard also protects a journal prepared before consent was recorded.
-    assert_eq!(
-        a.commit_journal(&entry).await.err(),
-        Some(SyncError::UpgradeRequired)
-    );
-    a.approve_upgrade(None).await?;
     let exact = a.request_bytes(&entry)?;
     let vault = a.vault().await?;
     let c = vault.current.as_ref().ok_or("no credentials")?;
-    a.data
-        .begin_publication(&entry.group_id, entry.request.expected_revision, 3)?;
+    // The PUT is accepted but its response is lost before the journal is cleared.
     let accepted = a
         .call_v2(
             &entry.group_id,
@@ -384,91 +186,13 @@ async fn real_server_managed_collection_publication_timeout_and_restart() -> Tes
         )
         .await?;
     let accepted: crate::sync_protocol::OperationResult = serde_json::from_slice(&accepted)?;
-    // A stale writer can send opaque v2, but a client that attempted v3 must reject it.
-    let mut stale = entry.request.clone();
-    stale.operation_id = crypto::random_id();
-    stale.expected_revision = accepted.revision;
-    let v2 = c.root()?.derive().encrypt_managed(
-        &entry.group_id,
-        accepted.epoch,
-        &snapshot::v2::serialize_snapshot(&before)?,
-    )?;
-    a.call_v2(
-        &entry.group_id,
-        "snapshot",
-        reqwest::Method::PUT,
-        &c.token,
-        None,
-        Some(crate::sync_protocol::encode(&stale, &v2)?),
-    )
-    .await?;
     drop(a);
     let a = device(&root.join("a"), &url, secret)?;
     assert_eq!(a.request_bytes(&entry)?, exact);
-    let mut vault = a.vault().await?;
-    assert_eq!(
-        a.read_managed(vault.current.as_mut().ok_or("no credentials")?, None)
-            .await
-            .err(),
-        Some(SyncError::SchemaDowngrade)
-    );
     let retried = a.commit_journal(&entry).await?;
     assert_eq!(retried.revision, accepted.revision); // No duplicate operation or revision.
-    assert_eq!(a.config()?.ok_or("no config")?.highest_schema_version, 3);
-    assert_eq!(a.data.schema_floor(&entry.group_id)?, 3);
-    assert_eq!(
-        a.startup_sync().await.err(),
-        Some(SyncError::SchemaDowngrade)
-    );
+    a.startup_sync().await?;
     assert_eq!(a.data.snapshot()?.0, before);
-    fs::remove_dir_all(root)?;
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires RF_SYNC_SERVER_BIN; CAS retry observes v3 and drops preserved v2-only local collections"]
-async fn real_server_managed_restore_retry_observes_schema_change() -> TestResult {
-    let root = directory("managed-restore-cas");
-    let (_server, url) = start(&root).await?;
-    let a = device(&root.join("a"), &url, MemorySecret::default())?;
-    create_v2(&a).await?;
-    let b = device(&root.join("b"), &url, MemorySecret::default())?;
-    b.data
-        .favorites
-        .create_collection("Local collection absent from v2")?;
-    let invite = a.create_invitation(&b.pairing_request().await?).await?;
-    assert_eq!(
-        b.join(&invite, JoinMode::Restore).await.err(),
-        Some(SyncError::UpgradeRequired)
-    );
-    b.approve_upgrade(Some(&invite)).await?;
-    let (mut stale, _) = snapshot_request(&b, snapshot::CURRENT_SNAPSHOT_SCHEMA).await?;
-    let mut vault = b.vault().await?;
-    let c = vault.current.as_mut().ok_or("no credentials")?;
-    let (_, remote) = b.read_managed(c, None).await?;
-    let local = b.data.snapshot()?.0;
-    let target = b.data().restore_target(&remote, &local, 1)?;
-    let payload = c.root()?.derive().encrypt_managed(
-        &c.group_id,
-        stale.request.expected_epoch,
-        &snapshot::serialize_snapshot(&target)?,
-    )?;
-    stale.restore = true;
-    b.save_vault(&vault).await?;
-    let stale = b.prepare(stale, &payload)?;
-    // Another device upgrades the remote while B's first Restore request is in flight.
-    a.approve_upgrade(None).await?;
-    a.sync_now().await?;
-    assert_eq!(
-        b.commit_journal(&stale).await.err(),
-        Some(SyncError::Conflict)
-    );
-    assert_eq!(b.data.snapshot()?.0, local);
-    assert!(b.journal()?.is_none());
-    b.startup_sync().await?;
-    assert!(b.data.favorites.library().collections.is_empty());
-    a.sync_now().await?;
-    assert_sync_data_equal(&a.data.snapshot()?.0, &b.data.snapshot()?.0);
     fs::remove_dir_all(root)?;
     Ok(())
 }
@@ -594,116 +318,6 @@ async fn real_server_managed_collection_validation_and_size_fail_without_data_lo
         Some(SyncError::InvalidRemoteData)
     );
     assert_eq!(a.data.snapshot()?.0, before);
-    fs::remove_dir_all(root)?;
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires RF_SYNC_SERVER_BIN; legacy migration cannot bypass collection format consent"]
-async fn real_server_managed_legacy_move_keeps_upgrade_separate() -> TestResult {
-    use crate::{
-        secure_storage::SecretStore, sync_crypto::RootSecret, sync_transport::SyncTransport,
-    };
-    let root = directory("managed-legacy-v2-upgrade");
-    let (_server, url) = start(&root).await?;
-    let secret = MemorySecret::default();
-    let a = device(&root.join("a"), &url, secret.clone())?;
-    seed_library(&a)?;
-    let legacy = RootSecret::generate();
-    let keys = legacy.derive();
-    let transport = SyncTransport::new(&url)?;
-    let envelope =
-        keys.encrypt_snapshot(&snapshot::v2::serialize_snapshot(&a.data.snapshot()?.0)?)?;
-    let revision = transport
-        .create(keys.sync_id(), &keys.client_auth_token(), envelope.clone())
-        .await?;
-    let mut config = SyncLocalConfig::new(keys.sync_id().into(), revision);
-    config.highest_schema_version = 2;
-    a.save(&config)?;
-    secret.store(legacy).await?;
-    let before = a.data.snapshot()?.0;
-    assert_eq!(
-        a.move_to_managed_sync().await.err(),
-        Some(SyncError::UpgradeRequired)
-    );
-    assert_eq!(a.data.snapshot()?.0, before);
-    assert!(a.journal()?.is_none());
-    a.approve_upgrade(None).await?;
-    let moved = a.move_to_managed_sync().await?;
-    assert_ne!(moved.group_id, keys.sync_id());
-    assert_eq!(moved.source_legacy_id.as_deref(), Some(keys.sync_id()));
-    assert_eq!(a.config()?.ok_or("no config")?.highest_schema_version, 4);
-    assert_eq!(
-        transport
-            .get(keys.sync_id(), &keys.client_auth_token())
-            .await?,
-        (revision, envelope)
-    );
-    let current = a.data.snapshot()?.0;
-    let migrated = snapshot::decode_snapshot(&snapshot::v2::serialize_snapshot(&before)?)?.data;
-    let expected = snapshot::merge_snapshots(&before, &migrated)?;
-    assert_eq!(current.collections, expected.collections);
-    assert_eq!(current.memberships, expected.memberships);
-    assert_eq!(current.collections_removed, expected.collections_removed);
-    assert_eq!(current.memberships_removed, expected.memberships_removed);
-    fs::remove_dir_all(root)?;
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires RF_SYNC_SERVER_BIN; exact v3 replay followed by independent Nearby consent4"]
-async fn real_server_exact_v3_replay_requires_new_consent_before_nearby_publication() -> TestResult
-{
-    let root = directory("nearby-v3-replay");
-    let (_server, url) = start(&root).await?;
-    let a = device(&root.join("a"), &url, MemorySecret::default())?;
-    create_v2(&a).await?;
-    let (entry, payload) = snapshot_request(&a, 3).await?;
-    crate::persistence::save_json(
-        &root.join("a/sync-upgrades.json"),
-        &std::collections::BTreeMap::from([(entry.group_id.clone(), 3)]),
-    )?;
-    let entry = a.prepare(entry, &payload)?;
-    let exact = a.request_bytes(&entry)?;
-    a.commit_journal(&entry).await?;
-    assert_eq!(a.config()?.ok_or("no config")?.highest_schema_version, 3);
-    assert_eq!(
-        exact,
-        crate::sync_protocol::encode(&entry.request, &payload)?
-    );
-    a.data
-        .record_check(42, crate::persistence::ExplorationOutcome::Viewed)?;
-    assert_eq!(a.sync_now().await.err(), Some(SyncError::UpgradeRequired));
-    assert!(!a.data.sync_upgrade_approved(&entry.group_id)?);
-    a.approve_upgrade(None).await?;
-    a.sync_now().await?;
-    assert_eq!(a.config()?.ok_or("no config")?.highest_schema_version, 4);
-    assert_eq!(a.data.snapshot()?.0.seen.len(), 0);
-    let mut vault = a.vault().await?;
-    let (_, remote) = a
-        .read_managed(vault.current.as_mut().ok_or("no credentials")?, None)
-        .await?;
-    assert_eq!(remote.original_schema_version, 4);
-    assert_eq!(remote.data.exploration.len(), 1);
-    assert_eq!(remote.data.seen.len(), 0);
-    let b_secret = MemorySecret::default();
-    let b = device(&root.join("b"), &url, b_secret.clone())?;
-    let invitation = a.create_invitation(&b.pairing_request().await?).await?;
-    b.join(&invitation, JoinMode::Restore).await?;
-    b.data
-        .record_check(43, crate::persistence::ExplorationOutcome::Rejected)?;
-    b.sync_now().await?;
-    a.sync_now().await?;
-    assert_sync_data_equal(&a.data.snapshot()?.0, &b.data.snapshot()?.0);
-    let b = device(&root.join("b"), &url, b_secret)?;
-    b.startup_sync().await?;
-    for data in [&a.data, &b.data] {
-        let snapshot = data.snapshot()?.0;
-        assert_eq!(snapshot.exploration.len(), 2);
-        assert_eq!(snapshot.seen.len(), 0);
-        assert_eq!(data.history.snapshot().history.len(), 0);
-        assert_eq!(data.activity.viewed_total(), 0);
-    }
     fs::remove_dir_all(root)?;
     Ok(())
 }

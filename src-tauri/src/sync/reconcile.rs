@@ -2,11 +2,30 @@ use super::{errors::SyncError, state::Generation};
 use crate::{
     persistence::{PersistentState, PreferenceStore},
     snapshot,
-    sync_crypto::{CryptoError, SyncKeys},
+    sync_crypto::SyncKeys,
 };
 pub(super) struct SyncData<'a> {
     pub(super) state: &'a PersistentState,
 }
+/// Authenticates and decodes. Touches no local state.
+pub(super) fn decode_remote(
+    keys: &SyncKeys,
+    envelope: &[u8],
+) -> Result<snapshot::SyncSnapshot, SyncError> {
+    let plaintext = keys
+        .decrypt_snapshot(keys.sync_id(), envelope)
+        .map_err(|_| SyncError::InvalidRemoteData)?;
+    let remote = snapshot::parse_snapshot(&plaintext).map_err(|_| SyncError::InvalidRemoteData)?;
+    #[cfg(any(test, debug_assertions))]
+    snapshot::report_diagnostics(
+        "after_remote_decode",
+        &remote,
+        plaintext.len(),
+        envelope.len(),
+    );
+    Ok(remote)
+}
+
 impl SyncData<'_> {
     pub(super) fn local_snapshot(
         &self,
@@ -27,131 +46,14 @@ impl SyncData<'_> {
         })?;
         Ok((bytes, generation, self_record))
     }
-    /// Authenticates, decodes and applies every downgrade rule. Touches no local state.
-    pub(super) fn decode_remote(
-        &self,
-        keys: &SyncKeys,
-        envelope: &[u8],
-        schema_floor: u32,
-        revision: i64,
-    ) -> Result<snapshot::DecodedSnapshot, SyncError> {
-        let plaintext =
-            keys.decrypt_snapshot(keys.sync_id(), envelope)
-                .map_err(|error| match error {
-                    CryptoError::UnsupportedSnapshotVersion(version) => {
-                        SyncError::UnsupportedVersion(version)
-                    }
-                    _ => SyncError::InvalidRemoteData,
-                })?;
-        let remote = snapshot::decode_snapshot(&plaintext).map_err(|error| match error {
-            snapshot::SnapshotError::UnsupportedVersion(version) => {
-                SyncError::UnsupportedVersion(version)
-            }
-            _ => SyncError::InvalidRemoteData,
-        })?;
-        debug_assert_eq!(
-            remote.needs_upgrade,
-            remote.original_schema_version < crate::snapshot::CURRENT_SNAPSHOT_SCHEMA
-        );
-        #[cfg(any(test, debug_assertions))]
-        snapshot::report_diagnostics(
-            "after_remote_decode",
-            &remote.data,
-            remote.original_schema_version,
-            plaintext.len(),
-            envelope.len(),
-        );
-        let schema_floor = schema_floor
-            .max(
-                self.state
-                    .schema_floor(keys.sync_id())
-                    .map_err(|_| SyncError::Persistence)?,
-            )
-            .max(
-                self.state
-                    .publication_floor(keys.sync_id(), revision)
-                    .map_err(|_| SyncError::Persistence)?,
-            );
-        if remote.original_schema_version < schema_floor {
-            return Err(SyncError::SchemaDowngrade);
-        }
-        Ok(remote)
-    }
-
-    pub(super) fn require_upgrade_consent(
-        &self,
-        keys: &SyncKeys,
-        schema: u32,
-    ) -> Result<(), SyncError> {
-        if schema < crate::snapshot::CURRENT_SNAPSHOT_SCHEMA
-            && !self
-                .state
-                .sync_upgrade_approved(keys.sync_id())
-                .map_err(|_| SyncError::Persistence)?
-        {
-            return Err(SyncError::UpgradeRequired);
-        }
-        Ok(())
-    }
-
-    /// Schema-aware Restore, not CRDT union. Represented domains are remote-authoritative,
-    /// including explicit empty values. Only unsupported content domains use captured local
-    /// v2 state. A stale local roster is never imported; identity registers only this device.
+    /// Restore, not CRDT union: every domain is remote-authoritative, including explicit
+    /// empty values. A stale local roster is never imported; identity registers only this device.
     pub(super) fn restore_target(
         &self,
-        remote: &snapshot::DecodedSnapshot,
-        local: &snapshot::SyncSnapshot,
+        remote: &snapshot::SyncSnapshot,
         at_ms: u64,
     ) -> Result<snapshot::SyncSnapshot, SyncError> {
-        use snapshot::SyncDomain;
-        debug_assert!([
-            SyncDomain::Seen,
-            SyncDomain::History,
-            SyncDomain::HistoryRemovals,
-            SyncDomain::Favorites,
-            SyncDomain::FavoriteRemovals,
-        ]
-        .into_iter()
-        .all(|domain| remote.represents(domain)));
-        let mut target = remote.data.clone();
-        if !remote.represents(SyncDomain::Collections) {
-            let preserved = snapshot::SyncSnapshot {
-                collections: local.collections.clone(),
-                collections_removed: local.collections_removed.clone(),
-                memberships: local.memberships.clone(),
-                memberships_removed: local.memberships_removed.clone(),
-                ..snapshot::SyncSnapshot::default()
-            };
-            target = snapshot::merge_snapshots(&target, &preserved)
-                .map_err(|_| SyncError::InvalidRemoteData)?;
-        }
-        debug_assert_eq!(
-            remote.represents(SyncDomain::Collections),
-            remote.represents(SyncDomain::CollectionRemovals)
-        );
-        debug_assert_eq!(
-            remote.represents(SyncDomain::Collections),
-            remote.represents(SyncDomain::Memberships)
-        );
-        debug_assert_eq!(
-            remote.represents(SyncDomain::Collections),
-            remote.represents(SyncDomain::MembershipRemovals)
-        );
-        if !remote.represents(SyncDomain::Exploration) {
-            target.exploration.clone_from(&local.exploration);
-        }
-        if !remote.represents(SyncDomain::Activity) {
-            target.activity.clone_from(&local.activity);
-        }
-        if !remote.represents(SyncDomain::ActivityRemovals) {
-            target.activity_removed.clone_from(&local.activity_removed);
-        }
-        if !remote.represents(SyncDomain::Preferences) {
-            target.preferences.clone_from(&local.preferences);
-        }
-        if !remote.represents(SyncDomain::Devices) {
-            target.devices.clear();
-        }
+        let mut target = remote.clone();
         let remote_has_self = target
             .devices
             .iter()
@@ -185,24 +87,15 @@ impl SyncData<'_> {
         Ok(target)
     }
 
-    pub(super) fn merge_remote(
-        &self,
-        keys: &SyncKeys,
-        envelope: &[u8],
-        schema_floor: u32,
-        revision: i64,
-    ) -> Result<u32, SyncError> {
-        let remote = self.decode_remote(keys, envelope, schema_floor, revision)?;
-        self.require_upgrade_consent(keys, remote.original_schema_version)?;
-        self.state
-            .merge_versioned(&remote.data, keys.sync_id(), remote.original_schema_version)
-            .map_err(|error| {
-                if error.kind == crate::error::ErrorKind::InvalidInput {
-                    SyncError::InvalidRemoteData
-                } else {
-                    SyncError::Persistence
-                }
-            })?;
+    pub(super) fn merge_remote(&self, keys: &SyncKeys, envelope: &[u8]) -> Result<(), SyncError> {
+        let remote = decode_remote(keys, envelope)?;
+        self.state.merge(&remote).map_err(|error| {
+            if error.kind == crate::error::ErrorKind::InvalidInput {
+                SyncError::InvalidRemoteData
+            } else {
+                SyncError::Persistence
+            }
+        })?;
         #[cfg(any(test, debug_assertions))]
         if snapshot::diagnostics_enabled() {
             // After merge there is no envelope yet. Its planned length is exactly
@@ -212,13 +105,12 @@ impl SyncData<'_> {
                     snapshot::report_diagnostics(
                         "after_merge",
                         &merged,
-                        snapshot::CURRENT_SNAPSHOT_SCHEMA,
                         bytes.len(),
                         bytes.len() + crate::sync_crypto::ENVELOPE_OVERHEAD,
                     );
                 }
             }
         }
-        Ok(remote.original_schema_version)
+        Ok(())
     }
 }

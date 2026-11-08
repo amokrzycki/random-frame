@@ -27,8 +27,6 @@ struct Transaction {
     close_legacy_import: bool,
     #[serde(default)]
     session_import: bool,
-    #[serde(default)]
-    accepted_schema: Option<(String, u32)>,
     /// Restore: `effects` replace the synchronized stores instead of merging into them.
     #[serde(default)]
     replace: bool,
@@ -48,32 +46,6 @@ struct Clears {
     legacy_request: Option<String>,
     requests: BTreeMap<String, Option<ClearRequest>>,
 }
-#[derive(Clone, Deserialize, Serialize)]
-#[serde(untagged)]
-enum Publication {
-    Versioned { revision: i64, schema: u32 },
-    Legacy(i64),
-}
-impl Publication {
-    fn revision(&self) -> i64 {
-        match self {
-            Self::Versioned { revision, .. } | Self::Legacy(revision) => *revision,
-        }
-    }
-    fn schema(&self) -> u32 {
-        match self {
-            Self::Versioned { schema, .. } => *schema,
-            Self::Legacy(_) => 2,
-        }
-    }
-    fn validate(&self) -> Result<(), AppError> {
-        if self.revision() < 0 || !(1..=snapshot::CURRENT_SNAPSHOT_SCHEMA).contains(&self.schema())
-        {
-            return Err(AppError::persistence("Invalid publication metadata"));
-        }
-        Ok(())
-    }
-}
 #[derive(Debug, PartialEq, Eq)]
 pub struct CheckCommit {
     pub inserted: bool,
@@ -87,9 +59,6 @@ enum AcceptanceOrigin {
 pub struct PersistentState {
     path: PathBuf,
     clear_path: PathBuf,
-    schema_path: PathBuf,
-    publication_path: PathBuf,
-    upgrade_path: PathBuf,
     operation: Mutex<()>,
     changes: tokio::sync::watch::Sender<Generation>,
     pub seen: Arc<SeenStore>,
@@ -144,9 +113,6 @@ impl PersistentState {
         let state = Self {
             path: directory.join("state-transaction.json"),
             clear_path: directory.join("history-clear.json"),
-            schema_path: directory.join("sync-schema-floor.json"),
-            publication_path: directory.join("sync-publication.json"),
-            upgrade_path: directory.join("sync-upgrades.json"),
             operation: Mutex::new(()),
             changes: tokio::sync::watch::channel([0; 6]).0,
             seen,
@@ -336,12 +302,6 @@ impl PersistentState {
                 &Some(id),
             )?;
         }
-        if let Some((id, schema)) = &tx.accepted_schema {
-            let mut floors: BTreeMap<String, u32> = load_json(&self.schema_path)?;
-            let floor = floors.entry(id.clone()).or_insert(1);
-            *floor = (*floor).max(*schema);
-            save_json(&self.schema_path, &floors)?;
-        }
         Ok(())
     }
     /// Every step is a set-to-target, so replaying a journaled Restore after a crash is idempotent.
@@ -394,7 +354,6 @@ impl PersistentState {
                 close_legacy_import: true,
                 // The browser session import is pre-join local history as well.
                 session_import: true,
-                accepted_schema: None,
                 replace: true,
                 restore_operation: operation,
             };
@@ -413,7 +372,6 @@ impl PersistentState {
             effects: target.clone(),
             close_legacy_import: true,
             session_import: true,
-            accepted_schema: None,
             replace: true,
             restore_operation: None,
         };
@@ -428,24 +386,11 @@ impl PersistentState {
         close_legacy_import: bool,
         session_import: bool,
     ) -> Result<(), AppError> {
-        self.transact_versioned(effects, close_legacy_import, session_import, None)
-    }
-    fn transact_versioned(
-        &self,
-        effects: &SyncSnapshot,
-        close_legacy_import: bool,
-        session_import: bool,
-        accepted_schema: Option<(String, u32)>,
-    ) -> Result<(), AppError> {
         let current = self.snapshot_unlocked()?;
         let mut effects =
             snapshot::merge_snapshots(&current, effects).map_err(AppError::persistence)?;
         snapshot::reconcile_seen(&mut effects);
-        if effects == current
-            && !close_legacy_import
-            && !session_import
-            && accepted_schema.is_none()
-        {
+        if effects == current && !close_legacy_import && !session_import {
             return Ok(());
         }
         let tx = Transaction {
@@ -454,7 +399,6 @@ impl PersistentState {
             effects,
             close_legacy_import,
             session_import,
-            accepted_schema,
             replace: false,
             restore_operation: None,
         };
@@ -463,112 +407,12 @@ impl PersistentState {
         self.apply(&tx)?;
         save_json(&self.path, &Option::<Transaction>::None)
     }
-    #[cfg(test)]
+    /// Merges a validated remote snapshot through the journal.
     pub fn merge(&self, incoming: &SyncSnapshot) -> Result<(), AppError> {
         self.read(|| {
             snapshot::merge_snapshots(&self.snapshot_unlocked()?, incoming)
                 .map_err(|error| AppError::invalid_input(error.to_string()))?;
             self.transact(incoming, false)
-        })
-    }
-    pub fn schema_floor(&self, sync_id: &str) -> Result<u32, AppError> {
-        self.read(|| {
-            let floors: BTreeMap<String, u32> = load_json(&self.schema_path)?;
-            if floors
-                .values()
-                .any(|v| !(1..=snapshot::CURRENT_SNAPSHOT_SCHEMA).contains(v))
-            {
-                return Err(AppError::persistence("Invalid schema floor"));
-            }
-            Ok(floors.get(sync_id).copied().unwrap_or(1))
-        })
-    }
-    pub fn publication_floor(&self, sync_id: &str, revision: i64) -> Result<u32, AppError> {
-        self.read(|| {
-            let pending: BTreeMap<String, Publication> = load_json(&self.publication_path)?;
-            for entry in pending.values() {
-                entry.validate()?;
-            }
-            Ok(pending
-                .get(sync_id)
-                .filter(|entry| revision > entry.revision())
-                .map_or(1, Publication::schema))
-        })
-    }
-    pub fn begin_publication(
-        &self,
-        sync_id: &str,
-        revision: i64,
-        schema: u32,
-    ) -> Result<(), AppError> {
-        self.read(|| {
-            let mut pending: BTreeMap<String, Publication> = load_json(&self.publication_path)?;
-            let entry = Publication::Versioned { revision, schema };
-            entry.validate()?;
-            pending.insert(sync_id.into(), entry);
-            save_json(&self.publication_path, &pending)
-        })
-    }
-    pub fn cancel_publication(&self, sync_id: &str) -> Result<(), AppError> {
-        self.read(|| self.cancel_publication_unlocked(sync_id))
-    }
-    fn cancel_publication_unlocked(&self, sync_id: &str) -> Result<(), AppError> {
-        let mut pending: BTreeMap<String, Publication> = load_json(&self.publication_path)?;
-        if pending.remove(sync_id).is_some() {
-            save_json(&self.publication_path, &pending)?;
-        }
-        Ok(())
-    }
-    pub fn complete_publication(&self, sync_id: &str) -> Result<(), AppError> {
-        self.read(|| {
-            let mut floors: BTreeMap<String, u32> = load_json(&self.schema_path)?;
-            let pending: BTreeMap<String, Publication> = load_json(&self.publication_path)?;
-            let entry = pending
-                .get(sync_id)
-                .ok_or_else(|| AppError::persistence("Missing publication metadata"))?;
-            entry.validate()?;
-            let floor = floors.entry(sync_id.into()).or_insert(1);
-            *floor = (*floor).max(entry.schema());
-            save_json(&self.schema_path, &floors)?;
-            self.cancel_publication_unlocked(sync_id)
-        })
-    }
-    pub fn approve_sync_upgrade(&self, sync_id: &str) -> Result<(), AppError> {
-        self.read(|| {
-            let mut upgrades: BTreeMap<String, u32> = load_json(&self.upgrade_path)?;
-            upgrades.insert(sync_id.into(), snapshot::CURRENT_SNAPSHOT_SCHEMA);
-            save_json(&self.upgrade_path, &upgrades)
-        })
-    }
-    pub fn sync_upgrade_approved(&self, sync_id: &str) -> Result<bool, AppError> {
-        self.sync_upgrade_approved_for(sync_id, snapshot::CURRENT_SNAPSHOT_SCHEMA)
-    }
-    pub fn sync_upgrade_approved_for(&self, sync_id: &str, schema: u32) -> Result<bool, AppError> {
-        self.read(|| {
-            let upgrades: BTreeMap<String, u32> = load_json(&self.upgrade_path)?;
-            if upgrades
-                .values()
-                .any(|v| !(3..=snapshot::CURRENT_SNAPSHOT_SCHEMA).contains(v))
-            {
-                return Err(AppError::persistence("Invalid Sync upgrade consent"));
-            }
-            Ok(upgrades.get(sync_id).is_some_and(|v| *v >= schema))
-        })
-    }
-    pub fn merge_versioned(
-        &self,
-        incoming: &SyncSnapshot,
-        sync_id: &str,
-        schema: u32,
-    ) -> Result<(), AppError> {
-        self.read(|| {
-            let floors: BTreeMap<String, u32> = load_json(&self.schema_path)?;
-            if schema < floors.get(sync_id).copied().unwrap_or(1) {
-                return Err(AppError::invalid_input("Schema downgrade"));
-            }
-            snapshot::merge_snapshots(&self.snapshot_unlocked()?, incoming)
-                .map_err(|error| AppError::invalid_input(error.to_string()))?;
-            self.transact_versioned(incoming, false, false, Some((sync_id.into(), schema)))
         })
     }
     pub fn record_check(

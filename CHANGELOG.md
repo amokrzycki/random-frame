@@ -1,5 +1,11 @@
 # Random Frame release notes
 
+## Unreleased
+
+### Changed
+
+- Sync snapshots use a single unversioned format. Older Sync data and groups are not migrated (breaking); the format-upgrade prompt is gone.
+
 ## 0.8.1
 
 ### Lighter startup and browsing

@@ -398,20 +398,6 @@ fn nearby_check_replays_journal_and_startup_receipt_is_mandatory() -> Result<(),
 }
 
 #[test]
-fn collections_consent_does_not_approve_nearby_sync_semantics() -> Result<(), AppError> {
-    let directory = test_directory("nearby-consent");
-    let data = PersistentState::new(&directory)?;
-    super::super::io::save_json(
-        &directory.join("sync-upgrades.json"),
-        &BTreeMap::from([("group", 3)]),
-    )?;
-    assert!(!data.sync_upgrade_approved("group")?);
-    data.approve_sync_upgrade("group")?;
-    assert!(data.sync_upgrade_approved("group")?);
-    fs::remove_dir_all(directory).map_err(AppError::persistence)
-}
-
-#[test]
 fn nearby_startup_cannot_pass_a_failed_legacy_receipt() -> Result<(), AppError> {
     let directory = test_directory("nearby-startup-receipt");
     fs::create_dir_all(&directory).map_err(AppError::persistence)?;

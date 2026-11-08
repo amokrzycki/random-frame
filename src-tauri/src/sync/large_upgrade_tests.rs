@@ -15,7 +15,7 @@ fn migrated_device(
 }
 
 #[tokio::test]
-async fn v1_upgrade_retains_large_activity_with_both_join_orders_and_cas_race(
+async fn large_activity_survives_both_join_orders_and_cas_race(
 ) -> Result<(), Box<dyn std::error::Error>> {
     for windows_first in [false, true] {
         let (url, server, task) = server().await?;
@@ -26,22 +26,20 @@ async fn v1_upgrade_retains_large_activity_with_both_join_orders_and_cas_race(
         ];
         let root = RootSecret::from_bytes(&(0_u8..32).collect::<Vec<_>>())?;
         let keys = root.derive();
-        let v1 = include_bytes!("../persistence/tests/fixtures/envelope-v1.bin").to_vec();
+        let v1 = super::empty_envelope(&keys)?;
         SyncTransport::new(&url)?
             .create(keys.sync_id(), &keys.client_auth_token(), v1.clone())
             .await?;
         let a_secret = MemorySecret::default();
         let a = migrated_device(&paths[0], &url, a_secret.clone())?;
         let b = device(&paths[1], &url, MemorySecret::default())?;
-        a.data.approve_sync_upgrade(keys.sync_id())?;
-        b.data.approve_sync_upgrade(keys.sync_id())?;
         for id in [700_001, 700_002, 700_003] {
             b.data
                 .discover(id, ExplorationOutcome::Viewed, 1, "2026-10-02")?;
         }
         if windows_first {
             // Linux durably accepts the old GET, then exits before any PUT.
-            super::super::reconcile::SyncData { state: &a.data }.merge_remote(&keys, &v1, 1, 1)?;
+            super::super::reconcile::SyncData { state: &a.data }.merge_remote(&keys, &v1)?;
             let imported_ids = a.data.activity.sync_state().0;
             assert_eq!(a.data.activity.viewed_total(), 5752);
             drop(a);
@@ -58,7 +56,7 @@ async fn v1_upgrade_retains_large_activity_with_both_join_orders_and_cas_race(
             assert_eq!(a.data.activity.viewed_total(), 5755);
             b.sync_now().await?;
         } else {
-            // A final v1 write wins the first CAS during Linux's upgrade.
+            // A competing write wins the first CAS during Linux's join.
             server
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)

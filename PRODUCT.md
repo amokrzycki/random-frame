@@ -37,7 +37,7 @@ With Sync connected, local mutations are batched after a one-second quiet period
 - Previous/next navigation and direct image download are required.
 - The star and `F` save an unsaved frame immediately without assigning a collection. For a saved frame they open Collections. A frame can belong to zero or many collections; deleting a collection or its last assignment keeps the global save. Global removal and Clear all saved offer Undo and keep history and downloaded files.
 - Existing favorites migrate once into a normal collection named Favourite, which can be renamed or deleted. Saved frames retain source links and metadata, not permanent copies of upstream images.
-- Nearby availability is separate from viewing. Sync snapshot v4 enforces that distinction. Existing v1–v3 chains, including managed groups, require fresh Upgrade Sync consent before joining or publishing; Later leaves changes waiting. Older apps stop syncing after the upgrade and retain their local data. New chains require Nearby-capable clients. The device list cannot confirm app versions. Legacy migration and collection-format upgrades are separate operations.
+- Nearby availability is separate from viewing, and the Sync snapshot keeps that distinction. The snapshot has one unversioned format; older Sync data and groups are not migrated, so there is no format-upgrade consent. Legacy migration to managed Sync is a separate operation.
 
 ## Vocabulary
 

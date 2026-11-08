@@ -37,7 +37,6 @@ async fn backup_and_temporary_recovery_preserve_pairing_across_restarts() -> Tes
                 let status = engine.status().await?;
                 assert!(status.paired);
                 assert_eq!(status.last_success_revision, Some(42));
-                assert_eq!(status.snapshot_schema_version, 4);
                 assert_eq!(status.last_success_at, Some(123));
                 assert_eq!(engine.recovery_key().await?, key);
                 let recovered = engine.config()?.ok_or("missing recovered config")?;
@@ -90,8 +89,6 @@ fn invalid_candidates_are_never_promoted_or_defaulted() -> TestResult {
         ("syncId", serde_json::json!("a")),
         ("lastAcceptedRevision", serde_json::json!(0)),
         ("lastAcceptedRevision", serde_json::json!(-1)),
-        ("highestSchemaVersion", serde_json::json!(0)),
-        ("highestSchemaVersion", serde_json::json!(5)),
         ("unexpected", serde_json::json!(true)),
     ] {
         let mut invalid = valid.clone();
@@ -132,7 +129,7 @@ fn invalid_candidates_are_never_promoted_or_defaulted() -> TestResult {
 
 #[test]
 fn temporary_must_not_roll_back_or_change_backup_identity() -> TestResult {
-    for regression in 0..4 {
+    for regression in 0..3 {
         let path = directory("config-floors");
         fs::create_dir_all(&path)?;
         let canonical = path.join("sync-config.json");
@@ -141,7 +138,6 @@ fn temporary_must_not_roll_back_or_change_backup_identity() -> TestResult {
         match regression {
             0 => temporary.last_accepted_revision = Some(41),
             1 => temporary.last_accepted_revision = None,
-            2 => temporary.highest_schema_version = 1,
             _ => temporary.sync_id = "b".repeat(64),
         }
         write_config(&canonical.with_extension("json.bak"), &backup)?;
@@ -159,19 +155,17 @@ fn temporary_must_not_roll_back_or_change_backup_identity() -> TestResult {
 }
 
 #[test]
-fn valid_temporary_takes_precedence_over_backup_without_lowering_floors() -> TestResult {
+fn valid_temporary_takes_precedence_over_backup() -> TestResult {
     let path = directory("config-newer-temporary");
     fs::create_dir_all(&path)?;
     let canonical = path.join("sync-config.json");
-    let mut backup = SyncLocalConfig::new("a".repeat(64), 41);
-    backup.highest_schema_version = 1;
+    let backup = SyncLocalConfig::new("a".repeat(64), 41);
     let temporary = SyncLocalConfig::new(backup.sync_id.clone(), 42);
     write_config(&canonical.with_extension("json.bak"), &backup)?;
     write_config(&canonical.with_extension("json.tmp"), &temporary)?;
     for _ in 0..2 {
         let config = load_config(&canonical)?.ok_or("missing temporary")?;
         assert_eq!(config.last_accepted_revision, Some(42));
-        assert_eq!(config.highest_schema_version, 4);
     }
     fs::remove_dir_all(path)?;
     Ok(())
@@ -186,7 +180,7 @@ fn incompatible_or_oversized_temporary_does_not_fall_back_to_older_backup() -> T
         let backup = SyncLocalConfig::new("a".repeat(64), 42);
         write_config(&canonical.with_extension("json.bak"), &backup)?;
         let mut invalid = serde_json::to_value(&backup)?;
-        invalid["highestSchemaVersion"] = serde_json::json!(5);
+        invalid["protocolVersion"] = serde_json::json!(9);
         let mut bytes = serde_json::to_vec(&invalid)?;
         if oversized {
             bytes.resize(1025, b' ');
@@ -213,16 +207,11 @@ fn legacy_config_and_exact_size_limit_remain_supported() -> TestResult {
     legacy
         .as_object_mut()
         .ok_or("not an object")?
-        .remove("highestSchemaVersion");
-    legacy
-        .as_object_mut()
-        .ok_or("not an object")?
         .remove("lastSuccessAt");
     let mut bytes = serde_json::to_vec(&legacy)?;
     bytes.resize(1024, b' ');
     fs::write(canonical.with_extension("json.bak"), &bytes)?;
     let config = load_config(&canonical)?.ok_or("missing legacy config")?;
-    assert_eq!(config.highest_schema_version, 1);
     assert_eq!(config.last_success_at, None);
     assert_eq!(config.last_accepted_revision, Some(42));
     fs::remove_dir_all(path)?;
@@ -255,62 +244,47 @@ fn corrupt_backup_or_unreadable_candidate_cannot_be_bypassed() -> TestResult {
 }
 
 #[tokio::test]
-async fn recovered_backup_retains_remote_revision_schema_and_publication_guards() -> TestResult {
-    for guard in [
-        "revision",
-        "config-schema",
-        "schema-ledger",
-        "publication-ledger",
-    ] {
-        let (url, server, task) = server().await?;
-        let path = directory("config-recovered-guards");
-        let secret = MemorySecret::default();
-        let engine = device(&path, &url, secret.clone())?;
-        let root = RootSecret::from_bytes(&(0u8..32).collect::<Vec<_>>())?;
-        let keys = root.derive();
-        let v1 = include_bytes!("../persistence/tests/fixtures/envelope-v1.bin").to_vec();
-        SyncTransport::new(&url)?
-            .create(keys.sync_id(), &keys.client_auth_token(), v1)
-            .await?;
-        let mut config = SyncLocalConfig::new(keys.sync_id().into(), 42);
-        if guard != "config-schema" {
-            config.highest_schema_version = 1;
-        }
-        write_config(&engine.path.with_extension("json.bak"), &config)?;
-        secret.store(root).await?;
-        if guard == "schema-ledger" {
-            engine.data.begin_publication(keys.sync_id(), 40, 3)?;
-            engine.data.complete_publication(keys.sync_id())?;
-        } else if guard == "publication-ledger" {
-            engine.data.begin_publication(keys.sync_id(), 40, 2)?;
-        }
-        drop(engine);
-        server
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .revision = if guard == "revision" { 41 } else { 43 };
-        let restarted = device(&path, &url, secret)?;
-        let before = restarted.data.snapshot()?.0;
-        let expected = if guard == "revision" {
-            SyncError::ServerRollbackDetected {
-                local_revision: 42,
-                remote_revision: 41,
-            }
-        } else {
-            SyncError::SchemaDowngrade
-        };
-        assert_eq!(restarted.startup_sync().await.err(), Some(expected));
-        assert_eq!(restarted.data.snapshot()?.0, before);
-        assert_eq!(
-            restarted
-                .config()?
-                .ok_or("missing recovered floor")?
-                .last_accepted_revision,
-            Some(42)
-        );
-        task.abort();
-        fs::remove_dir_all(path)?;
-    }
+async fn recovered_backup_retains_remote_revision_guard() -> TestResult {
+    let (url, server, task) = server().await?;
+    let path = directory("config-recovered-guards");
+    let secret = MemorySecret::default();
+    let engine = device(&path, &url, secret.clone())?;
+    let root = RootSecret::from_bytes(&(0u8..32).collect::<Vec<_>>())?;
+    let keys = root.derive();
+    SyncTransport::new(&url)?
+        .create(
+            keys.sync_id(),
+            &keys.client_auth_token(),
+            super::empty_envelope(&keys)?,
+        )
+        .await?;
+    let config = SyncLocalConfig::new(keys.sync_id().into(), 42);
+    write_config(&engine.path.with_extension("json.bak"), &config)?;
+    secret.store(root).await?;
+    drop(engine);
+    server
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .revision = 41;
+    let restarted = device(&path, &url, secret)?;
+    let before = restarted.data.snapshot()?.0;
+    assert_eq!(
+        restarted.startup_sync().await.err(),
+        Some(SyncError::ServerRollbackDetected {
+            local_revision: 42,
+            remote_revision: 41,
+        })
+    );
+    assert_eq!(restarted.data.snapshot()?.0, before);
+    assert_eq!(
+        restarted
+            .config()?
+            .ok_or("missing recovered floor")?
+            .last_accepted_revision,
+        Some(42)
+    );
+    task.abort();
+    fs::remove_dir_all(path)?;
     Ok(())
 }
 

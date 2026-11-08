@@ -76,7 +76,6 @@ impl<S: SecretStore> SyncEngine<S> {
                 last_success_revision: config.and_then(|c| c.last_accepted_revision),
                 dirty: true,
                 last_error_category: None,
-                snapshot_schema_version: 1,
                 this_device_id: None,
                 devices: Vec::new(),
                 control: super::state::MembershipStatus::default(),
@@ -114,11 +113,6 @@ impl<S: SecretStore> SyncEngine<S> {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         status.dirty = uploaded != Some(self.local_generation());
         status.last_success_at = self.config().ok().flatten().and_then(|c| c.last_success_at);
-        status.snapshot_schema_version = self
-            .config()
-            .ok()
-            .flatten()
-            .map_or(1, |c| c.highest_schema_version);
         status.this_device_id = Some(hex::encode(self.data.identity.id()));
         if self
             .config()
@@ -263,22 +257,11 @@ impl<S: SecretStore> SyncEngine<S> {
             .map_err(|_| SyncError::InvalidRemoteData)?;
         #[cfg(any(test, debug_assertions))]
         crate::snapshot::report_upload(&snapshot, &envelope);
-        self.data
-            .begin_publication(keys.sync_id(), 0, crate::snapshot::CURRENT_SNAPSHOT_SCHEMA)
-            .map_err(|_| SyncError::Persistence)?;
         let revision = self
             .transport()?
             .create(keys.sync_id(), &keys.client_auth_token(), envelope)
             .await?;
         let recovery_key = root.recovery_key().to_string();
-        if self.data.complete_publication(keys.sync_id()).is_err() {
-            self.set_state(SyncState::Error, Some(&SyncError::Persistence), None);
-            return Ok(CreateSyncResult {
-                recovery_key,
-                status: self.status_snapshot(),
-                local_pairing_error: Some(SyncError::Persistence),
-            });
-        }
         let Ok(generation) = self.data.record_published_self(self_record, generation) else {
             self.set_state(SyncState::Error, Some(&SyncError::Persistence), None);
             return Ok(CreateSyncResult {
@@ -342,35 +325,6 @@ impl<S: SecretStore> SyncEngine<S> {
         ))
     }
 
-    pub async fn approve_upgrade(&self, recovery_key: Option<&str>) -> Result<(), SyncError> {
-        let _guard = self
-            .operation
-            .try_lock()
-            .map_err(|_| SyncError::AlreadySyncing)?;
-        let sync_id = if let Some(key) = recovery_key {
-            if key.starts_with("rf-invite-v2-") {
-                super::managed::invitation_group(key)?
-            } else if key.starts_with("rf-admin-v2-") {
-                crate::sync_membership_crypto::AdminRecoverySecret::from_code(key)
-                    .map_err(|_| SyncError::InvalidRecoveryKey)?
-                    .0
-            } else {
-                RootSecret::from_recovery_key(key)
-                    .map_err(|_| SyncError::InvalidRecoveryKey)?
-                    .derive()
-                    .sync_id()
-                    .to_owned()
-            }
-        } else if let Some(config) = self.config()?.filter(|c| c.protocol_version == 2) {
-            config.sync_id
-        } else {
-            self.paired().await?.1.sync_id().to_owned()
-        };
-        self.data
-            .approve_sync_upgrade(&sync_id)
-            .map_err(|_| SyncError::Persistence)
-    }
-
     pub async fn join(&self, recovery_key: &str, mode: JoinMode) -> Result<SyncStatus, SyncError> {
         if recovery_key.starts_with("rf-invite-v2-") {
             return self.join_managed(recovery_key, mode).await;
@@ -406,7 +360,7 @@ impl<S: SecretStore> SyncEngine<S> {
             .await?;
         let (revision, generation) = match mode {
             JoinMode::Merge => {
-                let schema = self.data().merge_remote(&keys, &remote, 1, revision)?;
+                self.data().merge_remote(&keys, &remote)?;
                 push_with_retries(
                     &self.data(),
                     self.transport.as_ref(),
@@ -414,12 +368,11 @@ impl<S: SecretStore> SyncEngine<S> {
                     &keys,
                     revision,
                     None,
-                    schema,
                 )
                 .await?
             }
             JoinMode::Restore => {
-                let decoded = self.data().decode_remote(&keys, &remote, 1, revision)?;
+                let decoded = super::reconcile::decode_remote(&keys, &remote)?;
                 restore_with_retries(
                     &self.data(),
                     self.transport.as_ref(),
@@ -486,10 +439,7 @@ impl<S: SecretStore> SyncEngine<S> {
             .get(keys.sync_id(), &keys.client_auth_token())
             .await?;
         check_rollback(&config, revision)?;
-        let schema =
-            self.data()
-                .merge_remote(&keys, &remote, config.highest_schema_version, revision)?;
-        config.highest_schema_version = config.highest_schema_version.max(schema);
+        self.data().merge_remote(&keys, &remote)?;
         if config
             .last_accepted_revision
             .is_none_or(|floor| revision > floor)
@@ -504,12 +454,10 @@ impl<S: SecretStore> SyncEngine<S> {
             &keys,
             revision,
             Some(&mut config),
-            schema,
         )
         .await?;
         // A failed local save after PUT is recoverable: next GET may be above the old floor.
         config.last_accepted_revision = Some(revision);
-        config.highest_schema_version = crate::snapshot::CURRENT_SNAPSHOT_SCHEMA;
         config.last_success_at = Some(now_ms());
         self.save(&config)?;
         *self
@@ -572,7 +520,6 @@ impl<S: SecretStore> SyncEngine<S> {
             last_success_revision: None,
             dirty: true,
             last_error_category: None,
-            snapshot_schema_version: 1,
             this_device_id: None,
             devices: Vec::new(),
             control: super::state::MembershipStatus::default(),
@@ -585,8 +532,6 @@ impl<S: SecretStore> SyncEngine<S> {
         if let Err(error) = result {
             let state = if matches!(error, SyncError::Unpaired) {
                 SyncState::Unpaired
-            } else if matches!(error, SyncError::UpgradeRequired) {
-                SyncState::UpgradeRequired
             } else if matches!(
                 error,
                 SyncError::Offline

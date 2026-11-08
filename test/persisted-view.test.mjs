@@ -131,7 +131,6 @@ beforeEach(() => {
       lastSuccessAt: null,
       lastSuccessRevision: null,
       lastErrorCategory: null,
-      snapshotSchemaVersion: 2,
       thisDeviceId: null,
       devices: [],
       groupState: null,

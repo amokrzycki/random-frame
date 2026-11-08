@@ -3,7 +3,6 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { closeDialog, onDialogClosed, openDialog } from "./dialogs.js";
 import { elements } from "./elements.js";
 import {
-  approveSyncUpgrade,
   cancelSyncAdminRecovery,
   createSync,
   createSyncInvitation,
@@ -61,8 +60,6 @@ const errorCopy: Record<string, string> = {
   persistence: "Sync data could not be saved on this device.",
   unsupported_version: "This Sync was updated by a newer version of Random Frame. Update the app to continue.",
   unsupported_platform: "Sync isn’t available on this device.",
-  upgrade_required: "Nearby Frames needs a newer Sync format. Review the upgrade before continuing.",
-  schema_downgrade: `Synced data uses an older format, so it was not applied. ${NOT_APPLIED}`,
   invalid_remote_data: `Synced data could not be verified, so it was not applied. ${NOT_APPLIED}`,
   offline: OFFLINE,
   timeout: "Sync took too long to respond. Try again.",
@@ -107,8 +104,6 @@ const notRetryable = new Set([
   "corrupt_local_state",
   "body_too_large",
   "unsupported_version",
-  "schema_downgrade",
-  "upgrade_required",
   "invalid_remote_data",
   "rollback_detected",
   "server_rollback_detected",
@@ -160,9 +155,6 @@ let removeTarget: { memberId: string; name: string } | null = null;
 const isMaster = (): boolean =>
   Boolean(status?.controlVerifiedAt && status.masterMemberId && status.masterMemberId === status.thisMemberId);
 // What Try again repeats: the failed action, or the status check itself.
-let upgradeAction:
-  | { message: string; action: () => Promise<SyncStatus | undefined>; recoveryKey?: string | undefined }
-  | undefined;
 let retryAction: (() => Promise<unknown>) | null = null;
 
 const count = new Intl.NumberFormat();
@@ -352,7 +344,6 @@ function renderDevices(next: SyncStatus): void {
 // Only problems flag the titlebar: a quiet icon means Sync is fine or not in use.
 function setStatus(next: SyncStatus): void {
   status = next;
-  if (next.snapshotSchemaVersion >= 4 && next.lastErrorCategory !== "upgrade_required") upgradeAction = undefined;
   statusCheckFailed = false;
   renderDevices(next);
   renderAttention();
@@ -377,8 +368,6 @@ function renderAttention(): void {
 function statusHeadline(value: SyncStatus): string {
   if (!value.supported) return "Sync isn’t available on this device";
   if (!value.paired && !value.lastErrorCategory) return "Sync is off";
-  if (value.state === "upgrade_required" || value.lastErrorCategory === "upgrade_required")
-    return "Sync needs an upgrade";
   if (value.state === "updating_key") return "Updating the key automatically…";
   if (value.state === "syncing") return "Syncing…";
   if (value.state === "offline" || connectionProblems.has(value.lastErrorCategory ?? ""))
@@ -411,7 +400,6 @@ function computeHeadline(
 function computeState(busy: boolean, checking: boolean, statusCheckFailed: boolean, status: SyncStatus | null): string {
   if (status?.state === "updating_key") return "updating_key";
   if (busy || checking) return "syncing";
-  if (status?.lastErrorCategory === "upgrade_required") return "upgrade_required";
   if (statusCheckFailed || !elements.syncError.hidden || status?.lastErrorCategory) return "error";
   return status?.state ?? "unpaired";
 }
@@ -419,14 +407,11 @@ function computeState(busy: boolean, checking: boolean, statusCheckFailed: boole
 function render(): void {
   renderAttention();
   renderJoin();
-  const upgrading = Boolean(upgradeAction || (status?.paired && status.lastErrorCategory === "upgrade_required"));
-  elements.syncUpgrade.hidden = !upgrading;
-  elements.syncUpgradeConfirm.disabled = elements.syncUpgradeLater.disabled = busy;
   const paired = status?.paired ?? false;
   const supported = status?.supported ?? true;
   const showingKey = Boolean(elements.syncRecoveryKey.textContent);
   const gated = showingKey && Boolean(elements.syncRecovery.dataset.gated);
-  elements.syncJoinActions.hidden = elements.syncJoinForm.hidden || upgrading || showingKey;
+  elements.syncJoinActions.hidden = elements.syncJoinForm.hidden || showingKey;
   const confirming =
     !elements.syncLeaveConfirm.hidden || !elements.syncRemoveConfirm.hidden || !elements.syncDissolveConfirm.hidden;
   // While the key shows, nothing on the status lines is news: the key and its checkbox are the whole task.
@@ -454,11 +439,11 @@ function render(): void {
   elements.syncDirty.hidden =
     showingKey || !paired || !supported || !status?.dirty || busy || headline === "Changes waiting to sync";
   elements.syncScope.hidden = showingKey || confirming || !status;
-  elements.syncUnpaired.hidden = paired || showingKey || !status || upgrading;
+  elements.syncUnpaired.hidden = paired || showingKey || !status;
   elements.syncRecovery.hidden = !showingKey;
   elements.syncKeyConfirm.hidden = !gated;
-  elements.syncPaired.hidden = !paired || showingKey || confirming || upgrading;
-  elements.syncNow.hidden = !paired || showingKey || confirming || upgrading || !supported;
+  elements.syncPaired.hidden = !paired || showingKey || confirming;
+  elements.syncNow.hidden = !paired || showingKey || confirming || !supported;
   elements.syncNow.textContent = busy && busyMessage === "Syncing…" ? "Syncing…" : "Sync now";
   elements.syncCreateInvitation.textContent =
     busy && busyMessage === "Approving the device…" ? "Creating invitation…" : "Create invitation";
@@ -583,11 +568,7 @@ async function refreshView(): Promise<boolean> {
 // Return `undefined` for read-only operations (e.g. showing the recovery key) that
 // don't change sync state — the refresh at the end is still useful, but we skip
 // setStatus() since no status fields changed.
-async function operate(
-  message: string,
-  action: () => Promise<SyncStatus | undefined>,
-  recoveryKey?: string,
-): Promise<boolean> {
+async function operate(message: string, action: () => Promise<SyncStatus | undefined>): Promise<boolean> {
   if (busy) return false;
   busy = true;
   busyMessage = message;
@@ -605,19 +586,11 @@ async function operate(
       } catch {
         // Keep the action's original error and retry; a pending journal may still block reads.
       }
-      if (category(error) === "upgrade_required") {
-        upgradeAction = { message, action, recoveryKey };
-        clearError();
-      } else
-        showError(
-          safeError(error),
-          notRetryable.has(category(error) ?? "") ? null : () => operate(message, action, recoveryKey),
-        );
+      showError(safeError(error), notRetryable.has(category(error) ?? "") ? null : () => operate(message, action));
       await refresh();
       return false;
     }
     if (result) {
-      upgradeAction = undefined;
       setStatus(result);
       if (!(await refreshView())) return false;
     }
@@ -685,20 +658,6 @@ export function bindSyncDialogEvents(): void {
   }
   elements.syncDialog.addEventListener("focusin", (event) => {
     (event.target as HTMLElement).scrollIntoView?.({ block: "nearest" });
-  });
-  elements.syncUpgradeLater.addEventListener("click", () => closeDialog(elements.syncDialog));
-  elements.syncUpgradeConfirm.addEventListener("click", async () => {
-    const pending = upgradeAction ?? { message: "Syncing…", action: syncNow, recoveryKey: undefined };
-    await operate(
-      pending.message,
-      async () => {
-        await approveSyncUpgrade(pending.recoveryKey);
-        upgradeAction = undefined;
-        return pending.action();
-      },
-      pending.recoveryKey,
-    );
-    focusWhenSettled(status?.lastErrorCategory === "upgrade_required" ? elements.syncUpgradeLater : elements.syncNow);
   });
   window.addEventListener("resize", () => {
     if (
@@ -774,7 +733,6 @@ export function bindSyncDialogEvents(): void {
   elements.syncDialog.addEventListener("close", () => {
     hideKey();
     resetJoin();
-    if (!status?.paired) upgradeAction = undefined;
     elements.syncJoinForm.hidden = true;
     delete elements.syncDialog.dataset.joining;
     elements.syncLeaveConfirm.hidden = true;
@@ -842,20 +800,14 @@ export function bindSyncDialogEvents(): void {
     }
     // Fixed at submit, so Try again repeats exactly this choice.
     const recoveryKey = elements.syncRecoveryInput.value.trim();
-    const joined = await operate(
-      mode === "restore" ? "Restoring this device…" : "Merging this device…",
-      async () => {
-        const result = await joinSync(recoveryKey, mode);
-        resetJoin();
-        elements.syncJoinForm.hidden = true;
-        delete elements.syncDialog.dataset.joining;
-        return result;
-      },
-      recoveryKey,
-    );
-    focusWhenSettled(
-      joined ? elements.syncNow : upgradeAction ? elements.syncUpgradeLater : elements.syncRecoveryInput,
-    );
+    const joined = await operate(mode === "restore" ? "Restoring this device…" : "Merging this device…", async () => {
+      const result = await joinSync(recoveryKey, mode);
+      resetJoin();
+      elements.syncJoinForm.hidden = true;
+      delete elements.syncDialog.dataset.joining;
+      return result;
+    });
+    focusWhenSettled(joined ? elements.syncNow : elements.syncRecoveryInput);
   });
   elements.syncNow.addEventListener("click", async () => {
     await operate("Syncing…", syncNow);
@@ -924,26 +876,20 @@ export function bindSyncDialogEvents(): void {
       showKey(result.adminRecoveryCode, true);
       return result.status;
     });
-    focusWhenSettled(moved ? elements.syncKeySaved : upgradeAction ? elements.syncUpgradeLater : elements.syncMove);
+    focusWhenSettled(moved ? elements.syncKeySaved : elements.syncMove);
   });
   elements.syncAdminRecoverForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const code = elements.syncAdminCode.value.trim();
-    const prepared = await operate(
-      "Preparing administration recovery…",
-      async () => {
-        const result = await recoverSyncAdmin(code);
-        elements.syncAdminCode.value = "";
-        recoveryPrepared = result.prepared;
-        if (recoveryPrepared) elements.syncRecovery.dataset.recovering = "true";
-        showKey(result.adminRecoveryCode, true);
-        return result.status;
-      },
-      code,
-    );
-    focusWhenSettled(
-      prepared ? elements.syncKeySaved : upgradeAction ? elements.syncUpgradeLater : elements.syncAdminCode,
-    );
+    const prepared = await operate("Preparing administration recovery…", async () => {
+      const result = await recoverSyncAdmin(code);
+      elements.syncAdminCode.value = "";
+      recoveryPrepared = result.prepared;
+      if (recoveryPrepared) elements.syncRecovery.dataset.recovering = "true";
+      showKey(result.adminRecoveryCode, true);
+      return result.status;
+    });
+    focusWhenSettled(prepared ? elements.syncKeySaved : elements.syncAdminCode);
   });
   elements.syncRecoveryCancel.addEventListener("click", async () => {
     await operate("Cancelling prepared recovery…", async () => {

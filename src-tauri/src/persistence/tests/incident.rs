@@ -61,14 +61,11 @@ fn inspect_copies(directory: &std::path::Path) -> Result<(), Box<dyn std::error:
         let keys = RootSecret::generate().derive();
         let envelope = keys.encrypt_snapshot(&plaintext)?;
         let decrypted = keys.decrypt_snapshot(keys.sync_id(), &envelope)?;
-        let decoded = snapshot::decode_snapshot(&decrypted)?;
-        assert!(
-            decoded.data == snapshot,
-            "round trip changes incident snapshot"
-        );
+        let decoded = snapshot::parse_snapshot(&decrypted)?;
+        assert!(decoded == snapshot, "round trip changes incident snapshot");
         let viewed = snapshot::activity_projection(&snapshot.activity)?.0;
         eprintln!(
-            "{label}: schema=2 plaintext={} envelope={} seen={} history={} history_removed={} favorites={} favorites_removed={} exploration={} activity={} activity_removed={} viewed_total={viewed}",
+            "{label}: plaintext={} envelope={} seen={} history={} history_removed={} favorites={} favorites_removed={} exploration={} activity={} activity_removed={} viewed_total={viewed}",
             plaintext.len(), envelope.len(), snapshot.seen.len(), snapshot.history.len(),
             snapshot.history_removed.len(), snapshot.favorites.len(), snapshot.favorites_removed.len(),
             snapshot.exploration.len(), snapshot.activity.len(), snapshot.activity_removed.len(),

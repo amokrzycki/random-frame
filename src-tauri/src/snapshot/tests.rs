@@ -1,32 +1,14 @@
 use super::*;
 
 #[test]
-fn v1_snapshot_preserves_operations_and_tombstones() -> Result<(), SnapshotError> {
-    let decoded = decode_snapshot(include_bytes!(
-        "../persistence/tests/fixtures/snapshot-v1.bin"
-    ))?;
-    assert_eq!(decoded.original_schema_version, 1);
-    assert!(decoded.needs_upgrade);
-    assert_eq!(decoded.data.history[0].operation_id, [1; 16]);
-    assert_eq!(decoded.data.history_removed, vec![[2; 16]]);
-    assert_eq!(decoded.data.favorites[0].operation_id, [3; 16]);
-    assert_eq!(decoded.data.favorites_removed, vec![[4; 16]]);
-    assert_eq!(decoded.data.activity, vec![]);
-    assert_eq!(decoded.data.devices, vec![]);
-    assert!(decoded.data.history[0].last_view.day_inferred);
-    Ok(())
-}
-
-#[test]
-fn v4_roundtrip_is_canonical_and_old_decoders_reject_it() -> Result<(), SnapshotError> {
+fn roundtrip_is_canonical_and_old_format_is_rejected() -> Result<(), SnapshotError> {
     let value = SyncSnapshot::default();
     let bytes = serialize_snapshot(&value)?;
-    assert_eq!(decode_snapshot(&bytes)?.original_schema_version, 4);
     assert_eq!(parse_snapshot(&bytes)?, value);
-    assert!(matches!(
-        v1::parse_snapshot(&bytes),
-        Err(v1::SnapshotError::UnsupportedVersion(4))
-    ));
+    let mut old = b"RFSNAP\0\0".to_vec();
+    old.extend_from_slice(&4u32.to_le_bytes());
+    old.extend_from_slice(&bytes[MAGIC.len()..]);
+    assert_eq!(parse_snapshot(&old), Err(SnapshotError::InvalidMagic));
     Ok(())
 }
 
@@ -68,7 +50,7 @@ fn device(id: u8, clock: u8) -> DeviceRecord {
     }
 }
 #[test]
-fn v2_retains_device_records_without_local_identity() -> Result<(), SnapshotError> {
+fn retains_device_records_without_local_identity() -> Result<(), SnapshotError> {
     let a = SyncSnapshot {
         devices: vec![device(1, 1)],
         ..SyncSnapshot::default()
@@ -171,14 +153,8 @@ fn preferences_merge_independent_fields_and_resolve_same_field() -> Result<(), S
 #[test]
 fn malformed_counts_ids_dates_preferences_and_overflow_are_rejected() -> Result<(), SnapshotError> {
     let mut bytes = serialize_snapshot(&SyncSnapshot::default())?;
-    bytes[12..16].copy_from_slice(&u32::MAX.to_le_bytes());
-    assert!(decode_snapshot(&bytes).is_err());
-    bytes = serialize_snapshot(&SyncSnapshot::default())?;
-    bytes[8..12].copy_from_slice(&99u32.to_le_bytes());
-    assert!(matches!(
-        decode_snapshot(&bytes),
-        Err(SnapshotError::UnsupportedVersion(99))
-    ));
+    bytes[8..12].copy_from_slice(&u32::MAX.to_le_bytes());
+    assert!(parse_snapshot(&bytes).is_err());
     let bad = SyncSnapshot {
         activity: vec![discovery(1, "1", "2026-02-30")],
         ..SyncSnapshot::default()
@@ -244,31 +220,6 @@ fn plaintext_budget_has_exact_boundary_without_trimming() -> Result<(), Snapshot
         Err(SnapshotError::PayloadTooLarge)
     );
     assert_eq!(state.seen.len(), MAX_ENTRIES);
-    Ok(())
-}
-
-#[test]
-fn schema_capability_is_independent_of_empty_sections() -> Result<(), SnapshotError> {
-    let old = decode_snapshot(
-        &v1::serialize_snapshot(&v1::SyncSnapshot::default())
-            .map_err(|_| SnapshotError::InvalidValue)?,
-    )?;
-    let new = decode_snapshot(&serialize_snapshot(&SyncSnapshot::default())?)?;
-    for (domain, represented_v1) in [
-        (SyncDomain::Seen, true),
-        (SyncDomain::History, true),
-        (SyncDomain::HistoryRemovals, true),
-        (SyncDomain::Favorites, true),
-        (SyncDomain::FavoriteRemovals, true),
-        (SyncDomain::Exploration, false),
-        (SyncDomain::Activity, false),
-        (SyncDomain::ActivityRemovals, false),
-        (SyncDomain::Preferences, false),
-        (SyncDomain::Devices, false),
-    ] {
-        assert_eq!(old.represents(domain), represented_v1);
-        assert!(new.represents(domain));
-    }
     Ok(())
 }
 
@@ -398,7 +349,7 @@ fn roster_merge_keeps_earliest_nonzero_join_time() -> Result<(), SnapshotError> 
 }
 
 #[test]
-fn legacy_v2_zero_and_absent_device_dates_roundtrip() -> Result<(), SnapshotError> {
+fn zero_and_absent_device_dates_roundtrip() -> Result<(), SnapshotError> {
     let record = DeviceRecord {
         joined_at_ms: 0,
         last_sync: None,
@@ -413,9 +364,8 @@ fn legacy_v2_zero_and_absent_device_dates_roundtrip() -> Result<(), SnapshotErro
 }
 
 #[test]
-fn frozen_v2_migration_and_v3_collection_sections_are_bounded_and_canonical(
-) -> Result<(), SnapshotError> {
-    let old = SyncSnapshot {
+fn collection_sections_are_validated_and_canonical() -> Result<(), SnapshotError> {
+    let mut state = SyncSnapshot {
         favorites: vec![FavoriteRecord {
             operation_id: [3; 16],
             added_at: 42,
@@ -426,40 +376,26 @@ fn frozen_v2_migration_and_v3_collection_sections_are_bounded_and_canonical(
         favorites_removed: vec![[4; 16]],
         ..SyncSnapshot::default()
     };
-    let bytes = v2::serialize_snapshot(&old)?;
-    assert_eq!(
-        bytes,
-        include_bytes!("../persistence/tests/fixtures/snapshot-v2.bin")
-    );
-    let decoded = decode_snapshot(&bytes)?;
-    assert_eq!(decoded.original_schema_version, 2);
-    assert!(decoded.needs_upgrade);
-    assert_eq!(decoded.data.favorites, old.favorites);
-    assert_eq!(decoded.data.favorites_removed, old.favorites_removed);
-    let converted = decoded.data;
-    assert_eq!(converted.collections[0].name.value, "Favourite");
-    assert_eq!(converted.collections[0].name.clock, 0);
-    assert_eq!(converted.memberships[0].favorite_operation_id, [3; 16]);
-    assert_eq!(parse_snapshot(&serialize_snapshot(&converted)?)?, converted);
-    assert!(matches!(
-        v2::decode_snapshot(&serialize_snapshot(&converted)?),
-        Err(SnapshotError::UnsupportedVersion(4))
-    ));
-    let mut corrupt = converted.clone();
+    migrate_legacy_collections(&mut state);
+    assert_eq!(state.collections[0].name.value, "Favourite");
+    assert_eq!(state.collections[0].name.clock, 0);
+    assert_eq!(state.memberships[0].favorite_operation_id, [3; 16]);
+    assert_eq!(parse_snapshot(&serialize_snapshot(&state)?)?, state);
+    let mut corrupt = state.clone();
     corrupt.collections[0].name.value = "bad\nname".into();
     assert_eq!(
         serialize_snapshot(&corrupt).err(),
         Some(SnapshotError::InvalidValue)
     );
-    corrupt = converted.clone();
+    corrupt = state.clone();
     corrupt.memberships.push(corrupt.memberships[0].clone());
     assert_eq!(
         serialize_snapshot(&corrupt).err(),
         Some(SnapshotError::UnsortedOrDuplicate)
     );
-    let mut forged = serialize_snapshot(&converted)?;
+    let mut forged = serialize_snapshot(&state)?;
     forged.truncate(forged.len() - 4);
-    assert!(decode_snapshot(&forged).is_err());
+    assert!(parse_snapshot(&forged).is_err());
     Ok(())
 }
 
@@ -503,8 +439,7 @@ fn seeded_collection_english_name_converges_without_changing_user_names(
 }
 
 #[test]
-fn nearby_v4_separates_availability_from_seen_and_legacy_import_preserves_views(
-) -> Result<(), SnapshotError> {
+fn availability_evidence_does_not_imply_seen() -> Result<(), SnapshotError> {
     let state = SyncSnapshot {
         exploration: vec![ExplorationRecord {
             source: "prntsc".into(),
@@ -513,21 +448,7 @@ fn nearby_v4_separates_availability_from_seen_and_legacy_import_preserves_views(
         }],
         ..SyncSnapshot::default()
     };
-    let current = serialize_snapshot(&state)?;
-    assert_eq!(decode_snapshot(&current)?.original_schema_version, 4);
-    assert_eq!(decode_snapshot(&current)?.data.seen.len(), 0);
-    assert!(matches!(
-        v3::decode_snapshot(&current),
-        Err(SnapshotError::UnsupportedVersion(4))
-    ));
-    let old = v3::serialize_snapshot(&state)?;
-    let decoded = decode_snapshot(&old)?;
-    assert_eq!(decoded.original_schema_version, 3);
-    assert!(decoded.needs_upgrade);
-    assert_eq!(
-        decoded.data.seen,
-        vec![crate::sources::prntsc::item_id_value("abc123")
-            .map_err(|_| SnapshotError::InvalidLength)?]
-    );
+    let decoded = parse_snapshot(&serialize_snapshot(&state)?)?;
+    assert_eq!(decoded, state);
     Ok(())
 }

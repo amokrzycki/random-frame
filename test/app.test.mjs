@@ -53,7 +53,6 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
     lastSuccessRevision: null,
     dirty: true,
     lastErrorCategory: null,
-    snapshotSchemaVersion: 1,
     thisDeviceId: null,
     devices: [],
     groupState: null,

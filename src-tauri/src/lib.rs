@@ -925,18 +925,6 @@ fn get_sync_join_summary(state: State<'_, AppState>) -> Result<LocalSyncSummary,
 }
 
 #[tauri::command]
-async fn approve_sync_upgrade(
-    recovery_key: Option<String>,
-    state: State<'_, AppState>,
-) -> Result<(), SyncError> {
-    state.ensure_imports_ready()?;
-    match &state.sync {
-        Some(sync) => sync.approve_upgrade(recovery_key.as_deref()).await,
-        None => Err(SyncError::UnsupportedPlatform),
-    }
-}
-
-#[tauri::command]
 async fn sync_now(state: State<'_, AppState>) -> Result<SyncStatus, SyncError> {
     state.ensure_imports_ready()?;
     match &state.sync {
@@ -1227,7 +1215,6 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             join_sync,
             get_sync_join_summary,
             sync_now,
-            approve_sync_upgrade,
             startup_sync,
             leave_sync,
             set_sync_device_name,
