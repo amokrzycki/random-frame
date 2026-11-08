@@ -399,8 +399,8 @@ impl<S: SecretStore> SyncEngine<S> {
             && matches!(result, Err(SyncError::MissingChain))
         {
             // Managed protocol v2: the group's chain doesn't exist yet on the server,
-        // so the client is too new for this group (not a snapshot schema version).
-        result = Err(SyncError::UnsupportedVersion(2));
+            // so the client is too new for this group (not a snapshot schema version).
+            result = Err(SyncError::UnsupportedVersion(2));
         }
         if let Err(error) = &result {
             self.terminal(error).await?;
