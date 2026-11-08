@@ -2,7 +2,7 @@ use super::*;
 use crate::snapshot::ActivityOperation;
 
 #[test]
-fn large_activity_survives_absent_remote_and_interrupted_versioned_merge() -> Result<(), AppError> {
+fn large_activity_survives_absent_remote_and_interrupted_merge() -> Result<(), AppError> {
     let directory = test_directory("large-merge-recovery");
     let remote_directory = test_directory("large-merge-remote");
     fs::create_dir_all(&directory).map_err(AppError::persistence)?;
@@ -12,9 +12,9 @@ fn large_activity_survives_absent_remote_and_interrupted_versioned_merge() -> Re
     )
     .map_err(AppError::persistence)?;
     let local = PersistentState::new(&directory)?;
-    local.merge_versioned(&snapshot::SyncSnapshot::default(), "test", 1)?;
+    local.merge(&snapshot::SyncSnapshot::default())?;
     assert_eq!(local.activity.viewed_total(), 5752);
-    local.merge_versioned(&snapshot::SyncSnapshot::default(), "test", 2)?;
+    local.merge(&snapshot::SyncSnapshot::default())?;
     assert_eq!(local.activity.viewed_total(), 5752);
     let remote = PersistentState::new(&remote_directory)?;
     for id in [700_001, 700_002, 700_003] {
@@ -22,7 +22,7 @@ fn large_activity_survives_absent_remote_and_interrupted_versioned_merge() -> Re
     }
     let incoming = remote.snapshot()?.0;
     fs::create_dir(directory.join("activity-v2.json.tmp")).map_err(AppError::persistence)?;
-    assert!(local.merge_versioned(&incoming, "test", 2).is_err());
+    assert!(local.merge(&incoming).is_err());
     assert!(
         local.snapshot().is_err(),
         "partial merge must not be exported"
@@ -32,9 +32,8 @@ fn large_activity_survives_absent_remote_and_interrupted_versioned_merge() -> Re
     let recovered = PersistentState::new(&directory)?;
     assert_eq!(recovered.activity.viewed_total(), 5755);
     assert_eq!(recovered.snapshot()?.0.activity.len(), 4);
-    recovered.merge_versioned(&incoming, "test", 2)?;
+    recovered.merge(&incoming)?;
     assert_eq!(recovered.activity.viewed_total(), 5755);
-    assert_eq!(recovered.schema_floor("test")?, 2);
     fs::remove_dir_all(directory).map_err(AppError::persistence)?;
     fs::remove_dir_all(remote_directory).map_err(AppError::persistence)
 }

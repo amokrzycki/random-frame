@@ -18,7 +18,6 @@ const unpaired = {
   lastSuccessRevision: null,
   dirty: true,
   lastErrorCategory: null,
-  snapshotSchemaVersion: 1,
   thisDeviceId: "aabbccdd",
   devices: [],
   groupState: null,
@@ -59,7 +58,6 @@ const paired = {
   lastSuccessAt: NOW - 60_000,
   lastSuccessRevision: 4,
   dirty: false,
-  snapshotSchemaVersion: 2,
   devices: [phone, thisDevice],
 };
 
@@ -185,13 +183,6 @@ before(async () => {
         }
         if (command === "join_sync") backend.onJoin?.();
         if (backend.fail && command === backend.fail.command) throw backend.fail.error;
-        if (command === "approve_sync_upgrade") {
-          backend.fail = null;
-          backend.current.lastErrorCategory = null;
-          backend.current.state = "idle";
-          backend.current.snapshotSchemaVersion = 3;
-          return null;
-        }
         if (command === "create_sync" || command === "move_to_managed_sync") {
           backend.current = structuredClone(masterStatus);
           if (command === "move_to_managed_sync") backend.current.legacySourceId = "legacy-source-id";
@@ -631,7 +622,7 @@ test("errors are specific, retry only when retrying can help, and never offer to
   assert.match(newer.message, /Update the app/);
   assert.equal(newer.retry, false);
 
-  for (const category of ["invalid_remote_data", "schema_downgrade", "rollback_detected", "server_rollback_detected"]) {
+  for (const category of ["invalid_remote_data", "rollback_detected", "server_rollback_detected"]) {
     const result = await failWith(category);
     assert.match(result.message, /not applied/);
     assert.equal(result.retry, false);
@@ -1055,66 +1046,6 @@ test("the roster renders the Rust serialization contract fixture", async () => {
   );
 });
 
-test("pending collection upgrade retains success history and Later performs no approval", async () => {
-  await open({ ...paired, state: "upgrade_required", dirty: true, lastErrorCategory: "upgrade_required" });
-  const last = text("sync-last-synced");
-  assert.equal(text("sync-status"), "Sync needs an upgrade");
-  assert.equal(get("sync-upgrade").hidden, false);
-  get("sync-upgrade-later").click();
-  assert.equal(syncCalls("approve_sync_upgrade").length, 0);
-  assert.equal(syncCalls("sync_now").length, 0);
-  await open(backend.current);
-  backend.onSyncNow = () => {
-    backend.current.dirty = false;
-  };
-  get("sync-upgrade-confirm").click();
-  await flush();
-  assert.equal(syncCalls("approve_sync_upgrade").length, 1);
-  assert.equal(syncCalls("sync_now").length, 1);
-  assert.equal(get("sync-upgrade").hidden, true);
-  assert.equal(text("sync-last-synced"), last);
-});
-
-test("joining an older Sync asks before approval and retries the frozen key and join mode", async () => {
-  await open();
-  get("sync-show-join").click();
-  await flush();
-  get("sync-join-restore").checked = true;
-  get("sync-recovery-input").value = KEY;
-  backend.fail = { command: "join_sync", error: { category: "upgrade_required" } };
-  submit("sync-join-form");
-  await flush();
-  assert.equal(get("sync-upgrade").hidden, false);
-  assert.equal(syncCalls("approve_sync_upgrade").length, 0);
-  get("sync-recovery-input").value = "edited after submit";
-  get("sync-upgrade-confirm").click();
-  await flush();
-  assert.equal(syncCalls("approve_sync_upgrade")[0].args.recoveryKey, KEY);
-  assert.deepEqual(
-    syncCalls("join_sync").map((x) => x.args),
-    [
-      { recoveryKey: KEY, mode: "restore" },
-      { recoveryKey: KEY, mode: "restore" },
-    ],
-  );
-});
-
-test("Later on a pending join lets the user start a different connection without approving an abandoned key", async () => {
-  await open();
-  get("sync-show-join").click();
-  await flush();
-  get("sync-join-restore").checked = true;
-  get("sync-recovery-input").value = KEY;
-  backend.fail = { command: "join_sync", error: { category: "upgrade_required" } };
-  submit("sync-join-form");
-  await flush();
-  get("sync-upgrade-later").click();
-  await open();
-  assert.equal(get("sync-upgrade").hidden, true);
-  assert.equal(get("sync-unpaired").hidden, false);
-  assert.equal(syncCalls("approve_sync_upgrade").length, 0);
-});
-
 test("only the verified administrator sees admin controls and distinct role / This device labels", async () => {
   await open(masterStatus);
   assert.equal(get("sync-admin-tools").hidden, false);
@@ -1238,48 +1169,6 @@ test("legacy move explains both groups and terminal states offer no retry", asyn
   await open({ ...unpaired, membershipState: "revoked", lastErrorCategory: "revoked", state: "error" });
   assert.match(text("sync-status-detail"), /removed/);
   assert.equal(get("sync-retry").hidden, true);
-});
-
-test("managed invitation upgrade preserves the invitation and mode until explicit consent", async () => {
-  await open();
-  get("sync-show-join").click();
-  await flush();
-  get("sync-join-restore").checked = true;
-  get("sync-recovery-input").value = INVITE;
-  backend.fail = { command: "join_sync", error: { category: "upgrade_required" } };
-  submit("sync-join-form");
-  await flush();
-  assert.equal(get("sync-upgrade").hidden, false);
-  assert.equal(syncCalls("approve_sync_upgrade").length, 0);
-  get("sync-recovery-input").value = "changed invitation";
-  get("sync-upgrade-confirm").click();
-  await flush();
-  assert.equal(syncCalls("approve_sync_upgrade")[0].args.recoveryKey, INVITE);
-  assert.deepEqual(
-    syncCalls("join_sync").map((c) => c.args),
-    [
-      { recoveryKey: INVITE, mode: "restore" },
-      { recoveryKey: INVITE, mode: "restore" },
-    ],
-  );
-});
-
-test("administration recovery upgrade retains the exact code and still requires saving its replacement", async () => {
-  await open();
-  get("sync-admin-code").value = ADMIN;
-  backend.fail = { command: "recover_sync_admin", error: { category: "upgrade_required" } };
-  submit("sync-admin-recover-form");
-  await flush();
-  assert.equal(get("sync-upgrade").hidden, false);
-  assert.equal(syncCalls("approve_sync_upgrade").length, 0);
-  get("sync-admin-code").value = "edited after submit";
-  get("sync-upgrade-confirm").click();
-  await flush();
-  assert.equal(syncCalls("approve_sync_upgrade")[0].args.recoveryKey, ADMIN);
-  assert.equal(syncCalls("recover_sync_admin")[1].args.code, ADMIN);
-  assert.equal(syncCalls("recover_sync_admin")[1].args.confirmed, false);
-  assert.equal(get("sync-key-saved").checked, false);
-  assert.equal(get("sync-recovery").dataset.recovering, "true");
 });
 
 test("pairing explains invalid requests inline and never submits them", async () => {

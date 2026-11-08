@@ -452,9 +452,6 @@ export const ids = [
   "collection-manage-form",
   "collection-manage-cancel",
   "collection-manage-apply",
-  "sync-upgrade",
-  "sync-upgrade-later",
-  "sync-upgrade-confirm",
 ];
 
 // Native thumbnail commands shared by client integration tests.

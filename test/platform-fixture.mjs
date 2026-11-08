@@ -9,7 +9,6 @@ const unpairedStatus = {
   lastSuccessRevision: null,
   dirty: false,
   lastErrorCategory: null,
-  snapshotSchemaVersion: 1,
   thisDeviceId: null,
   devices: [],
   groupState: null,

@@ -13,8 +13,6 @@ pub struct SyncLocalConfig {
     pub(super) managed: Option<ManagedConfig>,
     pub(super) sync_id: String,
     pub(super) last_accepted_revision: Option<i64>,
-    #[serde(default = "schema_v1")]
-    pub(super) highest_schema_version: u32,
     #[serde(default)]
     pub(super) last_success_at: Option<u64>,
 }
@@ -26,18 +24,15 @@ impl SyncLocalConfig {
             managed: None,
             sync_id,
             last_accepted_revision: Some(revision),
-            highest_schema_version: crate::snapshot::CURRENT_SNAPSHOT_SCHEMA,
             last_success_at: None,
         }
     }
 
     pub(super) fn validate(&self) -> Result<(), SyncError> {
-        if !(1..=crate::snapshot::CURRENT_SNAPSHOT_SCHEMA).contains(&self.highest_schema_version)
-            || !matches!(
-                (self.protocol_version, &self.managed),
-                (1, None) | (2, Some(_))
-            )
-            || self.sync_id.len() != 64
+        if !matches!(
+            (self.protocol_version, &self.managed),
+            (1, None) | (2, Some(_))
+        ) || self.sync_id.len() != 64
             || !self
                 .sync_id
                 .bytes()
@@ -57,7 +52,7 @@ impl SyncLocalConfig {
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum JoinMode {
-    /// Remote wins in represented domains; unsupported domains migrate from durable local v2 state.
+    /// Remote replaces local synchronized state.
     Restore,
     /// Remote and local synchronized state are unioned, local deletions included.
     Merge,
@@ -106,7 +101,6 @@ pub enum SyncState {
     Unpaired,
     Idle,
     Syncing,
-    UpgradeRequired,
     UpdatingKey,
     Offline,
     Error,
@@ -138,7 +132,6 @@ pub struct SyncStatus {
     pub last_success_revision: Option<i64>,
     pub dirty: bool,
     pub last_error_category: Option<String>,
-    pub snapshot_schema_version: u32,
     pub this_device_id: Option<String>,
     pub devices: Vec<DeviceSummary>,
     #[serde(flatten)]
@@ -155,7 +148,6 @@ impl SyncStatus {
             last_success_revision: None,
             dirty: false,
             last_error_category: Some("unsupported_platform".to_owned()),
-            snapshot_schema_version: 1,
             this_device_id: None,
             devices: Vec::new(),
             control: MembershipStatus::default(),
@@ -198,7 +190,6 @@ pub(super) fn load_config(path: &Path) -> Result<Option<SyncLocalConfig>, SyncEr
                             return Err(SyncError::CorruptLocalState);
                         }
                     } else if previous.last_accepted_revision > config.last_accepted_revision
-                        || previous.highest_schema_version > config.highest_schema_version
                         || previous
                             .managed
                             .as_ref()
@@ -252,10 +243,6 @@ fn decode_config(bytes: &[u8]) -> Result<SyncLocalConfig, SyncError> {
 pub(super) fn save_config(path: &Path, config: &SyncLocalConfig) -> Result<(), SyncError> {
     config.validate()?;
     save_json(path, config).map_err(|_| SyncError::Persistence)
-}
-
-fn schema_v1() -> u32 {
-    1
 }
 
 #[cfg(test)]

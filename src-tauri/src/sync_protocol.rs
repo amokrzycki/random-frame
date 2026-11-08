@@ -58,6 +58,7 @@ pub struct Control {
     pub epoch: i64,
     pub revision: i64,
     pub key_id: String,
+    /// Sent by the server; the client no longer reads it (snapshots are unversioned).
     pub snapshot_schema_floor: u32,
     pub recovery_generation: i64,
     pub recovery_public_key: String,

@@ -1,27 +1,6 @@
 use super::*;
 use crate::snapshot::{ActivityOperation, Outcome, SyncSnapshot};
 #[test]
-fn unanswered_publication_guards_later_revisions_and_retries_its_base() -> Result<(), AppError> {
-    let dir = test_directory("publication-recovery");
-    let a = PersistentState::new(&dir)?;
-    a.merge_versioned(&SyncSnapshot::default(), "group", 1)?;
-    a.begin_publication("group", 10, 2)?;
-    fs::create_dir(dir.join("sync-schema-floor.json.tmp")).map_err(AppError::persistence)?;
-    assert!(a.complete_publication("group").is_err());
-    drop(a);
-    fs::remove_dir(dir.join("sync-schema-floor.json.tmp")).map_err(AppError::persistence)?;
-    let a = PersistentState::new(&dir)?;
-    assert_eq!(a.schema_floor("group")?, 1);
-    assert_eq!(a.publication_floor("group", 10)?, 1);
-    assert_eq!(a.publication_floor("group", 11)?, 2);
-    assert_eq!(a.publication_floor("another-group", 11)?, 1);
-    a.complete_publication("group")?;
-    assert_eq!(a.schema_floor("group")?, 2);
-    assert_eq!(a.publication_floor("group", 11)?, 1);
-    fs::remove_dir_all(dir).map_err(AppError::persistence)
-}
-
-#[test]
 fn generated_legacy_history_is_committed_as_v3_before_receipt_failure() -> Result<(), AppError> {
     let dir = test_directory("generated-history-recovery");
     fs::create_dir_all(&dir).map_err(AppError::persistence)?;
@@ -397,7 +376,7 @@ fn local_v1_stores_preserve_ids_receipts_and_local_view_times() -> Result<(), Ap
     fs::remove_dir_all(dir).map_err(AppError::persistence)
 }
 #[test]
-fn accepted_schema_floor_is_recovered_with_interrupted_remote_merge() -> Result<(), AppError> {
+fn interrupted_remote_merge_is_recovered() -> Result<(), AppError> {
     let dir = test_directory("schema-replay");
     let a = PersistentState::new(&dir)?;
     let remote = SyncSnapshot {
@@ -412,37 +391,10 @@ fn accepted_schema_floor_is_recovered_with_interrupted_remote_merge() -> Result<
         ..SyncSnapshot::default()
     };
     fs::create_dir(dir.join("activity-v2.json.tmp")).map_err(AppError::persistence)?;
-    assert!(a.merge_versioned(&remote, "group", 2).is_err());
+    assert!(a.merge(&remote).is_err());
     fs::remove_dir(dir.join("activity-v2.json.tmp")).map_err(AppError::persistence)?;
     drop(a);
     let a = PersistentState::new(&dir)?;
-    assert_eq!(a.schema_floor("group")?, 2);
     assert_eq!(a.activity.viewed_total(), 1);
-    assert!(a
-        .merge_versioned(&SyncSnapshot::default(), "group", 1)
-        .is_err());
-    assert_eq!(a.schema_floor("other-group")?, 1);
-    fs::remove_dir_all(dir).map_err(AppError::persistence)
-}
-
-#[test]
-fn publication_metadata_retains_attempted_v3_and_reads_legacy_revision_as_v2(
-) -> Result<(), AppError> {
-    let dir = test_directory("collections-publication-schema");
-    let state = PersistentState::new(&dir)?;
-    fs::write(dir.join("sync-publication.json"), br#"{"old":10}"#)
-        .map_err(AppError::persistence)?;
-    assert_eq!(state.publication_floor("old", 11)?, 2);
-    state.begin_publication("new", 20, 3)?;
-    drop(state);
-    let state = PersistentState::new(&dir)?;
-    assert_eq!(state.schema_floor("new")?, 1);
-    assert_eq!(state.publication_floor("new", 20)?, 1);
-    assert_eq!(state.publication_floor("new", 21)?, 3);
-    state.cancel_publication("new")?;
-    assert_eq!(state.publication_floor("new", 21)?, 1);
-    state.begin_publication("new", 21, 3)?;
-    state.complete_publication("new")?;
-    assert_eq!(PersistentState::new(&dir)?.schema_floor("new")?, 3);
     fs::remove_dir_all(dir).map_err(AppError::persistence)
 }

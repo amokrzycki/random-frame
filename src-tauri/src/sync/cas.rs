@@ -34,9 +34,7 @@ pub(super) async fn push_with_retries(
     keys: &SyncKeys,
     mut revision: i64,
     mut config: Option<&mut SyncLocalConfig>,
-    mut schema_floor: u32,
 ) -> Result<(i64, Generation), SyncError> {
-    data.require_upgrade_consent(keys, schema_floor)?;
     for attempt in 0..MAX_CAS_ATTEMPTS {
         let (snapshot, generation, self_record) = data.local_snapshot()?;
         let envelope = keys
@@ -44,13 +42,6 @@ pub(super) async fn push_with_retries(
             .map_err(|_| SyncError::InvalidRemoteData)?;
         #[cfg(any(test, debug_assertions))]
         crate::snapshot::report_upload(&snapshot, &envelope);
-        data.state
-            .begin_publication(
-                keys.sync_id(),
-                revision,
-                crate::snapshot::CURRENT_SNAPSHOT_SCHEMA,
-            )
-            .map_err(|_| SyncError::Persistence)?;
         match transport
             .ok_or(SyncError::InvalidEndpoint)?
             .update(
@@ -62,9 +53,6 @@ pub(super) async fn push_with_retries(
             .await
         {
             Ok(next) => {
-                data.state
-                    .complete_publication(keys.sync_id())
-                    .map_err(|_| SyncError::Persistence)?;
                 let generation = data
                     .state
                     .record_published_self(self_record, generation)
@@ -72,10 +60,6 @@ pub(super) async fn push_with_retries(
                 return Ok((next, generation));
             }
             Err(TransportError::Conflict) => {
-                // A CAS rejection proves this request did not publish the envelope.
-                data.state
-                    .cancel_publication(keys.sync_id())
-                    .map_err(|_| SyncError::Persistence)?;
                 if attempt + 1 == MAX_CAS_ATTEMPTS {
                     return Err(SyncError::Conflict);
                 }
@@ -86,14 +70,7 @@ pub(super) async fn push_with_retries(
                 if let Some(config) = config.as_mut() {
                     check_rollback(config, latest)?;
                 }
-                let floor =
-                    schema_floor.max(config.as_ref().map_or(1, |c| c.highest_schema_version));
-                let schema = data.merge_remote(keys, &remote, floor, latest)?;
-                schema_floor = schema_floor.max(schema);
-                if let Some(config) = config.as_mut() {
-                    config.highest_schema_version = config.highest_schema_version.max(schema);
-                    save_config(path, config)?;
-                }
+                data.merge_remote(keys, &remote)?;
                 if let Some(config) = config.as_mut() {
                     if config
                         .last_accepted_revision
@@ -112,29 +89,17 @@ pub(super) async fn push_with_retries(
 }
 
 /// First publication of a Restore join. Every attempt rebuilds the upload from the latest
-/// remote schema and snapshot, with unsupported content domains taken from one validated,
-/// durable local snapshot. A retry that observes v2 stops using preserved local domains.
-/// Represented local state never enters the upload; replacement follows server acceptance.
+/// remote snapshot. Local state never enters the upload; replacement follows server acceptance.
 pub(super) async fn restore_with_retries(
     data: &SyncData<'_>,
     transport: Option<&SyncTransport>,
     keys: &SyncKeys,
     mut revision: i64,
-    mut remote: snapshot::DecodedSnapshot,
+    mut remote: snapshot::SyncSnapshot,
 ) -> Result<(i64, Generation), SyncError> {
     let transport = transport.ok_or(SyncError::InvalidEndpoint)?;
-    data.require_upgrade_consent(keys, remote.original_schema_version)?;
-    let mut schema_floor = remote.original_schema_version;
-    let local = if remote.needs_upgrade {
-        data.state.snapshot().map_err(|_| SyncError::Persistence)?.0
-    } else {
-        // V2 Restore continues to ignore local content. The schema floor prevents
-        // any retry from falling back to v1 and needing unsupported-domain state.
-        snapshot::SyncSnapshot::default()
-    };
     for attempt in 0..MAX_CAS_ATTEMPTS {
-        data.require_upgrade_consent(keys, remote.original_schema_version)?;
-        let target = data.restore_target(&remote, &local, now_ms())?;
+        let target = data.restore_target(&remote, now_ms())?;
         let bytes = snapshot::serialize_snapshot(&target).map_err(|error| match error {
             snapshot::SnapshotError::PayloadTooLarge => SyncError::BodyTooLarge,
             _ => SyncError::Persistence,
@@ -144,13 +109,6 @@ pub(super) async fn restore_with_retries(
             .map_err(|_| SyncError::InvalidRemoteData)?;
         #[cfg(any(test, debug_assertions))]
         crate::snapshot::report_upload(&bytes, &envelope);
-        data.state
-            .begin_publication(
-                keys.sync_id(),
-                revision,
-                crate::snapshot::CURRENT_SNAPSHOT_SCHEMA,
-            )
-            .map_err(|_| SyncError::Persistence)?;
         match transport
             .update(
                 keys.sync_id(),
@@ -161,9 +119,6 @@ pub(super) async fn restore_with_retries(
             .await
         {
             Ok(next) => {
-                data.state
-                    .complete_publication(keys.sync_id())
-                    .map_err(|_| SyncError::Persistence)?;
                 let generation = data
                     .state
                     .replace_synchronized(&target)
@@ -171,17 +126,13 @@ pub(super) async fn restore_with_retries(
                 return Ok((next, generation));
             }
             Err(TransportError::Conflict) => {
-                data.state
-                    .cancel_publication(keys.sync_id())
-                    .map_err(|_| SyncError::Persistence)?;
                 if attempt + 1 == MAX_CAS_ATTEMPTS {
                     return Err(SyncError::Conflict);
                 }
                 let (latest, envelope) = transport
                     .get(keys.sync_id(), &keys.client_auth_token())
                     .await?;
-                remote = data.decode_remote(keys, &envelope, schema_floor, latest)?;
-                schema_floor = schema_floor.max(remote.original_schema_version);
+                remote = super::reconcile::decode_remote(keys, &envelope)?;
                 revision = latest;
             }
             Err(error) => return Err(error.into()),

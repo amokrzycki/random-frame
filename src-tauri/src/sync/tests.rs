@@ -31,6 +31,15 @@ mod join_mode;
 #[path = "large_upgrade_tests.rs"]
 mod large_upgrade;
 
+/// A valid encrypted empty snapshot, the stand-in remote for an existing group.
+pub(super) fn empty_envelope(
+    keys: &crate::sync_crypto::SyncKeys,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    Ok(keys.encrypt_snapshot(&snapshot::serialize_snapshot(
+        &snapshot::SyncSnapshot::default(),
+    )?)?)
+}
+
 #[derive(Clone, Default)]
 pub(super) struct MemorySecret {
     value: Arc<Mutex<Option<[u8; 32]>>>,
@@ -1481,157 +1490,6 @@ fn make_engine(
 }
 
 #[tokio::test]
-async fn v1_writer_cannot_overwrite_published_v2_after_cas_conflict(
-) -> Result<(), Box<dyn std::error::Error>> {
-    let (url, server, task) = server().await?;
-    let path = directory("mixed-version");
-    let a = device(&path, &url, MemorySecret::default())?;
-    let root = RootSecret::from_bytes(&(0u8..32).collect::<Vec<_>>())?;
-    let keys = root.derive();
-    a.data.approve_sync_upgrade(keys.sync_id())?;
-    let v1 = include_bytes!("../persistence/tests/fixtures/envelope-v1.bin").to_vec();
-    let transport = SyncTransport::new(&url)?;
-    let old_revision = transport
-        .create(keys.sync_id(), &keys.client_auth_token(), v1.clone())
-        .await?;
-    let mut old_change = snapshot::v1::parse_snapshot(include_bytes!(
-        "../persistence/tests/fixtures/snapshot-v1.bin"
-    ))?;
-    old_change.seen.push(99);
-    let old_envelope = keys.encrypt_snapshot(&snapshot::v1::serialize_snapshot(&old_change)?)?;
-    // A v1 write racing ahead of migration must be included by the v2 CAS retry.
-    server
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .v1_on_update = Some(old_envelope);
-    a.join(root.recovery_key().as_str(), JoinMode::Merge)
-        .await?;
-    assert!(a.seen.contains(99));
-    let (revision, published) = transport
-        .get(keys.sync_id(), &keys.client_auth_token())
-        .await?;
-    let plain = keys.decrypt_snapshot(keys.sync_id(), &published)?;
-    assert_eq!(
-        snapshot::decode_snapshot(&plain)?.original_schema_version,
-        4
-    );
-    // The old writer already prepared a v1 PUT. It loses CAS, then its frozen decoder
-    // rejects the GET result before another PUT can be built.
-    assert_eq!(
-        transport
-            .update(keys.sync_id(), &keys.client_auth_token(), old_revision, v1)
-            .await,
-        Err(crate::sync_transport::TransportError::Conflict)
-    );
-    assert!(matches!(
-        snapshot::v1::parse_snapshot(&plain),
-        Err(snapshot::v1::SnapshotError::UnsupportedVersion(4))
-    ));
-    assert_eq!(
-        transport
-            .get(keys.sync_id(), &keys.client_auth_token())
-            .await?
-            .0,
-        revision
-    );
-    task.abort();
-    fs::remove_dir_all(path)?;
-    Ok(())
-}
-#[tokio::test]
-async fn higher_revision_v1_is_rejected_after_v2() -> Result<(), Box<dyn std::error::Error>> {
-    let (url, server, task) = server().await?;
-    let path = directory("schema-downgrade");
-    let a = device(&path, &url, MemorySecret::default())?;
-    let key = a.create().await?.recovery_key;
-    let keys = RootSecret::from_recovery_key(&key)?.derive();
-    let before = a.data.snapshot()?.0;
-    let old = keys.encrypt_snapshot(include_bytes!(
-        "../persistence/tests/fixtures/snapshot-v1.bin"
-    ))?;
-    {
-        let mut state = server
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        state.revision += 1;
-        state.envelope = old;
-    }
-    assert!(matches!(
-        a.sync_now().await,
-        Err(SyncError::SchemaDowngrade)
-    ));
-    assert_eq!(a.data.snapshot()?.0, before);
-    assert!(!a.seen.contains(9));
-    drop(a);
-    let a = device(
-        &path,
-        &url,
-        MemorySecret {
-            value: Arc::new(Mutex::new(Some(
-                *RootSecret::from_recovery_key(&key)?.as_bytes(),
-            ))),
-            ..MemorySecret::default()
-        },
-    )?;
-    assert!(matches!(
-        a.sync_now().await,
-        Err(SyncError::SchemaDowngrade)
-    ));
-    task.abort();
-    fs::remove_dir_all(path)?;
-    Ok(())
-}
-#[tokio::test]
-async fn v1_upgrade_keeps_publication_floor_after_pairing_failure(
-) -> Result<(), Box<dyn std::error::Error>> {
-    for fail_secret_store in [false, true] {
-        let (url, server, task) = server().await?;
-        let path = directory("upgrade-pairing-failure");
-        let secret = MemorySecret::default();
-        secret
-            .fail_store
-            .store(fail_secret_store, Ordering::Relaxed);
-        let a = device(&path, &url, secret)?;
-        if !fail_secret_store {
-            server
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .block_config_on_update = Some(path.clone());
-        }
-        let root = RootSecret::from_bytes(&(0u8..32).collect::<Vec<_>>())?;
-        let keys = root.derive();
-        a.data.approve_sync_upgrade(keys.sync_id())?;
-        let v1 = include_bytes!("../persistence/tests/fixtures/envelope-v1.bin").to_vec();
-        SyncTransport::new(&url)?
-            .create(keys.sync_id(), &keys.client_auth_token(), v1.clone())
-            .await?;
-        assert!(matches!(
-            a.join(root.recovery_key().as_str(), JoinMode::Merge).await,
-            Err(SyncError::SecureStorage | SyncError::Persistence)
-        ));
-        assert_eq!(a.data.schema_floor(keys.sync_id())?, 4);
-        drop(a);
-        if !fail_secret_store {
-            fs::remove_dir(path.join("sync-config.json.tmp"))?;
-        }
-        let a = device(&path, &url, MemorySecret::default())?;
-        {
-            let mut state = server
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            state.revision += 1;
-            state.envelope = v1;
-        }
-        assert!(matches!(
-            a.join(root.recovery_key().as_str(), JoinMode::Merge).await,
-            Err(SyncError::SchemaDowngrade)
-        ));
-        task.abort();
-        fs::remove_dir_all(path)?;
-    }
-    Ok(())
-}
-#[tokio::test]
 async fn activity_exploration_and_preference_changes_during_upload_remain_dirty(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (url, server, task) = server().await?;
@@ -1976,9 +1834,11 @@ async fn large_migrated_activity_survives_join_cas_restart_and_third_device(
             )?;
             let keys = root.derive();
             let plaintext = keys.decrypt_snapshot(keys.sync_id(), &envelope)?;
-            let decoded = snapshot::decode_snapshot(&plaintext)?;
-            assert_eq!(decoded.original_schema_version, 4);
-            Ok((decoded.data, plaintext.len(), envelope.len()))
+            Ok((
+                snapshot::parse_snapshot(&plaintext)?,
+                plaintext.len(),
+                envelope.len(),
+            ))
         };
     let (initial, initial_plaintext_bytes, initial_envelope_bytes) = read_remote()?;
     assert_eq!(snapshot::activity_projection(&initial.activity)?.0, 5752);
@@ -1988,8 +1848,7 @@ async fn large_migrated_activity_survives_join_cas_restart_and_third_device(
     assert!(initial_plaintext_bytes > 0);
     assert!(initial_envelope_bytes > initial_plaintext_bytes);
     let initial_diagnostics =
-        snapshot::diagnostics(&initial, 4, initial_plaintext_bytes, initial_envelope_bytes)?;
-    assert_eq!(initial_diagnostics.schema, 4);
+        snapshot::diagnostics(&initial, initial_plaintext_bytes, initial_envelope_bytes)?;
     assert_eq!(initial_diagnostics.viewed_total, 5752);
     assert_eq!(initial_diagnostics.legacy_imports, 1);
     assert_eq!(initial_diagnostics.viewed_discoveries, 0);
@@ -2066,8 +1925,7 @@ async fn large_migrated_activity_survives_join_cas_restart_and_third_device(
             assert_eq!(reencoded.len(), plaintext_bytes);
             assert!(envelope_bytes > plaintext_bytes);
             assert!(envelope_bytes <= MAX_ENVELOPE);
-            let diagnostics = snapshot::diagnostics(&data, 4, plaintext_bytes, envelope_bytes)?;
-            assert_eq!(diagnostics.schema, 4);
+            let diagnostics = snapshot::diagnostics(&data, plaintext_bytes, envelope_bytes)?;
             assert_eq!(diagnostics.seen, 5755);
             assert_eq!(diagnostics.history, 4541);
             assert_eq!(diagnostics.history_removed, 1214);
@@ -2121,10 +1979,9 @@ async fn large_migrated_activity_survives_join_cas_restart_and_third_device(
 }
 
 #[tokio::test]
-async fn v1_remote_without_activity_keeps_local_large_legacy_import(
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn empty_remote_keeps_local_large_legacy_import() -> Result<(), Box<dyn std::error::Error>> {
     let (url, server, task) = server().await?;
-    let path = directory("large-activity-v1-remote");
+    let path = directory("large-activity-empty-remote");
     fs::create_dir_all(&path)?;
     fs::write(
         path.join("activity.json"),
@@ -2137,12 +1994,11 @@ async fn v1_remote_without_activity_keeps_local_large_legacy_import(
         .create(
             keys.sync_id(),
             &keys.client_auth_token(),
-            include_bytes!("../persistence/tests/fixtures/envelope-v1.bin").to_vec(),
+            empty_envelope(&keys)?,
         )
         .await?;
 
     let local = device(&path, &url, MemorySecret::default())?;
-    local.data.approve_sync_upgrade(keys.sync_id())?;
     assert_eq!(local.data.activity.viewed_total(), 5752);
     local
         .join(root.recovery_key().as_str(), JoinMode::Merge)
@@ -2155,14 +2011,10 @@ async fn v1_remote_without_activity_keeps_local_large_legacy_import(
         .envelope
         .clone();
     let plaintext = keys.decrypt_snapshot(keys.sync_id(), &envelope)?;
-    let decoded = snapshot::decode_snapshot(&plaintext)?;
-    assert_eq!(decoded.original_schema_version, 4);
-    assert_eq!(
-        snapshot::activity_projection(&decoded.data.activity)?.0,
-        5752
-    );
-    assert_eq!(decoded.data.activity.len(), 1);
-    assert_eq!(decoded.data.activity_removed.len(), 0);
+    let decoded = snapshot::parse_snapshot(&plaintext)?;
+    assert_eq!(snapshot::activity_projection(&decoded.activity)?.0, 5752);
+    assert_eq!(decoded.activity.len(), 1);
+    assert_eq!(decoded.activity_removed.len(), 0);
 
     task.abort();
     fs::remove_dir_all(path)?;
@@ -2217,8 +2069,7 @@ async fn windows_published_tombstones_before_linux_import_converge_without_activ
     let recovery_key = windows.create().await?.recovery_key;
     let (windows_snapshot, windows_generation) = windows.data.snapshot()?;
     let windows_plaintext = snapshot::serialize_snapshot(&windows_snapshot)?;
-    let windows_diagnostics =
-        snapshot::diagnostics(&windows_snapshot, 3, windows_plaintext.len(), 0)?;
+    let windows_diagnostics = snapshot::diagnostics(&windows_snapshot, windows_plaintext.len(), 0)?;
     assert_eq!(windows_generation[4], 3);
     assert_eq!(windows_diagnostics.history, 3);
     assert_eq!(windows_diagnostics.history_removed, 1214);
@@ -2262,14 +2113,8 @@ async fn windows_published_tombstones_before_linux_import_converge_without_activ
         .clone();
     let keys = linux.secret.load().await?.derive();
     let plaintext = keys.decrypt_snapshot(keys.sync_id(), &envelope)?;
-    let decoded = snapshot::decode_snapshot(&plaintext)?;
-    let diagnostics = snapshot::diagnostics(
-        &decoded.data,
-        decoded.original_schema_version,
-        plaintext.len(),
-        envelope.len(),
-    )?;
-    assert_eq!(diagnostics.schema, 4);
+    let decoded = snapshot::parse_snapshot(&plaintext)?;
+    let diagnostics = snapshot::diagnostics(&decoded, plaintext.len(), envelope.len())?;
     assert_eq!(diagnostics.history, 4541);
     assert_eq!(diagnostics.history_removed, 1214);
     assert_eq!(diagnostics.viewed_total, 5755);
@@ -2563,138 +2408,6 @@ async fn published_timestamp_survives_local_save_failure_and_recovers_from_remot
 }
 
 #[tokio::test]
-async fn collection_upgrade_requires_durable_chain_specific_consent_before_join_and_sync(
-) -> Result<(), Box<dyn std::error::Error>> {
-    for schema in [1, 2, 3] {
-        for mode in [JoinMode::Restore, JoinMode::Merge] {
-            let (url, server, task) = server().await?;
-            let path = directory("collections-upgrade-consent");
-            let secret = MemorySecret::default();
-            let local = device(&path, &url, secret.clone())?;
-            local
-                .data
-                .favorites
-                .create_collection("Local empty collection")?;
-            let root = RootSecret::generate();
-            let key = root.recovery_key().to_string();
-            let keys = root.derive();
-            let bytes = if schema == 1 {
-                snapshot::v1::serialize_snapshot(&snapshot::v1::SyncSnapshot::default())?
-            } else if schema == 2 {
-                snapshot::v2::serialize_snapshot(&snapshot::SyncSnapshot::default())?
-            } else {
-                snapshot::v3::serialize_snapshot(&snapshot::SyncSnapshot::default())?
-            };
-            let envelope = keys.encrypt_snapshot(&bytes)?;
-            let transport = SyncTransport::new(&url)?;
-            transport
-                .create(keys.sync_id(), &keys.client_auth_token(), envelope.clone())
-                .await?;
-            let before = local.data.snapshot()?.0;
-            assert_eq!(
-                local.join(&key, mode).await.err(),
-                Some(SyncError::UpgradeRequired)
-            );
-            assert_eq!(local.data.snapshot()?.0, before);
-            assert_eq!(
-                server
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .revision,
-                1
-            );
-            assert!(!local.status().await?.paired);
-            local.data.approve_sync_upgrade("a-different-chain")?;
-            assert_eq!(
-                local.join(&key, mode).await.err(),
-                Some(SyncError::UpgradeRequired)
-            );
-            local.approve_upgrade(Some(&key)).await?;
-            drop(local);
-            let local = device(&path, &url, secret.clone())?;
-            local.join(&key, mode).await?;
-            assert_eq!(local.data.schema_floor(keys.sync_id())?, 4);
-            let published = server
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .envelope
-                .clone();
-            assert_eq!(
-                snapshot::decode_snapshot(&keys.decrypt_snapshot(keys.sync_id(), &published)?)?
-                    .original_schema_version,
-                4
-            );
-            // Consent is not permission to lower the version, including after restart.
-            drop(local);
-            {
-                let mut state = server
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                state.envelope = envelope;
-                state.revision += 1;
-            }
-            let restarted = device(&path, &url, secret)?;
-            assert_eq!(
-                restarted.startup_sync().await.err(),
-                Some(SyncError::SchemaDowngrade)
-            );
-            task.abort();
-            fs::remove_dir_all(path)?;
-        }
-    }
-    Ok(())
-}
-
-#[tokio::test]
-async fn collection_upgrade_blocks_manual_startup_and_resume_sync_without_changing_last_success(
-) -> Result<(), Box<dyn std::error::Error>> {
-    let (url, server, task) = server().await?;
-    let path = directory("collections-paired-upgrade");
-    let secret = MemorySecret::default();
-    let local = device(&path, &url, secret.clone())?;
-    let root = RootSecret::generate();
-    let keys = root.derive();
-    let bytes = snapshot::v2::serialize_snapshot(&snapshot::SyncSnapshot::default())?;
-    SyncTransport::new(&url)?
-        .create(
-            keys.sync_id(),
-            &keys.client_auth_token(),
-            keys.encrypt_snapshot(&bytes)?,
-        )
-        .await?;
-    let mut config = SyncLocalConfig::new(keys.sync_id().into(), 1);
-    config.highest_schema_version = 2;
-    config.last_success_at = Some(42);
-    secret.store(root).await?;
-    local.save(&config)?;
-    let before = local.data.snapshot()?.0;
-    assert_eq!(
-        local.sync_now().await.err(),
-        Some(SyncError::UpgradeRequired)
-    );
-    assert_eq!(
-        local.startup_sync().await.err(),
-        Some(SyncError::UpgradeRequired)
-    );
-    assert_eq!(local.data.snapshot()?.0, before);
-    let status = local.status().await?;
-    assert_eq!(status.last_success_at, Some(42));
-    assert!(status.dirty);
-    assert_eq!(
-        server
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .revision,
-        1
-    );
-    local.approve_upgrade(None).await?;
-    assert!(!local.sync_now().await?.dirty);
-    task.abort();
-    fs::remove_dir_all(path)?;
-    Ok(())
-}
-
-#[tokio::test]
 #[ignore = "requires RANDOM_FRAME_SYNC_LIMIT_E2E_URL for a real server with a 2048-byte payload limit"]
 async fn collection_upload_to_lower_server_limit_preserves_local_library_and_remote_bytes(
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -2731,61 +2444,6 @@ async fn collection_upload_to_lower_server_limit_preserves_local_library_and_rem
         .await?;
     assert_eq!(revision, 1);
     assert_eq!(bytes, envelope);
-    fs::remove_dir_all(path)?;
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "requires RANDOM_FRAME_SYNC_E2E_URL pointing to the unmodified local server"]
-async fn collection_v2_v3_cas_contract_roundtrips_exact_encrypted_bytes_on_real_server(
-) -> Result<(), Box<dyn std::error::Error>> {
-    let url = std::env::var("RANDOM_FRAME_SYNC_E2E_URL")?;
-    let root = RootSecret::generate();
-    let keys = root.derive();
-    let transport = SyncTransport::new(&url)?;
-    let legacy = keys.encrypt_snapshot(&snapshot::v2::serialize_snapshot(
-        &snapshot::SyncSnapshot::default(),
-    )?)?;
-    let revision = transport
-        .create(keys.sync_id(), &keys.client_auth_token(), legacy.clone())
-        .await?;
-    let path = directory("collections-cas-server");
-    let local = device(&path, &url, MemorySecret::default())?;
-    local
-        .data
-        .favorites
-        .create_collection("A private collection name")?;
-    local
-        .approve_upgrade(Some(root.recovery_key().as_str()))
-        .await?;
-    local
-        .join(root.recovery_key().as_str(), JoinMode::Merge)
-        .await?;
-    let (published_revision, envelope) = transport
-        .get(keys.sync_id(), &keys.client_auth_token())
-        .await?;
-    let expected = envelope.clone();
-    assert!(published_revision > revision);
-    assert_eq!(
-        transport
-            .update(keys.sync_id(), &keys.client_auth_token(), revision, legacy)
-            .await
-            .err(),
-        Some(crate::sync_transport::TransportError::Conflict)
-    );
-    let (same_revision, bytes) = transport
-        .get(keys.sync_id(), &keys.client_auth_token())
-        .await?;
-    assert_eq!(same_revision, published_revision);
-    assert_eq!(bytes, expected);
-    let plaintext = keys.decrypt_snapshot(keys.sync_id(), &bytes)?;
-    assert!(matches!(
-        snapshot::v2::decode_snapshot(&plaintext),
-        Err(snapshot::SnapshotError::UnsupportedVersion(4))
-    ));
-    let snapshot = snapshot::decode_snapshot(&plaintext)?;
-    assert_eq!(snapshot.original_schema_version, 4);
-    assert_eq!(snapshot.data.collections.len(), 1);
     fs::remove_dir_all(path)?;
     Ok(())
 }

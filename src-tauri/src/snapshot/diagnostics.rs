@@ -3,7 +3,6 @@ use super::{activity_projection, ActivityOperation, Outcome, SnapshotError, Sync
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SnapshotDiagnostics {
-    pub schema: u32,
     pub plaintext_bytes: usize,
     pub envelope_bytes: usize,
     pub seen: usize,
@@ -26,12 +25,10 @@ pub struct SnapshotDiagnostics {
 
 pub fn diagnostics(
     snapshot: &SyncSnapshot,
-    schema: u32,
     plaintext_bytes: usize,
     envelope_bytes: usize,
 ) -> Result<SnapshotDiagnostics, SnapshotError> {
     let mut counts = SnapshotDiagnostics {
-        schema,
         plaintext_bytes,
         envelope_bytes,
         seen: snapshot.seen.len(),
@@ -74,12 +71,11 @@ pub(crate) fn diagnostics_enabled() -> bool {
 pub(crate) fn report_diagnostics(
     stage: &str,
     snapshot: &SyncSnapshot,
-    schema: u32,
     plaintext_bytes: usize,
     envelope_bytes: usize,
 ) {
     if diagnostics_enabled() {
-        if let Ok(counts) = diagnostics(snapshot, schema, plaintext_bytes, envelope_bytes) {
+        if let Ok(counts) = diagnostics(snapshot, plaintext_bytes, envelope_bytes) {
             // This type contains only numbers. Never add keys, IDs, URLs or contents.
             eprintln!("[sync:{stage}] {counts:?}");
         }
@@ -88,14 +84,8 @@ pub(crate) fn report_diagnostics(
 
 pub(crate) fn report_upload(plaintext: &[u8], envelope: &[u8]) {
     if diagnostics_enabled() {
-        if let Ok(decoded) = super::decode_snapshot(plaintext) {
-            report_diagnostics(
-                "before_upload",
-                &decoded.data,
-                decoded.original_schema_version,
-                plaintext.len(),
-                envelope.len(),
-            );
+        if let Ok(snapshot) = super::parse_snapshot(plaintext) {
+            report_diagnostics("before_upload", &snapshot, plaintext.len(), envelope.len());
         }
     }
 }
