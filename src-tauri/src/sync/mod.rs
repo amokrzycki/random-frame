@@ -1,25 +1,20 @@
 //! Client sync facade.
-mod admin;
 mod cas;
+mod commit;
 mod engine;
 mod errors;
+mod group;
+mod helpers;
 mod lifecycle;
-mod managed;
+mod observe;
 mod reconcile;
 mod state;
+mod vault;
 
 pub use engine::SyncEngine;
 pub use errors::SyncError;
 #[allow(unused_imports, reason = "preserve the sync module API")]
-pub use state::{
-    CreateManagedSyncResult, JoinMode, LocalSyncSummary, SyncLocalConfig, SyncState, SyncStatus,
-};
+pub use state::{CreateSyncResult, JoinMode, LocalSyncSummary, SyncLocalConfig, SyncStatus};
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(test)]
-mod membership_tests;
-
-#[cfg(test)]
-mod managed_collections_tests;

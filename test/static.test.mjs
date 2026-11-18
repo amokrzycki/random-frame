@@ -96,47 +96,49 @@ test("distilled menus keep Save beside Favorite and Clear in the History footer"
   assert.doesNotMatch(history.split("</header>")[0], /history-clear/);
 });
 
-test("Sync dialog separates Start a new Sync from Connect this device and states scope, roster, and recovery honestly", async () => {
+test("Sync dialog separates Start a new Sync from Join a Sync and states scope, roster, and the code honestly", async () => {
   const html = await readFile(new URL("../dist/index.html", import.meta.url), "utf8");
   const dialog = html.split('id="sync-dialog"')[1].split('id="dialog-backdrop"')[0];
   const copy = dialog.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
   const start = dialog.split('id="sync-start"')[1].split('id="sync-connect-title"')[0];
-  const connect = dialog.split('id="sync-connect-title"')[1].split('id="sync-recovery"')[0];
+  const join = dialog.split('id="sync-connect-title"')[1].split('id="sync-ended"')[0];
   assert.match(start, /Start a new Sync/);
   assert.match(start, /id="sync-enable"/);
-  assert.doesNotMatch(start, /recovery key to connect|sync-join/);
-  assert.match(connect, /Connect this device/);
-  assert.match(connect, /id="sync-show-join"/);
-  // The two ways to join are explained before the key form and in the same section.
-  const connectText = connect.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-  assert.ok(connectText.includes("Create a pairing request and send it to your group’s administrator."));
-  assert.ok(connectText.includes("Restore this device from Sync"));
-  assert.ok(connectText.includes("Merge this device with Sync"));
-  assert.ok(connect.indexOf("Create a pairing request") < connect.indexOf('id="sync-join-form"'));
-  assert.ok(connect.indexOf('id="sync-join-modes"') < connect.indexOf('id="sync-recovery-input"'));
+  assert.doesNotMatch(start, /sync-join/);
+  assert.match(join, /Join a Sync/);
+  assert.match(join, /id="sync-show-join"/);
+  const joinText = join.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  assert.ok(joinText.includes("Enter the 24-word code from the administrator’s device."));
+  assert.ok(joinText.includes("Restore this device from Sync"));
+  assert.ok(joinText.includes("Merge this device with Sync"));
+  assert.ok(join.indexOf('id="sync-code-input"') < join.indexOf('id="sync-join-modes"'));
+  assert.match(join, /<textarea[^>]*id="sync-code-input"/);
   assert.match(dialog, /id="sync-join"[^>]*form="sync-join-form"/);
-  assert.doesNotMatch(connectText, /It won’t be replaced/);
   assert.match(copy, /History, saved frames and collections/);
   assert.match(copy, /Previously viewed and checked IDs/);
   assert.match(copy, /Activity &amp; Stats/);
   assert.match(copy, /Preferences/);
   assert.match(copy, /Images saved to files aren’t backed up/);
   assert.match(copy, /Last synced is a record of past activity, not online presence\./);
-  assert.match(
-    copy,
-    /Keep this key somewhere safe\. Use it to bring your saved data to another device\. Anyone with this key can connect to your Sync\./,
-  );
-  assert.match(copy, /Show recovery key/);
+  assert.match(copy, /Enter these 24 words on another device to join\./);
   assert.match(copy, /Sync now/);
   assert.match(
     copy,
-    /The data on this device and your Sync data on the server stay as they are\. To connect again, you’ll need a new invitation for managed Sync, or your legacy recovery key\./,
+    /The data on this device stays as it is\. To join again, you’ll need the current code from the administrator\./,
   );
   const buttons = [...dialog.matchAll(/<button[^>]*>([\s\S]*?)<\/button>/g)].map((match) =>
     match[1].replace(/\s+/g, " ").trim(),
   );
-  assert.ok(buttons.includes("Disconnect this device"));
-  assert.doesNotMatch(copy, /Leave Sync|Turn on Sync|Join existing Sync|cannot show it again|Online|Active now/);
+  for (const label of [
+    "Leave this Sync",
+    "End Sync for all devices",
+    "Show code",
+    "Copy code",
+    "New code",
+    "Start over",
+  ])
+    assert.ok(buttons.includes(label), label);
+  assert.doesNotMatch(copy, /Leave Sync|Turn on Sync|Join existing Sync|Online|Active now/);
 });
 
 test("no copy still says Stats or IDs checked stay on one device", async () => {

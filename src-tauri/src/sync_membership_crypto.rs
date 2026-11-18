@@ -51,14 +51,15 @@ fn context(group: &str, epoch: i64, key: &str, r: &Recipient) -> Result<Vec<u8>,
     {
         return Err(CryptoError::InvalidEnvelope);
     }
-    let mut c = b"random-frame/sync/v2/root-package\0".to_vec();
-    c.extend_from_slice(&2_u32.to_be_bytes());
+    // HPKE info and AAD; must match the server's "Wire contract" for key packages.
+    let mut c = b"random-frame/sync/root-package\0".to_vec();
+    c.extend_from_slice(&1_u32.to_be_bytes());
     c.extend_from_slice(&hex::decode(group).map_err(|_| CryptoError::InvalidEnvelope)?);
     c.extend_from_slice(&epoch.to_be_bytes());
     c.extend_from_slice(&hex::decode(key).map_err(|_| CryptoError::InvalidEnvelope)?);
     c.push(match r.kind.as_str() {
         "member" => 1,
-        "admin_recovery" => 2,
+        "invitation" => 2,
         _ => return Err(CryptoError::InvalidEnvelope),
     });
     c.extend_from_slice(&hex::decode(&r.id).map_err(|_| CryptoError::InvalidEnvelope)?);
@@ -71,7 +72,7 @@ pub fn seal_root(
     r: &Recipient,
     root: &RootSecret,
 ) -> Result<EpochKeyPackage, CryptoError> {
-    let key = root.derive().sync_id().to_owned();
+    let key = root.derive().key_id().to_owned();
     let ctx = context(group, epoch, &key, r)?;
     let pk =
         Public::from_bytes(&hex::decode(&r.public_key).map_err(|_| CryptoError::InvalidSecret)?)
@@ -136,82 +137,45 @@ pub fn open_root(
             .map_err(|_| CryptoError::InvalidEnvelope)?,
     );
     let root = RootSecret::from_bytes(&bytes)?;
-    if root.derive().sync_id() != key {
+    if root.derive().key_id() != key {
         return Err(CryptoError::InvalidEnvelope);
     }
     Ok(root)
 }
-pub type RecoveryCredentials = (Zeroizing<[u8; 32]>, Zeroizing<[u8; 32]>, String);
-pub struct AdminRecoverySecret(pub Zeroizing<[u8; 32]>);
-impl AdminRecoverySecret {
-    pub fn generate() -> Self {
-        Self(Zeroizing::new(random_secret()))
-    }
-    pub fn derive_credentials(&self, group: &str) -> Result<RecoveryCredentials, CryptoError> {
-        if !valid_hex(group, 32) {
-            return Err(CryptoError::InvalidSecret);
-        }
-        let salt = hex::decode(group).map_err(|_| CryptoError::InvalidSecret)?;
-        let hkdf = Hkdf::<Sha256>::new(Some(&salt), self.0.as_ref());
-        let mut auth = Zeroizing::new([0; 32]);
-        let mut seed = Zeroizing::new([0; 32]);
-        hkdf.expand(b"random-frame/sync/v2/admin-recovery/auth", auth.as_mut())
-            .map_err(|_| CryptoError::InvalidSecret)?;
-        hkdf.expand(
-            b"random-frame/sync/v2/admin-recovery/kem-seed",
-            seed.as_mut(),
-        )
+
+/// Everything a 24-word code stands for; the server only ever sees `id`, a hash of
+/// `secret`, and the public key.
+pub struct JoinCredentials {
+    pub id: String,
+    pub secret: Zeroizing<[u8; 32]>,
+    pub private_key: Zeroizing<[u8; 32]>,
+    pub public_key: String,
+}
+
+pub fn join_credentials(seed: &[u8; 32]) -> Result<JoinCredentials, CryptoError> {
+    let hkdf = Hkdf::<Sha256>::new(None, seed);
+    let mut id = [0; 16];
+    let mut secret = Zeroizing::new([0; 32]);
+    let mut wrap = Zeroizing::new([0; 32]);
+    hkdf.expand(b"random-frame/join/id", &mut id)
         .map_err(|_| CryptoError::InvalidSecret)?;
-        let (sk, pk) = Kem::derive_keypair(seed.as_ref());
-        Ok((
-            auth,
-            Zeroizing::new(sk.to_bytes().into()),
-            hex::encode(pk.to_bytes()),
-        ))
-    }
-    pub fn code(&self, group: &str, generation: i64) -> Zeroizing<String> {
-        let mut code = Zeroizing::new(format!(
-            "rf-admin-v2-{group}-{generation}-{}",
-            hex::encode(self.0.as_ref())
-        ));
-        let sum = Sha256::new()
-            .chain_update(b"random-frame/sync/v2/admin-code\0")
-            .chain_update(code.as_bytes())
-            .finalize();
-        code.push('-');
-        code.push_str(&hex::encode(&sum[..4]));
-        code
-    }
-    pub fn from_code(code: &str) -> Result<(String, i64, Self), CryptoError> {
-        let mut parts = code
-            .strip_prefix("rf-admin-v2-")
-            .ok_or(CryptoError::InvalidRecoveryKey)?
-            .split('-');
-        let group = parts.next().ok_or(CryptoError::InvalidRecoveryKey)?;
-        let generation = parts
-            .next()
-            .ok_or(CryptoError::InvalidRecoveryKey)?
-            .parse::<i64>()
-            .map_err(|_| CryptoError::InvalidRecoveryKey)?;
-        let secret = parts.next().ok_or(CryptoError::InvalidRecoveryKey)?;
-        if !valid_hex(group, 32) || generation < 1 || !valid_hex(secret, 32) {
-            return Err(CryptoError::InvalidRecoveryKey);
-        }
-        let bytes =
-            Zeroizing::new(hex::decode(secret).map_err(|_| CryptoError::InvalidRecoveryKey)?);
-        let mut value = Zeroizing::new([0; 32]);
-        value.copy_from_slice(&bytes);
-        let result = Self(value);
-        if result.code(group, generation).as_str() != code {
-            return Err(CryptoError::InvalidRecoveryKey);
-        }
-        Ok((group.into(), generation, result))
-    }
+    hkdf.expand(b"random-frame/join/secret", secret.as_mut())
+        .map_err(|_| CryptoError::InvalidSecret)?;
+    hkdf.expand(b"random-frame/join/wrap", wrap.as_mut())
+        .map_err(|_| CryptoError::InvalidSecret)?;
+    let (private, public) = Kem::derive_keypair(wrap.as_ref());
+    Ok(JoinCredentials {
+        id: hex::encode(id),
+        secret,
+        private_key: Zeroizing::new(private.to_bytes().into()),
+        public_key: hex::encode(public.to_bytes()),
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn packages_bind_every_context_field_and_reject_bad_keys(
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -224,7 +188,7 @@ mod tests {
             version: 1,
             public_key: pk,
         };
-        let key = root.derive().sync_id().to_owned();
+        let key = root.derive().key_id().to_owned();
         let p = seal_root(&group, 1, &r, &root)?;
         assert_eq!(
             open_root(&group, 1, &key, &r, &sk, &p)?.as_bytes(),
@@ -238,51 +202,90 @@ mod tests {
         changed.version = 2;
         assert!(open_root(&group, 1, &key, &changed, &sk, &p).is_err());
         changed = r.clone();
-        changed.kind = "admin_recovery".into();
+        changed.kind = "invitation".into();
         assert!(open_root(&group, 1, &key, &changed, &sk, &p).is_err());
+        changed.kind = "administrator".into();
+        assert!(seal_root(&group, 1, &changed, &root).is_err());
         let mut tampered = p.clone();
         tampered.ciphertext.replace_range(..2, "00");
         if tampered == p {
             tampered.ciphertext.replace_range(..2, "ff");
         }
         assert!(open_root(&group, 1, &key, &r, &sk, &tampered).is_err());
-        changed = r.clone();
+        "member".clone_into(&mut changed.kind);
         changed.public_key = "00".repeat(32);
         assert!(seal_root(&group, 1, &changed, &root).is_err());
-        let secret = AdminRecoverySecret::generate();
-        let code = secret.code(&group, 1);
-        let (g, generation, decoded) = AdminRecoverySecret::from_code(&code)?;
-        assert_eq!(g, group);
-        assert_eq!(generation, 1);
-        let (auth, private, public) = decoded.derive_credentials(&group)?;
-        assert_ne!(auth.as_ref(), private.as_ref());
-        let recovery = Recipient {
-            kind: "admin_recovery".into(),
-            id: r.id,
-            version: 1,
-            public_key: public,
-        };
-        for epoch in 1..=3 {
-            let root = RootSecret::generate();
-            let p = seal_root(&group, epoch, &recovery, &root)?;
-            assert_eq!(
-                open_root(
-                    &group,
-                    epoch,
-                    root.derive().sync_id(),
-                    &recovery,
-                    &private,
-                    &p
-                )?
-                .as_bytes(),
-                root.as_bytes()
-            );
-            assert!(
-                open_root(&group, epoch, root.derive().sync_id(), &recovery, &auth, &p).is_err()
-            );
-        }
         Ok(())
     }
+
+    #[test]
+    fn a_code_opens_the_root_sealed_to_its_invitation() -> Result<(), Box<dyn std::error::Error>> {
+        let group = hex::encode(random_secret());
+        let root = RootSecret::generate();
+        let seed = random_secret();
+        let join = join_credentials(&seed)?;
+        let recipient = Recipient {
+            kind: "invitation".into(),
+            id: join.id.clone(),
+            version: 1,
+            public_key: join.public_key.clone(),
+        };
+        let package = seal_root(&group, 3, &recipient, &root)?;
+        assert_eq!(package.recipient_kind, "invitation");
+        assert_eq!(package.recipient_id, join.id);
+        let opened = open_root(
+            &group,
+            3,
+            root.derive().key_id(),
+            &recipient,
+            &join.private_key,
+            &package,
+        )?;
+        assert_eq!(opened.as_bytes(), root.as_bytes());
+        let stranger = join_credentials(&random_secret())?;
+        assert!(open_root(
+            &group,
+            3,
+            root.derive().key_id(),
+            &recipient,
+            &stranger.private_key,
+            &package
+        )
+        .is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn join_derivation_is_deterministic_separated_and_frozen() -> Result<(), CryptoError> {
+        let seed: [u8; 32] = std::array::from_fn(|i| u8::try_from(i).unwrap_or(0));
+        let a = join_credentials(&seed)?;
+        let b = join_credentials(&seed)?;
+        assert_eq!(a.id, b.id);
+        assert_eq!(a.secret.as_ref(), b.secret.as_ref());
+        assert_eq!(a.public_key, b.public_key);
+        assert_ne!(a.secret.as_ref(), a.private_key.as_ref());
+        assert_ne!(
+            &a.secret[..16],
+            hex::decode(&a.id).unwrap_or_default().as_slice()
+        );
+        assert_eq!(a.public_key, public_key(&a.private_key)?);
+        assert_ne!(a.id, join_credentials(&[9; 32])?.id);
+        assert_eq!(a.id, "7b4d34d2380b9d39f8911d99ba03ea4d");
+        assert_eq!(
+            verifier(&a.secret),
+            "dc04dd64b9efd1fc51fce7900fcc21a8024ea461f92f588ed572a25042afe241"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn verifier_hashes_the_hex_text_of_the_secret() {
+        let secret = [0xab; 32];
+        let expected = hex::encode(Sha256::digest("ab".repeat(32).as_bytes()));
+        assert_eq!(verifier(&secret), expected);
+        assert_ne!(verifier(&secret), hex::encode(Sha256::digest(secret)));
+    }
+
     #[test]
     fn rfc9180_a2_and_selected_suite_vectors() -> Result<(), Box<dyn std::error::Error>> {
         // Upstream test-vectors-5f503c5.json, also linked by RFC 9180 Appendix A.
@@ -323,31 +326,6 @@ mod tests {
             };
             assert_eq!(hex::encode(pt), e["pt"]);
         }
-        Ok(())
-    }
-    #[test]
-    fn managed_envelope_does_not_accept_legacy_or_cross_group(
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let keys = RootSecret::generate().derive();
-        let group = hex::encode(random_secret());
-        let bytes = crate::snapshot::serialize_snapshot(&crate::snapshot::SyncSnapshot::default())?;
-        assert_eq!(
-            keys.encrypt_managed(&group, 2, &vec![0; crate::sync_transport::MAX_ENVELOPE]),
-            Err(CryptoError::BodyTooLarge)
-        );
-        let envelope = keys.encrypt_managed(&group, 2, &bytes)?;
-        assert_eq!(
-            keys.decrypt_managed(&group, 2, &envelope)?.as_slice(),
-            bytes
-        );
-        assert!(keys.decrypt_managed(&group, 1, &envelope).is_err());
-        assert!(keys
-            .decrypt_managed(&hex::encode(random_secret()), 2, &envelope)
-            .is_err());
-        assert!(keys.decrypt_snapshot(keys.sync_id(), &envelope).is_err());
-        assert!(keys
-            .decrypt_managed(&group, 2, &keys.encrypt_snapshot(&bytes)?)
-            .is_err());
         Ok(())
     }
 }

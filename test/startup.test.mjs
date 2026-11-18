@@ -19,7 +19,7 @@ const unpairedStatus = {
   credentialVersion: null,
   keyEpoch: null,
   controlVerifiedAt: null,
-  legacySourceId: null,
+  codeReady: false,
 };
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 

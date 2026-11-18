@@ -39,9 +39,7 @@
   .toast,
   .toast--leaving,
   .entry-consent input::before,
-  .entry-consent input:checked::before,
-  .sync-dialog__saved input::before,
-  .sync-dialog__saved input:checked::before {
+  .entry-consent input:checked::before {
     transform: none;
   }
 
@@ -64,7 +62,7 @@
   }
 
   @starting-style {
-    :is(#sync-unpaired, #sync-join-form, #sync-recovery, #sync-paired, #sync-leave-confirm) {
+    :is(#sync-unpaired, #sync-join-form, #sync-ended, #sync-paired, #sync-leave-confirm) {
       transform: none;
     }
   }
@@ -590,7 +588,6 @@
   }
 
   .sync-dialog__body h3,
-  .sync-dialog__name label,
   #sync-join-form label,
   .sync-join legend {
     font-size: 14px;
@@ -611,7 +608,6 @@
     font-size: 14px;
   }
 
-  .sync-dialog__name-row,
   .sync-dialog__actions {
     gap: 8px;
   }
@@ -627,12 +623,6 @@
     border-color: transparent;
     border-top-color: var(--line);
     border-radius: 0;
-  }
-
-  .sync-dialog__saved {
-    min-height: var(--touch-target);
-    align-items: center;
-    padding-block: 8px;
   }
 
   .entry-dialog {
@@ -724,8 +714,7 @@
       .history-pager__select select,
       .history-pager__jump input,
       .sync-dialog__button,
-      #sync-name-input,
-      #sync-recovery-input,
+      #sync-code-input,
       .ledger__more,
       .stats-retry,
       .lightbox-control,

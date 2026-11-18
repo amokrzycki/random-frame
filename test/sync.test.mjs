@@ -5,10 +5,16 @@ import { FakeDocument, FakeStorage, ids, libraryOf } from "./dom-fakes.mjs";
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const NOW = Date.now();
-const KEY = "rf1-secret-recovery-key";
-const ADMIN = "rf-admin-v2-test-administration-code";
-const PAIRING = "rf-pair-v2-test-pairing-request";
-const INVITE = "rf-invite-v2-test-invitation";
+const WORDS =
+  "abandon ability able about above absent absorb abstract absurd abuse access accident account accuse achieve acid acoustic acquire across act action actor actress actual".split(
+    " ",
+  );
+const CODE = WORDS.join(" ");
+const NEW_CODE = [...WORDS.slice(1), "adapt"].join(" ");
+const REKEYED_CODE = [...WORDS.slice(2), "adapt", "add"].join(" ");
+const TYPED_CODE = `  ${WORDS.slice(0, 12)
+  .map((word) => word.toUpperCase())
+  .join(" ")}\n${WORDS.slice(12).join("   ")}  \n`;
 
 const unpaired = {
   supported: true,
@@ -27,7 +33,7 @@ const unpaired = {
   credentialVersion: null,
   keyEpoch: null,
   controlVerifiedAt: null,
-  legacySourceId: null,
+  codeReady: false,
 };
 const thisDevice = {
   deviceId: "aabbccdd",
@@ -70,6 +76,7 @@ const masterStatus = {
   credentialVersion: 1,
   keyEpoch: 1,
   controlVerifiedAt: NOW,
+  codeReady: true,
   devices: [
     { ...thisDevice, memberId: "master123456", status: "active", isMaster: true },
     { ...phone, memberId: "member123456", status: "active", isMaster: false },
@@ -78,8 +85,17 @@ const masterStatus = {
 const memberStatus = {
   ...masterStatus,
   thisMemberId: "member123456",
+  codeReady: false,
   devices: masterStatus.devices.map((d) => ({ ...d, thisDevice: d.memberId === "member123456" })),
 };
+const ended = (membershipState) => ({
+  ...unpaired,
+  state: "error",
+  groupState: membershipState === "closed" ? "closed" : "active",
+  membershipState,
+  lastErrorCategory: membershipState,
+  thisMemberId: "member123456",
+});
 
 const document = new FakeDocument(ids);
 const disclosureToggle = document.createElement("button");
@@ -100,6 +116,7 @@ const get = (id) => document.querySelector(`#${id}`);
 const clipboard = { copied: [], fails: false };
 const listeners = [];
 const windowEvents = new EventTarget();
+const everyCommand = new Set();
 let backend;
 let calls;
 let sync;
@@ -108,8 +125,11 @@ let stateModule;
 function resetBackend() {
   backend = {
     current: structuredClone(unpaired),
+    code: null,
+    createWithoutCode: false,
     fail: null,
     statusFails: false,
+    statusFailCategory: null,
 
     activityTotal: 5,
     summary: {
@@ -147,12 +167,11 @@ before(async () => {
     "sync-join-local",
     "sync-join-merge-deletions",
     "sync-leave-confirm",
-    "sync-recovery",
     "sync-error",
-    "sync-name-error",
+    "sync-code-error",
     "sync-remove-confirm",
     "sync-dissolve-confirm",
-    "sync-recovery-cancel",
+    "sync-newcode-confirm",
   ])
     get(id).hidden = true;
   get("sync-join-restore").checked = false;
@@ -171,6 +190,7 @@ before(async () => {
           return { theme: null, historyPageSize: null };
         if (command === "import_session_history") return { history: backend.history, index: -1 };
         calls.push({ command, args });
+        everyCommand.add(command);
         if (command === "plugin:event|listen") return 1;
         if (command === "plugin:clipboard-manager|write_text") {
           if (clipboard.fails) throw new Error("denied");
@@ -178,48 +198,37 @@ before(async () => {
           return null;
         }
         if (command === "get_sync_status") {
-          if (backend.statusFails) throw { category: "timeout" };
+          if (backend.statusFails) throw { category: backend.statusFailCategory ?? "timeout" };
           return structuredClone(backend.current);
         }
         if (command === "join_sync") backend.onJoin?.();
         if (backend.fail && command === backend.fail.command) throw backend.fail.error;
-        if (command === "create_sync" || command === "move_to_managed_sync") {
+        if (command === "create_sync") {
           backend.current = structuredClone(masterStatus);
-          if (command === "move_to_managed_sync") backend.current.legacySourceId = "legacy-source-id";
-          return {
-            groupId: "new-group",
-            adminRecoveryCode: ADMIN,
-            status: structuredClone(backend.current),
-            sourceLegacyId: backend.current.legacySourceId,
-            prepared: false,
-          };
+          backend.current.codeReady = !backend.createWithoutCode;
+          backend.code = backend.createWithoutCode ? null : CODE;
+          return { code: backend.code, status: structuredClone(backend.current) };
         }
-        if (command === "get_sync_pairing_request") return PAIRING;
-        if (command === "create_sync_invitation" || command === "get_sync_invitation") return INVITE;
-        if (command === "recover_sync_admin") {
-          if (args.confirmed) backend.current = structuredClone(masterStatus);
-          return {
-            groupId: "new-group",
-            adminRecoveryCode: ADMIN,
-            status: structuredClone(backend.current),
-            sourceLegacyId: null,
-            prepared: !args.confirmed,
-          };
+        if (command === "get_sync_code") {
+          if (!backend.code) throw { category: "no_code" };
+          return backend.code;
         }
-        if (command === "cancel_sync_admin_recovery") return null;
+        if (command === "new_sync_code") {
+          backend.code = NEW_CODE;
+          backend.current.codeReady = true;
+          return NEW_CODE;
+        }
         if (command === "remove_sync_device") {
           backend.current.devices = backend.current.devices.map((d) =>
             d.memberId === args.memberId ? { ...d, status: "revoked" } : d,
           );
+          backend.code = REKEYED_CODE;
+          backend.current.codeReady = true;
           return structuredClone(backend.current);
         }
         if (command === "dissolve_sync") {
-          backend.current = {
-            ...structuredClone(unpaired),
-            groupState: "closed",
-            membershipState: "closed",
-            lastErrorCategory: "closed",
-          };
+          backend.current = { ...ended("closed"), thisMemberId: "master123456" };
+          backend.code = null;
           return structuredClone(backend.current);
         }
         if (command === "get_sync_join_summary") {
@@ -235,17 +244,10 @@ before(async () => {
           return structuredClone(backend.current);
         }
         if (command === "leave_sync") {
-          backend.current = { ...structuredClone(unpaired), dirty: false };
+          backend.current = backend.current.paired ? ended("left") : structuredClone(unpaired);
           return structuredClone(backend.current);
         }
         if (command === "startup_sync") return structuredClone(backend.current);
-        if (command === "set_sync_device_name") {
-          const self = backend.current.devices.find((device) => device.thisDevice);
-          if (self) self.displayName = args.name;
-          backend.current.dirty = true;
-          return null;
-        }
-        if (command === "get_sync_recovery_key") return backend.current.thisMemberId ? ADMIN : KEY;
         if (command === "get_history") return { history: structuredClone(backend.history), index: -1 };
         if (command === "get_saved_library") return libraryOf(structuredClone(backend.favorites));
         if (command === "get_exploration_stats") return { explored: 0, viewable: 0, unavailable: 0, unclassified: 0 };
@@ -279,6 +281,7 @@ beforeEach(() => {
 
 async function open(status = backend.current) {
   backend.current = structuredClone(status);
+  if (status.codeReady) backend.code = CODE;
   get("sync-button").click();
   await flush();
   assert.equal(get("sync-dialog").open, true);
@@ -320,11 +323,11 @@ test("failed status checks replace current success while retaining reliable hist
   assert.equal(text("sync-status"), "Sync completed");
 });
 
-test("a shrinking join viewport keeps the already focused recovery key in its scroll region", async () => {
+test("a shrinking join viewport keeps the already focused code field in its scroll region", async () => {
   await open();
   get("sync-show-join").click();
   await flush();
-  const input = get("sync-recovery-input");
+  const input = get("sync-code-input");
   const scrolled = [];
   input.scrollIntoView = (options) => scrolled.push(options);
   input.focus();
@@ -335,87 +338,118 @@ test("a shrinking join viewport keeps the already focused recovery key in its sc
   assert.equal(scrolled.length, 1, "other controls do not jump on viewport changes");
 });
 
-test("create and connect are separate flows that call their own commands", async () => {
+test("Start a new Sync shows the administrator view with the code, and the code leaves the page on hide or close", async () => {
   await open(unpaired);
   assert.equal(get("sync-unpaired").hidden, false);
   assert.equal(get("sync-paired").hidden, true);
-  assert.equal(get("sync-join-form").hidden, true);
-  assert.equal(text("sync-status"), "Sync is off");
-  assert.equal(get("sync-last-synced").hidden, true);
-
-  // Connecting needs the explicit key form; nothing runs until it is submitted.
-  get("sync-show-join").click();
-  assert.equal(get("sync-join-form").hidden, false);
-  assert.equal(document.activeElement, get("sync-join-title"));
-  assert.equal(syncCalls("create_sync").length + syncCalls("join_sync").length, 0);
-  await flush();
-  choose("restore");
-  get("sync-recovery-input").value = `  ${KEY}  `;
-  submit("sync-join-form");
-  await flush();
-  assert.deepEqual(
-    syncCalls("join_sync").map((call) => call.args),
-    [{ recoveryKey: KEY, mode: "restore" }],
-  );
-  assert.equal(syncCalls("create_sync").length, 0);
-  assert.equal(get("sync-paired").hidden, false);
-  assert.equal(get("sync-recovery-input").value, "");
-  assert.equal(document.activeElement, get("sync-now"));
-
-  get("sync-leave").click();
-  get("sync-leave-confirm-button").click();
-  await flush();
-  assert.equal(get("sync-unpaired").hidden, false);
   get("sync-enable").click();
   await flush();
   assert.equal(syncCalls("create_sync").length, 1);
-  assert.equal(syncCalls("join_sync").length, 1);
-});
-
-test("Start a new Sync shows the recovery key, gates leaving on a confirmation, and clears it on close", async () => {
-  await open(unpaired);
-  get("sync-enable").click();
-  await flush();
-  assert.equal(text("sync-recovery-key"), ADMIN);
-  assert.equal(get("sync-recovery").hidden, false);
-  assert.equal(get("sync-key-confirm").hidden, false);
-  assert.equal(get("sync-status").hidden, true);
+  assert.equal(get("sync-unpaired").hidden, true);
+  assert.equal(get("sync-paired").hidden, false);
+  assert.equal(get("sync-code-panel").hidden, false);
+  assert.equal(text("sync-code"), CODE);
+  assert.equal(get("sync-code").hidden, false);
+  assert.equal(get("sync-code-missing").hidden, true);
+  assert.equal(get("sync-copy-code").hidden, false);
+  assert.equal(text("sync-show-code"), "Hide code");
+  assert.equal(get("sync-leave").hidden, true);
+  assert.equal(get("sync-dissolve").hidden, false);
   assert.equal(get("sync-error").hidden, true);
-  assert.equal(document.activeElement, get("sync-key-saved"));
-  assert.equal(get("sync-close").disabled, true);
-  assert.equal(get("sync-done").getAttribute("aria-disabled"), "true");
-  assert.equal(JSON.stringify(backend.current).includes(ADMIN), false);
+  assert.equal(document.activeElement, get("sync-copy-code"));
+  assert.equal(get("sync-close").disabled, false);
+  assert.ok(rowTexts(get("sync-devices").children[0]).includes("Administrator"));
+  assert.equal(JSON.stringify(backend.current).includes(CODE), false);
+  assert.equal(
+    [...localStorage.values.values()].some((value) => value.includes(WORDS[0])),
+    false,
+  );
 
-  get("sync-copy-key").click();
+  get("sync-copy-code").click();
   await flush();
-  assert.deepEqual(clipboard.copied, [ADMIN]);
-  get("sync-close").click();
-  assert.equal(get("sync-dialog").open, true);
-  get("sync-done").click();
-  assert.equal(document.activeElement, get("sync-key-saved"));
-  assert.equal(get("sync-dialog").open, true);
+  assert.deepEqual(clipboard.copied, [CODE]);
 
-  get("sync-key-saved").checked = true;
-  get("sync-key-saved").dispatchEvent(new Event("change"));
-  assert.equal(get("sync-done").getAttribute("aria-disabled"), "false");
-  get("sync-done").click();
+  get("sync-show-code").click();
+  assert.equal(text("sync-code"), "");
+  assert.equal(get("sync-code").hidden, true);
+  assert.equal(get("sync-copy-code").hidden, true);
+  assert.equal(text("sync-show-code"), "Show code");
+  assert.equal(syncCalls("get_sync_code").length, 0);
+
+  get("sync-show-code").click();
+  await flush();
+  assert.equal(syncCalls("get_sync_code").length, 1);
+  assert.equal(text("sync-code"), CODE);
+  assert.equal(document.activeElement, get("sync-copy-code"));
+
+  get("sync-close").click();
   assert.equal(get("sync-dialog").open, false);
-  assert.equal(text("sync-recovery-key"), "");
-  assert.equal(get("sync-key-saved").checked, false);
-  assert.equal(document.activeElement, get("sync-button"));
+  assert.equal(text("sync-code"), "");
+  get("sync-button").click();
+  await flush();
+  assert.equal(text("sync-code"), "");
+  assert.equal(text("sync-show-code"), "Show code");
 });
 
-test("a clipboard failure keeps the key on screen for manual copying", async () => {
+test("a status refresh or Sync event neither hides nor rewrites a shown code", async () => {
+  await open(masterStatus);
+  get("sync-show-code").click();
+  await flush();
+  get("sync-button").click();
+  await flush();
+  listeners.at(-1)({ event: "sync-state-changed", id: 1, payload: null });
+  await flush();
+  assert.equal(text("sync-code"), CODE);
+});
+
+test("damaged local Sync state offers a reset instead of a dead end", async () => {
+  backend.statusFails = true;
+  backend.statusFailCategory = "corrupt_local_state";
+  await open();
+  assert.equal(get("sync-retry").hidden, false);
+  assert.equal(text("sync-retry"), "Reset Sync on this device");
+  backend.statusFails = false;
+  get("sync-retry").click();
+  await flush();
+  assert.equal(syncCalls("leave_sync").length, 1);
+  assert.equal(get("sync-unpaired").hidden, false);
+});
+
+test("a new code or a removal clears the old code even when the request fails", async () => {
+  await open(masterStatus);
+  get("sync-show-code").click();
+  await flush();
+  assert.equal(text("sync-code"), CODE);
+  backend.fail = { command: "new_sync_code", error: { category: "timeout" } };
+  get("sync-new-code").click();
+  get("sync-newcode-submit").click();
+  await flush();
+  assert.equal(text("sync-code"), "");
+  assert.equal(get("sync-copy-code").hidden, true);
+});
+
+test("a status that reports the code as not ready does not hide a code already on screen", async () => {
+  await open(masterStatus);
+  get("sync-show-code").click();
+  await flush();
+  backend.current.codeReady = false;
+  get("sync-now").click();
+  await flush();
+  assert.equal(text("sync-code"), CODE);
+  assert.equal(get("sync-code-missing").hidden, true);
+});
+
+test("a clipboard failure keeps the code on screen for manual copying", async () => {
   await open(unpaired);
   get("sync-enable").click();
   await flush();
   clipboard.fails = true;
-  get("sync-copy-key").click();
+  get("sync-copy-code").click();
   await flush();
   assert.equal(get("sync-error").hidden, false);
   assert.match(text("sync-error-message"), /copy it by hand/);
   assert.equal(get("sync-retry").hidden, true);
-  assert.equal(text("sync-recovery-key"), ADMIN);
+  assert.equal(text("sync-code"), CODE);
 });
 
 test("create failure retains a retry instead of exposing an unstored code", async () => {
@@ -423,13 +457,54 @@ test("create failure retains a retry instead of exposing an unstored code", asyn
   await open(unpaired);
   get("sync-enable").click();
   await flush();
-  assert.equal(text("sync-recovery-key"), "");
+  assert.equal(text("sync-code"), "");
   assert.equal(get("sync-retry").hidden, false);
   backend.fail = null;
   get("sync-retry").click();
   await flush();
-  assert.equal(text("sync-recovery-key"), ADMIN);
-  assert.equal(get("sync-key-confirm").hidden, false);
+  assert.equal(text("sync-code"), CODE);
+  assert.equal(get("sync-paired").hidden, false);
+});
+
+test("a Sync created without a registered code says so and offers New code as the first action", async () => {
+  backend.createWithoutCode = true;
+  await open(unpaired);
+  get("sync-enable").click();
+  await flush();
+  assert.equal(get("sync-paired").hidden, false);
+  assert.equal(get("sync-code-panel").hidden, false);
+  assert.equal(get("sync-code-missing").hidden, false);
+  assert.equal(get("sync-code-about").hidden, true);
+  assert.equal(get("sync-code").hidden, true);
+  assert.equal(get("sync-show-code").hidden, true);
+  assert.equal(get("sync-new-code").className, "primary-action");
+  assert.equal(document.activeElement, get("sync-new-code"));
+
+  get("sync-new-code").click();
+  assert.equal(get("sync-newcode-confirm").hidden, false);
+  assert.equal(syncCalls("new_sync_code").length, 0);
+  get("sync-newcode-submit").click();
+  await flush();
+  assert.equal(syncCalls("new_sync_code").length, 1);
+  assert.equal(get("sync-newcode-confirm").hidden, true);
+  assert.equal(text("sync-code"), NEW_CODE);
+  assert.equal(get("sync-code-missing").hidden, true);
+  assert.equal(get("sync-new-code").className, "sync-dialog__button");
+});
+
+test("Show code without a registered code ends in the same New code state", async () => {
+  await open(masterStatus);
+  backend.code = null;
+  get("sync-show-code").click();
+  await flush();
+  assert.equal(text("sync-code"), "");
+  assert.match(text("sync-error-message"), /no code yet/i);
+  assert.equal(get("sync-retry").hidden, true);
+  backend.current.codeReady = false;
+  get("sync-button").click();
+  await flush();
+  assert.equal(get("sync-code-missing").hidden, false);
+  assert.equal(get("sync-new-code").className, "primary-action");
 });
 
 test("every status has its own headline and the last sync time comes only from the status", async () => {
@@ -442,8 +517,8 @@ test("every status has its own headline and the last sync time comes only from t
     [{ ...paired, state: "offline", lastErrorCategory: "offline" }, "Sync couldn’t connect"],
     [{ ...paired, state: "error", lastErrorCategory: "timeout" }, "Sync couldn’t connect"],
     [{ ...paired, state: "error", lastErrorCategory: "secure_storage" }, "Sync needs attention"],
-    [{ ...paired, state: "error", lastErrorCategory: "unsupported_version" }, "Sync needs attention"],
     [{ ...paired, supported: false, paired: false, state: "unpaired" }, "Sync isn’t available on this device"],
+    [ended("revoked"), "This device is no longer syncing"],
   ];
   for (const [status, headline] of cases) {
     await open(status);
@@ -479,7 +554,7 @@ test("every status has its own headline and the last sync time comes only from t
   );
 });
 
-test("the status says what Sync covers and what recovery doesn’t bring back", async () => {
+test("the status says what Sync covers", async () => {
   await open(unpaired);
   assert.equal(get("sync-scope").hidden, false);
   get("sync-dialog").close();
@@ -487,7 +562,7 @@ test("the status says what Sync covers and what recovery doesn’t bring back", 
   assert.equal(get("sync-scope").hidden, false);
 });
 
-test("the roster marks this device, shows missing dates, renders names as text, and offers no revocation", async () => {
+test("the roster marks this device, shows missing dates, renders names as text, and offers no removal to a member", async () => {
   const hostile = { ...phone, displayName: "<img src=x onerror=alert(1)>", joinedAtMs: 0, lastSyncedAtMs: null };
   await open({ ...paired, devices: [hostile, thisDevice] });
   const rows = get("sync-devices").children;
@@ -508,182 +583,170 @@ test("the roster marks this device, shows missing dates, renders names as text, 
   );
 });
 
-test("renaming works offline, trims, validates, and survives a status refresh while editing", async () => {
-  await open({ ...paired, state: "offline", lastErrorCategory: "offline", dirty: false });
-  assert.equal(get("sync-name-input").value, "Studio laptop");
-
-  get("sync-name-input").value = "  Desk  ";
-  get("sync-name-input").dispatchEvent(new Event("input"));
-  // A status event while typing must not overwrite the edit.
-  get("sync-button").click();
-  await flush();
-  assert.equal(get("sync-name-input").value, "  Desk  ");
-  submit("sync-name-form");
-  await flush();
-  assert.deepEqual(
-    syncCalls("set_sync_device_name").map((call) => call.args),
-    [{ name: "Desk" }],
-  );
-  assert.equal(get("sync-name-error").hidden, true);
-  assert.equal(get("sync-name-input").value, "Desk");
-  assert.equal(rowTexts(get("sync-devices").children[0])[0], "Desk");
-  assert.equal(get("sync-dirty").hidden, false);
-  assert.equal(syncCalls("sync_now").length, 0);
-  assert.equal(document.activeElement, get("sync-name-input"));
-
-  for (const [value, expected] of [
-    ["   ", /Enter a name/],
-    ["x".repeat(129), /128 characters/],
-    ["bad\u0007name", /control characters/],
-  ]) {
-    get("sync-name-input").value = value;
-    get("sync-name-input").dispatchEvent(new Event("input"));
-    submit("sync-name-form");
-    await flush();
-    assert.equal(get("sync-name-error").hidden, false);
-    assert.match(text("sync-name-error"), expected);
-    assert.equal(get("sync-name-input").getAttribute("aria-invalid"), "true");
-    assert.equal(document.activeElement, get("sync-name-input"));
-  }
-  assert.equal(syncCalls("set_sync_device_name").length, 1);
-  get("sync-name-input").dispatchEvent(new Event("input"));
-  assert.equal(get("sync-name-error").hidden, true);
-
-  backend.fail = { command: "set_sync_device_name", error: { category: "persistence" } };
-  get("sync-name-input").value = "Kitchen";
-  submit("sync-name-form");
-  await flush();
-  assert.match(text("sync-name-error"), /could not be saved/);
-  assert.match(text("sync-name-error"), /name was not changed/);
-});
-
-test("Show recovery key is an explicit action and the key leaves the page when hidden or closed", async () => {
-  await open(paired);
-  assert.equal(text("sync-recovery-key"), "");
-  assert.equal(syncCalls("get_sync_recovery_key").length, 0);
-  get("sync-show-key").click();
-  await flush();
-  assert.equal(syncCalls("get_sync_recovery_key").length, 1);
-  assert.equal(text("sync-recovery-key"), KEY);
-  assert.equal(get("sync-recovery").hidden, false);
-  assert.equal(get("sync-paired").hidden, true);
-  // Viewing a key already saved needs no confirmation checkbox, and nothing blocks leaving.
-  assert.equal(get("sync-key-confirm").hidden, true);
-  assert.equal(get("sync-close").disabled, false);
-  assert.equal(document.activeElement, get("sync-copy-key"));
-  assert.equal(JSON.stringify(backend.current).includes(KEY), false);
+test("a device that is not the administrator sees no code, remove or New code, and can leave", async () => {
+  await open(memberStatus);
+  assert.equal(get("sync-paired").hidden, false);
+  assert.equal(get("sync-code-panel").hidden, true);
+  assert.equal(text("sync-code"), "");
+  assert.equal(get("sync-dissolve").hidden, true);
+  assert.equal(get("sync-leave").hidden, false);
+  const rows = get("sync-devices").children;
+  assert.equal(rows.length, 2);
   assert.equal(
-    [...localStorage.values.values()].some((value) => value.includes(KEY)),
+    rows.flatMap((row) => row.children).some((child) => child.textContent === "Remove"),
     false,
   );
-
-  get("sync-done").click();
-  assert.equal(text("sync-recovery-key"), "");
-  assert.equal(get("sync-paired").hidden, false);
-  assert.equal(document.activeElement, get("sync-show-key"));
-
-  get("sync-show-key").click();
-  await flush();
-  assert.equal(text("sync-recovery-key"), KEY);
-  get("sync-close").click();
-  assert.equal(get("sync-dialog").open, false);
-  assert.equal(text("sync-recovery-key"), "");
-  get("sync-button").click();
-  await flush();
-  assert.equal(text("sync-recovery-key"), "");
-  assert.equal(get("sync-recovery").hidden, true);
+  assert.ok(rows.flatMap(rowTexts).includes("Administrator"));
+  assert.equal(syncCalls("get_sync_code").length, 0);
+  assert.equal(syncCalls("new_sync_code").length, 0);
 });
 
-test("a failed key read shows an error, no key, and returns focus to the button", async () => {
-  await open(paired);
-  backend.fail = { command: "get_sync_recovery_key", error: { category: "secure_storage" } };
-  get("sync-show-key").click();
-  await flush();
-  assert.equal(text("sync-recovery-key"), "");
-  assert.match(text("sync-error-message"), /secure storage/);
-  assert.equal(document.activeElement, get("sync-show-key"));
+test("the administrator sees the code controls, a Remove action for other active devices, and End Sync instead of Leave", async () => {
+  await open(masterStatus);
+  assert.equal(get("sync-code-panel").hidden, false);
+  assert.equal(get("sync-code").hidden, true);
+  assert.equal(text("sync-show-code"), "Show code");
+  assert.equal(get("sync-leave").hidden, true);
+  assert.equal(get("sync-dissolve").hidden, false);
+  const removable = get("sync-devices")
+    .children.flatMap((row) => row.children)
+    .filter((child) => child.textContent === "Remove");
+  assert.equal(removable.length, 1);
+  assert.match(removable[0].getAttribute("aria-label"), /^Remove Pocket phone/);
+  const own = get("sync-devices").children[0];
+  assert.ok(rowTexts(own).includes("Administrator"));
+  assert.ok(rowTexts(own).includes("This device"));
+  assert.equal(syncCalls("get_sync_code").length, 0);
 });
 
-test("errors are specific, retry only when retrying can help, and never offer to overwrite the remote", async () => {
-  await open(paired);
-  const failWith = async (category) => {
-    backend.fail = { command: "sync_now", error: { category } };
-    get("sync-now").click();
-    await flush();
-    return { message: text("sync-error-message"), retry: !get("sync-retry").hidden };
-  };
+test("New code asks first, explains who is affected, and shows the replacement code", async () => {
+  await open(masterStatus);
+  get("sync-show-code").click();
+  await flush();
+  assert.equal(text("sync-code"), CODE);
+  get("sync-new-code").click();
+  assert.equal(get("sync-newcode-confirm").hidden, false);
+  assert.equal(get("sync-paired").hidden, true);
+  assert.equal(document.activeElement, get("sync-newcode-cancel"));
+  assert.equal(syncCalls("new_sync_code").length, 0);
 
-  const conflict = await failWith("conflict");
-  assert.match(conflict.message, /kept changing/);
-  assert.match(conflict.message, /safe/);
-  assert.equal(conflict.retry, true);
+  get("sync-newcode-cancel").click();
+  assert.equal(get("sync-newcode-confirm").hidden, true);
+  assert.equal(document.activeElement, get("sync-new-code"));
+  assert.equal(syncCalls("new_sync_code").length, 0);
+  assert.equal(text("sync-code"), CODE);
 
-  const newer = await failWith("unsupported_version");
-  assert.match(newer.message, /Update the app/);
-  assert.equal(newer.retry, false);
+  backend.fail = { command: "new_sync_code", error: { category: "offline" } };
+  get("sync-new-code").click();
+  get("sync-newcode-submit").click();
+  await flush();
+  assert.equal(get("sync-newcode-confirm").hidden, false);
+  assert.match(text("sync-error-message"), /offline/);
+  assert.equal(text("sync-code"), "", "a code that may already be replaced is no longer shown");
+  assert.equal(document.activeElement, get("sync-newcode-submit"));
 
-  for (const category of ["invalid_remote_data", "rollback_detected", "server_rollback_detected"]) {
-    const result = await failWith(category);
-    assert.match(result.message, /not applied/);
-    assert.equal(result.retry, false);
-    assert.doesNotMatch(result.message, /repair|overwrite|replace/i);
-  }
-
-  // Retry repeats the failed action and clears the error when it works.
-  await failWith("offline");
   backend.fail = null;
   get("sync-retry").click();
   await flush();
-  assert.equal(get("sync-error").hidden, true);
-  assert.deepEqual(
-    [...new Set(calls.map((call) => call.command))].filter((command) => /overwrite|repair|reset/.test(command)),
-    [],
-  );
+  assert.equal(syncCalls("new_sync_code").length, 2);
+  assert.equal(get("sync-newcode-confirm").hidden, true);
   assert.equal(get("sync-paired").hidden, false);
+  assert.equal(text("sync-code"), NEW_CODE);
 });
 
-test("an unsupported platform is a stated condition, not an unknown command", async () => {
-  await open({ ...unpaired, supported: false });
-  assert.equal(text("sync-status"), "Sync isn’t available on this device");
-  assert.equal(get("sync-enable").disabled, true);
-  assert.equal(get("sync-join").disabled, true);
-  backend.current = structuredClone(paired);
-  backend.fail = { command: "get_sync_recovery_key", error: { category: "unsupported_platform" } };
-  await open(paired);
-  get("sync-show-key").click();
+test("removing a device confirms the exact device, then rotates the key and drops the stale code", async () => {
+  await open(masterStatus);
+  get("sync-show-code").click();
   await flush();
-  assert.match(text("sync-error-message"), /isn’t available on this device/);
-});
-
-test("a rejected recovery key keeps the text for fixing and returns focus to the field", async () => {
-  await open(unpaired);
-  get("sync-show-join").click();
-  await flush();
-  choose("restore");
-  backend.fail = { command: "join_sync", error: { category: "invalid_recovery_key", details: "private" } };
-  get("sync-recovery-input").value = "rf1-typo";
-  submit("sync-join-form");
-  await flush();
-  assert.match(text("sync-error-message"), /isn’t valid/);
-  assert.doesNotMatch(text("sync-error-message"), /private/);
-  assert.equal(get("sync-recovery-input").value, "rf1-typo");
-  assert.equal(get("sync-retry").hidden, true);
-  assert.equal(document.activeElement, get("sync-recovery-input"));
+  const remove = get("sync-devices")
+    .children.flatMap((row) => row.children)
+    .find((child) => child.textContent === "Remove");
+  remove.click();
+  assert.equal(get("sync-remove-confirm").hidden, false);
   assert.equal(get("sync-paired").hidden, true);
+  assert.match(text("sync-remove-target"), /Pocket phone.*member12/);
+  assert.equal(document.activeElement, get("sync-remove-cancel"));
 
-  backend.fail = { command: "join_sync", error: { category: "missing_chain" } };
-  submit("sync-join-form");
+  get("sync-remove-cancel").click();
+  assert.equal(get("sync-remove-confirm").hidden, true);
+  assert.equal(syncCalls("remove_sync_device").length, 0);
+  assert.equal(text("sync-code"), CODE);
+
+  const again = get("sync-devices")
+    .children.flatMap((row) => row.children)
+    .find((child) => child.textContent === "Remove");
+  again.click();
+  get("sync-remove-device").click();
   await flush();
-  assert.match(text("sync-error-message"), /No Sync was found/);
-  get("sync-join-cancel").click();
-  assert.equal(get("sync-join-form").hidden, true);
-  assert.equal(get("sync-recovery-input").value, "");
-  assert.equal(get("sync-error").hidden, true);
-  assert.equal(document.activeElement, get("sync-show-join"));
+  assert.deepEqual(
+    syncCalls("remove_sync_device").map((call) => call.args),
+    [{ memberId: "member123456" }],
+  );
+  assert.equal(get("sync-remove-confirm").hidden, true);
+  assert.equal(get("sync-paired").hidden, false);
+  assert.equal(text("sync-code"), "");
+  assert.equal(text("sync-show-code"), "Show code");
+  assert.equal(get("sync-code-missing").hidden, true);
+  assert.match(get("sync-devices").children.flatMap(rowTexts).join(" "), /revoked/);
+  assert.equal(
+    get("sync-devices")
+      .children.flatMap((row) => row.children)
+      .some((child) => child.textContent === "Remove"),
+    false,
+  );
+  get("sync-show-code").click();
+  await flush();
+  assert.equal(text("sync-code"), REKEYED_CODE);
 });
 
-test("disconnecting works offline, keeps saved data, and manages focus", async () => {
-  await open(paired);
+test("a failed removal keeps the confirmation and says why", async () => {
+  await open(masterStatus);
+  get("sync-devices")
+    .children.flatMap((row) => row.children)
+    .find((child) => child.textContent === "Remove")
+    .click();
+  backend.fail = { command: "remove_sync_device", error: { category: "master_required" } };
+  get("sync-remove-device").click();
+  await flush();
+  assert.equal(get("sync-remove-confirm").hidden, false);
+  assert.match(text("sync-error-message"), /Only the administrator/);
+  assert.equal(get("sync-retry").hidden, true);
+});
+
+test("End Sync for all devices needs the typed word and ends in the start-over state", async () => {
+  await open(masterStatus);
+  get("sync-dissolve").click();
+  assert.equal(get("sync-dissolve-confirm").hidden, false);
+  assert.equal(document.activeElement, get("sync-dissolve-cancel"));
+  assert.equal(get("sync-dissolve-submit").disabled, true);
+
+  get("sync-dissolve-cancel").click();
+  assert.equal(get("sync-dissolve-confirm").hidden, true);
+  assert.equal(document.activeElement, get("sync-dissolve"));
+  assert.equal(syncCalls("dissolve_sync").length, 0);
+
+  get("sync-dissolve").click();
+  get("sync-dissolve-word").value = "end";
+  get("sync-dissolve-word").dispatchEvent(new Event("input"));
+  assert.equal(get("sync-dissolve-submit").disabled, true);
+  submit("sync-dissolve-confirm");
+  await flush();
+  assert.equal(syncCalls("dissolve_sync").length, 0);
+
+  get("sync-dissolve-word").value = "END";
+  get("sync-dissolve-word").dispatchEvent(new Event("input"));
+  assert.equal(get("sync-dissolve-submit").disabled, false);
+  submit("sync-dissolve-confirm");
+  await flush();
+  assert.equal(syncCalls("dissolve_sync").length, 1);
+  assert.equal(get("sync-ended").hidden, false);
+  assert.equal(get("sync-paired").hidden, true);
+  assert.match(text("sync-status-detail"), /has ended for all devices/);
+  assert.equal(document.activeElement, get("sync-start-over"));
+});
+
+test("leaving works offline, keeps saved data, manages focus and ends in the start-over state", async () => {
+  await open(memberStatus);
   get("sync-leave").click();
   assert.equal(get("sync-leave-confirm").hidden, false);
   assert.equal(get("sync-paired").hidden, true);
@@ -701,17 +764,267 @@ test("disconnecting works offline, keeps saved data, and manages focus", async (
   assert.equal(document.activeElement, get("sync-leave-confirm-button"));
 
   backend.fail = null;
-  backend.onSyncNow = () => assert.fail("disconnecting must not need the server");
+  backend.onSyncNow = () => assert.fail("leaving must not need the server");
   get("sync-leave-confirm-button").click();
   await flush();
-  assert.equal(get("sync-unpaired").hidden, false);
-  assert.equal(text("sync-status"), "Sync is off");
-  assert.equal(document.activeElement, get("sync-enable"));
-  // Only the local command ran; the saved frame is still in the view.
+  assert.equal(syncCalls("leave_sync").length, 2);
+  assert.equal(get("sync-leave-confirm").hidden, true);
+  assert.equal(get("sync-ended").hidden, false);
+  assert.equal(get("sync-unpaired").hidden, true);
+  assert.equal(text("sync-status"), "This device is no longer syncing");
+  assert.match(text("sync-status-detail"), /This device left the Sync/);
+  assert.equal(document.activeElement, get("sync-start-over"));
   assert.equal(syncCalls("sync_now").length, 0);
   assert.equal(stateModule.state.history.length, 1);
 });
 
+test("every ended state explains itself once, offers no retry, and Start over returns to the choices", async () => {
+  const expected = {
+    revoked: /administrator removed this device/,
+    closed: /has ended for all devices/,
+    left: /This device left the Sync/,
+    left_locally: /left while offline/,
+    credential_replaced: /access to the Sync was replaced/,
+  };
+  for (const [state, pattern] of Object.entries(expected)) {
+    await open(ended(state));
+    assert.equal(get("sync-ended").hidden, false, state);
+    assert.equal(get("sync-unpaired").hidden, true, state);
+    assert.equal(get("sync-paired").hidden, true, state);
+    assert.equal(get("sync-now").hidden, true, state);
+    assert.equal(get("sync-scope").hidden, true, state);
+    assert.match(text("sync-status-detail"), pattern, state);
+    assert.match(text("sync-status-detail"), /stays here/, state);
+    assert.equal(get("sync-retry").hidden, true, state);
+    assert.equal(get("sync-button").dataset.sync, "attention", state);
+
+    const before = syncCalls("leave_sync").length;
+    get("sync-start-over").click();
+    await flush();
+    assert.equal(syncCalls("leave_sync").length, before + 1, state);
+    assert.equal(get("sync-ended").hidden, true, state);
+    assert.equal(get("sync-unpaired").hidden, false, state);
+    assert.equal(text("sync-status"), "Sync is off", state);
+    assert.equal(document.activeElement, get("sync-enable"), state);
+    get("sync-dialog").close();
+  }
+});
+
+test("a failed Start over keeps the ended state and the button", async () => {
+  await open(ended("revoked"));
+  backend.fail = { command: "leave_sync", error: { category: "persistence" } };
+  get("sync-start-over").click();
+  await flush();
+  assert.equal(get("sync-ended").hidden, false);
+  assert.match(text("sync-error-message"), /could not be saved/);
+  assert.equal(document.activeElement, get("sync-start-over"));
+});
+
+test("an action that finds the Sync ended shows the reason and then the start-over state", async () => {
+  await open(paired);
+  backend.fail = { command: "sync_now", error: { category: "revoked" } };
+  get("sync-now").click();
+  backend.current = ended("revoked");
+  await flush();
+  assert.match(text("sync-error-message"), /administrator removed this device/);
+  assert.equal(get("sync-retry").hidden, true);
+  assert.equal(get("sync-ended").hidden, false);
+});
+
+const CATEGORIES = [
+  "master_required",
+  "master_cannot_leave",
+  "no_code",
+  "already_paired",
+  "unpaired",
+  "already_syncing",
+  "pending_operation",
+  "revoked",
+  "left",
+  "closed",
+  "credential_replaced",
+  "conflict",
+  "offline",
+  "timeout",
+  "tls",
+  "rate_limited",
+  "server_error",
+  "malformed_response",
+  "not_found",
+  "body_too_large",
+  "rollback_detected",
+  "secure_storage",
+  "persistence",
+  "corrupt_local_state",
+  "invalid_remote_data",
+  "invalid_endpoint",
+  "unsupported_platform",
+  "migration_pending",
+  "operation_mismatch",
+  "code_length",
+  "code_word",
+  "code_typo",
+  "code_rejected",
+];
+
+test("every error category has its own calm copy and retry appears only where retrying can help", async () => {
+  await open(paired);
+  const notRetryable = new Set([
+    "master_required",
+    "master_cannot_leave",
+    "no_code",
+    "already_paired",
+    "unpaired",
+    "revoked",
+    "left",
+    "closed",
+    "credential_replaced",
+    "not_found",
+    "body_too_large",
+    "rollback_detected",
+    "corrupt_local_state",
+    "invalid_remote_data",
+    "invalid_endpoint",
+    "unsupported_platform",
+    "operation_mismatch",
+    "code_length",
+    "code_word",
+    "code_typo",
+    "code_rejected",
+  ]);
+  const messages = new Set();
+  for (const category of CATEGORIES) {
+    backend.fail = { command: "sync_now", error: { category } };
+    get("sync-now").click();
+    await flush();
+    const message = text("sync-error-message");
+    assert.notEqual(message, "Sync could not complete. Try again.", category);
+    assert.equal(get("sync-retry").hidden, notRetryable.has(category), category);
+    messages.add(message);
+  }
+  assert.equal(messages.size, CATEGORIES.length);
+
+  backend.fail = { command: "sync_now", error: { category: "code_word", details: 4 } };
+  get("sync-now").click();
+  await flush();
+  assert.equal(text("sync-error-message"), "Word 5 is not a valid code word.");
+
+  for (const category of ["invalid_remote_data", "rollback_detected"]) {
+    backend.fail = { command: "sync_now", error: { category } };
+    get("sync-now").click();
+    await flush();
+    assert.match(text("sync-error-message"), /not applied/);
+    assert.doesNotMatch(text("sync-error-message"), /repair|overwrite|replace/i);
+  }
+  backend.fail = { command: "sync_now", error: { category: "mystery" } };
+  get("sync-now").click();
+  await flush();
+  assert.equal(text("sync-error-message"), "Sync could not complete. Try again.");
+
+  // Retry repeats the failed action and clears the error when it works.
+  backend.fail = { command: "sync_now", error: { category: "offline" } };
+  get("sync-now").click();
+  await flush();
+  backend.fail = null;
+  get("sync-retry").click();
+  await flush();
+  assert.equal(get("sync-error").hidden, true);
+  assert.deepEqual(
+    [...new Set(calls.map((call) => call.command))].filter((command) => /overwrite|repair|reset/.test(command)),
+    [],
+  );
+  assert.equal(get("sync-paired").hidden, false);
+});
+
+test("an unsupported platform is a stated condition, not an unknown command", async () => {
+  await open({ ...unpaired, supported: false });
+  assert.equal(text("sync-status"), "Sync isn’t available on this device");
+  assert.equal(get("sync-enable").disabled, true);
+  assert.equal(get("sync-join").disabled, true);
+  await open(masterStatus);
+  backend.fail = { command: "get_sync_code", error: { category: "unsupported_platform" } };
+  get("sync-show-code").click();
+  await flush();
+  assert.match(text("sync-error-message"), /isn’t available on this device/);
+  assert.equal(document.activeElement, get("sync-show-code"));
+});
+
+const joinErrors = [
+  ["code_length", undefined, "The code has 24 words; this one has a different number."],
+  ["code_word", 0, "Word 1 is not a valid code word."],
+  ["code_word", 23, "Word 24 is not a valid code word."],
+  ["code_typo", undefined, "The code has a typo. Check the words and their order."],
+  ["code_rejected", undefined, /replaced.*Ask the administrator for the current code/],
+  ["no_code", undefined, /no code yet.*New code/i],
+];
+
+for (const [category, details, expected] of joinErrors) {
+  test(`a ${category}${details === undefined ? "" : ` at ${details}`} join error shows beside the field and keeps what was typed`, async () => {
+    await open(unpaired);
+    get("sync-show-join").click();
+    await flush();
+    choose("restore");
+    backend.fail = { command: "join_sync", error: { category, details } };
+    get("sync-code-input").value = TYPED_CODE;
+    submit("sync-join-form");
+    await flush();
+    const shown = text("sync-code-error");
+    if (typeof expected === "string") assert.equal(shown, expected);
+    else assert.match(shown, expected);
+    assert.equal(get("sync-code-error").hidden, false);
+    assert.equal(get("sync-code-input").getAttribute("aria-invalid"), "true");
+    assert.equal(get("sync-error").hidden, true);
+    assert.equal(get("sync-retry").hidden, true);
+    assert.equal(get("sync-code-input").value, TYPED_CODE);
+    assert.equal(document.activeElement, get("sync-code-input"));
+    assert.equal(get("sync-join-form").hidden, false);
+    assert.equal(get("sync-paired").hidden, true);
+    assert.notEqual(text("sync-status"), "Sync needs attention");
+
+    get("sync-code-input").value = `${TYPED_CODE} fixed`;
+    get("sync-code-input").dispatchEvent(new Event("input"));
+    assert.equal(get("sync-code-error").hidden, true);
+    assert.equal(get("sync-code-input").getAttribute("aria-invalid"), null);
+
+    backend.fail = null;
+    submit("sync-join-form");
+    await flush();
+    assert.equal(get("sync-paired").hidden, false);
+    assert.equal(text("sync-code-error"), "");
+  });
+}
+
+test("the join error region is a live alert next to the code field", async () => {
+  const html = await readFile(new URL("../dist/index.html", import.meta.url), "utf8");
+  const form = html.split('id="sync-join-form"')[1].split("</form>")[0];
+  assert.match(form, /<textarea[^>]*id="sync-code-input"[^>]*aria-describedby="[^"]*sync-code-error/);
+  assert.match(form, /<p[^>]*id="sync-code-error"[^>]*role="alert"/);
+  assert.match(form, /<label for="sync-code-input">/);
+  assert.match(form, /autocapitalize="off"/);
+  assert.match(form, /spellcheck="false"/);
+});
+
+test("joining sends the typed code exactly as typed apart from trimming, with the chosen mode", async () => {
+  for (const mode of ["restore", "merge"]) {
+    const start = joinCalls().length;
+    await openJoin();
+    assert.equal(document.activeElement, get("sync-code-input"));
+    choose(mode);
+    get("sync-code-input").value = TYPED_CODE;
+    submit("sync-join-form");
+    await flush();
+    assert.deepEqual(joinCalls().slice(start), [{ code: TYPED_CODE.trim(), mode }]);
+    assert.ok(TYPED_CODE.trim().includes("\n"));
+    assert.ok(TYPED_CODE.trim().includes("ABANDON"));
+    assert.equal(get("sync-paired").hidden, false);
+    assert.equal(get("sync-code-input").value, "");
+    assert.equal(document.activeElement, get("sync-now"));
+    assert.equal(text("sync-code"), "");
+    assert.equal(get("sync-code-panel").hidden, true);
+    get("sync-dialog").close();
+  }
+  assert.equal(syncCalls("create_sync").length, 0);
+});
 test("a status failure is an error with a retry, never a status stuck on Checking", async () => {
   backend.statusFails = true;
   get("sync-button").click();
@@ -786,17 +1099,17 @@ test("meaningful state starts neutral; explicitly choosing Restore enables joini
   assert.equal(syncCalls("get_sync_join_summary").length, 1);
   assert.equal(restoreOption().checked, false);
   assert.equal(mergeOption().checked, false);
-  assert.equal(text("sync-join"), "Connect this device");
+  assert.equal(text("sync-join"), "Join this Sync");
   assert.equal(get("sync-join-modes").hidden, false);
   assert.equal(get("sync-join-fresh").hidden, true);
   assert.equal(get("sync-join").disabled, true);
   choose("restore");
   assert.equal(restoreOption().checked, true);
   assert.equal(get("sync-join").disabled, false);
-  get("sync-recovery-input").value = KEY;
+  get("sync-code-input").value = CODE;
   submit("sync-join-form");
   await flush();
-  assert.deepEqual(joinCalls(), [{ recoveryKey: KEY, mode: "restore" }]);
+  assert.deepEqual(joinCalls(), [{ code: CODE, mode: "restore" }]);
   assert.equal(get("sync-paired").hidden, false);
   assert.equal(get("sync-join-form").hidden, true);
 });
@@ -806,10 +1119,10 @@ test("choosing Merge sends merge, and the label never decides the mode", async (
   choose("merge");
   assert.equal(get("sync-join").disabled, false);
   assert.equal(text("sync-join"), "Merge this device");
-  get("sync-recovery-input").value = KEY;
+  get("sync-code-input").value = CODE;
   submit("sync-join-form");
   await flush();
-  assert.deepEqual(joinCalls(), [{ recoveryKey: KEY, mode: "merge" }]);
+  assert.deepEqual(joinCalls(), [{ code: CODE, mode: "merge" }]);
 
   // A relabelled button cannot change what Restore means.
   backend.current = structuredClone(unpaired);
@@ -819,10 +1132,10 @@ test("choosing Merge sends merge, and the label never decides the mode", async (
   assert.equal(restoreOption().checked, false);
   choose("restore");
   get("sync-join").textContent = "Merge this device";
-  get("sync-recovery-input").value = KEY;
+  get("sync-code-input").value = CODE;
   submit("sync-join-form");
   await flush();
-  assert.deepEqual(joinCalls().at(-1), { recoveryKey: KEY, mode: "restore" });
+  assert.deepEqual(joinCalls().at(-1), { code: CODE, mode: "restore" });
 });
 
 test("Enter/form submission without a choice cannot Restore or Merge, regardless of button text", async () => {
@@ -831,20 +1144,20 @@ test("Enter/form submission without a choice cannot Restore or Merge, regardless
   assert.equal(mergeOption().checked, false);
   assert.equal(get("sync-join").disabled, true);
   get("sync-join").textContent = "Restore this device";
-  get("sync-recovery-input").value = KEY;
+  get("sync-code-input").value = CODE;
   submit("sync-join-form");
   await flush();
   assert.equal(syncCalls("join_sync").length, 0);
   assert.match(text("sync-error-message"), /Choose how this device should join/);
   assert.equal(document.activeElement, restoreOption());
-  assert.equal(get("sync-recovery-input").value, KEY);
+  assert.equal(get("sync-code-input").value, CODE);
 });
 
 test("a submit while the summary is still loading cannot join even with a selected radio", async () => {
   await open(unpaired);
   get("sync-show-join").click();
   choose("restore");
-  get("sync-recovery-input").value = KEY;
+  get("sync-code-input").value = CODE;
   assert.equal(get("sync-join").disabled, true);
   submit("sync-join-form");
   await flush();
@@ -893,10 +1206,10 @@ test("a device with nothing synced streamlines to Restore, and says so", async (
   assert.equal(get("sync-join-fresh").hidden, false);
   assert.equal(get("sync-join-local").hidden, true);
   assert.equal(text("sync-join"), "Restore this device");
-  get("sync-recovery-input").value = KEY;
+  get("sync-code-input").value = CODE;
   submit("sync-join-form");
   await flush();
-  assert.deepEqual(joinCalls(), [{ recoveryKey: KEY, mode: "restore" }]);
+  assert.deepEqual(joinCalls(), [{ code: CODE, mode: "restore" }]);
   assert.equal(get("sync-paired").hidden, false);
 });
 
@@ -908,10 +1221,10 @@ test("an unreadable summary keeps both choices instead of assuming the device is
   assert.equal(get("sync-join-local").hidden, true);
   assert.equal(get("sync-join").disabled, true);
   choose("merge");
-  get("sync-recovery-input").value = KEY;
+  get("sync-code-input").value = CODE;
   submit("sync-join-form");
   await flush();
-  assert.deepEqual(joinCalls(), [{ recoveryKey: KEY, mode: "merge" }]);
+  assert.deepEqual(joinCalls(), [{ code: CODE, mode: "merge" }]);
 });
 
 test("a failed join preserves either explicit choice for retry, then success resets to neutral", async () => {
@@ -919,7 +1232,7 @@ test("a failed join preserves either explicit choice for retry, then success res
     const start = joinCalls().length;
     await openJoin();
     choose(mode);
-    get("sync-recovery-input").value = KEY;
+    get("sync-code-input").value = CODE;
     backend.fail = { command: "join_sync", error: { category: "timeout" } };
     submit("sync-join-form");
     await flush();
@@ -927,14 +1240,14 @@ test("a failed join preserves either explicit choice for retry, then success res
     assert.equal(mergeOption().checked, mode === "merge");
     assert.equal(restoreOption().checked, mode === "restore");
     assert.equal(get("sync-join").disabled, false);
-    assert.equal(get("sync-recovery-input").value, KEY);
+    assert.equal(get("sync-code-input").value, CODE);
     assert.equal(get("sync-retry").hidden, false);
     backend.fail = null;
     get("sync-retry").click();
     await flush();
     assert.deepEqual(joinCalls().slice(start), [
-      { recoveryKey: KEY, mode },
-      { recoveryKey: KEY, mode },
+      { code: CODE, mode },
+      { code: CODE, mode },
     ]);
     assert.equal(get("sync-paired").hidden, false);
     assert.equal(restoreOption().checked, false);
@@ -942,7 +1255,7 @@ test("a failed join preserves either explicit choice for retry, then success res
   }
 });
 
-test("Restore reloads replaced views when final local pairing fails", async () => {
+test("Restore reloads replaced views when saving this device’s Sync settings fails", async () => {
   const stage = await import("../dist/test-client/stage.js");
   for (const category of ["secure_storage", "persistence"]) {
     const oldItem = { source: "prntsc", id: "oldlocal", sourcePageUrl: "https://prnt.sc/oldlocal", viewedAt: 1 };
@@ -950,7 +1263,7 @@ test("Restore reloads replaced views when final local pairing fails", async () =
     stateModule.applySavedLibrary(libraryOf([{ ...oldItem, addedAt: 1 }]));
     await openJoin();
     choose("restore");
-    get("sync-recovery-input").value = KEY;
+    get("sync-code-input").value = CODE;
     // Native Restore replaces the stores before saving credentials and sync-config.
     backend.onJoin = () => {
       backend.history = [];
@@ -969,7 +1282,7 @@ test("Restore reloads replaced views when final local pairing fails", async () =
     assert.equal(get("favorite-button").disabled, true);
     assert.equal(get("sync-retry").hidden, false);
     assert.match(text("sync-error-message"), category === "secure_storage" ? /secure storage/ : /could not be saved/);
-    assert.equal(get("sync-recovery-input").value, KEY);
+    assert.equal(get("sync-code-input").value, CODE);
     assert.equal(restoreOption().checked, true);
     backend.fail = null;
     get("sync-retry").click();
@@ -981,10 +1294,10 @@ test("Restore reloads replaced views when final local pairing fails", async () =
 test("cancelling a join returns to neutral and forgets the key and the summary", async () => {
   await openJoin({ historyRemovals: 9 });
   choose("merge");
-  get("sync-recovery-input").value = KEY;
+  get("sync-code-input").value = CODE;
   get("sync-join-cancel").click();
   assert.equal(get("sync-join-form").hidden, true);
-  assert.equal(get("sync-recovery-input").value, "");
+  assert.equal(get("sync-code-input").value, "");
   assert.equal(restoreOption().checked, false);
   assert.equal(mergeOption().checked, false);
   assert.equal(syncCalls("join_sync").length, 0);
@@ -1017,14 +1330,13 @@ test("the options are native radios with labelled consequences for assistive tec
 
 test("join copy is concrete, avoids vague promises, and keeps developer terms out", async () => {
   const html = await readFile(new URL("../dist/index.html", import.meta.url), "utf8");
-  const form = html.split('id="sync-connect-title"')[1].split('id="sync-recovery"')[0];
+  const form = html.split('id="sync-connect-title"')[1].split('id="sync-ended"')[0];
   const copy = form.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
   for (const phrase of [
-    "Create a pairing request and send it to your group’s administrator.",
+    "Enter the 24-word code from the administrator’s device.",
     "Restore this device from Sync",
     "Replace this device’s synced data with the copy already in Sync.",
     "Local history, saved frames, collections and their previous deletions will not be added to Sync.",
-    "With Restore, if Sync was saved by an older app, data it could not save is kept from this device.",
     "Merge this device with Sync",
     "Combine this device’s existing synced data with the copy already in Sync.",
     "Previous deletions on this device are included. They may remove items that still exist on your other devices.",
@@ -1034,6 +1346,31 @@ test("join copy is concrete, avoids vague promises, and keeps developer terms ou
     copy,
     /keep local data|combine safely|nothing will be lost|tombstone|CRDT|operation|revision|snapshot/i,
   );
+});
+
+test("confirmations explain what changes before anything happens", async () => {
+  const html = await readFile(new URL("../dist/index.html", import.meta.url), "utf8");
+  const section = (id, end) =>
+    html
+      .split(`id="${id}"`)[1]
+      .split(end)[0]
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ");
+  const newCode = section("sync-newcode-confirm", "</section>");
+  assert.match(newCode, /The current code stops working\./);
+  assert.match(newCode, /Devices that haven’t joined yet will need the new code\./);
+  assert.match(newCode, /Devices already in this Sync aren’t affected\./);
+  const remove = section("sync-remove-confirm", "</section>");
+  assert.match(remove, /The Sync key changes, so this device stops syncing\./);
+  assert.match(remove, /A new code is created, and the old code stops working\./);
+  const dissolve = section("sync-dissolve-confirm", "</form>");
+  assert.match(dissolve, /This ends Sync on every device, including this one, and the code stops working\./);
+  assert.match(dissolve, /Type END to confirm/);
+  const leave = section("sync-leave-confirm", "<footer");
+  assert.match(leave, /To join again, you’ll need the current code from the administrator\./);
+  const ended = section("sync-ended", "</section>");
+  assert.match(ended, /Start over/);
+  assert.match(section("sync-code-missing", "</p>"), /No code yet\./);
 });
 
 test("the roster renders the Rust serialization contract fixture", async () => {
@@ -1046,185 +1383,10 @@ test("the roster renders the Rust serialization contract fixture", async () => {
   );
 });
 
-test("only the verified administrator sees admin controls and distinct role / This device labels", async () => {
-  await open(masterStatus);
-  assert.equal(get("sync-admin-tools").hidden, false);
-  assert.equal(get("sync-leave").disabled, true);
-  assert.equal(get("sync-master-note").hidden, false);
-  assert.ok(rowTexts(get("sync-devices").children[0]).includes("Administrator"));
-  assert.ok(rowTexts(get("sync-devices").children[0]).includes("This device"));
-  get("sync-dialog").close();
-  await open(memberStatus);
-  assert.equal(get("sync-admin-tools").hidden, true);
-  assert.equal(get("sync-show-key").hidden, true);
-  assert.equal(get("sync-leave").disabled, false);
-  get("sync-dialog").close();
-  await open({ ...masterStatus, controlVerifiedAt: null });
-  assert.equal(get("sync-admin-tools").hidden, true);
-});
-
-test("pairing requests and invitations are separate from the administration code", async () => {
-  await open();
-  get("sync-show-join").click();
-  await flush();
-  get("sync-pairing-request").click();
-  await flush();
-  assert.equal(text("sync-recovery-key"), PAIRING);
-  assert.equal(get("sync-join-actions").hidden, true);
-  assert.match(text("sync-key-about"), /Send this request to the administrator/);
-  get("sync-done").click();
-  assert.equal(text("sync-recovery-key"), "");
-  assert.equal(document.activeElement.id, "sync-pairing-request");
-  get("sync-dialog").close();
-  await open(masterStatus);
-  get("sync-pairing-input").value = PAIRING;
-  submit("sync-invitation-form");
-  await flush();
-  assert.equal(text("sync-recovery-key"), INVITE);
-  assert.match(text("sync-key-about"), /24 hours/);
-  assert.deepEqual(syncCalls("create_sync_invitation")[0].args, { request: PAIRING });
-  get("sync-done").click();
-  get("sync-show-invitation").click();
-  await flush();
-  assert.equal(text("sync-recovery-key"), INVITE);
-  assert.equal(syncCalls("create_sync_invitation").length, 1);
-  get("sync-done").click();
-  assert.equal(document.activeElement.id, "sync-create-invitation");
-});
-
-test("recovery commits only after saving the new administration code and clears secrets", async () => {
-  await open();
-  get("sync-admin-code").value = "old-admin-code";
-  submit("sync-admin-recover-form");
-  await flush();
-  assert.equal(syncCalls("recover_sync_admin").length, 1);
-  assert.equal(syncCalls("recover_sync_admin")[0].args.confirmed, false);
-  assert.equal(get("sync-admin-code").value, "");
-  assert.match(text("sync-key-about"), /only after recovery succeeds/);
-  get("sync-done").click();
-  assert.equal(syncCalls("recover_sync_admin").length, 1);
-  get("sync-key-saved").checked = true;
-  get("sync-key-saved").dispatchEvent(new Event("change"));
-  get("sync-close").click();
-  assert.equal(get("sync-dialog").open, true);
-  get("sync-done").click();
-  await flush();
-  assert.equal(syncCalls("recover_sync_admin")[1].args.confirmed, true);
-  assert.equal(text("sync-recovery-key"), "");
-  assert.equal(get("sync-admin-tools").hidden, false);
-});
-
-test("cancelling prepared recovery sends no commit", async () => {
-  await open();
-  get("sync-admin-code").value = "old-admin-code";
-  submit("sync-admin-recover-form");
-  await flush();
-  get("sync-recovery-cancel").click();
-  await flush();
-  assert.equal(syncCalls("cancel_sync_admin_recovery").length, 1);
-  assert.equal(syncCalls("recover_sync_admin").length, 1);
-  assert.equal(text("sync-recovery-key"), "");
-  assert.equal(document.activeElement, get("sync-admin-code"));
-});
-
-test("remove confirms the exact member and dissolve requires the typed word", async () => {
-  await open(masterStatus);
-  const row = get("sync-devices").children.find((row) =>
-    row.children.some((child) => child.textContent === "Remove device"),
-  );
-  row.children.find((child) => child.textContent === "Remove device").click();
-  assert.match(text("sync-remove-target"), /Pocket phone.*member12/);
-  assert.equal(document.activeElement, get("sync-remove-cancel"));
-  get("sync-remove-device").click();
-  await flush();
-  assert.deepEqual(syncCalls("remove_sync_device")[0].args, { memberId: "member123456" });
-  get("sync-dissolve").click();
-  assert.equal(document.activeElement, get("sync-dissolve-cancel"));
-  get("sync-dissolve-word").value = "dissolve";
-  submit("sync-dissolve-confirm");
-  await flush();
-  assert.equal(syncCalls("dissolve_sync").length, 0);
-  get("sync-dissolve-word").value = "DISSOLVE";
-  get("sync-dissolve-word").dispatchEvent(new Event("input"));
-  submit("sync-dissolve-confirm");
-  await flush();
-  assert.equal(syncCalls("dissolve_sync").length, 1);
-  assert.match(text("sync-status-detail"), /dissolved/);
-});
-
-test("legacy move explains both groups and terminal states offer no retry", async () => {
-  await open(paired);
-  assert.equal(get("sync-legacy-move").hidden, false);
-  assert.equal(get("sync-admin-tools").hidden, true);
-  get("sync-move").click();
-  await flush();
-  assert.equal(text("sync-recovery-key"), ADMIN);
-  get("sync-key-saved").checked = true;
-  get("sync-done").click();
-  await flush();
-  get("sync-button").click();
-  await flush();
-  assert.match(text("sync-legacy-source"), /did not close it/);
-  get("sync-dialog").close();
-  await open({ ...unpaired, membershipState: "revoked", lastErrorCategory: "revoked", state: "error" });
-  assert.match(text("sync-status-detail"), /removed/);
-  assert.equal(get("sync-retry").hidden, true);
-});
-
-test("pairing explains invalid requests inline and never submits them", async () => {
-  await open(masterStatus);
-  for (const value of ["", ADMIN, INVITE, "rf-pair-v2-", `rf-pair-v2-${"a".repeat(4096)}`]) {
-    get("sync-pairing-input").value = value;
-    submit("sync-invitation-form");
-    await flush();
-    assert.equal(syncCalls("create_sync_invitation").length, 0);
-    assert.equal(get("sync-pairing-error").hidden, false);
-    assert.equal(get("sync-pairing-input").getAttribute("aria-invalid"), "true");
-    assert.equal(document.activeElement, get("sync-pairing-input"));
-  }
-  get("sync-pairing-input").value = PAIRING;
-  get("sync-pairing-input").dispatchEvent(new Event("input"));
-  assert.equal(get("sync-pairing-error").hidden, true);
-  assert.equal(get("sync-pairing-input").getAttribute("aria-invalid"), null);
-  submit("sync-invitation-form");
-  await flush();
-  assert.equal(text("sync-recovery-title"), "Invitation ready");
-  assert.equal(document.activeElement, get("sync-copy-key"));
-});
-
-test("a rejected pairing request retains the input, explains the failure, and restores focus", async () => {
-  await open(masterStatus);
-  get("sync-pairing-input").value = PAIRING;
-  backend.fail = { command: "create_sync_invitation", error: { category: "invalid_recovery_key" } };
-  submit("sync-invitation-form");
-  await flush();
-  assert.match(text("sync-pairing-error"), /pairing request.*copied all/i);
-  assert.equal(get("sync-pairing-input").value, PAIRING);
-  assert.equal(document.activeElement, get("sync-pairing-input"));
-  get("sync-dialog").close();
-  assert.equal(text("sync-pairing-error"), "");
-});
-
-test("failed request and invitation reads return focus to the action that failed", async () => {
-  await open();
-  get("sync-show-join").click();
-  await flush();
-  backend.fail = { command: "get_sync_pairing_request", error: { category: "offline" } };
-  get("sync-pairing-request").click();
-  await flush();
-  assert.equal(document.activeElement, get("sync-pairing-request"));
-  get("sync-dialog").close();
-  await open(masterStatus);
-  backend.fail = { command: "get_sync_invitation", error: { category: "no_invitation" } };
-  get("sync-show-invitation").click();
-  await flush();
-  assert.equal(document.activeElement, get("sync-show-invitation"));
-});
-
 test("joining names the actual operation while controls are disabled", async () => {
   await openJoin();
   choose("restore");
-  get("sync-recovery-input").value = KEY;
+  get("sync-code-input").value = CODE;
   submit("sync-join-form");
   assert.equal(text("sync-join"), "Restoring this device…");
   assert.equal(text("sync-status"), "Restoring this device…");
@@ -1248,4 +1410,36 @@ test("disclosures expose content immediately, exclude collapsed controls, and re
   assert.equal(disclosureToggle.getAttribute("aria-expanded"), "true");
   assert.equal(disclosureBody.inert, false);
   disclosureToggle.click();
+});
+
+test("only the current Sync commands are called or referenced by the Sync client", async () => {
+  const allowed = new Set([
+    "get_sync_status",
+    "create_sync",
+    "join_sync",
+    "get_sync_join_summary",
+    "sync_now",
+    "startup_sync",
+    "leave_sync",
+    "get_sync_code",
+    "new_sync_code",
+    "remove_sync_device",
+    "dissolve_sync",
+  ]);
+  const used = [...everyCommand].filter((command) => /sync/.test(command) && !command.startsWith("plugin:"));
+  assert.deepEqual(
+    used.filter((command) => !allowed.has(command)),
+    [],
+  );
+  for (const file of ["sync-api.js", "sync-dialog.js"]) {
+    const source = await readFile(new URL(`../dist/test-client/${file}`, import.meta.url), "utf8");
+    const referenced = [...source.matchAll(/"([a-z]+(?:_[a-z]+)+)"/g)]
+      .map((match) => match[1])
+      .filter((name) => /sync/.test(name));
+    assert.deepEqual(
+      referenced.filter((name) => !allowed.has(name)),
+      [],
+      file,
+    );
+  }
 });

@@ -2,30 +2,10 @@ use super::{errors::SyncError, state::Generation};
 use crate::{
     persistence::{PersistentState, PreferenceStore},
     snapshot,
-    sync_crypto::SyncKeys,
 };
 pub(super) struct SyncData<'a> {
     pub(super) state: &'a PersistentState,
 }
-/// Authenticates and decodes. Touches no local state.
-pub(super) fn decode_remote(
-    keys: &SyncKeys,
-    envelope: &[u8],
-) -> Result<snapshot::SyncSnapshot, SyncError> {
-    let plaintext = keys
-        .decrypt_snapshot(keys.sync_id(), envelope)
-        .map_err(|_| SyncError::InvalidRemoteData)?;
-    let remote = snapshot::parse_snapshot(&plaintext).map_err(|_| SyncError::InvalidRemoteData)?;
-    #[cfg(any(test, debug_assertions))]
-    snapshot::report_diagnostics(
-        "after_remote_decode",
-        &remote,
-        plaintext.len(),
-        envelope.len(),
-    );
-    Ok(remote)
-}
-
 impl SyncData<'_> {
     pub(super) fn local_snapshot(
         &self,
@@ -46,8 +26,8 @@ impl SyncData<'_> {
         })?;
         Ok((bytes, generation, self_record))
     }
-    /// Restore, not CRDT union: every domain is remote-authoritative, including explicit
-    /// empty values. A stale local roster is never imported; identity registers only this device.
+    /// Replaces local synchronized state with the remote snapshot: every domain is
+    /// remote-authoritative, including explicit empty values. A stale local roster is never imported; identity registers only this device.
     pub(super) fn restore_target(
         &self,
         remote: &snapshot::SyncSnapshot,
@@ -85,32 +65,5 @@ impl SyncData<'_> {
         snapshot::reconcile_seen(&mut target);
         snapshot::validate_snapshot(&target).map_err(|_| SyncError::InvalidRemoteData)?;
         Ok(target)
-    }
-
-    pub(super) fn merge_remote(&self, keys: &SyncKeys, envelope: &[u8]) -> Result<(), SyncError> {
-        let remote = decode_remote(keys, envelope)?;
-        self.state.merge(&remote).map_err(|error| {
-            if error.kind == crate::error::ErrorKind::InvalidInput {
-                SyncError::InvalidRemoteData
-            } else {
-                SyncError::Persistence
-            }
-        })?;
-        #[cfg(any(test, debug_assertions))]
-        if snapshot::diagnostics_enabled() {
-            // After merge there is no envelope yet. Its planned length is exactly
-            // the serialized length plus the frozen 52-byte envelope overhead.
-            if let Ok((merged, _)) = self.state.snapshot() {
-                if let Ok(bytes) = snapshot::serialize_snapshot(&merged) {
-                    snapshot::report_diagnostics(
-                        "after_merge",
-                        &merged,
-                        bytes.len(),
-                        bytes.len() + crate::sync_crypto::ENVELOPE_OVERHEAD,
-                    );
-                }
-            }
-        }
-        Ok(())
     }
 }

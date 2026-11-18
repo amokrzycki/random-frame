@@ -2,11 +2,7 @@ use super::io::{load_json, save_json};
 use crate::error::AppError;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    sync::Mutex,
-};
+use std::{fs, path::Path, sync::Mutex};
 
 pub use crate::snapshot::DeviceMetadata;
 
@@ -43,9 +39,8 @@ fn default_display_name() -> String {
 }
 
 /// Local, stable identity for this installation. It is never part of the encrypted
-/// snapshot and never moves between devices via recovery key.
+/// snapshot and never moves between devices.
 pub struct DeviceIdentity {
-    path: PathBuf,
     data: Mutex<IdentityData>,
 }
 
@@ -65,7 +60,6 @@ impl DeviceIdentity {
         }
         save_json(&path, &data)?;
         Ok(Self {
-            path,
             data: Mutex::new(data),
         })
     }
@@ -103,35 +97,13 @@ impl DeviceIdentity {
             platform: data.platform.clone(),
         }
     }
-
-    /// Trims input, requires 1–128 visible characters, and rejects control characters.
-    pub fn set_display_name(&self, name: &str) -> Result<(), AppError> {
-        let trimmed = name.trim();
-        if trimmed.is_empty()
-            || trimmed.chars().count() > 128
-            || trimmed.chars().any(char::is_control)
-        {
-            return Err(AppError::invalid_input(
-                "Device name must be 1–128 characters without control characters",
-            ));
-        }
-        let mut data = self
-            .data
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let mut next = data.clone();
-        next.display_name = trimmed.into();
-        save_json(&self.path, &next)?;
-        *data = next;
-        drop(data);
-        Ok(())
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
+    use std::path::PathBuf;
 
     fn temp_dir(name: &str) -> PathBuf {
         let nonce = std::time::SystemTime::now()
@@ -152,18 +124,6 @@ mod tests {
         drop(first);
         let second = DeviceIdentity::new(&dir)?;
         assert_eq!(second.id(), id);
-        fs::remove_dir_all(dir).map_err(AppError::persistence)
-    }
-
-    #[test]
-    fn rejects_bad_names() -> Result<(), AppError> {
-        let dir = temp_dir("names");
-        let identity = DeviceIdentity::new(&dir)?;
-        assert!(identity.set_display_name("").is_err());
-        assert!(identity.set_display_name("   ").is_err());
-        assert!(identity.set_display_name("a\nb").is_err());
-        assert!(identity.set_display_name(&"a".repeat(129)).is_err());
-        assert!(identity.set_display_name("OK").is_ok());
         fs::remove_dir_all(dir).map_err(AppError::persistence)
     }
 }

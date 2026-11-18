@@ -15,7 +15,7 @@ Images come from [prnt.sc](https://prnt.sc/). The Rust backend resolves variable
 - Light and dark themes
 - Custom desktop title bar and window controls; Android Back closes the active surface
 - Automatic desktop updates from GitHub Releases; Android updates by installing a newer APK
-- Optional Sync of history, saved frames, collections and assignments, Seen IDs, exploration progress, Activity Stats, and preferences between devices, with device approval and a separate administration code
+- Optional Sync of history, saved frames, collections and assignments, Seen IDs, exploration progress, Activity Stats, and preferences between devices with one 24-word code
 
 ### Nearby Frames
 
@@ -23,7 +23,7 @@ Use the Nearby Frames action beside Draw to inspect four source IDs before and a
 
 Preview checks update IDs checked only. They do not add History, Seen IDs or Draw activity. Opening a thumbnail uses its full image and adds History/Seen with no Draw. Closing preserves the viewer and its History/Saved navigation. Completed checks survive restart, History clearing and Sync; grid position and thumbnails are not synced.
 
-Sync keeps thumbnail availability separate from viewed frames. The snapshot format is unversioned, and data from older app builds is not migrated; don't open the same local data directory with an older binary.
+Sync keeps thumbnail availability separate from viewed frames. 
 
 ### Saved collections
 
@@ -69,21 +69,21 @@ npx tauri dev
 
 `npm run dev` only watches and rebuilds the static frontend; Tauri runs the application.
 
-Sync needs a server endpoint. Set `RANDOM_FRAME_SYNC_BASE_URL` to a validated HTTPS URL for production, or a loopback HTTP URL for local testing, before launching or building the app. Without it, the gallery still works locally and Sync setup reports that the server is not configured. Sync is opt-in. Seen IDs, history, saved frames, collections and assignments, exploration progress, Activity Stats, theme, and history page size are sent only as an encrypted snapshot. Start a new Sync on the device that should become the administrator. Save its separate administration code: it can recover that same logical administrator on a new installation, replacing the former installation’s access. To connect another device, generate a pairing request there, approve it on the administrator’s device, then redeem the one-use invitation on the requesting device. The invitation lasts 24 hours, or until the group’s key changes; it contains neither the root nor the administration code. Choose Restore to adopt remote data, or Merge to preserve local changes and previous deletions. An empty device uses Restore. The administrator can remove other devices (remaining devices automatically update keys, including after several offline epochs) or dissolve the whole group. Local copies and saved image files remain on removed devices; downloaded knowledge cannot be erased remotely. The administrator cannot disconnect without recovery on another installation or dissolve. The server-verified membership list has separate Administrator and This device badges; Last synced does not mean online.
+Sync needs a server endpoint. Set `RANDOM_FRAME_SYNC_BASE_URL` to a validated HTTPS URL for production, or a loopback HTTP URL for local testing, before launching or building the app. Without it, the gallery still works locally and Sync setup reports that the server is not configured. Sync is opt-in. Seen IDs, history, saved frames, collections and assignments, exploration progress, Activity Stats, theme, and history page size are sent only as an encrypted snapshot.
+
+Start a new Sync on the device that should become the administrator. It shows one code of 24 words. On every other device choose Join a Sync and enter that code; there is nothing to approve. The same code works for any number of devices until the administrator removes a device or chooses New code. Choose Restore to adopt the data already in Sync, or Merge to keep this device's changes and previous deletions; an empty device uses Restore. The administrator can show the code again, replace it, remove devices, or end the Sync for everyone. Removing a device changes the group key, so the old code stops working and a new one is created; the remaining devices pick up the new key on their own, even after several offline changes. Any other device can leave. The administrator cannot leave, only end the Sync. If the administrator's device is lost, the remaining devices start a new Sync and Merge. Local copies and saved image files remain on removed devices; downloaded data cannot be erased remotely. The device list comes from the server and marks the Administrator and This device; Last synced does not mean online.
 
 With Sync connected, the app tries to upload changes shortly after you make them. It also tries to sync at startup and when you choose Sync now. Returning to the app tries to sync waiting changes immediately; when nothing is waiting, return checks run at most once every 15 minutes. When you close or leave, the app briefly tries to finish waiting changes. Anything unfinished stays queued for a later attempt.
 
-Existing keys remain on the legacy protocol, without a historical administrator claim or administration actions. “Move to managed Sync” creates a separate group from the current legacy/local merge, preserving data, operation IDs and deletions. This device becomes its founder; other devices must join again. The old group remains unchanged and may remain accessible. Closing that old ID is a separate one-time operator action with confirmed agreement; creating v2 is not a global cutover. Old servers require an update for managed groups; the client never falls back to legacy credentials.
+The code is a 32-byte seed shown as 24 BIP-39 English words. HKDF-SHA256 derives from it an invitation ID, a secret and an X25519 key pair. The administrator seals the group key to that public key and registers the ID, a hash of the secret and the sealed key with the server, which never learns the seed. A joining device looks the code up with the secret, opens the group key, creates its own device keys, seals the group key to itself and joins. Group key, epoch and key ID are bound by HPKE and the snapshot envelope; HTTPS and the authenticated group endpoints establish server authority. Journal replay verifies the exact request, and a join whose response was lost is confirmed through the server's operation record. The wire contract is the server repository's README.
 
-The administrator (HEAD in the protocol) is distinct from a member device. Membership protocol v2, its authenticated server control, envelope v2, and the snapshot (including collections and Nearby availability) are independent formats. The snapshot is unversioned; the client ignores the server's `snapshotSchemaFloor`. There is no separate control signature in this protocol: HTTPS and the authenticated membership endpoint establish server authority, while HPKE and AEAD bind group, epoch and key ID. Journal replay verifies the exact decrypted request and retains the expected revision before HTTP and the accepted revision after success.
+Every publication preserves the whole library, including empty user collections, name registers, memberships, and tombstones. Restore makes every remote domain authoritative; the snapshot distinguishes available IDs from viewed IDs. A transaction receipt prevents replay of an already applied Restore from erasing subsequent local edits.
 
-All managed publications preserve the whole library, including empty user collections, name registers, memberships, and tombstones. Older snapshot formats are not read or migrated. Restore makes every remote domain authoritative; the snapshot distinguishes available IDs from viewed IDs. A transaction receipt prevents replay of an already applied managed Restore from erasing subsequent local edits.
+The client keeps its Sync credentials in one OS keyring entry (the Android Keystore adapter and backup exclusions on Android). `sync-journal.json` contains only operation metadata and hashes; the exact encrypted request is journaled before HTTP and survives a lost response or restart. Images saved to files are not backed up.
 
-The client stores v2 credentials and pending secrets in a separate OS keyring entry (the existing Keystore adapter and backup exclusions on Android). `sync-admin.json` contains only operation metadata and hashes; the exact encrypted request is journaled before HTTP and survives a lost response/restart. Administration recovery first prepares the new code, then requires confirmation that it was saved before committing. The old code becomes invalid only after successful commit. Images saved to files are not backed up.
+HPKE is pinned to [`hpke` 0.13.0](https://github.com/rozbb/rust-hpke): its RFC 9180 X25519/HKDF-SHA256/ChaCha20Poly1305 implementation and standard DeriveKeyPair supply the missing primitive. It uses the same RustCrypto AEAD/HKDF/zeroization families as the rest of the client and no native cryptography dependency; tests cover Appendix A.2 and the selected suite's official vectors. `rand` 0.9 is used only for HPKE's rand_core 0.9 API. The 24-word encoding uses the [`bip39`](https://crates.io/crates/bip39) crate and is tested against the official Trezor 256-bit vectors.
 
-HPKE is pinned to [`hpke` 0.13.0](https://github.com/rozbb/rust-hpke): its RFC 9180 X25519/HKDF-SHA256/ChaCha20Poly1305 implementation and standard DeriveKeyPair supply the missing primitive. It uses the same RustCrypto AEAD/HKDF/zeroization families as the existing client and no native cryptography dependency; tests cover Appendix A.2 and the selected suite’s official vectors. `rand` 0.9 is used only for HPKE’s rand_core 0.9 API. Legacy derivation and envelope fixtures remain frozen.
-
-A stale whole-server SQLite restore can reactivate removed credentials and used administration codes. There is no automatic detection in this release. The server operator must block public v2 outside SQLite before restore and verify a current, complete, consistent security state before unblocking it; restoring an old backup alone is insufficient. See the server’s `deploy/README.md`.
+A stale whole-server SQLite restore can reactivate removed devices and old codes. There is no automatic detection; the server operator must block public Sync outside SQLite before a restore and verify a current, complete, consistent state before unblocking it. See the server's `deploy/README.md`.
 
 | Command             | Description                           |
 | ------------------- | ------------------------------------- |
@@ -103,7 +103,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
 CI also runs the local real-server Sync tests against `random-frame-server` commit
-`5fc35aee7b4dbe3131768bacf6f5916f83cafe04`. The server repository is private, so set
+`4accca2ce8dd18b97bf072e03d42118261e57f9e`. The server repository is private, so set
 the app repository's `SYNC_SERVER_READ_TOKEN` secret to a token with read-only
 Contents access to `amokrzycki/random-frame-server`. This job runs on main pushes
 and same-repository pull requests; fork pull requests do not receive the credential.
