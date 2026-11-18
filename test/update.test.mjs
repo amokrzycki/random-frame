@@ -165,6 +165,21 @@ test("release notes follow a successful update, wait for dialogs, and are dismis
   await update.showPendingChangelog();
   assert.equal(storage.getItem(pendingKey), null);
 
+  version = "0.8.1";
+  const errorNotice = errorRegion.children[0];
+  get("changelog-button").click();
+  await flush();
+  assert.equal(get("changelog-dialog").open, true);
+  assert.equal(get("changelog-version").textContent, "1.0.0");
+  assert.match(get("changelog-body").innerHTML, /<li>/);
+  assert.equal(errorNotice.getAttribute("aria-hidden"), null);
+  get("changelog-done").click();
+
+  assert.equal(update.newestBundledRelease(markdown, "0.5.0"), "0.6.0");
+  assert.equal(update.newestBundledRelease(multi, "0.5.0"), "0.6.1");
+  assert.equal(update.newestBundledRelease(multi, "0.6.1"), "");
+  assert.equal(update.newestBundledRelease(markdown, "9.9.9"), "");
+
   globalThis.localStorage = {
     getItem() {
       throw new Error("storage unavailable");

@@ -46,6 +46,15 @@ export function renderReleaseNotes(source: string, version: string, from?: strin
     .trim();
 }
 
+export function newestBundledRelease(source: string, installed: string): string {
+  const tokens = markdown.parse(source, {});
+  const headings = tokens.flatMap((token, index) =>
+    token.type === "heading_open" && token.tag === "h2" && token.level === 0 ? [index] : [],
+  );
+  const versions = headings.map((heading) => tokens[heading + 1]?.content ?? "");
+  return versions.filter((version) => isNewer(version, installed)).reduce((a, b) => (isNewer(b, a) ? b : a), "");
+}
+
 function clearPendingChangelog(): void {
   try {
     localStorage.removeItem(pendingChangelogKey);
@@ -86,8 +95,10 @@ export function bindChangelogEvents(): void {
   elements.changelogDone.addEventListener("click", () => closeDialog(elements.changelogDialog));
   elements.changelogButton.addEventListener("click", async () => {
     try {
-      const version = await getVersion();
-      const html = renderReleaseNotes(changelog, version);
+      const installed = await getVersion();
+      // Only the manual view falls back: automatic post-update notes must match the installed app exactly.
+      const version = renderReleaseNotes(changelog, installed) ? installed : newestBundledRelease(changelog, installed);
+      const html = version && renderReleaseNotes(changelog, version);
       if (!html) throw new Error("Missing release notes");
       if (!dialogs.some((dialog) => dialog.open)) openChangelog(version, html, elements.toolsMenuButton);
     } catch {
