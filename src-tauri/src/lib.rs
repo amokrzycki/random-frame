@@ -6,6 +6,7 @@ mod secure_storage;
 mod snapshot;
 mod sources;
 mod sync;
+mod sync_code;
 mod sync_crypto;
 mod sync_membership_crypto;
 mod sync_protocol;
@@ -36,9 +37,7 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use sync::{
-    CreateManagedSyncResult, JoinMode, LocalSyncSummary, SyncEngine, SyncError, SyncStatus,
-};
+use sync::{CreateSyncResult, JoinMode, LocalSyncSummary, SyncEngine, SyncError, SyncStatus};
 use tauri::{ipc::Response, Manager, State};
 
 struct PendingFrame {
@@ -890,23 +889,23 @@ async fn get_sync_status(state: State<'_, AppState>) -> Result<SyncStatus, SyncE
 }
 
 #[tauri::command]
-async fn create_sync(state: State<'_, AppState>) -> Result<CreateManagedSyncResult, SyncError> {
+async fn create_sync(state: State<'_, AppState>) -> Result<CreateSyncResult, SyncError> {
     state.ensure_imports_ready()?;
     match &state.sync {
-        Some(sync) => sync.create_managed().await,
+        Some(sync) => sync.create().await,
         None => Err(SyncError::UnsupportedPlatform),
     }
 }
 
 #[tauri::command]
 async fn join_sync(
-    recovery_key: String,
+    code: String,
     mode: JoinMode,
     state: State<'_, AppState>,
 ) -> Result<SyncStatus, SyncError> {
     state.ensure_imports_ready()?;
     match &state.sync {
-        Some(sync) => sync.join(&recovery_key, mode).await,
+        Some(sync) => sync.join(&code, mode).await,
         None => Err(SyncError::UnsupportedPlatform),
     }
 }
@@ -951,75 +950,21 @@ async fn leave_sync(state: State<'_, AppState>) -> Result<SyncStatus, SyncError>
 }
 
 #[tauri::command]
-#[allow(
-    clippy::needless_pass_by_value,
-    reason = "Tauri command arguments must be passed by value"
-)]
-fn set_sync_device_name(name: String, state: State<'_, AppState>) -> Result<(), SyncError> {
-    if state.sync.is_none() {
-        return Err(SyncError::UnsupportedPlatform);
-    }
-    let trimmed = name.trim();
-    state
-        .data
-        .set_device_name(trimmed)
-        .map_err(|_| SyncError::Persistence)
-}
-
-#[tauri::command]
-async fn get_sync_recovery_key(state: State<'_, AppState>) -> Result<String, SyncError> {
+async fn get_sync_code(state: State<'_, AppState>) -> Result<String, SyncError> {
     match &state.sync {
-        Some(sync) => sync.recovery_key().await,
+        Some(sync) => sync.show_code().await,
         None => Err(SyncError::UnsupportedPlatform),
     }
 }
 
 #[tauri::command]
-async fn get_sync_pairing_request(state: State<'_, AppState>) -> Result<String, SyncError> {
+async fn new_sync_code(state: State<'_, AppState>) -> Result<String, SyncError> {
     match &state.sync {
-        Some(sync) => sync.pairing_request().await,
+        Some(sync) => sync.new_code().await,
         None => Err(SyncError::UnsupportedPlatform),
     }
 }
-#[tauri::command]
-async fn create_sync_invitation(
-    request: String,
-    state: State<'_, AppState>,
-) -> Result<String, SyncError> {
-    match &state.sync {
-        Some(sync) => sync.create_invitation(&request).await,
-        None => Err(SyncError::UnsupportedPlatform),
-    }
-}
-#[tauri::command]
-async fn get_sync_invitation(state: State<'_, AppState>) -> Result<String, SyncError> {
-    match &state.sync {
-        Some(sync) => sync.invitation_code().await,
-        None => Err(SyncError::UnsupportedPlatform),
-    }
-}
-#[tauri::command]
-async fn move_to_managed_sync(
-    state: State<'_, AppState>,
-) -> Result<CreateManagedSyncResult, SyncError> {
-    state.ensure_imports_ready()?;
-    match &state.sync {
-        Some(sync) => sync.move_to_managed_sync().await,
-        None => Err(SyncError::UnsupportedPlatform),
-    }
-}
-#[tauri::command]
-async fn recover_sync_admin(
-    code: String,
-    confirmed: bool,
-    state: State<'_, AppState>,
-) -> Result<CreateManagedSyncResult, SyncError> {
-    state.ensure_imports_ready()?;
-    match &state.sync {
-        Some(sync) => sync.recover_admin(&code, confirmed).await,
-        None => Err(SyncError::UnsupportedPlatform),
-    }
-}
+
 #[tauri::command]
 async fn remove_sync_device(
     member_id: String,
@@ -1031,13 +976,7 @@ async fn remove_sync_device(
         None => Err(SyncError::UnsupportedPlatform),
     }
 }
-#[tauri::command]
-async fn cancel_sync_admin_recovery(state: State<'_, AppState>) -> Result<(), SyncError> {
-    match &state.sync {
-        Some(sync) => sync.cancel_admin_recovery().await,
-        None => Err(SyncError::UnsupportedPlatform),
-    }
-}
+
 #[tauri::command]
 async fn dissolve_sync(state: State<'_, AppState>) -> Result<SyncStatus, SyncError> {
     match &state.sync {
@@ -1204,21 +1143,15 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             migrate_viewing_stats,
             get_sync_status,
             create_sync,
-            get_sync_pairing_request,
-            create_sync_invitation,
-            get_sync_invitation,
-            move_to_managed_sync,
-            recover_sync_admin,
-            remove_sync_device,
-            dissolve_sync,
-            cancel_sync_admin_recovery,
             join_sync,
             get_sync_join_summary,
+            get_sync_code,
+            new_sync_code,
+            remove_sync_device,
+            dissolve_sync,
             sync_now,
             startup_sync,
-            leave_sync,
-            set_sync_device_name,
-            get_sync_recovery_key
+            leave_sync
         ])
         .build(tauri::generate_context!())?
         .run(handle_lifecycle);

@@ -1,10 +1,11 @@
 // Emulator smoke test for the Android build. Needs a booted emulator on adb and a debug APK built with
-// RANDOM_FRAME_SYNC_BASE_URL=http://127.0.0.1:8787, which this script serves with a bounded in-memory v2 storage mock (not a security test).
+// RANDOM_FRAME_SYNC_BASE_URL=http://127.0.0.1:8787, which this script serves with a bounded in-memory
+// Sync server mock (not a security test).
 //
 //   node .github/tools/android-smoke.mjs <debug.apk> [--page-size 16384]
 //
-// Covers: install and start, Back on the consent screen leaves the app, consent survives nothing but
-// acceptance, Back still reaches the app after a relaunch, Sync create stores the secret, and the secret and pairing survive a force-stop.
+// Covers: install and start, consent and Back behaviour, Sync create with a 24-word code that survives a
+// force-stop, Nearby Frames, and fail-closed handling of damaged Keystore credentials. See the check(...) calls.
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -22,8 +23,8 @@ const check = (ok, message) => {
   process.stdout.write(`ok - ${message}\n`);
 };
 
-// Storage smoke only: this bounded mock implements create/snapshot for one HEAD per group.
-// Security, revocation and recovery are tested against the real Rust/SQLite server by client E2Es.
+// Storage smoke only: this bounded mock implements create, invitation and snapshot for one group.
+// Security, removal and joining are tested against the real Rust/SQLite server by client E2Es.
 const store = new Map();
 const hash = (token) => createHash("sha256").update(token).digest("hex");
 const frame = (metadata, payload = Buffer.alloc(0)) => {
@@ -33,7 +34,7 @@ const frame = (metadata, payload = Buffer.alloc(0)) => {
   return Buffer.concat([prefix, json, payload]);
 };
 const server = createServer((request, response) => {
-  const match = /^\/sync\/v2\/groups\/([0-9a-f]{64})\/(create|snapshot)$/.exec(request.url ?? "");
+  const match = /^\/sync\/groups\/([0-9a-f]{64})\/(create|invitation|snapshot)$/.exec(request.url ?? "");
   response.setHeader("Cache-Control", "no-store");
   const send = (status, metadata, payload) => {
     const body = metadata ? (payload ? frame(metadata, payload) : Buffer.from(JSON.stringify(metadata))) : undefined;
@@ -74,16 +75,13 @@ const server = createServer((request, response) => {
           tokenVerifier: member.tokenVerifier,
           payload,
           control: {
-            protocolVersion: 2,
+            protocolVersion: 1,
             groupId: id,
             masterMemberId: member.memberId,
             state: "active",
             epoch: 1,
             revision: 1,
             keyId: mutation.key_id,
-            snapshotSchemaFloor: 2,
-            recoveryGeneration: 1,
-            recoveryPublicKey: mutation.recovery.publicKey,
             thisMemberId: member.memberId,
             members: [
               {
@@ -112,12 +110,16 @@ const server = createServer((request, response) => {
           return send(412);
         entry.payload = payload;
         entry.control.revision++;
+      } else if (route === "invitation" && mutation.kind === "invitation") {
+        if (!entry || entry.tokenVerifier !== hash(token)) return send(404);
+        if (req.expectedRevision !== entry.control.revision || req.expectedEpoch !== entry.control.epoch)
+          return send(412);
+        entry.control.revision++;
       } else return send(405);
       return send(200, {
         operationId: req.operationId,
         revision: entry.control.revision,
         epoch: 1,
-        recoveryGeneration: 1,
       });
     } catch {
       return send(400);
@@ -131,7 +133,7 @@ if (selfTest) {
     const id = "ab".repeat(32),
       token = "cd".repeat(32),
       memberId = "ef".repeat(16);
-    const url = `http://127.0.0.1:${server.address().port}/sync/v2/groups/${id}`;
+    const url = `http://127.0.0.1:${server.address().port}/sync/groups/${id}`;
     const member = { memberId, deviceId: memberId, tokenVerifier: hash(token), wrappingPublicKey: "12".repeat(32) };
     const metadata = {
       operationId: memberId,
@@ -140,7 +142,6 @@ if (selfTest) {
       mutation: {
         kind: "create",
         member,
-        recovery: { publicKey: "34".repeat(32) },
         key_id: "56".repeat(32),
         packages: [{ recipientKind: "member", recipientId: memberId }],
       },
@@ -173,7 +174,7 @@ if (selfTest) {
         .status,
       412,
     );
-    process.stdout.write("ok - bounded v2 Android storage mock validates tokens and CAS\n");
+    process.stdout.write("ok - bounded Android Sync server mock validates tokens and CAS\n");
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -388,8 +389,12 @@ try {
   await sleep(12000);
 
   const created = await evaluate(invoke("create_sync"));
-  check(created?.status?.paired === true, `Sync create pairs this device (${JSON.stringify(created?.error ?? "")})`);
-  const key = await evaluate(invoke("get_sync_recovery_key"));
+  check(
+    created?.status?.paired === true,
+    `Sync create starts a Sync on this device (${JSON.stringify(created?.error ?? "")})`,
+  );
+  const code = await evaluate(invoke("get_sync_code"));
+  check(typeof code === "string" && code.split(" ").length === 24, "the administrator can show a 24-word code");
 
   adb("shell", "am", "force-stop", pkg);
   await launch();
@@ -410,7 +415,7 @@ try {
   );
   const status = await evaluate(invoke("get_sync_status"));
   check(status?.paired === true && status?.state === "idle", `Sync stays paired after a force-stop (${status?.state})`);
-  check((await evaluate(invoke("get_sync_recovery_key"))) === key, "the stored secret survives a force-stop");
+  check((await evaluate(invoke("get_sync_code"))) === code, "the stored code survives a force-stop");
   check((await evaluate(invoke("sync_now")))?.state === "idle", "Sync runs after the restart");
   await runNearbySmoke({ adb, evaluate, check, sleep });
   // Keep the native fixture History, but leave no selected source ID for the later cold start.
@@ -425,16 +430,16 @@ try {
   const prefs = adb("shell", "run-as", pkg, "cat", prefsPath);
   let changed = false;
   const damaged = prefs.replace(
-    /(<string name="[^"\n]*sync\.v2[^"\n]*">)([^<]+)(<\/string>)/,
+    /(<string name="[^"\n]*desktop\.sync[^"\n]*">)([^<]+)(<\/string>)/,
     (_all, prefix, value, suffix) => {
       const bytes = Buffer.from(value, "base64");
-      check(bytes.length > 16, "managed credential has an encrypted value");
+      check(bytes.length > 16, "Sync credentials have an encrypted value");
       bytes[bytes.length - 1] ^= 1;
       changed = true;
       return prefix + bytes.toString("base64") + suffix;
     },
   );
-  check(changed, "managed credential is in the excluded Android store");
+  check(changed, "Sync credentials are in the excluded Android store");
   const writePrefs = (value) =>
     execFileSync(adbPath, ["shell", `run-as ${pkg} sh -c 'cat > ${prefsPath}'`], {
       input: value,

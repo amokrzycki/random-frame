@@ -1,6 +1,6 @@
-//! Opaque HTTP transport for the v1 sync protocol.
+//! HTTP transport for the sync protocol.
 
-use reqwest::{header, Client, StatusCode, Url};
+use reqwest::{header, Client, Method, StatusCode, Url};
 use std::{fmt, time::Duration};
 
 pub const MAX_ENVELOPE: usize = 67_108_864;
@@ -13,8 +13,6 @@ pub enum TransportError {
     CredentialReplaced,
     MasterRequired,
     MasterCannotLeave,
-    InvitationExpired,
-    InvitationConsumed,
     OperationMismatch,
     InvalidEndpoint,
     InvalidIdentity,
@@ -22,13 +20,12 @@ pub enum TransportError {
     Timeout,
     Tls,
     MalformedResponse,
-    MissingChain,
+    NotFound,
     Conflict,
     RateLimited,
     ServerError,
     UnexpectedStatus(u16),
     BodyTooLarge,
-    InvalidEtag,
 }
 
 impl fmt::Display for TransportError {
@@ -44,23 +41,6 @@ fn lower_hex_64(value: &str) -> bool {
         && value
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-}
-
-pub fn parse_etag(value: Option<&header::HeaderValue>) -> Result<i64, TransportError> {
-    let value = value.ok_or(TransportError::InvalidEtag)?;
-    let bytes = value.as_bytes();
-    if bytes.len() < 3 || bytes.first() != Some(&b'"') || bytes.last() != Some(&b'"') {
-        return Err(TransportError::InvalidEtag);
-    }
-    let digits = &bytes[1..bytes.len() - 1];
-    if digits.is_empty() || digits[0] == b'0' || !digits.iter().all(u8::is_ascii_digit) {
-        return Err(TransportError::InvalidEtag);
-    }
-    std::str::from_utf8(digits)
-        .ok()
-        .and_then(|s| s.parse::<i64>().ok())
-        .filter(|revision| *revision > 0)
-        .ok_or(TransportError::InvalidEtag)
 }
 
 pub struct SyncTransport {
@@ -96,186 +76,53 @@ impl SyncTransport {
         Ok(Self { client, base })
     }
 
-    fn url(&self, id: &str) -> Result<Url, TransportError> {
-        if !lower_hex_64(id) {
-            return Err(TransportError::InvalidIdentity);
-        }
-        self.base
-            .join(&format!("sync/{id}"))
-            .map_err(|_| TransportError::InvalidEndpoint)
-    }
-
-    fn request(
-        &self,
-        method: reqwest::Method,
-        id: &str,
-        token: &str,
-    ) -> Result<reqwest::RequestBuilder, TransportError> {
-        if !lower_hex_64(token) {
-            return Err(TransportError::InvalidIdentity);
-        }
-        Ok(self
-            .client
-            .request(method, self.url(id)?)
-            .bearer_auth(token))
-    }
-
-    #[cfg(test)]
-    pub async fn create(
-        &self,
-        id: &str,
-        token: &str,
-        envelope: Vec<u8>,
-    ) -> Result<i64, TransportError> {
-        self.put(id, token, "*", envelope, StatusCode::CREATED, true)
-            .await
-    }
-
-    pub async fn update(
-        &self,
-        id: &str,
-        token: &str,
-        expected: i64,
-        envelope: Vec<u8>,
-    ) -> Result<i64, TransportError> {
-        self.put(
-            id,
-            token,
-            &format!("\"{expected}\""),
-            envelope,
-            StatusCode::NO_CONTENT,
-            false,
-        )
-        .await
-    }
-
-    async fn put(
-        &self,
-        id: &str,
-        token: &str,
-        condition: &str,
-        envelope: Vec<u8>,
-        expected: StatusCode,
-        create: bool,
-    ) -> Result<i64, TransportError> {
-        if body_too_large(envelope.len()) {
-            return Err(TransportError::BodyTooLarge);
-        }
-        let header_name = if create {
-            header::IF_NONE_MATCH
-        } else {
-            header::IF_MATCH
-        };
-        let response = self
-            .request(reqwest::Method::PUT, id, token)?
-            .header(header_name, condition)
-            .header(header::CONTENT_TYPE, "application/octet-stream")
-            .body(envelope)
-            .send()
-            .await
-            .map_err(|error| map_reqwest(&error))?;
-        check_status(response.status(), expected)?;
-        parse_etag(response.headers().get(header::ETAG))
-    }
-
-    pub async fn get(&self, id: &str, token: &str) -> Result<(i64, Vec<u8>), TransportError> {
-        let mut response = self
-            .request(reqwest::Method::GET, id, token)?
-            .send()
-            .await
-            .map_err(|error| map_reqwest(&error))?;
-        check_status(response.status(), StatusCode::OK)?;
-        let revision = parse_etag(response.headers().get(header::ETAG))?;
-        if response
-            .headers()
-            .get(header::CONTENT_TYPE)
-            .and_then(|h| h.to_str().ok())
-            != Some("application/octet-stream")
-        {
-            return Err(TransportError::MalformedResponse);
-        }
-        if response
-            .content_length()
-            .is_some_and(|len| len > MAX_ENVELOPE as u64)
-        {
-            return Err(TransportError::BodyTooLarge);
-        }
-        let mut body = Vec::new();
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|error| map_reqwest(&error))?
-        {
-            if chunk.len() > MAX_ENVELOPE - body.len() {
-                return Err(TransportError::BodyTooLarge);
-            }
-            body.extend_from_slice(&chunk);
-        }
-        Ok((revision, body))
-    }
-}
-
-fn body_too_large(len: usize) -> bool {
-    len > MAX_ENVELOPE
-}
-
-fn check_status(actual: StatusCode, expected: StatusCode) -> Result<(), TransportError> {
-    if actual == expected {
-        return Ok(());
-    }
-    Err(match actual {
-        StatusCode::NOT_FOUND => TransportError::MissingChain,
-        StatusCode::PRECONDITION_FAILED => TransportError::Conflict,
-        StatusCode::TOO_MANY_REQUESTS => TransportError::RateLimited,
-        StatusCode::PAYLOAD_TOO_LARGE => TransportError::BodyTooLarge,
-        code if code.is_server_error() => TransportError::ServerError,
-        code => TransportError::UnexpectedStatus(code.as_u16()),
-    })
-}
-
-fn map_reqwest(error: &reqwest::Error) -> TransportError {
-    if error.is_timeout() {
-        TransportError::Timeout
-    } else if error.is_connect() {
-        let detail = error.to_string().to_ascii_lowercase();
-        if ["tls", "rustls", "certificate"]
-            .iter()
-            .any(|word| detail.contains(word))
-        {
-            TransportError::Tls
-        } else {
-            TransportError::Offline
-        }
-    } else if error.is_request() {
-        TransportError::Offline
-    } else {
-        TransportError::MalformedResponse
-    }
-}
-
-impl SyncTransport {
-    pub async fn managed(
+    /// A call on a group, authenticated by a device token.
+    pub async fn group(
         &self,
         group: &str,
         route: &str,
-        method: reqwest::Method,
+        method: Method,
         token: &str,
         invitation: Option<&str>,
         body: Option<Vec<u8>>,
     ) -> Result<Vec<u8>, TransportError> {
-        if !lower_hex_64(group) || !lower_hex_64(token) {
+        if !lower_hex_64(group)
+            || !lower_hex_64(token)
+            || invitation.is_some_and(|s| !lower_hex_64(s))
+        {
             return Err(TransportError::InvalidIdentity);
-        }
-        if body.as_ref().is_some_and(|b| b.len() > MAX_ENVELOPE) {
-            return Err(TransportError::BodyTooLarge);
         }
         let url = self
             .base
-            .join(&format!("sync/v2/groups/{group}/{route}"))
+            .join(&format!("sync/groups/{group}/{route}"))
             .map_err(|_| TransportError::InvalidEndpoint)?;
         let mut request = self.client.request(method, url).bearer_auth(token);
         if let Some(secret) = invitation {
             request = request.header("x-rf-invitation", secret);
+        }
+        self.send(request, body).await
+    }
+
+    /// Looks up the group behind a code. Knowing the secret is the only credential.
+    pub async fn invitation(&self, id: &str, secret: &str) -> Result<Vec<u8>, TransportError> {
+        if !valid_id(id) || !lower_hex_64(secret) {
+            return Err(TransportError::InvalidIdentity);
+        }
+        let url = self
+            .base
+            .join(&format!("sync/invitations/{id}"))
+            .map_err(|_| TransportError::InvalidEndpoint)?;
+        self.send(self.client.get(url).header("x-rf-invitation", secret), None)
+            .await
+    }
+
+    async fn send(
+        &self,
+        mut request: reqwest::RequestBuilder,
+        body: Option<Vec<u8>>,
+    ) -> Result<Vec<u8>, TransportError> {
+        if body.as_ref().is_some_and(|b| b.len() > MAX_ENVELOPE) {
+            return Err(TransportError::BodyTooLarge);
         }
         if let Some(bytes) = body {
             request = request
@@ -307,8 +154,6 @@ impl SyncTransport {
                 b"credential_replaced" => TransportError::CredentialReplaced,
                 b"master_required" => TransportError::MasterRequired,
                 b"master_cannot_leave" => TransportError::MasterCannotLeave,
-                b"invitation_expired" => TransportError::InvitationExpired,
-                b"invitation_consumed" => TransportError::InvitationConsumed,
                 b"operation_mismatch" => TransportError::OperationMismatch,
                 _ => TransportError::MalformedResponse,
             });
@@ -318,90 +163,116 @@ impl SyncTransport {
     }
 }
 
+fn valid_id(value: &str) -> bool {
+    value.len() == 32
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+fn check_status(actual: StatusCode, expected: StatusCode) -> Result<(), TransportError> {
+    if actual == expected {
+        return Ok(());
+    }
+    Err(match actual {
+        StatusCode::NOT_FOUND => TransportError::NotFound,
+        StatusCode::PRECONDITION_FAILED => TransportError::Conflict,
+        StatusCode::TOO_MANY_REQUESTS => TransportError::RateLimited,
+        StatusCode::PAYLOAD_TOO_LARGE => TransportError::BodyTooLarge,
+        code if code.is_server_error() => TransportError::ServerError,
+        code => TransportError::UnexpectedStatus(code.as_u16()),
+    })
+}
+
+fn map_reqwest(error: &reqwest::Error) -> TransportError {
+    if error.is_timeout() {
+        TransportError::Timeout
+    } else if error.is_connect() {
+        let detail = error.to_string().to_ascii_lowercase();
+        if ["tls", "rustls", "certificate"]
+            .iter()
+            .any(|word| detail.contains(word))
+        {
+            TransportError::Tls
+        } else {
+            TransportError::Offline
+        }
+    } else if error.is_request() {
+        TransportError::Offline
+    } else {
+        TransportError::MalformedResponse
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn endpoint_and_etag_validation() {
-        for url in [
+    fn endpoint_validation() {
+        for ok in [
             "https://sync.example.com",
             "http://localhost:8787",
             "http://127.0.0.1:8787",
             "http://[::1]:8787",
         ] {
-            assert!(SyncTransport::new(url).is_ok(), "{url}");
+            assert!(SyncTransport::new(ok).is_ok(), "{ok}");
         }
-        for url in [
+        for bad in [
             "http://sync.example.com",
-            "https://a:b@example.com",
-            "https://example.com/base",
+            "https://u:p@sync.example.com",
+            "https://sync.example.com/base",
+            "https://sync.example.com/?q=1",
+            "https://sync.example.com/#f",
+            "ftp://sync.example.com",
             "not a url",
         ] {
-            assert!(SyncTransport::new(url).is_err(), "{url}");
+            assert!(SyncTransport::new(bad).is_err(), "{bad}");
         }
-        for valid in ["\"1\"", "\"42\""] {
-            assert!(parse_etag(Some(
-                &header::HeaderValue::from_str(valid).unwrap_or_else(|_| unreachable!())
-            ))
-            .is_ok());
-        }
-        for invalid in [
-            "W/\"1\"",
-            "\"0\"",
-            "\"-1\"",
-            "\"9223372036854775808\"",
-            "\"1\", \"2\"",
-            " \"1\"",
-            "\"01\"",
-            "1",
-        ] {
-            assert_eq!(
-                parse_etag(Some(
-                    &header::HeaderValue::from_str(invalid).unwrap_or_else(|_| unreachable!())
-                )),
-                Err(TransportError::InvalidEtag)
-            );
-        }
-        assert_eq!(parse_etag(None), Err(TransportError::InvalidEtag));
-    }
-
-    #[test]
-    fn encrypted_payload_boundary_and_server_rejection() {
-        assert_eq!(MAX_ENVELOPE, 67_108_864);
-        assert!(!body_too_large(MAX_ENVELOPE));
-        assert!(body_too_large(MAX_ENVELOPE + 1));
-        assert_eq!(
-            check_status(StatusCode::PAYLOAD_TOO_LARGE, StatusCode::NO_CONTENT),
-            Err(TransportError::BodyTooLarge)
-        );
     }
 
     #[tokio::test]
-    async fn managed_rejects_invalid_identity_before_sending() -> Result<(), TransportError> {
-        let transport = SyncTransport::new("http://127.0.0.1:1")?;
-        let valid = "a".repeat(64);
-        for (group, token) in [("invalid", valid.as_str()), (valid.as_str(), "invalid")] {
+    async fn invalid_identity_is_rejected_before_sending() -> Result<(), TransportError> {
+        let transport = SyncTransport::new("http://127.0.0.1:9")?;
+        let group = "a".repeat(64);
+        let token = "b".repeat(64);
+        for (g, t, i) in [
+            ("short", token.as_str(), None),
+            (group.as_str(), "short", None),
+            (group.as_str(), token.as_str(), Some("UPPER")),
+        ] {
             assert_eq!(
                 transport
-                    .managed(group, "head", reqwest::Method::GET, token, None, None)
+                    .group(g, "snapshot", Method::GET, t, i, None)
                     .await,
                 Err(TransportError::InvalidIdentity)
             );
         }
         assert_eq!(
-            transport
-                .managed(
-                    &valid,
-                    "head",
-                    reqwest::Method::PUT,
-                    &valid,
-                    None,
-                    Some(vec![0; MAX_ENVELOPE + 1]),
-                )
-                .await,
-            Err(TransportError::BodyTooLarge)
+            transport.invitation("zz", &token).await,
+            Err(TransportError::InvalidIdentity)
+        );
+        assert_eq!(
+            transport.invitation(&"a".repeat(32), "short").await,
+            Err(TransportError::InvalidIdentity)
         );
         Ok(())
+    }
+
+    #[test]
+    fn statuses_map_to_categories() {
+        assert_eq!(
+            check_status(StatusCode::NOT_FOUND, StatusCode::OK),
+            Err(TransportError::NotFound)
+        );
+        assert_eq!(
+            check_status(StatusCode::PRECONDITION_FAILED, StatusCode::OK),
+            Err(TransportError::Conflict)
+        );
+        assert_eq!(
+            check_status(StatusCode::SERVICE_UNAVAILABLE, StatusCode::OK),
+            Err(TransportError::ServerError)
+        );
+        assert_eq!(check_status(StatusCode::OK, StatusCode::OK), Ok(()));
     }
 }

@@ -1,5 +1,5 @@
 use super::{
-    device::{DeviceIdentity, DeviceMetadata},
+    device::DeviceIdentity,
     io::{load_json, save_json},
     sync_ops::operation_id,
 };
@@ -34,7 +34,6 @@ pub struct PreferenceStore {
     path: PathBuf,
     data: Mutex<PreferenceData>,
     generation: AtomicU64,
-    identity: Option<Arc<DeviceIdentity>>,
 }
 #[allow(
     clippy::significant_drop_tightening,
@@ -51,19 +50,19 @@ impl PreferenceStore {
 
     pub fn with_identity(
         directory: &Path,
-        identity: Arc<DeviceIdentity>,
+        identity: &Arc<DeviceIdentity>,
     ) -> Result<Self, AppError> {
         Self::load(directory, Some(identity))
     }
 
-    fn load(directory: &Path, identity: Option<Arc<DeviceIdentity>>) -> Result<Self, AppError> {
+    fn load(directory: &Path, identity: Option<&Arc<DeviceIdentity>>) -> Result<Self, AppError> {
         let path = directory.join("preferences.json");
         let mut data: PreferenceData = load_json(&path)?;
         if data.version > 2 {
             return Err(AppError::persistence("Unsupported preferences schema"));
         }
         data.version = 2;
-        if let Some(identity) = &identity {
+        if let Some(identity) = identity {
             data.devices = Self::ensure_self_record(&data.devices, identity);
         }
         crate::snapshot::validate_snapshot(&SyncSnapshot {
@@ -77,7 +76,6 @@ impl PreferenceStore {
             path,
             data: Mutex::new(data),
             generation: AtomicU64::new(0),
-            identity,
         })
     }
 
@@ -282,41 +280,6 @@ impl PreferenceStore {
             self.generation.fetch_add(1, Ordering::Relaxed);
         }
         Ok(())
-    }
-
-    pub fn set_device_metadata(&self, metadata: DeviceMetadata) -> Result<(), AppError> {
-        let identity = self
-            .identity
-            .as_ref()
-            .ok_or_else(|| AppError::invalid_input("No device identity"))?;
-        let mut data = self
-            .data
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let id = identity.id();
-        let clock = max_clock(&data)
-            .checked_add(1)
-            .ok_or_else(|| AppError::persistence("Preference clock exhausted"))?;
-        let mut next = data.clone();
-        if let Some(slot) = next.devices.iter_mut().find(|d| d.device_id == id) {
-            slot.metadata = Register {
-                clock,
-                operation_id: operation_id(),
-                value: metadata,
-            };
-        } else {
-            next.devices.push(DeviceRecord {
-                device_id: id,
-                metadata: Register {
-                    clock,
-                    operation_id: operation_id(),
-                    value: metadata,
-                },
-                joined_at_ms: now_ms(),
-                last_sync: None,
-            });
-        }
-        self.save_changed(&mut data, next)
     }
 }
 

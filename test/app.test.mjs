@@ -62,7 +62,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
     credentialVersion: null,
     keyEpoch: null,
     controlVerifiedAt: null,
-    legacySourceId: null,
+    codeReady: false,
   };
   let finishStartupSync;
   const startupSync = new Promise((resolve) => {

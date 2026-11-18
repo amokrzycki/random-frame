@@ -1,14 +1,8 @@
 //! Canonical, device-independent snapshot. The format is unversioned; envelope and
 //! membership versions are independent.
-#[cfg(any(test, debug_assertions))]
-mod diagnostics;
 mod merge;
 use crate::sources::prntsc::LEGACY_MAX_VALUE;
 use chrono::{NaiveDate, TimeZone, Utc};
-#[cfg(test)]
-pub use diagnostics::diagnostics;
-#[cfg(any(test, debug_assertions))]
-pub(crate) use diagnostics::{diagnostics_enabled, report_diagnostics, report_upload};
 pub use merge::merge_snapshots;
 pub(crate) use merge::{reconcile_legacy_seen, reconcile_seen};
 use serde::{Deserialize, Serialize};

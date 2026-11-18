@@ -69,7 +69,7 @@ before(async () => {
           else if (["get_sync_status", "startup_sync", "sync_now"].includes(command)) {
             if (backend.failSync && command !== "get_sync_status") throw { category: "offline" };
             result = backend.status;
-          } else if (command === "get_sync_recovery_key") result = "rf1-test-key";
+          } else if (command === "get_sync_code") result = "abandon ability able";
           else if (command === "plugin:event|listen") result = 1;
           else if (command === "get_frame_by_id") result = { ...item(args.id), mimeType: "image/png" };
           else if (command === "get_random_frame") result = { ...item("ccc333"), mimeType: "image/png" };
@@ -140,7 +140,7 @@ beforeEach(() => {
       credentialVersion: null,
       keyEpoch: null,
       controlVerifiedAt: null,
-      legacySourceId: null,
+      codeReady: false,
     },
     failHistory: false,
   };
@@ -414,10 +414,11 @@ for (const followUpFails of [false, true]) {
 }
 
 test("a sync event during a read-only Sync dialog action still refreshes persisted views", async () => {
+  backend.status = { ...backend.status, masterMemberId: "master", thisMemberId: "master", codeReady: true };
   get("sync-button").click();
   await flush();
-  const key = hold("get_sync_recovery_key");
-  get("sync-show-key").click();
+  const key = hold("get_sync_code");
+  get("sync-show-code").click();
   await key.entered;
   backend.favorites = [{ ...item("aaa111"), addedAt: 2 }];
   listeners.at(-1)({ payload: null });

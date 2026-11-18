@@ -48,16 +48,12 @@ test("Android Back closes the top layer by the Escape rules, and leaves from the
   assert.equal(dismissTopLayer(), true);
   assert.equal(get("history-dialog").open, false);
 
-  // A busy dialog and an unconfirmed recovery key keep the dialog and consume Back.
+  // A busy dialog keeps the dialog and consumes Back.
   get("sync-dialog").open = true;
   get("sync-dialog").dataset.busy = "true";
   assert.equal(dismissTopLayer(), true);
   assert.equal(get("sync-dialog").open, true);
   delete get("sync-dialog").dataset.busy;
-  get("sync-recovery").dataset.gated = "true";
-  assert.equal(dismissTopLayer(), true);
-  assert.equal(get("sync-dialog").open, true);
-  get("sync-key-saved").checked = true;
   assert.equal(dismissTopLayer(), true);
   assert.equal(get("sync-dialog").open, false);
 

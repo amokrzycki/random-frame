@@ -124,14 +124,6 @@ function focusInDialog(dialog: HTMLDialogElement): void {
 
 export function closeDialog(dialog: HTMLDialogElement): void {
   if (dialog.dataset.busy) return;
-  if (
-    dialog === elements.syncDialog &&
-    (elements.syncRecovery.dataset.recovering ||
-      (elements.syncRecovery.dataset.gated && !elements.syncKeySaved.checked))
-  ) {
-    elements.announcer.textContent = "Save the recovery key and confirm it before closing.";
-    return;
-  }
   const classList = (dialog as unknown as { classList?: DOMTokenList }).classList;
   if (!classList) {
     dialog.dispatchEvent(new Event("dialog-dismiss"));

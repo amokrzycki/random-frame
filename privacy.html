@@ -135,10 +135,9 @@
           <li>viewing statistics and Seen IDs (identifiers of frames you have viewed, kept to skip repeats),</li>
           <li>Prnt.sc IDs checked (including ones with no image),</li>
           <li>
-            if you enable Sync: a pairing ID, a random device ID, the name you give this device, and the time of the
-            last sync on this device, and Sync credentials in your system’s secure storage. Managed Sync stores this
-            device’s token, private key and data key; only the administrator also stores the administration secret. On
-            Android, this storage is encrypted with a key held by Android Keystore.
+            if you enable Sync: a random device ID, the time of the last sync on this device, and Sync credentials in
+            your system’s secure storage (this device’s token, private key and data key; the administrator also keeps
+            the current 24-word code). On Android, this storage is encrypted with a key held by Android Keystore.
           </li>
         </ul>
 
@@ -150,8 +149,8 @@
         <p>
           If you enable Sync, Seen IDs, history, saved frames, collection names and assignments, Prnt.sc IDs checked,
           Activity Stats, and preferences (theme and history page size) are sent in encrypted form to the Sync server.
-          The list of devices known from past syncs (device name, platform, first joined and last synced times) is also
-          part of the encrypted data. Drawing frames and browsing history still work without Sync.
+          The list of devices known from past syncs (platform, first joined and last synced times) is also part of the
+          encrypted data. Drawing frames and browsing history still work without Sync.
         </p>
 
         <p>
@@ -165,14 +164,14 @@
         <p>
           Sync transfers an encrypted copy of Seen IDs, history, saved frames, collection names and assignments,
           exploration progress, Activity Stats, and preferences. Encryption and decryption happen on your device. The
-          server operator does not receive the plaintext list of frame identifiers, data key or administration secret.
-          The server can see connection metadata, group and member IDs, approved public keys, membership state, key
-          epochs, and the size and timing of transfers. The list of devices known from past syncs (name, platform, first
-          joined and last synced times) is part of the encrypted copy. Keep your recovery key safe: anyone with it can
-          connect to your legacy Sync. Managed Sync requires the administrator to approve each device; its separate
-          administration code can recover the same administrator on a new installation and replace the old
-          installation’s access. The administrator can show that code again from the Sync dialog. Removing a device or
-          dissolving a group blocks future Sync access; downloaded data and saved files remain on each device.
+          server operator does not receive the plaintext list of frame identifiers, the data key or the code. The server
+          can see connection metadata, group and member IDs, public keys, membership state, key epochs, and the size and
+          timing of transfers. The list of devices known from past syncs (name, platform, first joined and last synced
+          times) is part of the encrypted copy. The administrator’s device shows a 24-word code; anyone who has it can
+          join your Sync until the administrator replaces the code or removes a device. Share it only with devices you
+          own. The administrator can show the code again, replace it, remove a device, or end the Sync for everyone.
+          Removing a device or ending the Sync blocks its future access; downloaded data and saved files remain on each
+          device.
         </p>
 
         <p>

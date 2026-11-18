@@ -1,27 +1,17 @@
-#[cfg(test)]
-use super::state::CreateSyncResult;
 use super::{
-    cas::{check_rollback, push_with_retries, restore_with_retries},
     errors::SyncError,
     reconcile::SyncData,
     state::{
-        load_config, save_config, DeviceSummary, Generation, JoinMode, LocalSyncSummary,
-        SyncLocalConfig, SyncState, SyncStatus,
+        load_config, save_config, Generation, LocalSyncSummary, SyncLocalConfig, SyncState,
+        SyncStatus,
     },
 };
-#[cfg(unix)]
-use crate::persistence::sync_parent;
 #[cfg(test)]
 use crate::persistence::{HistoryStore, SeenStore};
 use crate::{
-    persistence::PersistentState,
-    secure_storage::{SecretStore, StorageError},
-    sync_crypto::{RootSecret, SyncKeys},
-    sync_transport::SyncTransport,
-    time::now_ms,
+    persistence::PersistentState, secure_storage::SecretStore, sync_transport::SyncTransport,
 };
 use std::{
-    fs,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -65,20 +55,14 @@ impl<S: SecretStore> SyncEngine<S> {
             path,
             operation: AsyncMutex::new(()),
             status: Mutex::new(SyncStatus {
-                supported: true,
                 paired: config.is_some(),
                 state: if config.is_some() {
                     SyncState::Idle
                 } else {
                     SyncState::Unpaired
                 },
-                last_success_at: None,
-                last_success_revision: config.and_then(|c| c.last_accepted_revision),
-                dirty: true,
-                last_error_category: None,
-                this_device_id: None,
-                devices: Vec::new(),
-                control: super::state::MembershipStatus::default(),
+                last_success_revision: config.map(|c| c.last_accepted_revision),
+                ..Self::unpaired_status()
             }),
             uploaded_generation: Mutex::new(None),
             app_handle,
@@ -114,35 +98,6 @@ impl<S: SecretStore> SyncEngine<S> {
         status.dirty = uploaded != Some(self.local_generation());
         status.last_success_at = self.config().ok().flatten().and_then(|c| c.last_success_at);
         status.this_device_id = Some(hex::encode(self.data.identity.id()));
-        if self
-            .config()
-            .ok()
-            .flatten()
-            .is_some_and(|c| c.protocol_version == 2)
-        {
-            return status;
-        }
-        status.devices = self
-            .data
-            .preferences
-            .sync_state()
-            .1
-            .iter()
-            .map(|d| {
-                let this = d.device_id == self.data.identity.id();
-                DeviceSummary {
-                    device_id: hex::encode(d.device_id),
-                    display_name: d.metadata.value.display_name.clone(),
-                    platform: d.metadata.value.platform.clone(),
-                    joined_at_ms: d.joined_at_ms,
-                    last_synced_at_ms: d.last_sync.as_ref().map(|r| r.value),
-                    this_device: this,
-                    member_id: None,
-                    status: None,
-                    is_master: false,
-                }
-            })
-            .collect();
         status
     }
 
@@ -174,146 +129,16 @@ impl<S: SecretStore> SyncEngine<S> {
     }
 
     pub async fn status(&self) -> Result<SyncStatus, SyncError> {
-        if self.config()?.is_some_and(|c| c.protocol_version == 2) {
-            if self.journal()?.is_some() {
-                return Ok(self.status_snapshot());
-            }
-            let Ok(_guard) = self.operation.try_lock() else {
-                return Ok(self.status_snapshot());
-            };
-            return self.refresh_managed_status().await;
+        if self.config()?.is_none() {
+            return Ok(self.status_snapshot());
         }
-        match self.config()? {
-            None => match self.secret.load().await {
-                Err(StorageError::Missing) => Ok(self.status_snapshot()),
-                Ok(_) => Err(SyncError::CorruptLocalState),
-                Err(error) => Err(error.into()),
-            },
-            Some(config) => {
-                let root = self.secret.load().await?;
-                if root.derive().sync_id() != config.sync_id {
-                    return Err(SyncError::CorruptLocalState);
-                }
-                Ok(self.status_snapshot())
-            }
+        if self.journal()?.is_some() {
+            return Ok(self.status_snapshot());
         }
-    }
-
-    pub async fn recovery_key(&self) -> Result<String, SyncError> {
-        if self.config()?.is_some_and(|c| c.protocol_version == 2) {
-            return self.admin_code().await;
-        }
-        let config = self.config()?.ok_or(SyncError::Unpaired)?;
-        let root = self.secret.load().await?;
-        let keys = root.derive();
-        if keys.sync_id() != config.sync_id {
-            return Err(SyncError::CorruptLocalState);
-        }
-        Ok(root.recovery_key().to_string())
-    }
-
-    async fn paired(&self) -> Result<(SyncLocalConfig, SyncKeys), SyncError> {
-        let config = self.config()?.ok_or(SyncError::Unpaired)?;
-        let root = self.secret.load().await?;
-        let keys = root.derive();
-        if keys.sync_id() != config.sync_id {
-            return Err(SyncError::CorruptLocalState);
-        }
-        Ok((config, keys))
-    }
-
-    #[cfg(test)]
-    pub async fn create(&self) -> Result<CreateSyncResult, SyncError> {
-        let _guard = self
-            .operation
-            .try_lock()
-            .map_err(|_| SyncError::AlreadySyncing)?;
-        if self.config()?.is_some() {
-            return Err(SyncError::AlreadyPaired);
-        }
-        match self.secret.load().await {
-            Err(StorageError::Missing) => {}
-            Ok(_) => return Err(SyncError::CorruptLocalState),
-            Err(error) => return Err(error.into()),
-        }
-        self.set_state(SyncState::Syncing, None, None);
-        let result = self.create_inner().await;
-        self.finish(
-            &result
-                .as_ref()
-                .map(|r| r.status.clone())
-                .map_err(Clone::clone),
-        );
-        result
-    }
-
-    #[cfg(test)]
-    async fn create_inner(&self) -> Result<CreateSyncResult, SyncError> {
-        let root = RootSecret::generate();
-        let keys = root.derive();
-        let (snapshot, generation, self_record) = self.data().local_snapshot()?;
-        let envelope = keys
-            .encrypt_snapshot(&snapshot)
-            .map_err(|_| SyncError::InvalidRemoteData)?;
-        #[cfg(any(test, debug_assertions))]
-        crate::snapshot::report_upload(&snapshot, &envelope);
-        let revision = self
-            .transport()?
-            .create(keys.sync_id(), &keys.client_auth_token(), envelope)
-            .await?;
-        let recovery_key = root.recovery_key().to_string();
-        let Ok(generation) = self.data.record_published_self(self_record, generation) else {
-            self.set_state(SyncState::Error, Some(&SyncError::Persistence), None);
-            return Ok(CreateSyncResult {
-                recovery_key,
-                status: self.status_snapshot(),
-                local_pairing_error: Some(SyncError::Persistence),
-            });
+        let Ok(_guard) = self.operation.try_lock() else {
+            return Ok(self.status_snapshot());
         };
-        if let Err(error) = self.secret.store(root).await {
-            let category = if self.secret.delete().await.is_err() {
-                SyncError::CorruptLocalState
-            } else {
-                error.into()
-            };
-            self.set_state(SyncState::Error, Some(&category), None);
-            return Ok(CreateSyncResult {
-                recovery_key,
-                status: self.status_snapshot(),
-                local_pairing_error: Some(category),
-            });
-        }
-        let mut config = SyncLocalConfig::new(keys.sync_id().to_owned(), revision);
-        config.last_success_at = Some(now_ms());
-        if let Err(error) = self.save(&config) {
-            let cleanup = self.secret.delete().await;
-            let category = if cleanup.is_err() {
-                SyncError::CorruptLocalState
-            } else {
-                error
-            };
-            self.set_state(SyncState::Error, Some(&category), None);
-            return Ok(CreateSyncResult {
-                recovery_key,
-                status: self.status_snapshot(),
-                local_pairing_error: Some(category),
-            });
-        }
-        *self
-            .uploaded_generation
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(generation);
-        self.status
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .paired = true;
-        self.set_state(SyncState::Idle, None, Some(revision));
-        self.notify_state_changed();
-        Ok(CreateSyncResult {
-            recovery_key,
-            status: self.status_snapshot(),
-            local_pairing_error: None,
-        })
+        self.refresh_or_local().await
     }
 
     /// Counts of what this device would bring into (Merge) or lose to (Restore) a join.
@@ -323,93 +148,6 @@ impl<S: SecretStore> SyncEngine<S> {
             &snapshot,
             self.data.identity.id(),
         ))
-    }
-
-    pub async fn join(&self, recovery_key: &str, mode: JoinMode) -> Result<SyncStatus, SyncError> {
-        if recovery_key.starts_with("rf-invite-v2-") {
-            return self.join_managed(recovery_key, mode).await;
-        }
-        let _guard = self
-            .operation
-            .try_lock()
-            .map_err(|_| SyncError::AlreadySyncing)?;
-        if self.journal()?.is_some() {
-            return Err(SyncError::PendingOperation);
-        }
-        if self.config()?.is_some() {
-            return Err(SyncError::AlreadyPaired);
-        }
-        match self.secret.load().await {
-            Err(StorageError::Missing) => {}
-            Ok(_) => return Err(SyncError::CorruptLocalState),
-            Err(error) => return Err(error.into()),
-        }
-        let root = RootSecret::from_recovery_key(recovery_key)
-            .map_err(|_| SyncError::InvalidRecoveryKey)?;
-        self.set_state(SyncState::Syncing, None, None);
-        let result = self.join_inner(root, mode).await;
-        self.finish(&result);
-        result
-    }
-
-    async fn join_inner(&self, root: RootSecret, mode: JoinMode) -> Result<SyncStatus, SyncError> {
-        let keys = root.derive();
-        let (revision, remote) = self
-            .transport()?
-            .get(keys.sync_id(), &keys.client_auth_token())
-            .await?;
-        let (revision, generation) = match mode {
-            JoinMode::Merge => {
-                self.data().merge_remote(&keys, &remote)?;
-                push_with_retries(
-                    &self.data(),
-                    self.transport.as_ref(),
-                    &self.path,
-                    &keys,
-                    revision,
-                    None,
-                )
-                .await?
-            }
-            JoinMode::Restore => {
-                let decoded = super::reconcile::decode_remote(&keys, &remote)?;
-                restore_with_retries(
-                    &self.data(),
-                    self.transport.as_ref(),
-                    &keys,
-                    revision,
-                    decoded,
-                )
-                .await?
-            }
-        };
-        if let Err(error) = self.secret.store(root).await {
-            return Err(if self.secret.delete().await.is_err() {
-                SyncError::CorruptLocalState
-            } else {
-                error.into()
-            });
-        }
-        let mut config = SyncLocalConfig::new(keys.sync_id().to_owned(), revision);
-        config.last_success_at = Some(now_ms());
-        if let Err(error) = self.save(&config) {
-            self.secret
-                .delete()
-                .await
-                .map_err(|_| SyncError::CorruptLocalState)?;
-            return Err(error);
-        }
-        *self
-            .uploaded_generation
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(generation);
-        self.status
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .paired = true;
-        self.set_state(SyncState::Idle, None, Some(revision));
-        self.notify_state_changed();
-        Ok(self.status_snapshot())
     }
 
     pub async fn sync_now(&self) -> Result<SyncStatus, SyncError> {
@@ -429,46 +167,6 @@ impl<S: SecretStore> SyncEngine<S> {
         result
     }
 
-    pub(super) async fn sync_inner(&self) -> Result<SyncStatus, SyncError> {
-        if self.journal()?.is_some() || self.config()?.is_some_and(|c| c.protocol_version == 2) {
-            return self.sync_managed_inner().await;
-        }
-        let (mut config, keys) = self.paired().await?;
-        let (revision, remote) = self
-            .transport()?
-            .get(keys.sync_id(), &keys.client_auth_token())
-            .await?;
-        check_rollback(&config, revision)?;
-        self.data().merge_remote(&keys, &remote)?;
-        if config
-            .last_accepted_revision
-            .is_none_or(|floor| revision > floor)
-        {
-            config.last_accepted_revision = Some(revision);
-        }
-        self.save(&config)?;
-        let (revision, generation) = push_with_retries(
-            &self.data(),
-            self.transport.as_ref(),
-            &self.path,
-            &keys,
-            revision,
-            Some(&mut config),
-        )
-        .await?;
-        // A failed local save after PUT is recoverable: next GET may be above the old floor.
-        config.last_accepted_revision = Some(revision);
-        config.last_success_at = Some(now_ms());
-        self.save(&config)?;
-        *self
-            .uploaded_generation
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(generation);
-        self.set_state(SyncState::Idle, None, Some(revision));
-        self.notify_state_changed();
-        Ok(self.status_snapshot())
-    }
-
     pub async fn startup_sync(&self) -> Result<SyncStatus, SyncError> {
         if self.config()?.is_none() && self.journal()?.is_none() {
             return self.status().await;
@@ -476,43 +174,36 @@ impl<S: SecretStore> SyncEngine<S> {
         self.sync_now().await
     }
 
+    /// Any device but the administrator can leave. Ending a Sync that already ended just forgets it.
     pub async fn leave(&self) -> Result<SyncStatus, SyncError> {
         let _guard = self
             .operation
             .try_lock()
             .map_err(|_| SyncError::AlreadySyncing)?;
-        if self.config()?.is_some_and(|c| c.protocol_version == 2) {
-            return self.end_membership(false).await;
+        let ended = match self.config() {
+            Ok(config) => config.is_some_and(|c| c.terminal.is_some()),
+            // Damaged local Sync state cannot be repaired; leaving starts clean.
+            Err(SyncError::CorruptLocalState) => true,
+            Err(error) => return Err(error),
+        };
+        if ended {
+            self.reset_local().await?;
+            *self
+                .uploaded_generation
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+            *self
+                .status
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Self::unpaired_status();
+            self.notify_state_changed();
+            return Ok(self.status_snapshot());
         }
-        if self.journal()?.is_some() {
-            return Err(SyncError::PendingOperation);
-        }
-        // Remove recovery siblings first so a crash cannot resurrect removed canonical state.
-        for path in [
-            self.path.with_extension("json.tmp"),
-            self.path.with_extension("json.bak"),
-            self.path.clone(),
-        ] {
-            match fs::remove_file(path) {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(_) => return Err(SyncError::Persistence),
-            }
-        }
-        #[cfg(unix)]
-        sync_parent(&self.path).map_err(|_| SyncError::Persistence)?;
-        self.secret
-            .delete()
-            .await
-            .map_err(|_| SyncError::SecureStorage)?;
-        *self
-            .uploaded_generation
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
-        *self
-            .status
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = SyncStatus {
+        self.end_membership(false).await
+    }
+
+    fn unpaired_status() -> SyncStatus {
+        SyncStatus {
             supported: true,
             paired: false,
             state: SyncState::Unpaired,
@@ -523,9 +214,7 @@ impl<S: SecretStore> SyncEngine<S> {
             this_device_id: None,
             devices: Vec::new(),
             control: super::state::MembershipStatus::default(),
-        };
-        self.notify_state_changed();
-        Ok(self.status_snapshot())
+        }
     }
 
     pub(super) fn finish<T>(&self, result: &Result<T, SyncError>) {

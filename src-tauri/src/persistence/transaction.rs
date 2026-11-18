@@ -82,25 +82,6 @@ impl PersistentState {
             Arc::new(ActivityStore::new(directory)?),
         )
     }
-    #[cfg(test)]
-    pub fn with_stores(
-        directory: &Path,
-        seen: Arc<SeenStore>,
-        history: Arc<HistoryStore>,
-        favorites: Arc<FavoriteStore>,
-        explored: Arc<ExplorationStore>,
-        activity: Arc<ActivityStore>,
-    ) -> Result<Self, AppError> {
-        Self::with_identity(
-            directory,
-            Arc::new(DeviceIdentity::new(directory)?),
-            seen,
-            history,
-            favorites,
-            explored,
-            activity,
-        )
-    }
     pub fn with_identity(
         directory: &Path,
         identity: Arc<DeviceIdentity>,
@@ -120,7 +101,7 @@ impl PersistentState {
             favorites,
             explored,
             activity,
-            preferences: Arc::new(PreferenceStore::with_identity(directory, identity.clone())?),
+            preferences: Arc::new(PreferenceStore::with_identity(directory, &identity)?),
             identity,
         };
         state.read(|| Ok(()))?;
@@ -201,13 +182,6 @@ impl PersistentState {
         })
     }
 
-    pub fn set_device_name(&self, name: &str) -> Result<(), AppError> {
-        self.read(|| {
-            self.identity.set_display_name(name)?;
-            self.preferences
-                .set_device_metadata(self.identity.metadata())
-        })
-    }
     pub fn snapshot(&self) -> Result<(SyncSnapshot, Generation), AppError> {
         self.read(|| Ok((self.snapshot_unlocked()?, self.generation())))
     }
@@ -331,6 +305,7 @@ impl PersistentState {
     }
     /// Restore: makes `target` the whole synchronized state through the journal. Device
     /// identity, thumbnails and Sync credentials are not part of it and stay untouched.
+    #[cfg(test)]
     pub fn replace_synchronized(&self, target: &SyncSnapshot) -> Result<Generation, AppError> {
         self.replace_synchronized_once(target, None)
     }
@@ -362,20 +337,6 @@ impl PersistentState {
             save_json(&self.path, &Option::<Transaction>::None)?;
             Ok(self.generation())
         })
-    }
-    /// Test hook: a Restore that crashed right after its journal became durable.
-    #[cfg(test)]
-    pub fn journal_replace_only(&self, target: &SyncSnapshot) -> Result<(), AppError> {
-        let tx = Transaction {
-            version: 2,
-            id: operation_id(),
-            effects: target.clone(),
-            close_legacy_import: true,
-            session_import: true,
-            replace: true,
-            restore_operation: None,
-        };
-        save_json(&self.path, &Some(&tx))
     }
     fn transact(&self, effects: &SyncSnapshot, close_legacy_import: bool) -> Result<(), AppError> {
         self.transact_import(effects, close_legacy_import, false)

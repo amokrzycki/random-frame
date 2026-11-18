@@ -10,14 +10,14 @@ pub enum SyncError {
     CredentialReplaced,
     MasterRequired,
     MasterCannotLeave,
-    InvitationExpired,
-    InvitationConsumed,
     OperationMismatch,
-    NoInvitation,
+    NoCode,
     PendingOperation,
-    ManagedRequired,
     InvalidEndpoint,
-    InvalidRecoveryKey,
+    CodeLength,
+    CodeWord(usize),
+    CodeTypo,
+    CodeRejected,
     AlreadyPaired,
     Unpaired,
     AlreadySyncing,
@@ -27,12 +27,11 @@ pub enum SyncError {
     SecureStorage,
     Persistence,
     InvalidRemoteData,
-    UnsupportedVersion(u32),
     Offline,
     Timeout,
     Tls,
     MalformedResponse,
-    MissingChain,
+    NotFound,
     Conflict,
     RateLimited,
     ServerError,
@@ -61,22 +60,29 @@ impl From<TransportError> for SyncError {
             TransportError::CredentialReplaced => Self::CredentialReplaced,
             TransportError::MasterRequired => Self::MasterRequired,
             TransportError::MasterCannotLeave => Self::MasterCannotLeave,
-            TransportError::InvitationExpired => Self::InvitationExpired,
-            TransportError::InvitationConsumed => Self::InvitationConsumed,
             TransportError::OperationMismatch => Self::OperationMismatch,
             TransportError::InvalidEndpoint => Self::InvalidEndpoint,
             TransportError::Offline => Self::Offline,
             TransportError::Timeout => Self::Timeout,
             TransportError::Tls => Self::Tls,
-            TransportError::MissingChain => Self::MissingChain,
+            TransportError::NotFound => Self::NotFound,
             TransportError::Conflict => Self::Conflict,
             TransportError::RateLimited => Self::RateLimited,
             TransportError::ServerError => Self::ServerError,
             TransportError::BodyTooLarge => Self::BodyTooLarge,
             TransportError::MalformedResponse
-            | TransportError::InvalidEtag
             | TransportError::UnexpectedStatus(_)
             | TransportError::InvalidIdentity => Self::MalformedResponse,
+        }
+    }
+}
+
+impl From<crate::sync_code::CodeError> for SyncError {
+    fn from(error: crate::sync_code::CodeError) -> Self {
+        match error {
+            crate::sync_code::CodeError::WordCount => Self::CodeLength,
+            crate::sync_code::CodeError::UnknownWord(position) => Self::CodeWord(position),
+            crate::sync_code::CodeError::Checksum => Self::CodeTypo,
         }
     }
 }
@@ -91,6 +97,13 @@ impl From<StorageError> for SyncError {
 }
 
 impl SyncError {
+    /// The server or network is momentarily unreachable; the same request can succeed later.
+    pub(super) fn is_transient(&self) -> bool {
+        matches!(
+            self,
+            Self::Offline | Self::Timeout | Self::Tls | Self::RateLimited | Self::ServerError
+        )
+    }
     pub(super) fn category(&self) -> &'static str {
         match self {
             Self::Revoked => "revoked",
@@ -99,15 +112,15 @@ impl SyncError {
             Self::CredentialReplaced => "credential_replaced",
             Self::MasterRequired => "master_required",
             Self::MasterCannotLeave => "master_cannot_leave",
-            Self::InvitationExpired => "invitation_expired",
-            Self::InvitationConsumed => "invitation_consumed",
             Self::OperationMismatch => "operation_mismatch",
-            Self::NoInvitation => "no_invitation",
+            Self::NoCode => "no_code",
             Self::PendingOperation => "pending_operation",
-            Self::ManagedRequired => "managed_required",
             Self::ServerRollbackDetected { .. } => "rollback_detected",
             Self::InvalidEndpoint => "invalid_endpoint",
-            Self::InvalidRecoveryKey => "invalid_recovery_key",
+            Self::CodeLength => "code_length",
+            Self::CodeWord(_) => "code_word",
+            Self::CodeTypo => "code_typo",
+            Self::CodeRejected => "code_rejected",
             Self::AlreadyPaired => "already_paired",
             Self::Unpaired => "unpaired",
             Self::LocalMigrationPending => "migration_pending",
@@ -115,13 +128,12 @@ impl SyncError {
             Self::CorruptLocalState => "corrupt_local_state",
             Self::SecureStorage => "secure_storage",
             Self::Persistence => "persistence",
-            Self::UnsupportedVersion(_) => "unsupported_version",
             Self::InvalidRemoteData => "invalid_remote_data",
             Self::Offline => "offline",
             Self::Timeout => "timeout",
             Self::Tls => "tls",
             Self::MalformedResponse => "malformed_response",
-            Self::MissingChain => "missing_chain",
+            Self::NotFound => "not_found",
             Self::Conflict => "conflict",
             Self::RateLimited => "rate_limited",
             Self::ServerError => "server_error",

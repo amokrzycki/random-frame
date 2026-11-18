@@ -18,7 +18,7 @@ const unpairedStatus = {
   credentialVersion: null,
   keyEpoch: null,
   controlVerifiedAt: null,
-  legacySourceId: null,
+  codeReady: false,
 };
 export const android = {
   platform: "android",

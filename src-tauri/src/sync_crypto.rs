@@ -1,4 +1,4 @@
-//! Pairing identity and authenticated sync snapshot envelope.
+//! Group root secret and the authenticated snapshot envelope.
 
 use chacha20poly1305::{
     aead::{Aead, KeyInit, Payload},
@@ -6,21 +6,20 @@ use chacha20poly1305::{
 };
 use hkdf::Hkdf;
 use rand::{rngs::OsRng, RngCore};
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
 use std::fmt;
 use zeroize::Zeroizing;
 
-use crate::{snapshot, sync_transport::MAX_ENVELOPE};
+use crate::{snapshot, sync_protocol::valid_hex, sync_transport::MAX_ENVELOPE};
 
-const ENCRYPTION_LABEL: &[u8] = b"random-frame/sync/v1/encryption";
-const AUTH_LABEL: &[u8] = b"random-frame/sync/v1/auth";
-const ID_LABEL: &[u8] = b"random-frame/sync/v1/id";
-const RECOVERY_LABEL: &[u8] = b"random-frame/recovery/v1";
+const ENCRYPTION_LABEL: &[u8] = b"random-frame/sync/encryption";
+const ID_LABEL: &[u8] = b"random-frame/sync/id";
 const ENVELOPE_MAGIC: &[u8; 8] = b"RFSYNC\0\0";
 const ENVELOPE_VERSION: u32 = 1;
-const HEADER_LEN: usize = 8 + 4 + 24;
+const HEADER_LEN: usize = 8 + 4 + 32 + 8 + 32;
+const NONCE_LEN: usize = 24;
 const TAG_LEN: usize = 16;
-pub(crate) const ENVELOPE_OVERHEAD: usize = HEADER_LEN + TAG_LEN;
+pub(crate) const ENVELOPE_OVERHEAD: usize = HEADER_LEN + NONCE_LEN + TAG_LEN;
 
 pub struct RootSecret(Zeroizing<[u8; 32]>);
 
@@ -45,93 +44,45 @@ impl RootSecret {
     }
 
     pub fn derive(&self) -> SyncKeys {
-        // Fixed v1 labels and the empty salt are part of the frozen derivation format.
         let hkdf = Hkdf::<Sha256>::new(None, self.as_bytes());
         let mut encryption = Zeroizing::new([0; 32]);
-        let mut auth = Zeroizing::new([0; 32]);
         let mut id = [0; 32];
         hkdf.expand(ENCRYPTION_LABEL, encryption.as_mut())
-            .unwrap_or_else(|_| unreachable!());
-        hkdf.expand(AUTH_LABEL, auth.as_mut())
             .unwrap_or_else(|_| unreachable!());
         hkdf.expand(ID_LABEL, &mut id)
             .unwrap_or_else(|_| unreachable!());
         SyncKeys {
             encryption,
-            auth,
-            sync_id: hex_encode(&id),
+            key_id: hex::encode(id),
         }
-    }
-
-    pub fn recovery_key(&self) -> Zeroizing<String> {
-        use std::fmt::Write;
-        let digest = Sha256::new()
-            .chain_update(RECOVERY_LABEL)
-            .chain_update(self.as_bytes())
-            .finalize();
-        let mut key = Zeroizing::new(String::with_capacity(4 + 64 + 1 + 8));
-        key.push_str("rf1-");
-        for byte in self.as_bytes() {
-            let _ = write!(&mut *key, "{byte:02x}");
-        }
-        key.push('-');
-        for byte in &digest[..4] {
-            let _ = write!(&mut *key, "{byte:02x}");
-        }
-        key
-    }
-
-    pub fn from_recovery_key(input: &str) -> Result<Self, CryptoError> {
-        let (secret, checksum) = input
-            .strip_prefix("rf1-")
-            .ok_or(CryptoError::InvalidRecoveryKey)?
-            .split_once('-')
-            .ok_or(CryptoError::InvalidRecoveryKey)?;
-        if secret.len() != 64 || checksum.len() != 8 {
-            return Err(CryptoError::InvalidRecoveryKey);
-        }
-        let bytes = Zeroizing::new(hex_decode(secret).ok_or(CryptoError::InvalidRecoveryKey)?);
-        let root = Self::from_bytes(&bytes).map_err(|_| CryptoError::InvalidRecoveryKey)?;
-        if root.recovery_key().as_str() != input {
-            return Err(CryptoError::InvalidRecoveryKey);
-        }
-        Ok(root)
     }
 }
 
 pub struct SyncKeys {
     encryption: Zeroizing<[u8; 32]>,
-    auth: Zeroizing<[u8; 32]>,
-    sync_id: String,
+    key_id: String,
 }
 
 impl SyncKeys {
-    pub fn sync_id(&self) -> &str {
-        &self.sync_id
+    /// Names this root inside key packages and envelope headers; never a secret.
+    pub fn key_id(&self) -> &str {
+        &self.key_id
     }
 
-    /// Send only over HTTPS as a bearer credential; never store this on the server.
-    pub fn client_auth_token(&self) -> Zeroizing<String> {
-        Zeroizing::new(hex_encode(self.auth.as_ref()))
-    }
-
-    /// SHA-256 of a 256-bit random-derived token; suitable for server-side comparison.
-    #[allow(
-        dead_code,
-        reason = "server verifier is part of the frozen v1 derivation API"
-    )]
-    pub fn server_auth_verifier(&self) -> String {
-        hex_encode(&Sha256::digest(self.client_auth_token().as_bytes()))
-    }
-
-    pub fn encrypt_snapshot(&self, plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
+    pub fn encrypt_snapshot(
+        &self,
+        group: &str,
+        epoch: i64,
+        plaintext: &[u8],
+    ) -> Result<Vec<u8>, CryptoError> {
+        if plaintext.len() > MAX_ENVELOPE - ENVELOPE_OVERHEAD {
+            return Err(CryptoError::BodyTooLarge);
+        }
         snapshot::parse_snapshot(plaintext).map_err(snapshot_error)?;
-        let mut nonce = [0; 24];
+        let mut header = self.header(group, epoch)?;
+        let mut nonce = [0; NONCE_LEN];
         OsRng.fill_bytes(&mut nonce);
-        let mut envelope = Vec::with_capacity(HEADER_LEN + plaintext.len() + TAG_LEN);
-        envelope.extend_from_slice(ENVELOPE_MAGIC);
-        envelope.extend_from_slice(&ENVELOPE_VERSION.to_le_bytes());
-        envelope.extend_from_slice(&nonce);
+        header.extend_from_slice(&nonce);
         let cipher = XChaCha20Poly1305::new_from_slice(self.encryption.as_ref())
             .map_err(|_| CryptoError::InvalidEnvelope)?;
         let ciphertext = cipher
@@ -139,65 +90,64 @@ impl SyncKeys {
                 XNonce::from_slice(&nonce),
                 Payload {
                     msg: plaintext,
-                    aad: &self.aad(&envelope[..12]),
+                    aad: &header,
                 },
             )
             .map_err(|_| CryptoError::InvalidEnvelope)?;
-        envelope.extend_from_slice(&ciphertext);
-        Ok(envelope)
+        header.extend_from_slice(&ciphertext);
+        Ok(header)
     }
 
     pub fn decrypt_snapshot(
         &self,
-        expected_sync_id: &str,
+        group: &str,
+        epoch: i64,
         envelope: &[u8],
-    ) -> Result<Vec<u8>, CryptoError> {
-        if expected_sync_id != self.sync_id {
-            return Err(CryptoError::InvalidEnvelope);
-        }
-        if envelope.len() < ENVELOPE_OVERHEAD || envelope.len() > MAX_ENVELOPE {
-            return Err(CryptoError::InvalidEnvelope);
-        }
-        if &envelope[..8] != ENVELOPE_MAGIC
-            || u32::from_le_bytes(
-                envelope[8..12]
-                    .try_into()
-                    .map_err(|_| CryptoError::InvalidEnvelope)?,
-            ) != ENVELOPE_VERSION
+    ) -> Result<Zeroizing<Vec<u8>>, CryptoError> {
+        let header = self.header(group, epoch)?;
+        if envelope.len() < ENVELOPE_OVERHEAD
+            || envelope.len() > MAX_ENVELOPE
+            || envelope[..HEADER_LEN] != header
         {
             return Err(CryptoError::InvalidEnvelope);
         }
         let cipher = XChaCha20Poly1305::new_from_slice(self.encryption.as_ref())
             .map_err(|_| CryptoError::InvalidEnvelope)?;
-        let plaintext = cipher
-            .decrypt(
-                XNonce::from_slice(&envelope[12..HEADER_LEN]),
-                Payload {
-                    msg: &envelope[HEADER_LEN..],
-                    aad: &self.aad(&envelope[..12]),
-                },
-            )
-            .map_err(|_| CryptoError::InvalidEnvelope)?;
+        let plaintext = Zeroizing::new(
+            cipher
+                .decrypt(
+                    XNonce::from_slice(&envelope[HEADER_LEN..HEADER_LEN + NONCE_LEN]),
+                    Payload {
+                        msg: &envelope[HEADER_LEN + NONCE_LEN..],
+                        aad: &envelope[..HEADER_LEN + NONCE_LEN],
+                    },
+                )
+                .map_err(|_| CryptoError::InvalidEnvelope)?,
+        );
         snapshot::parse_snapshot(&plaintext).map_err(snapshot_error)?;
         Ok(plaintext)
     }
 
-    fn aad(&self, header: &[u8]) -> Vec<u8> {
-        let mut aad = Vec::with_capacity(header.len() + self.sync_id.len());
-        aad.extend_from_slice(header);
-        aad.extend_from_slice(self.sync_id.as_bytes());
-        aad
+    /// The server reads these 84 bytes: magic, version (u32 LE), group, epoch (u64 BE), key id.
+    fn header(&self, group: &str, epoch: i64) -> Result<Vec<u8>, CryptoError> {
+        if !valid_hex(group, 32) || epoch < 1 {
+            return Err(CryptoError::InvalidEnvelope);
+        }
+        let mut header = Vec::with_capacity(HEADER_LEN + NONCE_LEN);
+        header.extend_from_slice(ENVELOPE_MAGIC);
+        header.extend_from_slice(&ENVELOPE_VERSION.to_le_bytes());
+        header.extend_from_slice(&hex::decode(group).map_err(|_| CryptoError::InvalidEnvelope)?);
+        header.extend_from_slice(&epoch.to_be_bytes());
+        header.extend_from_slice(
+            &hex::decode(&self.key_id).map_err(|_| CryptoError::InvalidEnvelope)?,
+        );
+        Ok(header)
     }
 }
 
-#[allow(
-    clippy::enum_variant_names,
-    reason = "invalidity is the common safe error category"
-)]
 #[derive(Debug, PartialEq, Eq)]
 pub enum CryptoError {
     InvalidSecret,
-    InvalidRecoveryKey,
     InvalidSnapshot,
     InvalidEnvelope,
     BodyTooLarge,
@@ -208,7 +158,6 @@ impl fmt::Display for CryptoError {
         f.write_str(match self {
             Self::BodyTooLarge => "Encrypted sync data exceeds the transfer limit",
             Self::InvalidSecret => "Invalid stored sync secret",
-            Self::InvalidRecoveryKey => "Invalid recovery key",
             Self::InvalidSnapshot => "Invalid seen snapshot",
             Self::InvalidEnvelope => "Encrypted sync data could not be opened",
         })
@@ -217,132 +166,23 @@ impl fmt::Display for CryptoError {
 
 impl std::error::Error for CryptoError {}
 
-fn hex_encode(bytes: &[u8]) -> String {
-    use std::fmt::Write;
-    let mut result = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        let _ = write!(result, "{byte:02x}");
-    }
-    result
-}
-
-fn hex_decode(input: &str) -> Option<Vec<u8>> {
-    input
-        .as_bytes()
-        .as_chunks::<2>()
-        .0
-        .iter()
-        .map(|pair| {
-            let pair = std::str::from_utf8(pair).ok()?;
-            if !pair
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-            {
-                return None;
-            }
-            u8::from_str_radix(pair, 16).ok()
-        })
-        .collect()
-}
-
 fn snapshot_error(_: snapshot::SnapshotError) -> CryptoError {
     CryptoError::InvalidSnapshot
-}
-
-impl SyncKeys {
-    /// V2 header is also AAD; v1 derivation/envelope fixtures remain frozen.
-    pub fn encrypt_managed(
-        &self,
-        group: &str,
-        epoch: i64,
-        plaintext: &[u8],
-    ) -> Result<Vec<u8>, CryptoError> {
-        if plaintext.len() > MAX_ENVELOPE - 124 {
-            return Err(CryptoError::BodyTooLarge);
-        }
-        snapshot::parse_snapshot(plaintext).map_err(snapshot_error)?;
-        let mut header = self.managed_header(group, epoch)?;
-        let mut nonce = [0; 24];
-        OsRng.fill_bytes(&mut nonce);
-        header.extend_from_slice(&nonce);
-        let cipher = XChaCha20Poly1305::new_from_slice(self.encryption.as_ref())
-            .map_err(|_| CryptoError::InvalidEnvelope)?;
-        let ct = cipher
-            .encrypt(
-                XNonce::from_slice(&nonce),
-                Payload {
-                    msg: plaintext,
-                    aad: &header,
-                },
-            )
-            .map_err(|_| CryptoError::InvalidEnvelope)?;
-        if header.len() + ct.len() > MAX_ENVELOPE {
-            return Err(CryptoError::BodyTooLarge);
-        }
-        header.extend_from_slice(&ct);
-        Ok(header)
-    }
-    pub fn decrypt_managed(
-        &self,
-        group: &str,
-        epoch: i64,
-        envelope: &[u8],
-    ) -> Result<Zeroizing<Vec<u8>>, CryptoError> {
-        let header = self.managed_header(group, epoch)?;
-        if envelope.len() < 124 || envelope.len() > MAX_ENVELOPE || envelope[..84] != header {
-            return Err(CryptoError::InvalidEnvelope);
-        }
-        let cipher = XChaCha20Poly1305::new_from_slice(self.encryption.as_ref())
-            .map_err(|_| CryptoError::InvalidEnvelope)?;
-        let plaintext = Zeroizing::new(
-            cipher
-                .decrypt(
-                    XNonce::from_slice(&envelope[84..108]),
-                    Payload {
-                        msg: &envelope[108..],
-                        aad: &envelope[..108],
-                    },
-                )
-                .map_err(|_| CryptoError::InvalidEnvelope)?,
-        );
-        snapshot::parse_snapshot(&plaintext).map_err(snapshot_error)?;
-        Ok(plaintext)
-    }
-    fn managed_header(&self, group: &str, epoch: i64) -> Result<Vec<u8>, CryptoError> {
-        if !crate::sync_protocol::valid_hex(group, 32) || epoch < 1 {
-            return Err(CryptoError::InvalidEnvelope);
-        }
-        let mut h = ENVELOPE_MAGIC.to_vec();
-        h.extend_from_slice(&2_u32.to_le_bytes());
-        h.extend_from_slice(&hex::decode(group).map_err(|_| CryptoError::InvalidEnvelope)?);
-        h.extend_from_slice(&epoch.to_be_bytes());
-        h.extend_from_slice(&hex::decode(&self.sync_id).map_err(|_| CryptoError::InvalidEnvelope)?);
-        Ok(h)
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        persistence::SeenStore,
-        snapshot::{FavoriteRecord, SyncRecord, SyncSnapshot},
-    };
+    use crate::snapshot::SyncSnapshot;
+
+    const GROUP: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
 
     fn fixture() -> RootSecret {
         let bytes: Vec<u8> = (0..32).collect();
         RootSecret::from_bytes(&bytes).unwrap_or_else(|_| unreachable!())
     }
 
-    #[test]
-    fn envelope_overhead_matches_transport_and_plaintext_budget() {
-        assert_eq!(HEADER_LEN, 36);
-        assert_eq!(TAG_LEN, 16);
-        assert_eq!(ENVELOPE_OVERHEAD, 52);
-        assert_eq!(snapshot::MAX_PLAINTEXT + ENVELOPE_OVERHEAD, MAX_ENVELOPE);
-    }
-
-    fn snapshot() -> Vec<u8> {
+    fn plaintext() -> Vec<u8> {
         snapshot::serialize_snapshot(&SyncSnapshot {
             seen: vec![1, 42],
             ..SyncSnapshot::default()
@@ -351,202 +191,102 @@ mod tests {
     }
 
     #[test]
-    fn envelope_roundtrip_accepts_sync_plaintext() {
-        let plain = snapshot::serialize_snapshot(&SyncSnapshot {
-            seen: vec![1, 42],
-            history: vec![SyncRecord {
-                operation_id: [1; 16],
-                order_at: 0,
-                last_view: crate::snapshot::ViewStamp::inferred(10),
-                source: "prntsc".into(),
-                id: "abc123".into(),
-                source_page_url: "https://prnt.sc/abc123".into(),
-            }],
-            history_removed: vec![],
-            favorites: vec![FavoriteRecord {
-                operation_id: [2; 16],
-                added_at: 11,
-                source: "prntsc".into(),
-                id: "abc123".into(),
-                source_page_url: "https://prnt.sc/abc123".into(),
-            }],
-            favorites_removed: vec![],
-            ..SyncSnapshot::default()
-        })
-        .unwrap_or_else(|_| unreachable!());
+    fn envelope_overhead_matches_transport_and_plaintext_budget() {
+        assert_eq!(HEADER_LEN, 84);
+        assert_eq!(ENVELOPE_OVERHEAD, 124);
+        assert_eq!(snapshot::MAX_PLAINTEXT + ENVELOPE_OVERHEAD, MAX_ENVELOPE);
+    }
+
+    #[test]
+    fn header_layout_is_exactly_what_the_server_reads() {
         let keys = fixture().derive();
         let envelope = keys
-            .encrypt_snapshot(&plain)
+            .encrypt_snapshot(GROUP, 258, &plaintext())
             .unwrap_or_else(|_| unreachable!());
-        assert_eq!(
-            keys.decrypt_snapshot(keys.sync_id(), &envelope).ok(),
-            Some(plain)
-        );
+        assert_eq!(&envelope[..8], b"RFSYNC\0\0");
+        assert_eq!(envelope[8..12], 1_u32.to_le_bytes());
+        assert_eq!(hex::encode(&envelope[12..44]), GROUP);
+        assert_eq!(envelope[44..52], 258_u64.to_be_bytes());
+        assert_eq!(hex::encode(&envelope[52..84]), keys.key_id());
+        assert_eq!(envelope.len(), ENVELOPE_OVERHEAD + plaintext().len());
     }
 
     #[test]
-    fn derivation_is_separate_deterministic_and_sensitive() {
-        let first = RootSecret::generate();
-        let second = RootSecret::generate();
-        assert_eq!(first.as_bytes().len(), 32);
-        assert_ne!(first.as_bytes(), second.as_bytes());
-        let root = fixture();
-        let keys = root.derive();
-        let same = fixture().derive();
-        assert_eq!(keys.sync_id(), same.sync_id());
-        assert_eq!(keys.encryption.as_ref(), same.encryption.as_ref());
-        assert_eq!(keys.auth.as_ref(), same.auth.as_ref());
-        assert_ne!(keys.encryption.as_ref(), keys.auth.as_ref());
-        assert_ne!(hex_encode(keys.encryption.as_ref()), keys.sync_id());
-        assert_ne!(hex_encode(keys.auth.as_ref()), keys.sync_id());
-        let mut changed = *root.as_bytes();
-        changed[0] ^= 1;
-        let changed = RootSecret::from_bytes(&changed)
-            .unwrap_or_else(|_| unreachable!())
-            .derive();
-        assert_ne!(keys.sync_id(), changed.sync_id());
-        assert_ne!(keys.auth.as_ref(), changed.auth.as_ref());
-        assert_ne!(keys.encryption.as_ref(), changed.encryption.as_ref());
-        assert_ne!(*keys.client_auth_token(), keys.server_auth_verifier());
-    }
-
-    #[test]
-    fn stable_v1_vectors() {
-        let root = fixture();
-        let keys = root.derive();
-        assert_eq!(
-            hex_encode(keys.encryption.as_ref()),
-            "1be9a8f3a995887eb461ec47d8dca2e412f5cd1b3f19ad6a7a6c775be024cfa6"
-        );
-        assert_eq!(
-            hex_encode(keys.auth.as_ref()),
-            "849d889a5511423d18dffe61c92796005318fa916449dcc3e6fe0e9d8d8b9d90"
-        );
-        assert_eq!(
-            keys.sync_id(),
-            "6d7efd095845c986cef388be39a7bf323a594294deb7bef8b6553d2ba1b7ac62"
-        );
-        assert_eq!(
-            keys.server_auth_verifier(),
-            "b4029f45e1ecb8ff49a25ab1f5ab5527620de4beda89d948c9b939d19c02804c"
-        );
-        assert_eq!(
-            root.recovery_key().as_str(),
-            "rf1-000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f-ef83c816"
-        );
-    }
-
-    #[test]
-    fn recovery_key_is_canonical_and_detects_errors() {
-        let canonical = fixture().recovery_key();
-        assert_eq!(
-            RootSecret::from_recovery_key(&canonical)
-                .unwrap_or_else(|_| unreachable!())
-                .recovery_key()
-                .as_str(),
-            canonical.as_str()
-        );
-        for bad in [
-            canonical.replacen("rf1", "rf2", 1),
-            canonical.to_ascii_uppercase(),
-            canonical[..canonical.len() - 1].to_owned(),
-            format!("{}0", canonical.as_str()),
-            canonical.replacen('0', "z", 1),
-            format!("{}0", &canonical[..canonical.len() - 1]),
-            canonical.replacen('0', "1", 1),
-        ] {
-            assert!(RootSecret::from_recovery_key(&bad).is_err());
-        }
-    }
-
-    #[test]
-    fn envelope_roundtrip_nonce_and_tamper_fail_without_merge() {
+    fn roundtrip_binds_group_epoch_and_key() {
         let keys = fixture().derive();
-        let plain = snapshot();
-        let good = keys
-            .encrypt_snapshot(&plain)
-            .unwrap_or_else(|_| unreachable!());
-        let second = keys
-            .encrypt_snapshot(&plain)
-            .unwrap_or_else(|_| unreachable!());
-        assert_ne!(good, second);
-        assert_eq!(
-            keys.decrypt_snapshot(keys.sync_id(), &good).ok(),
-            Some(plain)
-        );
-        let directory = std::env::temp_dir().join(format!(
-            "random-frame-crypto-test-{}-{}",
-            std::process::id(),
-            rand::random::<u64>()
-        ));
-        let seen = SeenStore::new(&directory).unwrap_or_else(|_| unreachable!());
-        seen.insert(7).unwrap_or_else(|_| unreachable!());
-        let mut cases = Vec::new();
-        for position in [12, HEADER_LEN, good.len() - 1] {
-            let mut damaged = good.clone();
-            damaged[position] ^= 1;
-            cases.push(damaged);
-        }
-        cases.push(good[..good.len() - 1].to_vec());
-        cases.push([good.as_slice(), &[0]].concat());
-        let mut version = good.clone();
-        version[8] = 2;
-        cases.push(version);
-        cases.push(good[..HEADER_LEN + TAG_LEN - 1].to_vec());
-        for case in cases {
-            assert!(keys.decrypt_snapshot(keys.sync_id(), &case).is_err());
-            assert!(seen.contains(7));
-            assert!(!seen.contains(1));
-        }
-        assert!(keys.decrypt_snapshot(&"0".repeat(64), &good).is_err());
-        let other = RootSecret::generate().derive();
-        assert!(other.decrypt_snapshot(other.sync_id(), &good).is_err());
-        assert!(!seen.contains(1));
-        let imported = keys
-            .decrypt_snapshot(keys.sync_id(), &good)
+        let envelope = keys
+            .encrypt_snapshot(GROUP, 1, &plaintext())
             .unwrap_or_else(|_| unreachable!());
         assert_eq!(
-            seen.merge(
-                snapshot::parse_snapshot(&imported)
-                    .unwrap_or_else(|_| unreachable!())
-                    .seen
-            )
-            .ok(),
-            Some(2)
+            keys.decrypt_snapshot(GROUP, 1, &envelope).ok().as_deref(),
+            Some(&plaintext())
         );
-        assert!(seen.contains(1));
-        std::fs::remove_dir_all(directory).unwrap_or_else(|_| unreachable!());
+        assert!(keys.decrypt_snapshot(GROUP, 2, &envelope).is_err());
+        let other_group = GROUP.replace('0', "1");
+        assert!(keys.decrypt_snapshot(&other_group, 1, &envelope).is_err());
+        let other_key = RootSecret::generate().derive();
+        assert!(other_key.decrypt_snapshot(GROUP, 1, &envelope).is_err());
+    }
+
+    #[test]
+    fn tampering_with_any_byte_is_rejected() {
+        let keys = fixture().derive();
+        let envelope = keys
+            .encrypt_snapshot(GROUP, 1, &plaintext())
+            .unwrap_or_else(|_| unreachable!());
+        for index in [0, 9, 20, 46, 60, 90, envelope.len() - 1] {
+            let mut damaged = envelope.clone();
+            damaged[index] ^= 1;
+            assert!(keys.decrypt_snapshot(GROUP, 1, &damaged).is_err());
+        }
+        assert!(keys
+            .decrypt_snapshot(GROUP, 1, &envelope[..ENVELOPE_OVERHEAD - 1])
+            .is_err());
+    }
+
+    #[test]
+    fn nonces_differ_and_derivation_is_deterministic() {
+        let keys = fixture().derive();
+        let a = keys
+            .encrypt_snapshot(GROUP, 1, &plaintext())
+            .unwrap_or_else(|_| unreachable!());
+        let b = keys
+            .encrypt_snapshot(GROUP, 1, &plaintext())
+            .unwrap_or_else(|_| unreachable!());
+        assert_ne!(a[84..108], b[84..108]);
+        assert_eq!(keys.key_id(), fixture().derive().key_id());
+        assert_ne!(keys.key_id(), RootSecret::generate().derive().key_id());
+    }
+
+    #[test]
+    fn stable_derivation_vector() {
+        assert_eq!(
+            fixture().derive().key_id(),
+            "3ba81b86df907cf4627ebf4090f6a8891b7560f559febf1724799feded0bdd17",
+        );
     }
 
     #[test]
     fn valid_aead_with_invalid_snapshot_is_rejected() {
         let keys = fixture().derive();
-        let mut invalid = snapshot();
-        invalid[0] = b'X';
-        assert_eq!(
-            keys.encrypt_snapshot(&invalid),
-            Err(CryptoError::InvalidSnapshot)
-        );
-        let mut nonce = [0; 24];
-        OsRng.fill_bytes(&mut nonce);
-        let mut envelope = Vec::from(*ENVELOPE_MAGIC);
-        envelope.extend_from_slice(&ENVELOPE_VERSION.to_le_bytes());
-        envelope.extend_from_slice(&nonce);
+        let header = keys.header(GROUP, 1).unwrap_or_else(|_| unreachable!());
+        let mut nonce = [7; NONCE_LEN];
+        nonce[0] = 1;
+        let mut aad = header;
+        aad.extend_from_slice(&nonce);
         let cipher = XChaCha20Poly1305::new_from_slice(keys.encryption.as_ref())
             .unwrap_or_else(|_| unreachable!());
         let ciphertext = cipher
             .encrypt(
                 XNonce::from_slice(&nonce),
                 Payload {
-                    msg: &invalid,
-                    aad: &keys.aad(&envelope[..12]),
+                    msg: b"not a snapshot",
+                    aad: &aad,
                 },
             )
             .unwrap_or_else(|_| unreachable!());
+        let mut envelope = aad;
         envelope.extend_from_slice(&ciphertext);
-        assert_eq!(
-            keys.decrypt_snapshot(keys.sync_id(), &envelope),
-            Err(CryptoError::InvalidSnapshot)
-        );
+        assert!(keys.decrypt_snapshot(GROUP, 1, &envelope).is_err());
     }
 }

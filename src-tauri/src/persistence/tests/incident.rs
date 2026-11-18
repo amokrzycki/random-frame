@@ -59,8 +59,9 @@ fn inspect_copies(directory: &std::path::Path) -> Result<(), Box<dyn std::error:
         let (snapshot, _) = state.snapshot()?;
         let plaintext = snapshot::serialize_snapshot(&snapshot)?;
         let keys = RootSecret::generate().derive();
-        let envelope = keys.encrypt_snapshot(&plaintext)?;
-        let decrypted = keys.decrypt_snapshot(keys.sync_id(), &envelope)?;
+        let group = "ab".repeat(32);
+        let envelope = keys.encrypt_snapshot(&group, 1, &plaintext)?;
+        let decrypted = keys.decrypt_snapshot(&group, 1, &envelope)?;
         let decoded = snapshot::parse_snapshot(&decrypted)?;
         assert!(decoded == snapshot, "round trip changes incident snapshot");
         let viewed = snapshot::activity_projection(&snapshot.activity)?.0;
