@@ -21,7 +21,7 @@ test("release notes follow a successful update, wait for dialogs, and are dismis
     }
   });
 
-  let version = "0.5.0";
+  let version = "0.9.0";
   let failInstall = true;
   let restarts = 0;
   window.__TAURI_INTERNALS__ = {
@@ -33,7 +33,7 @@ test("release notes follow a successful update, wait for dialogs, and are dismis
       if (command === "import_session_history") return window.__TAURI_INTERNALS__.invoke("get_history");
       if (command === "plugin:app|version") return version;
       if (command === "plugin:updater|check")
-        return { rid: 1, currentVersion: "0.5.0", version: "0.6.0", body: "Do not display remote notes" };
+        return { rid: 1, currentVersion: "0.9.0", version: "1.0.0", body: "Do not display remote notes" };
       if (command === "plugin:updater|download_and_install") {
         assert.equal(storage.getItem(pendingKey), null);
         if (failInstall) throw new Error("install failed");
@@ -41,8 +41,8 @@ test("release notes follow a successful update, wait for dialogs, and are dismis
       }
       if (command === "plugin:process|restart") {
         if (globalThis.localStorage === storage)
-          assert.equal(storage.getItem(pendingKey), JSON.stringify({ from: "0.5.0", to: "0.6.0" }));
-        version = "0.6.0";
+          assert.equal(storage.getItem(pendingKey), JSON.stringify({ from: "0.9.0", to: "1.0.0" }));
+        version = "1.0.0";
         restarts++;
         return;
       }
@@ -110,10 +110,10 @@ test("release notes follow a successful update, wait for dialogs, and are dismis
   get("entry-dialog").close();
   await flush();
   assert.equal(get("changelog-dialog").open, true);
-  assert.equal(get("changelog-version").textContent, "0.6.0");
+  assert.equal(get("changelog-version").textContent, "1.0.0");
   assert.match(get("changelog-body").innerHTML, /<li>/);
   assert.doesNotMatch(get("changelog-body").innerHTML, /remote notes/);
-  assert.equal(storage.getItem(pendingKey), JSON.stringify({ from: "0.5.0", to: "0.6.0" }));
+  assert.equal(storage.getItem(pendingKey), JSON.stringify({ from: "0.9.0", to: "1.0.0" }));
   assert.equal(get("main-content").inert, true);
   const escapeEvent = new Event("keydown");
   Object.defineProperty(escapeEvent, "key", { value: "Escape" });
@@ -150,7 +150,7 @@ test("release notes follow a successful update, wait for dialogs, and are dismis
   }
 
   for (version of ["0.5.0", "9.9.9"]) {
-    storage.setItem(pendingKey, "0.6.0");
+    storage.setItem(pendingKey, "1.0.0");
     await update.showPendingChangelog();
     assert.equal(storage.getItem(pendingKey), null);
     assert.equal(get("changelog-dialog").open, false);
@@ -164,6 +164,21 @@ test("release notes follow a successful update, wait for dialogs, and are dismis
   storage.setItem(pendingKey, version);
   await update.showPendingChangelog();
   assert.equal(storage.getItem(pendingKey), null);
+
+  version = "0.8.1";
+  const errorNotice = errorRegion.children[0];
+  get("changelog-button").click();
+  await flush();
+  assert.equal(get("changelog-dialog").open, true);
+  assert.equal(get("changelog-version").textContent, "1.0.0");
+  assert.match(get("changelog-body").innerHTML, /<li>/);
+  assert.equal(errorNotice.getAttribute("aria-hidden"), null);
+  get("changelog-done").click();
+
+  assert.equal(update.newestBundledRelease(markdown, "0.5.0"), "0.6.0");
+  assert.equal(update.newestBundledRelease(multi, "0.5.0"), "0.6.1");
+  assert.equal(update.newestBundledRelease(multi, "0.6.1"), "");
+  assert.equal(update.newestBundledRelease(markdown, "9.9.9"), "");
 
   globalThis.localStorage = {
     getItem() {

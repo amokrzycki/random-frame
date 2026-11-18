@@ -1,256 +1,30 @@
 # Random Frame release notes
 
-## Unreleased
+## 1.0.0
 
-### Changed
+### One deliberate draw at a time
 
-- Sync snapshots use a single unversioned format. Older Sync data and groups are not migrated (breaking); the format-upgrade prompt is gone.
+- Random Frame draws one public Prnt.sc image at a time instead of an endless feed. Press `N` or click Draw, step back through the session with the arrow keys, and keep what is worth keeping.
+- The Prnt.sc source blocks cross-origin framing, so the app’s Rust backend resolves the source page and fetches the image on your device. The upstream service may rate-limit repeated requests; errors are explained plainly, and earlier history is never lost to them.
+- Nearby Frames inspects four Prnt.sc IDs before and after the current image in a 3×3 gallery. Preview checks update IDs checked only; opening a preview adds History and Seen without a Draw.
 
-## 0.8.1
+### History, Stats and Saved
 
-### Lighter startup and browsing
+- History keeps every drawn frame. Remove a frame with Undo, or clear everything through an untimed review: Undo keeps the data, Finish clearing commits it, and closing or restarting before choosing Finish cancels the review.
+- Stats count Frames drawn, Today, the activity streak and daily results, and reset with History. Prnt.sc IDs checked survive clearing and restarts.
+- The star or `F` saves a frame to the library without a collection; the same action on a saved frame opens Collections. A frame can belong to several collections or none. Deleting a collection or its last assignment keeps the global save. Global removal and Clear all saved offer Undo and keep history and downloaded files.
+- Saved frames retain source links and metadata, not permanent copies of upstream images, so an upstream image can disappear. Images saved to files stay where you saved them.
 
-- Startup reads the thumbnail list first and loads images from disk as you browse, instead of reading every thumbnail at launch. Saved thumbnails stay on disk when they leave memory.
-- The app limits how many full frames and thumbnails it keeps in memory during long browsing sessions. Browsing large Saved libraries also takes less work.
-- Stats loads its thumbnail strips from the local cache without fetching images from the source.
+### Sync across devices
 
-### Retry previews in History and Saved
+- Optional Sync shares history, saved frames, collections and assignments, Seen IDs, exploration progress, Activity Stats, theme and history page size between devices. Everything is encrypted on the device before it leaves; the server stores only encrypted data and membership records, and images saved to files are not backed up.
+- The device that starts a Sync is its administrator and shows one code of 24 words. Other devices join by entering the code; there is nothing to approve, and the same code works for any number of devices.
+- Joining chooses Restore, which takes the copy already in Sync, or Merge, which combines this device’s data and its previous deletions. A device with nothing saved joins with Restore.
+- The administrator can show the code again, replace it with a New code, remove devices, or end the Sync for everyone. Removing a device changes the group key: the old code stops working, a new code is created, and the remaining devices pick up the new key on their own. Any other device can leave, keeping its local data.
+- With Sync connected, changes upload shortly after you make them, at startup, on demand, and when you return to the app; closing gives waiting changes a few seconds to finish, and anything unfinished stays queued.
+- The device list comes from the server and marks the Administrator and This device. Last synced is a record of past activity, not online presence.
 
-- If previews fail to load, the gallery explains what happened and offers Retry previews. You can still try opening the full frames. Frames that are unavailable at the source have a separate message.
-- Retrying affects only failed previews on the current page and keeps your scroll position and keyboard focus. If the source asks the app to wait, retries pause until the cooldown ends.
+### On your platform
 
-### A more compact Nearby gallery
-
-- On desktop, Nearby Frames uses shorter previews and tighter spacing to fit the 3×3 gallery in the window. On Android, it uses two columns where space allows and one on narrow screens.
-- Retry failed sits beside Next 4. On narrow screens, the center ID gets its own row so the buttons keep their touch targets. Saved and collection controls also have larger touch targets on Android.
-
-### Small fixes
-
-- Opening a saved frame from History keeps you browsing History. Opening it from Saved keeps the selected Saved filter.
-- If copying a source link fails, a visible message says so and suggests trying again or opening the source page.
-- If renaming this device cannot be saved, the previous name stays in use.
-- A second Random Frame process cannot open the same app data while the first is running, which prevents the two from overwriting each other's changes.
-
-## 0.8.0
-
-### Nearby Frames
-
-- Open Nearby Frames from the frame-ID menu to see four Prnt.sc IDs before and after the image on screen in a 3×3 gallery. Previous 4 and Next 4 move the window by four IDs in source order, and Current marks the viewer image while it remains in the window.
-- Preview checks update IDs checked only. Opening a preview adds History and Seen without a Draw. Previews that fail and checks that cannot be saved each offer their own retry.
-- Nearby needs Sync format v4, which keeps preview availability separate from viewed IDs. Update your other devices before choosing Upgrade Sync. A previous collections upgrade does not approve this format, so Sync asks again. Older apps stop syncing and keep their local data.
-- Draw ledger thumbnails now come from the original Draw operation, so previews opened from Nearby do not appear in the ledger, and a revisited frame stays on the day you drew it.
-
-### A clearer Sync dialog
-
-- The dialog leads with the current Sync state and a Sync now button. What Sync covers, Rename this device, Recover administration, and Group administration open only when you choose them, so the main view stays short. Collapsed sections stay out of the keyboard tab order.
-- The device list is now Linked devices. The device that manages the group is called the administrator instead of HEAD, and the list says that last synced is a record of past activity, not a sign of which devices are online.
-- Add a device walks through the request, approval, and invitation steps. The pairing request is checked before it is sent, and a rejected request stays in the field with the reason beneath it.
-- Sync now and Create invitation name the operation in progress, such as Syncing or Creating invitation. After an error, or after you hide a code, focus returns to the control you used.
-
-### Sync runs in the background
-
-- While the app is open and Sync is connected, changes upload shortly after you make them. Returning to the app syncs right away when changes are waiting, and otherwise at most every 15 minutes.
-- When Sync is connected, closing or leaving the app gives waiting changes a few seconds to finish. Anything still waiting stays queued for the next launch.
-- A failed upload now shows remote changes that arrived before the failure. A manual sync waits for an automatic one instead of starting on top of it.
-- If Sync finishes but saved data cannot be reloaded, the app says so and keeps Try again available instead of reporting success.
-- If a sync reorders or removes frames while you open one, the app follows the frame you chose. A removed frame leaves an empty viewer instead of a stale image, and Stats opened during a sync show the refreshed totals.
-
-### Saved frames and collections
-
-- Favorites is now Saved. Your existing favorites move into a collection automatically.
-- Click the star or press F to save a frame. For an already saved frame, the same action opens Collections. Keep a frame in several collections or leave it without one.
-- In History > Saved, browse All saved, a collection, or frames without a collection. Create, rename, and delete collections there. Deleting a collection keeps its frames saved.
-- Apply saves your collection choices; Cancel leaves them unchanged. Removing a frame from all saved offers Undo and keeps its history and downloaded files.
-
-### Sync with collections
-
-- Sync now includes collections and their saved frames. Existing Sync connections ask you to choose Upgrade Sync first. Update your other devices before upgrading: older apps will stop syncing, but keep their local data. Choose Later to leave local changes waiting.
-
-## 0.7.2
-
-### Small fixes
-
-- History and favorites now update after Sync even if a frame is loading, without overwriting newer edits.
-- Sync can recover its connection settings from a valid backup after an interrupted save.
-- Disconnect this device now clears leftover Sync settings so they do not block reconnecting after a restart.
-
-## 0.7.1
-
-### Clearing history is reviewed first
-
-- The clear button now opens a review with Undo and Finish clearing. Nothing is removed until you choose Finish clearing.
-- Closing History or restarting the app before you finish cancels the review, and your history stays as it was.
-- If finishing a clear fails, the message says so, and Finish clearing tries again.
-
-### Zoom in the enlarged view
-
-- Zoom in and out with the zoom buttons, Ctrl+scroll, or a trackpad pinch. On touch screens, pinch with two fingers and drag to pan.
-- Zoom can reach actual size even for very large images.
-- The spot under your pointer or pinch stays in place as you zoom, and the zoom level holds when you resize the window.
-
-### Sync join options come first
-
-- When you connect a device, Restore and Merge appear above the recovery key field, so you can compare them before you paste the key.
-- The Connect this device button stays at the bottom of the dialog.
-- The note about data saved by an older app now applies to Restore.
-- If Sync can’t check its status, the dialog says so and offers Retry. The last sync time and device list from before stay on screen.
-
-### Feedback stays where you’re working
-
-- Messages from actions inside a dialog appear in that dialog.
-- If Undo fails, the message says so and Undo stays available to try again.
-- If an action fails, a message says it couldn’t be completed.
-- Closing a dialog you opened from another dialog returns focus to the control you used.
-
-### Android and desktop
-
-- If the window gets shorter while you type a recovery key, the field scrolls into view.
-- On desktop, the window controls can be reached with Tab while a dialog is open.
-
-### Clearer source ID menu
-
-- The menu now groups the ID actions under “Explore nearby Prnt.sc IDs”, and the items read “Try previous source ID” and “Try next source ID”.
-
-### Small fixes
-
-- The History dialog scrolls on short windows instead of cutting off its content.
-- Clicking a history frame or switching tabs while a frame is loading does nothing until the frame finishes.
-
-## 0.7.0
-
-### Random Frame on Android
-
-- Random Frame now runs on Android phones with a 64-bit ARM processor (Android 7.0 or newer). Download the APK from the release page, allow your browser or file manager to install apps, then open the file.
-- The Android app doesn’t update itself. Install a newer APK over the old one; you don’t need to uninstall first.
-- Your history stays on the phone, but it’s left out of Android backups, so uninstalling deletes it. Turn on Sync to keep it across devices.
-- Android Back closes an open menu or dialog first, then cancels a pending draw, and only then leaves the app.
-- Saving an image on Android confirms the save without a Show in folder button, because the file picker doesn’t give a folder to open.
-- The layout is polished for phone-sized and touch screens. Tooltips no longer pop up when you tap.
-
-### A Sync dialog that shows where things stand
-
-- The status line says what’s happening in plain words: Sync is off, Sync completed, Sync couldn’t connect, or Sync needs attention. Errors say whether anything was changed.
-- The dialog shows when this device last synced and lists what Sync covers.
-- The Devices list shows devices from past syncs, with their names and when each one joined and last synced. It doesn’t show which devices are online.
-- Name this device from the Sync dialog.
-- Show the recovery key again whenever you need it. Before, it could only be shown once.
-- Leave Sync is now Disconnect this device. Your data on this device and on the server stays as it is.
-
-### Choose how a device joins
-
-- When you connect with a recovery key, pick Restore or Merge. Restore replaces this device’s synced data with the copy in Sync. Merge combines both, including previous deletions on this device, which may remove items your other devices still have.
-- If this device already has data, you choose the mode yourself. A device with no saved data takes the copy in Sync automatically.
-
-### More is synced now
-
-- Sync now includes Activity Stats, IDs checked, your theme, and your history page size, along with history, favorites, and Seen IDs. Stats and IDs checked used to stay on each device.
-- When you clear history, linked devices remove it, and their stats, the next time they sync. Favorites and Seen IDs stay. Changes made while a device was offline may appear later.
-- On Android, Sync also runs when you return to the app, if the last sync was at least 15 minutes ago.
-- The privacy policy covers Android and the newer Sync data, including the device list.
-
-### Small fixes
-
-- A history clear is saved before Undo is offered, so a clear interrupted by a restart finishes on the next launch.
-
-## 0.6.6
-
-### A new loading screen
-
-- The spinning ring is now a camera viewfinder that pulls into focus while a frame loads. The previous image stays on stage, slightly dimmed and blurred, and the new one sharpens into place when it arrives.
-- The Draw button no longer swaps its label for a spinner. The label stays readable and dims a little while a draw is in progress.
-- Each draw shows a short caption, such as "Restoring frame 12…" when you go back through history. Captions are mostly plain or archive-themed, with the occasional joke. A caption doesn't repeat within a session, and a draw that takes more than a few seconds switches to a second caption once.
-- Quick draws skip the loading screen, so nothing flashes. When the frame ID changes, its button now resizes smoothly.
-- With reduced motion turned on, the viewfinder stays still and the captions fade in. The animation pauses while the window is hidden.
-
-## 0.6.5
-
-### Thumbnail storage
-
-- Thumbnails are now saved as local files instead of browser storage. Existing thumbnails are moved automatically, and thumbnails for favorites are kept when older history thumbnails are removed.
-
-## 0.6.4
-
-### History and favorites
-
-- History and Favorites now show the date and time of each entry. The date is shown in your local time zone, and the time is shown in 24-hour format.
-- When you leave history or favorites, the app remember your tab selection and scroll position. You can also use the keyboard to move between tabs and through the list.
-- When you click on a favorite, the app switches from the general history to the favorites so you can switch between them more easily; tapping the “draw” button switches you back to the general history.
-
-## 0.6.3
-
-### Toasts and other feedback
-
-- Toast are fixed now, they stop appearing below the controls.
-
-## 0.6.2
-
-### A simpler way to get around
-
-- History and Save are easier to reach. The More menu now includes Stats, and the keyboard shortcuts are grouped by what you’re doing.
-- Move through history with the arrow keys, jump to a history page, and use the keyboard to browse or remove frames. Clear history and favorites from below the list.
-- Choose System, Light, or Dark theme on the privacy page too.
-
-### Clearer feedback
-
-- Drawing says what it’s doing, and the Draw button stays unavailable if your history can’t load. Try again from the error message when you’re ready.
-- Save, update, and other messages have a clearer place on screen. Update errors explain whether the download failed or the app needs to be restarted.
-- Stats now show streaks in days and label frames as drawn. The daily list is called “Days you drew.”
-
-### Small fixes
-
-- Favorites and history have clearer labels, and removing a frame can be undone with Z or Ctrl+Z.
-- The enlarged view opens with its Close button ready, and the window controls work with the keyboard.
-- Selecting an email address on the privacy page opens your email app. If that doesn’t work, the page shows the address to use.
-
-## 0.6.1
-
-### Smoother interactions
-
-- Refined loading transitions to reduce flicker and keep the Draw button and stage in sync.
-- Added subtle transitions to menus, Sync panels, empty and error states, and press feedback for controls.
-- Adjusted these effects for reduced motion settings.
-
-## 0.6.0
-
-### Your collection across devices
-
-- Use More > Sync to share your history and favorites between devices without creating an account. Random Frame also remembers which images you have already seen, so they can be skipped in future draws.
-- Save the recovery key shown during setup. You need it to connect another device or rejoin later, and the app cannot show it again.
-- Sync runs when you open the app or choose Sync now. Your collection is encrypted before it leaves your device. Settings and statistics stay local.
-- Removing history or favorites also removes those entries from linked devices when they next sync. New entries added while another device was offline may appear later.
-- Check when you last synced and whether changes are waiting. The More button shows a warning when Sync needs attention. You can disconnect a device while keeping its local collection.
-
-### More control over history and favorites
-
-- History shows the newest images first, and Favorites shows the most recently starred first.
-- Remove individual images from history and bring them back with Undo. You can remove an image from its preview, press Delete on a selected preview, or choose Remove this frame from the frame ID menu.
-- Clearing history or favorites now asks you to confirm with a second click. Undo lets you reverse the clear, or restore a favorite you just removed. Z or Ctrl+Z also restores the last favorite removed from the main view.
-- Clearing history resets your activity statistics but keeps favorites and the record of images already checked. Drawing pauses briefly while Undo is available.
-- Missing previews load as you browse history. Favorite previews are kept when you clear history and take priority when storage space runs low.
-
-### A closer look at images
-
-- Move between images, save them, and add them to Favorites without leaving the enlarged view. Left and right arrows browse history; S saves and F toggles a favorite.
-- Click an image to zoom, or use Ctrl+scroll or a trackpad pinch. Choose Fit to return to the full image. Drag to move around a zoomed image, or use Shift+arrow keys.
-- After saving an image, choose Show in folder to find the downloaded file.
-
-### Easier to navigate
-
-- History and Stats are now in the top bar. More brings together Sync, keyboard shortcuts, release notes, theme choices, and the privacy policy.
-- Click the frame ID to copy or save the image, open its source, jump to a place in history, explore nearby Prnt.sc images, or remove the current frame.
-- Choose System to have the app follow your computer's light or dark theme automatically.
-- Updated the app icon, fonts, colors, and layout. Text and controls have clearer contrast, and button hints appear on hover or keyboard focus.
-- Improved keyboard navigation in menus, history, and dialogs, along with support for reduced motion and high contrast settings.
-
-### Drawing and statistics
-
-- Press Escape to cancel a pending draw and return to the previous image. Loading indicators appear more smoothly, with less flickering.
-- Random draws skip images already seen on this device or shared through Sync. If no new image is found, the app asks you to try again.
-- When Prnt.sc temporarily limits access, the app explains the wait and shows a countdown. You can still browse earlier images.
-- Stats more clearly separate your drawing activity from the Prnt.sc addresses checked. Daily results reflect activity on this device, and syncing history does not increase your local totals.
-- Improved recovery when saved data cannot be loaded, including a Try again action at startup.
-
-### What's new after an update
-
-- Release notes appear after an in-app update and restart. You can reopen them anytime through More > What's new.
-- Updated the privacy policy to explain optional Sync, what it shares, and what stays on your device.
+- Random Frame runs on Windows, Linux and Android (64-bit ARM, Android 7.0 or newer). Installed desktop copies update themselves; on Android, install a newer APK over the old one.
+- Light and dark themes follow the system or your choice, with keyboard access, visible focus, reduced-motion and high-contrast support throughout.

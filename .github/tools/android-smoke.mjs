@@ -451,7 +451,7 @@ try {
     const denied = await evaluate(invoke("get_sync_status"));
     check(
       ["secure_storage", "corrupt_local_state"].includes(denied?.error?.category),
-      "damaged Keystore ciphertext fails closed instead of unpairing",
+      "damaged Keystore ciphertext fails closed instead of silently disconnecting Sync",
     );
     check(
       JSON.stringify(await evaluate(invoke("get_history"))) === JSON.stringify(historyBefore),

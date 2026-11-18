@@ -2,7 +2,7 @@
 
 A minimalist gallery of random public images for Windows, Linux and Android, shown one at a time. Built with Tauri 2, a plain HTML/CSS/TypeScript interface, and a Rust backend.
 
-Images come from [prnt.sc](https://prnt.sc/). The Rust backend resolves variable-length lowercase alphanumeric identifiers in Prnt.sc’s legacy base-36 range and fetches the image, since the source blocks cross-origin framing.
+Images come from [prnt.sc](https://prnt.sc/). The Rust backend resolves variable-length lowercase alphanumeric identifiers in Prnt.sc’s base-36 identifier range and fetches the image, since the source blocks cross-origin framing.
 
 ## Features
 
@@ -31,7 +31,7 @@ Click the star or press `F` to keep a frame in All saved. For an already saved f
 
 History → Saved lets you browse All saved, an individual collection, or Without a collection when that filter has images. Create, rename and delete collections there. Deleting a collection keeps its images saved. In a collection, open a tile’s Collections form to move the image: choose a destination, then Apply. Its other collections stay selected. Remove from all saved removes the global save and its assignments, with Undo; it leaves history and downloaded files alone. Clear all saved is available only in All saved and keeps empty collections.
 
-Existing favorites migrate once to a normal collection named **Favourite**. You may rename it (for example, to Ulubione) or delete it. Saved frames retain links and metadata rather than permanent copies of the source images; an upstream image can disappear.
+Saved frames retain links and metadata rather than permanent copies of the source images; an upstream image can disappear.
 
 ## Keyboard shortcuts
 
