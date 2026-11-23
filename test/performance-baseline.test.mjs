@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
-test("component benchmarks support legacy cache IPC and reject failed cache operations", async (t) => {
+test("component benchmarks support the thumbnail cache IPC and reject failed cache operations", async (t) => {
   for (const script of ["bench-client.mjs", "browser.mjs"])
     for (const failure of ["", "initialize", "save"])
-      await t.test(`${script}: ${failure || "legacy baseline"}`, () => {
+      await t.test(`${script}: ${failure || "baseline"}`, () => {
         const result = spawnSync(
           process.execPath,
           [

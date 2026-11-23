@@ -42,10 +42,9 @@ test("quick save, collection drafts, stable Apply retry, filtering, stale recove
     async invoke(command, args) {
       calls.push({ command, args: structuredClone(args) });
       if (command === "get_platform_capabilities") return testCapabilities;
-      if (command === "complete_state_imports") return null;
       if (["get_user_preferences", "set_user_preferences"].includes(command))
         return { theme: null, historyPageSize: null };
-      if (["get_history", "import_session_history"].includes(command)) return structuredClone(history);
+      if (command === "get_history") return structuredClone(history);
       if (command === "get_saved_library") return structuredClone(library);
       if (command === "select_history_item") {
         history.index = args.index;

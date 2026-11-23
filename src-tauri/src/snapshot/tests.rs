@@ -1,14 +1,71 @@
 use super::*;
 
 #[test]
-fn roundtrip_is_canonical_and_old_format_is_rejected() -> Result<(), SnapshotError> {
+fn roundtrip_is_canonical_and_rejected_headers_distinguish_version_from_magic(
+) -> Result<(), SnapshotError> {
     let value = SyncSnapshot::default();
     let bytes = serialize_snapshot(&value)?;
     assert_eq!(parse_snapshot(&bytes)?, value);
-    let mut old = b"RFSNAP\0\0".to_vec();
-    old.extend_from_slice(&4u32.to_le_bytes());
-    old.extend_from_slice(&bytes[MAGIC.len()..]);
-    assert_eq!(parse_snapshot(&old), Err(SnapshotError::InvalidMagic));
+    // Version byte below the supported one is a different format, not a newer one.
+    let mut rejected = b"RFSNAP\0\0".to_vec();
+    rejected.extend_from_slice(&4u32.to_le_bytes());
+    rejected.extend_from_slice(&bytes[MAGIC.len()..]);
+    assert_eq!(parse_snapshot(&rejected), Err(SnapshotError::InvalidMagic));
+    // Version byte above the supported one names a newer format.
+    let mut future = bytes.clone();
+    future[6] = MAGIC[6] + 1;
+    assert_eq!(
+        parse_snapshot(&future),
+        Err(SnapshotError::UnsupportedVersion)
+    );
+    // Any other prefix is not this format at all.
+    let mut unknown = bytes.clone();
+    unknown[..6].copy_from_slice(b"RFSGAP");
+    assert_eq!(parse_snapshot(&unknown), Err(SnapshotError::InvalidMagic));
+    // The whole header must be present before any byte of it is read.
+    assert_eq!(
+        parse_snapshot(&bytes[..MAGIC.len() - 1]),
+        Err(SnapshotError::TruncatedHeader)
+    );
+    Ok(())
+}
+
+#[test]
+fn golden_fixture_decodes_to_the_frozen_format() -> Result<(), SnapshotError> {
+    let golden: &[u8] = include_bytes!("fixtures/golden.bin");
+    let state = SyncSnapshot {
+        seen: vec![42],
+        history: vec![SyncRecord {
+            operation_id: [1; 16],
+            order_at: 1,
+            last_view: ViewStamp {
+                at_ms: 1_000,
+                day: "2026-01-02".into(),
+                day_inferred: false,
+            },
+            source: "prntsc".into(),
+            id: "abc123".into(),
+            source_page_url: "https://prnt.sc/abc123".into(),
+        }],
+        exploration: vec![ExplorationRecord {
+            source: "prntsc".into(),
+            id: "abc123".into(),
+            evidence: 1,
+        }],
+        activity: vec![ActivityOperation::Discovery {
+            operation_id: [2; 16],
+            source: "prntsc".into(),
+            id: "abc123".into(),
+            outcome: Outcome::Viewed,
+            occurred_at_ms: 1_000,
+            day: "2026-01-02".into(),
+        }],
+        ..SyncSnapshot::default()
+    };
+    // A field-order or layout change in the format cannot break Sync silently:
+    // this pinned byte-for-byte comparison fails first.
+    assert_eq!(serialize_snapshot(&state)?, golden);
+    assert_eq!(parse_snapshot(golden)?, state);
     Ok(())
 }
 
@@ -107,7 +164,7 @@ fn merge_is_associative_commutative_and_idempotent() -> Result<(), SnapshotError
 #[test]
 fn preferences_merge_independent_fields_and_resolve_same_field() -> Result<(), SnapshotError> {
     let a = SyncSnapshot {
-        preferences: PreferencesV2 {
+        preferences: Preferences {
             theme: Some(Register {
                 clock: 2,
                 operation_id: [1; 16],
@@ -118,7 +175,7 @@ fn preferences_merge_independent_fields_and_resolve_same_field() -> Result<(), S
         ..SyncSnapshot::default()
     };
     let b = SyncSnapshot {
-        preferences: PreferencesV2 {
+        preferences: Preferences {
             theme: Some(Register {
                 clock: 2,
                 operation_id: [2; 16],
@@ -169,7 +226,7 @@ fn malformed_counts_ids_dates_preferences_and_overflow_are_rejected() -> Result<
     };
     assert!(serialize_snapshot(&bad).is_err());
     let bad = SyncSnapshot {
-        preferences: PreferencesV2 {
+        preferences: Preferences {
             theme: None,
             history_page_size: Some(Register {
                 clock: 1,
@@ -180,21 +237,6 @@ fn malformed_counts_ids_dates_preferences_and_overflow_are_rejected() -> Result<
         ..SyncSnapshot::default()
     };
     assert!(serialize_snapshot(&bad).is_err());
-    let overflow = SyncSnapshot {
-        activity: vec![
-            ActivityOperation::LegacyImport {
-                operation_id: [1; 16],
-                viewed_total: u64::MAX,
-                days: BTreeMap::new(),
-            },
-            discovery(2, "1", "2026-10-02"),
-        ],
-        ..SyncSnapshot::default()
-    };
-    assert_eq!(
-        serialize_snapshot(&overflow),
-        Err(SnapshotError::CounterOverflow)
-    );
     let overlap = SyncSnapshot {
         activity: vec![discovery(1, "1", "2026-10-02")],
         activity_removed: vec![[1; 16]],
@@ -281,19 +323,11 @@ fn meaningful_state_covers_every_domain_and_excludes_only_self_roster() {
             ..default.clone()
         },
         SyncSnapshot {
-            activity: vec![ActivityOperation::LegacyImport {
-                operation_id: [1; 16],
-                viewed_total: 0,
-                days: BTreeMap::new(),
-            }],
-            ..default.clone()
-        },
-        SyncSnapshot {
             activity_removed: vec![[1; 16]],
             ..default.clone()
         },
         SyncSnapshot {
-            preferences: PreferencesV2 {
+            preferences: Preferences {
                 theme: Some(Register {
                     clock: 1,
                     operation_id: [1; 16],
@@ -304,7 +338,7 @@ fn meaningful_state_covers_every_domain_and_excludes_only_self_roster() {
             ..default.clone()
         },
         SyncSnapshot {
-            preferences: PreferencesV2 {
+            preferences: Preferences {
                 theme: None,
                 history_page_size: Some(Register {
                     clock: 1,
@@ -365,7 +399,7 @@ fn zero_and_absent_device_dates_roundtrip() -> Result<(), SnapshotError> {
 
 #[test]
 fn collection_sections_are_validated_and_canonical() -> Result<(), SnapshotError> {
-    let mut state = SyncSnapshot {
+    let state = SyncSnapshot {
         favorites: vec![FavoriteRecord {
             operation_id: [3; 16],
             added_at: 42,
@@ -374,11 +408,22 @@ fn collection_sections_are_validated_and_canonical() -> Result<(), SnapshotError
             source_page_url: "https://prnt.sc/abc123".into(),
         }],
         favorites_removed: vec![[4; 16]],
+        collections: vec![CollectionRecord {
+            collection_id: [5; 16],
+            name: Register {
+                clock: 1,
+                operation_id: [6; 16],
+                value: "Favourite".into(),
+            },
+        }],
+        memberships: vec![MembershipRecord {
+            operation_id: [7; 16],
+            collection_id: [5; 16],
+            favorite_operation_id: [3; 16],
+        }],
         ..SyncSnapshot::default()
     };
-    migrate_legacy_collections(&mut state);
     assert_eq!(state.collections[0].name.value, "Favourite");
-    assert_eq!(state.collections[0].name.clock, 0);
     assert_eq!(state.memberships[0].favorite_operation_id, [3; 16]);
     assert_eq!(parse_snapshot(&serialize_snapshot(&state)?)?, state);
     let mut corrupt = state.clone();
@@ -396,45 +441,6 @@ fn collection_sections_are_validated_and_canonical() -> Result<(), SnapshotError
     let mut forged = serialize_snapshot(&state)?;
     forged.truncate(forged.len() - 4);
     assert!(parse_snapshot(&forged).is_err());
-    Ok(())
-}
-
-#[test]
-fn seeded_collection_english_name_converges_without_changing_user_names(
-) -> Result<(), SnapshotError> {
-    let seed_id = hash_id(&[b"rf/collections/legacy-favorites/v1"]);
-    let mut legacy = SyncSnapshot {
-        collections: vec![CollectionRecord {
-            collection_id: seed_id,
-            name: Register {
-                clock: 0,
-                operation_id: hash_id(&[b"rf/collections/legacy-favorites/name/v1"]),
-                value: "Ulubione".into(),
-            },
-        }],
-        ..SyncSnapshot::default()
-    };
-    let modern = parse_snapshot(&serialize_snapshot(&legacy)?)?;
-    assert_eq!(modern.collections[0].name.value, "Favourite");
-    assert_eq!(modern.collections[0].collection_id, seed_id);
-    assert!(modern.collections[0].name.stamp() > legacy.collections[0].name.stamp());
-    assert_eq!(merge_snapshots(&legacy, &modern)?, modern);
-    assert_eq!(merge_snapshots(&modern, &legacy)?, modern);
-    assert_eq!(merge_snapshots(&legacy, &legacy)?, modern);
-    for name in ["My favourites", "Ulubione", "Favourite"] {
-        legacy.collections[0].name = Register {
-            clock: 1,
-            operation_id: [0; 16],
-            value: name.into(),
-        };
-        assert_eq!(parse_snapshot(&serialize_snapshot(&legacy)?)?, legacy);
-        assert_eq!(merge_snapshots(&modern, &legacy)?, legacy);
-    }
-    // A user-created collection with the old spelling is not the seed.
-    legacy.collections[0].collection_id = [20; 16];
-    legacy.collections[0].name.clock = 0;
-    legacy.collections[0].name.value = "Ulubione".into();
-    assert_eq!(parse_snapshot(&serialize_snapshot(&legacy)?)?, legacy);
     Ok(())
 }
 

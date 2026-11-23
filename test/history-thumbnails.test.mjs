@@ -32,7 +32,6 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
   const localStorage = new FakeStorage();
   localStorage.setItem("random-frame-risk-accepted", "accepted");
   localStorage.setItem("random-frame-history-page-size", "10");
-  localStorage.setItem("prntsc-gallery-thumbnails", JSON.stringify({ "prntsc:id10": "data:image/jpeg;base64,AA==" }));
   const window = new EventTarget();
   window.setTimeout = () => {
     return 0;
@@ -60,6 +59,7 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
   history.history[8] = item("id7"); // duplicate on the first page
   const favorites = [item("id1"), item("id10")];
   const native = fakeThumbnailCache();
+  native.disk.set("prntsc:id10", [0]);
   const calls = [];
   let active = 0;
   let peak = 0;
@@ -71,10 +71,8 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
   window.__TAURI_INTERNALS__ = {
     async invoke(command, args) {
       if (command === "get_platform_capabilities") return testCapabilities;
-      if (command === "complete_state_imports") return null;
       if (command === "get_user_preferences" || command === "set_user_preferences")
         return { theme: null, historyPageSize: 10 };
-      if (command === "import_session_history") return window.__TAURI_INTERNALS__.invoke("get_history");
       calls.push({ command, args });
       if (["list_thumbnail_cache", "read_thumbnail_cache", "save_thumbnail_cache"].includes(command))
         return native.invoke(command, args);
@@ -95,7 +93,6 @@ test("loads missing thumbnails lazily, throttled, without viewing frames", async
         if (args.id === "id3") throw new Error("unavailable");
         return new Uint8Array([1]).buffer;
       }
-      if (command === "migrate_viewing_stats") return null;
       throw new Error(`Unexpected command: ${command}`);
     },
   };

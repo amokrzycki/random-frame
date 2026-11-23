@@ -37,10 +37,8 @@ test("removes one frame from the grid or the frame menu, and Undo puts it back i
   window.__TAURI_INTERNALS__ = {
     async invoke(command, args) {
       if (command === "get_platform_capabilities") return testCapabilities;
-      if (command === "complete_state_imports") return null;
       if (command === "get_user_preferences" || command === "set_user_preferences")
         return { theme: null, historyPageSize: null };
-      if (command === "import_session_history") return window.__TAURI_INTERNALS__.invoke("get_history");
       calls.push({ command, args });
       if (command === "get_history") return structuredClone(history);
       if (command === "get_saved_library") return libraryOf();

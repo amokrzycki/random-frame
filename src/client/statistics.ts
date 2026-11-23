@@ -15,39 +15,6 @@ export function formatExploredBreakdown(
   return unclassified ? `${breakdown} · ${unclassified.toLocaleString("en-US")} unclassified` : breakdown;
 }
 
-export const LEGACY_STATS_STORAGE_KEY = "random-frame-viewing-stats";
-
-export interface LegacyStats {
-  day: string;
-  today: number;
-  total: number;
-}
-
-// Reads the legacy client-side counter for one-time hand-off to the backend; malformed input yields null.
-export function parseLegacyStats(raw: string | null): LegacyStats | null {
-  try {
-    const stored: unknown = JSON.parse(raw ?? "");
-    if (
-      typeof stored === "object" &&
-      stored !== null &&
-      "day" in stored &&
-      "today" in stored &&
-      "total" in stored &&
-      typeof stored.day === "string" &&
-      typeof stored.today === "number" &&
-      Number.isInteger(stored.today) &&
-      stored.today >= 0 &&
-      typeof stored.total === "number" &&
-      Number.isInteger(stored.total) &&
-      stored.total >= stored.today
-    )
-      return { day: stored.day, today: stored.today, total: stored.total };
-  } catch {
-    // No usable legacy statistics to migrate
-  }
-  return null;
-}
-
 // Avoids `new Date(string)` UTC-midnight parsing, which can shift the day in negative-offset zones.
 function parseLocalDate(iso: string): Date {
   const [year = 0, month = 1, day = 1] = iso.split("-").map(Number);
@@ -100,10 +67,7 @@ export function ledgerDays(
   sourceViews?: readonly FrameView[],
 ): LedgerDay[] {
   const frames = new Map<string, number[]>();
-  // ponytail: Two code paths for historical reasons. sourceViews provides server-authoritative
-  // day keys (preserved across timezone changes), while localViewTimes requires inferring the
-  // day from the local timestamp. The sourceViews path is preferred when available (v2 sync),
-  // but localViewTimes fallback supports v1 data or unsynced history.
+  // Prefer server-authoritative day keys; fall back to the local timestamp when they are absent.
   if (sourceViews) {
     const frameKey = ({ source, id }: { source: string; id: string }) =>
       `${source}\0${source === "prntsc" && /^[a-z0-9]{1,7}$/.test(id) ? Number.parseInt(id, 36).toString(36) : id}`;

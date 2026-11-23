@@ -12,12 +12,14 @@ pub(super) fn invalid<T>(_: T) -> SyncError {
 pub(super) fn crypto_error(error: &crate::sync_crypto::CryptoError) -> SyncError {
     match error {
         crate::sync_crypto::CryptoError::BodyTooLarge => SyncError::BodyTooLarge,
+        crate::sync_crypto::CryptoError::UnsupportedVersion => SyncError::UnsupportedVersion,
         _ => SyncError::InvalidRemoteData,
     }
 }
 pub(super) fn snapshot_error(error: snapshot::SnapshotError) -> SyncError {
     match error {
         snapshot::SnapshotError::PayloadTooLarge => SyncError::BodyTooLarge,
+        snapshot::SnapshotError::UnsupportedVersion => SyncError::UnsupportedVersion,
         _ => SyncError::InvalidRemoteData,
     }
 }

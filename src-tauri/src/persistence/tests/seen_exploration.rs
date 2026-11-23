@@ -264,76 +264,36 @@ fn a_second_mark_of_a_different_class_is_ignored_and_keeps_the_first_classificat
 }
 
 #[test]
-fn legacy_plain_id_lines_are_counted_as_explored_but_not_classified() -> Result<(), AppError> {
-    // Legacy ids (bare numbers, no comma) still count toward explored but never viewable/rejected.
-    let directory = test_directory("explored-legacy");
-    fs::create_dir_all(&directory).map_err(AppError::persistence)?;
-    fs::write(directory.join("prntsc-explored.txt"), "10\n11\n").map_err(AppError::persistence)?;
-
-    let store = ExplorationStore::new(&directory)?;
-    assert_eq!(store.count(), 2);
-    assert_eq!(store.viewable_count(), 0);
-    assert_eq!(store.unavailable_count(), 0);
-    assert_eq!(store.counts(), (2, 0, 0, 2));
-
-    store.mark(12, ExplorationOutcome::Viewed)?;
-    assert_eq!(store.count(), 3);
-    assert_eq!(store.viewable_count(), 1);
-    assert_eq!(store.counts(), (3, 1, 0, 2));
-    assert_eq!(
-        fs::read_to_string(directory.join("prntsc-explored.txt")).map_err(AppError::persistence)?,
-        "10\n11\n"
-    );
-    assert_eq!(
-        store.viewable_count() + store.unavailable_count(),
-        1,
-        "classified subset must stay smaller than the explored total while legacy ids remain"
-    );
-    fs::remove_dir_all(directory).map_err(AppError::persistence)
-}
-
-#[test]
 fn classifications_are_first_write_wins_across_all_transitions_and_restart() -> Result<(), AppError>
 {
     let directory = test_directory("explored-transitions");
-    fs::create_dir_all(&directory).map_err(AppError::persistence)?;
-    fs::write(directory.join("prntsc-explored.txt"), "1\n2\n").map_err(AppError::persistence)?;
     let store = ExplorationStore::new(&directory)?;
     for (id, outcome) in [
         (1, ExplorationOutcome::Viewed),
         (2, ExplorationOutcome::Rejected),
     ] {
-        assert!(!store.mark(id, outcome)?);
+        assert!(store.mark(id, outcome)?);
     }
     assert!(store.mark(3, ExplorationOutcome::Viewed)?);
     assert!(store.mark(4, ExplorationOutcome::Rejected)?);
     assert!(!store.mark(3, ExplorationOutcome::Rejected)?);
     assert!(!store.mark(4, ExplorationOutcome::Viewed)?);
-    assert_eq!(store.counts(), (4, 1, 1, 2));
+    assert_eq!(store.counts(), (4, 2, 2, 0));
     drop(store);
-    assert_eq!(ExplorationStore::new(&directory)?.counts(), (4, 1, 1, 2));
+    assert_eq!(ExplorationStore::new(&directory)?.counts(), (4, 2, 2, 0));
     fs::remove_dir_all(directory).map_err(AppError::persistence)
 }
 
 #[test]
-fn corrupt_rows_and_out_of_range_ids_fail_instead_of_inflating_progress() -> Result<(), AppError> {
-    let directory = test_directory("explored-corrupt");
-    fs::create_dir_all(&directory).map_err(AppError::persistence)?;
-    let path = directory.join("prntsc-explored.txt");
-    for contents in ["1,x\n", "4773622240,v\n"] {
-        fs::write(&path, contents).map_err(AppError::persistence)?;
-        assert!(ExplorationStore::new(&directory).is_err());
-    }
-    fs::write(&path, "1,v\n1,v\n").map_err(AppError::persistence)?;
+fn out_of_range_ids_fail_instead_of_inflating_progress() -> Result<(), AppError> {
+    let directory = test_directory("explored-out-of-range");
     let store = ExplorationStore::new(&directory)?;
-    assert_eq!(store.counts(), (1, 1, 0, 0));
     assert!(store
         .mark(4_773_622_240, ExplorationOutcome::Viewed)
         .is_err());
-    assert_eq!(store.counts(), (1, 1, 0, 0));
+    assert_eq!(store.counts(), (0, 0, 0, 0));
     fs::remove_dir_all(directory).map_err(AppError::persistence)
 }
-
 #[test]
 fn nearby_checks_and_acceptance_never_create_draws_or_implicit_seen() -> Result<(), AppError> {
     let directory = test_directory("nearby-checks");
@@ -383,7 +343,7 @@ fn nearby_checks_and_acceptance_never_create_draws_or_implicit_seen() -> Result<
 }
 
 #[test]
-fn nearby_check_replays_journal_and_startup_receipt_is_mandatory() -> Result<(), AppError> {
+fn nearby_check_replays_journal_after_a_failed_write() -> Result<(), AppError> {
     let directory = test_directory("nearby-replay");
     let data = PersistentState::new(&directory)?;
     fs::create_dir(directory.join("exploration-v2.json.tmp")).map_err(AppError::persistence)?;
@@ -398,26 +358,7 @@ fn nearby_check_replays_journal_and_startup_receipt_is_mandatory() -> Result<(),
 }
 
 #[test]
-fn nearby_startup_cannot_pass_a_failed_legacy_receipt() -> Result<(), AppError> {
-    let directory = test_directory("nearby-startup-receipt");
-    fs::create_dir_all(&directory).map_err(AppError::persistence)?;
-    fs::write(directory.join("prntsc-explored.txt"), "42,v\n").map_err(AppError::persistence)?;
-    fs::create_dir(directory.join("seen-reconciliation-v4.json.tmp"))
-        .map_err(AppError::persistence)?;
-    assert!(PersistentState::new(&directory).is_err());
-    fs::remove_dir(directory.join("seen-reconciliation-v4.json.tmp"))
-        .map_err(AppError::persistence)?;
-    let data = PersistentState::new(&directory)?;
-    assert!(data.seen.contains(42));
-    data.record_check(43, ExplorationOutcome::Viewed)?;
-    drop(data);
-    assert!(!PersistentState::new(&directory)?.seen.contains(43));
-    fs::remove_dir_all(directory).map_err(AppError::persistence)
-}
-
-#[test]
-fn nearby_enriches_legacy_evidence_and_draw_attribution_keeps_original_day() -> Result<(), AppError>
-{
+fn nearby_evidence_enrichment_preserves_the_original_draw_day() -> Result<(), AppError> {
     let directory = test_directory("nearby-draw-attribution");
     let data = PersistentState::new(&directory)?;
     data.merge(&snapshot::SyncSnapshot {
@@ -437,7 +378,7 @@ fn nearby_enriches_legacy_evidence_and_draw_attribution_keeps_original_day() -> 
         source_page_url: "https://prnt.sc/2".into(),
         viewed_at: 1_800_000_000_000,
     };
-    data.accept(&item, false)?;
+    data.accept(&item)?;
     let before = data.activity.draw_frame_views();
     assert_eq!(before.len(), 1);
     item.viewed_at += 86_400_000;
@@ -448,7 +389,7 @@ fn nearby_enriches_legacy_evidence_and_draw_attribution_keeps_original_day() -> 
     data.record_check(3, ExplorationOutcome::Rejected)?;
     item.id = "3".into();
     item.source_page_url = "https://prnt.sc/3".into();
-    data.accept(&item, false)?;
+    data.accept(&item)?;
     assert_eq!(data.explored.evidence(3), Some(3));
     assert_eq!(data.activity.viewed_total(), 1);
     fs::remove_dir_all(directory).map_err(AppError::persistence)

@@ -60,8 +60,8 @@ impl SyncData<'_> {
                 };
             }
         }
-        // Keep the existing persistence invariant: viewed evidence in retained History or
-        // Exploration implies Seen. This never copies the unrelated local Seen collection.
+        // Keep the existing persistence invariant: every Prnt.sc frame in retained
+        // History implies Seen. This never copies the unrelated local Seen collection.
         snapshot::reconcile_seen(&mut target);
         snapshot::validate_snapshot(&target).map_err(|_| SyncError::InvalidRemoteData)?;
         Ok(target)

@@ -50,68 +50,15 @@ fn activity_clear_resets_totals_and_days() -> Result<(), AppError> {
         store.recent_days(today, 1),
         vec![("2026-09-20".to_owned(), DailyActivitySnapshot::default())]
     );
-    // A pending legacy browser key must not re-import pre-clear totals, even after restart.
-    store.migrate("2026-09-20", 5, 42, "2026-09-20")?;
-    assert_eq!(store.viewed_total(), 0);
     let reloaded = ActivityStore::new(&directory)?;
-    reloaded.migrate("2026-09-20", 5, 42, "2026-09-20")?;
     assert_eq!(reloaded.viewed_total(), 0);
     fs::remove_dir_all(directory).map_err(AppError::persistence)
 }
 
 #[test]
-fn activity_migration_runs_once_and_only_folds_today_when_the_legacy_day_matches(
-) -> Result<(), AppError> {
-    let directory = test_directory("activity-migrate");
-    let store = ActivityStore::new(&directory)?;
-
-    store.migrate("2026-09-19", 5, 101, "2026-09-20")?;
-    assert_eq!(store.viewed_total(), 101);
-    let today = NaiveDate::from_ymd_opt(2026, 9, 20).unwrap_or_default();
-    assert_eq!(
-        store.recent_days(today, 1),
-        vec![("2026-09-20".to_owned(), DailyActivitySnapshot::default())],
-        "legacy day differs from today, so today's bucket stays untouched"
-    );
-
-    // A second migration attempt must not double-count the lifetime total.
-    store.migrate("2026-09-20", 3, 101, "2026-09-20")?;
-    assert_eq!(store.viewed_total(), 101);
-    assert_eq!(
-        store.recent_days(today, 1),
-        vec![("2026-09-20".to_owned(), DailyActivitySnapshot::default())]
-    );
-    fs::remove_dir_all(directory).map_err(AppError::persistence)
-}
-
-#[test]
-fn activity_migration_folds_todays_partial_count_when_the_legacy_day_matches(
-) -> Result<(), AppError> {
-    let directory = test_directory("activity-migrate-today");
-    let store = ActivityStore::new(&directory)?;
-
-    store.migrate("2026-09-20", 7, 42, "2026-09-20")?;
-    assert_eq!(store.viewed_total(), 42);
-    let today = NaiveDate::from_ymd_opt(2026, 9, 20).unwrap_or_default();
-    assert_eq!(
-        store.recent_days(today, 1),
-        vec![(
-            "2026-09-20".to_owned(),
-            DailyActivitySnapshot {
-                viewed: 7,
-                rejected: 0
-            }
-        )]
-    );
-    fs::remove_dir_all(directory).map_err(AppError::persistence)
-}
-
-#[test]
-fn activity_reload_does_not_clamp_v2_operations() -> Result<(), AppError> {
+fn activity_reload_keeps_every_operation_and_day() -> Result<(), AppError> {
     let directory = test_directory("activity-repair");
     let store = ActivityStore::new(&directory)?;
-    // Migrated legacy views match history, so they survive.
-    store.migrate("2026-09-21", 3, 100, "2026-09-21")?;
     // 2 revisits on top of 4 first views.
     for _ in 0..6 {
         store.record(ExplorationOutcome::Viewed, "2026-09-22")?;
@@ -119,36 +66,23 @@ fn activity_reload_does_not_clamp_v2_operations() -> Result<(), AppError> {
     store.record(ExplorationOutcome::Rejected, "2026-09-22")?;
     let store = ActivityStore::new(&directory)?;
 
-    let expected = vec![
-        (
-            "2026-09-21".to_owned(),
-            DailyActivitySnapshot {
-                viewed: 3,
-                rejected: 0,
-            },
-        ),
-        (
-            "2026-09-22".to_owned(),
-            DailyActivitySnapshot {
-                viewed: 6,
-                rejected: 1,
-            },
-        ),
-    ];
+    let expected = vec![(
+        "2026-09-22".to_owned(),
+        DailyActivitySnapshot {
+            viewed: 6,
+            rejected: 1,
+        },
+    )];
     let today = NaiveDate::from_ymd_opt(2026, 9, 22).unwrap_or_default();
     assert_eq!(
         store.recent_days(today, 183),
         expected,
         "days before tracking stay absent"
     );
-    assert_eq!(
-        store.viewed_total(),
-        106,
-        "legacy total survives the repair"
-    );
+    assert_eq!(store.viewed_total(), 6);
     let reloaded = ActivityStore::new(&directory)?;
     assert_eq!(reloaded.recent_days(today, 183), expected);
-    assert_eq!(reloaded.viewed_total(), 106);
+    assert_eq!(reloaded.viewed_total(), 6);
     fs::remove_dir_all(directory).map_err(AppError::persistence)
 }
 

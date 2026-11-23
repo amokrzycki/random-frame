@@ -36,11 +36,9 @@ test("falls back to 25 for any invalid stored page size", () => {
 
 test("persists the page size under its own key and reads it back", () => {
   const store = new FakeStorage();
-  store.setItem("prntsc-gallery-thumbnails", "{}");
   savePageSize(50, store);
   assert.equal(store.values.get(PAGE_SIZE_STORAGE_KEY), "50");
   assert.equal(loadPageSize(store), 50);
-  assert.equal(store.values.get("prntsc-gallery-thumbnails"), "{}");
   assert.doesNotThrow(() =>
     savePageSize(10, {
       setItem() {
@@ -116,10 +114,8 @@ test("pages a long existing history without touching the stored records", async 
   window.__TAURI_INTERNALS__ = {
     async invoke(command, args) {
       if (command === "get_platform_capabilities") return testCapabilities;
-      if (command === "complete_state_imports") return null;
       if (command === "get_user_preferences" || command === "set_user_preferences")
         return { theme: null, historyPageSize: null };
-      if (command === "import_session_history") return window.__TAURI_INTERNALS__.invoke("get_history");
       invocations.push(command);
       if (command === "get_history") return structuredClone(stored);
       if (command === "get_saved_library") return libraryOf();
@@ -128,7 +124,6 @@ test("pages a long existing history without touching the stored records", async 
         return { id: args.id, source: "prntsc", sourcePageUrl: `https://prnt.sc/${args.id}`, mimeType: "image/png" };
       }
       if (command === "get_frame_image") return new Uint8Array([1]).buffer;
-      if (command === "migrate_viewing_stats") return null;
       throw new Error(`Unexpected command: ${command}`);
     },
   };

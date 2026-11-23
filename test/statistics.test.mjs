@@ -7,7 +7,6 @@ import {
   ledgerDateLabel,
   ledgerDays,
   localDayKey,
-  parseLegacyStats,
 } from "../dist/test-client/statistics.js";
 
 test("formats the explored breakdown plainly once every explored id is classified", () => {
@@ -18,18 +17,6 @@ test("shows every explored category and rejects inconsistent counts", () => {
   assert.equal(formatExploredBreakdown(101, 49, 50, 2), "49 available · 50 unavailable · 2 unclassified");
   assert.equal(formatExploredBreakdown(10, 0, 0, 10), "0 available · 0 unavailable · 10 unclassified");
   assert.throws(() => formatExploredBreakdown(101, 49, 50, 0), /Inconsistent exploration counts/);
-});
-
-test("parses valid legacy stats and rejects malformed or missing ones", () => {
-  assert.deepEqual(parseLegacyStats(JSON.stringify({ day: "2026-09-19", today: 3, total: 42 })), {
-    day: "2026-09-19",
-    today: 3,
-    total: 42,
-  });
-  assert.equal(parseLegacyStats(null), null);
-  assert.equal(parseLegacyStats("not json"), null);
-  assert.equal(parseLegacyStats(JSON.stringify({ day: "2026-09-19", today: 5, total: 3 })), null);
-  assert.equal(parseLegacyStats(JSON.stringify({ today: 3, total: 42 })), null);
 });
 
 test("names ledger days relative to today, adding the year only when it differs", () => {
@@ -111,7 +98,7 @@ test("ledger uses the source day and frame key after recovery", () => {
   assert.deepEqual(ledger[0].frames, [1]);
 });
 
-test("Draw attribution joins legacy numeric aliases without including Nearby or other providers", () => {
+test("Draw attribution joins leading-zero aliases without including Nearby or other providers", () => {
   const history = [
     { source: "prntsc", id: "0b", viewedAt: 99 },
     { source: "internet-archive", id: "b", viewedAt: 99 },

@@ -4,7 +4,6 @@ mod exploration;
 mod favorites;
 mod history;
 mod io;
-mod migration;
 mod preferences;
 pub(crate) mod transaction;
 pub use history::FrameView;

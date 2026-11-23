@@ -8,21 +8,15 @@ import { getSavedLibrary } from "./favorites.js";
 import { bindFrameActionEvents } from "./frame-actions.js";
 import { initializeThumbnailCache, persistThumbnails, releaseAllBlobs } from "./frame-cache.js";
 import { bindNavigationEvents, goTo } from "./frame-loader.js";
-import { bindHistoryDialogEvents, pendingHistoryClearKey } from "./history-dialog.js";
+import { bindHistoryDialogEvents } from "./history-dialog.js";
 import { bindMenu } from "./menu.js";
-import { historyFromStorage, shouldShowEntryDialog } from "./navigation.js";
+import { shouldShowEntryDialog } from "./navigation.js";
 import { bindNearbyEvents } from "./nearby-dialog.js";
-import {
-  commitHistoryClear,
-  completeStateImports,
-  getHistory,
-  importSessionHistory,
-  prepareHistoryClear,
-} from "./persistence.js";
+import { getHistory } from "./persistence.js";
 import { getPlatformCapabilities, initializePlatform } from "./platform.js";
 import { bindShortcutsEvents } from "./shortcuts.js";
 import { bindStageEvents, setState, showError, syncControls } from "./stage.js";
-import { bindStatsDialogEvents, migrateLegacyStats } from "./stats-dialog.js";
+import { bindStatsDialogEvents } from "./stats-dialog.js";
 import { getSyncStatus } from "./sync-api.js";
 import { bindSyncDialogEvents, runStartupSync } from "./sync-dialog.js";
 import { toast } from "./toast.js";
@@ -32,7 +26,6 @@ import { initializeUserPreferences, updateUserPreferences } from "./user-prefere
 import { applyHistory, applySavedLibrary, setViewerLoading, state } from "./viewer-state.js";
 import { initializeWindowControls } from "./window-controls.js";
 
-const storageKey = "prntsc-gallery-history";
 const entryStorageKey = "random-frame-risk-accepted";
 try {
   if (shouldShowEntryDialog(localStorage.getItem(entryStorageKey))) openDialog(elements.entryDialog);
@@ -69,40 +62,12 @@ async function initialize(): Promise<void> {
   setViewerLoading(true);
   syncControls();
   try {
-    let pendingHistoryClear = false;
-    try {
-      pendingHistoryClear = localStorage.getItem(pendingHistoryClearKey) === "true";
-    } catch {
-      // History still loads when browser storage is unavailable.
-    }
-    if (pendingHistoryClear) {
-      const requestId = await prepareHistoryClear(true);
-      await commitHistoryClear(requestId);
-      try {
-        localStorage.removeItem(pendingHistoryClearKey);
-      } catch {
-        // The already completed clear is safe to repeat on the next launch.
-      }
-    }
-    let [snapshot, favorites] = await Promise.all([getHistory(), getSavedLibrary()]);
+    const [snapshot, favorites] = await Promise.all([getHistory(), getSavedLibrary()]);
     state.historyLoadFailed = false;
     applySavedLibrary(favorites);
     await initializeThumbnailCache();
     await persistThumbnails();
-    const legacy = historyFromStorage(sessionStorage.getItem(storageKey));
-    snapshot = await importSessionHistory(
-      legacy.history.map((item) => ({
-        source: "prntsc",
-        id: item.id,
-        sourcePageUrl: `https://prnt.sc/${item.id}`,
-        viewedAt: Date.now(),
-      })),
-      legacy.index,
-    );
-    sessionStorage.removeItem(storageKey);
-    await migrateLegacyStats();
     await initializeUserPreferences();
-    await completeStateImports();
 
     applyHistory({ ...snapshot, index: -1 });
     setViewerLoading(false);

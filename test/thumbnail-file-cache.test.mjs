@@ -1,24 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { FakeDocument, FakeStorage, ids } from "./dom-fakes.mjs";
+import { FakeDocument, ids } from "./dom-fakes.mjs";
 
-test("migrates thumbnail storage and writes only changed files, with retry and eviction", async () => {
-  const legacyKey = "prntsc-gallery-thumbnails";
+test("writes only changed files, with retry and eviction", async () => {
   const image = "data:image/jpeg;base64,AA==";
-  const storage = new FakeStorage();
-  storage.setItem(legacyKey, JSON.stringify({ "prntsc:old": image }));
   const disk = new Map();
   const saves = [];
   let fail = true;
-  globalThis.localStorage = storage;
   globalThis.document = new FakeDocument(ids);
   globalThis.window = {
     __TAURI_INTERNALS__: {
       async invoke(command, args) {
-        if (command === "complete_state_imports") return null;
         if (command === "get_user_preferences" || command === "set_user_preferences")
           return { theme: null, historyPageSize: null };
-        if (command === "import_session_history") return window.__TAURI_INTERNALS__.invoke("get_history");
         if (command === "list_thumbnail_cache") return [...disk].map(([key, bytes]) => [key, bytes.length]);
         if (command === "read_thumbnail_cache") {
           const bytes = disk.get(args.key);
@@ -35,15 +29,15 @@ test("migrates thumbnail storage and writes only changed files, with retry and e
   };
   const { state } = await import("../dist/test-client/viewer-state.js");
   const cache = await import("../dist/test-client/frame-cache.js");
-  assert.equal(await cache.initializeThumbnailCache(), false);
-  assert.ok(storage.getItem(legacyKey), "failed migration keeps the original");
+  cache.thumbnails.set("prntsc:old", image);
+  assert.equal(await cache.persistThumbnails(), false);
+  assert.equal(disk.size, 0, "a failed native save leaves no file behind");
   fail = false;
-  assert.equal(await cache.initializeThumbnailCache(), true);
-  assert.equal(storage.getItem(legacyKey), null);
+  assert.equal(await cache.persistThumbnails(), true);
   assert.deepEqual(disk.get("prntsc:old"), [0]);
-  const migratedSaves = saves.length;
+  const savedSaves = saves.length;
   await cache.persistThumbnails();
-  assert.equal(saves.length, migratedSaves, "unchanged saved files need no native call");
+  assert.equal(saves.length, savedSaves, "unchanged saved files need no native call");
   state.favorites = [{ source: "prntsc", id: "old" }];
   for (let i = 0; i < 301; i++) cache.thumbnails.set(`prntsc:new${i}`, image);
   assert.equal(await cache.persistThumbnails(), true);
@@ -63,19 +57,6 @@ test("migrates thumbnail storage and writes only changed files, with retry and e
   );
   await cache.clearThumbnails(state.favorites);
   assert.deepEqual([...disk.keys()], ["prntsc:old"]);
-  assert.equal(storage.getItem(legacyKey), null);
-
-  // Retrying a failed migration must not bring back thumbnails cleared meanwhile.
-  storage.setItem(legacyKey, JSON.stringify({ "prntsc:old": image, "prntsc:obsolete": image }));
-  const restarted = await import(`../dist/test-client/frame-cache.js?restart=${Date.now()}`);
-  fail = true;
-  assert.equal(await restarted.initializeThumbnailCache(), false);
-  await restarted.clearThumbnails(state.favorites);
-  fail = false;
-  assert.equal(await restarted.persistThumbnails(), true);
-  assert.deepEqual([...disk.keys()], ["prntsc:old"]);
-  assert.equal(restarted.thumbnails.has("prntsc:obsolete"), false);
-  assert.equal(storage.getItem(legacyKey), null);
 });
 
 test("encoded Nearby JPEGs share pending keys and obey byte budget while Saved stays on disk", async () => {
@@ -91,7 +72,7 @@ test("encoded Nearby JPEGs share pending keys and obey byte budget while Saved s
   assert.equal(cache.thumbnails.size, 65);
 });
 
-test("canonical Nearby keys reuse legacy aliases and borrowed viewer URLs survive a clear", async () => {
+test("canonical Nearby keys reuse leading-zero aliases and borrowed viewer URLs survive a clear", async () => {
   const cache = await import("../dist/test-client/frame-cache.js");
   const jpeg = "data:image/jpeg;base64,AQ==";
   cache.thumbnails.set("prntsc:0abc123", jpeg);

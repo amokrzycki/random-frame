@@ -33,10 +33,8 @@ test("favourite thumbnails share the cache but never consume its on-disk evictio
   const native = fakeThumbnailCache();
   window.__TAURI_INTERNALS__ = {
     async invoke(command, args) {
-      if (command === "complete_state_imports") return null;
       if (command === "get_user_preferences" || command === "set_user_preferences")
         return { theme: null, historyPageSize: null };
-      if (command === "import_session_history") return window.__TAURI_INTERNALS__.invoke("get_history");
       if (["list_thumbnail_cache", "read_thumbnail_cache", "save_thumbnail_cache"].includes(command))
         return native.invoke(command, args);
       assert.equal(command, "get_thumbnail_image");

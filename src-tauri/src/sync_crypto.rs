@@ -151,6 +151,7 @@ pub enum CryptoError {
     InvalidSnapshot,
     InvalidEnvelope,
     BodyTooLarge,
+    UnsupportedVersion,
 }
 
 impl fmt::Display for CryptoError {
@@ -160,14 +161,18 @@ impl fmt::Display for CryptoError {
             Self::InvalidSecret => "Invalid stored sync secret",
             Self::InvalidSnapshot => "Invalid seen snapshot",
             Self::InvalidEnvelope => "Encrypted sync data could not be opened",
+            Self::UnsupportedVersion => "Snapshot format version not supported by this app",
         })
     }
 }
 
 impl std::error::Error for CryptoError {}
 
-fn snapshot_error(_: snapshot::SnapshotError) -> CryptoError {
-    CryptoError::InvalidSnapshot
+fn snapshot_error(error: snapshot::SnapshotError) -> CryptoError {
+    match error {
+        snapshot::SnapshotError::UnsupportedVersion => CryptoError::UnsupportedVersion,
+        _ => CryptoError::InvalidSnapshot,
+    }
 }
 
 #[cfg(test)]
@@ -226,6 +231,34 @@ mod tests {
         assert!(keys.decrypt_snapshot(&other_group, 1, &envelope).is_err());
         let other_key = RootSecret::generate().derive();
         assert!(other_key.decrypt_snapshot(GROUP, 1, &envelope).is_err());
+    }
+
+    #[test]
+    fn future_format_version_survives_decryption_as_unsupported_version() {
+        let mut future = plaintext();
+        future[6] = 2;
+        let keys = fixture().derive();
+        let mut envelope = keys.header(GROUP, 1).unwrap_or_else(|_| unreachable!());
+        let mut nonce = [0; NONCE_LEN];
+        OsRng.fill_bytes(&mut nonce);
+        envelope.extend_from_slice(&nonce);
+        let cipher = XChaCha20Poly1305::new_from_slice(keys.encryption.as_ref())
+            .unwrap_or_else(|_| unreachable!());
+        envelope.extend_from_slice(
+            &cipher
+                .encrypt(
+                    XNonce::from_slice(&nonce),
+                    Payload {
+                        msg: &future,
+                        aad: &envelope,
+                    },
+                )
+                .unwrap_or_else(|_| unreachable!()),
+        );
+        assert_eq!(
+            keys.decrypt_snapshot(GROUP, 1, &envelope).err(),
+            Some(CryptoError::UnsupportedVersion)
+        );
     }
 
     #[test]

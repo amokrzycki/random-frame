@@ -1,5 +1,5 @@
 //! Committing the durable journal: send, accept, promote credentials, update local state.
-use super::helpers::invalid;
+use super::helpers::{invalid, snapshot_error};
 use super::{
     engine::SyncEngine,
     errors::SyncError,
@@ -39,7 +39,7 @@ impl<S: SecretStore> SyncEngine<S> {
                     error,
                     SyncError::Conflict
                         | SyncError::OperationMismatch
-                        | SyncError::MasterRequired
+                        | SyncError::AdministratorRequired
                         | SyncError::CodeRejected
                 )
             {
@@ -134,7 +134,7 @@ impl<S: SecretStore> SyncEngine<S> {
                 .derive()
                 .decrypt_snapshot(&entry.group_id, epoch, payload)
                 .map_err(invalid)?;
-            snapshot::parse_snapshot(&plain).map_err(invalid)?;
+            snapshot::parse_snapshot(&plain).map_err(snapshot_error)?;
         }
         let response = if matches!(&entry.request.mutation, Mutation::Join { .. }) {
             self.send_join(c, bytes).await?
@@ -218,7 +218,7 @@ impl<S: SecretStore> SyncEngine<S> {
                 .derive()
                 .decrypt_snapshot(&entry.group_id, result.epoch, payload)
                 .map_err(invalid)?;
-            let target = snapshot::parse_snapshot(&plain).map_err(invalid)?;
+            let target = snapshot::parse_snapshot(&plain).map_err(snapshot_error)?;
             let mut operation = [0; 16];
             hex::decode_to_slice(&entry.request.operation_id, &mut operation).map_err(invalid)?;
             self.data

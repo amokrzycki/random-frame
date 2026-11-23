@@ -251,17 +251,6 @@ test("hydrating a page never evicts the thumbnail it just read", async () => {
   assert.equal(h.disk.size, 300, "ordinary disk entries stay bounded");
 });
 
-test("a leftover legacy thumbnail never overrides an existing file", async () => {
-  const h = await harness("legacy", { "prntsc:abc": [7] });
-  globalThis.localStorage.setItem(
-    "prntsc-gallery-thumbnails",
-    JSON.stringify({ "prntsc:abc": "data:image/jpeg;base64,AA==" }),
-  );
-  await h.cache.initializeThumbnailCache();
-  assert.equal(await h.cache.hydrateThumbnail("prntsc:abc"), true);
-  assert.equal(h.cache.thumbnailFor("prntsc:abc"), "data:image/jpeg;base64,Bw==");
-});
-
 test("hydrating many pages keeps the in-memory cache bounded", async () => {
   const initial = {};
   for (let i = 0; i < 1000; i++) initial[`prntsc:${i}`] = [0];
@@ -513,17 +502,6 @@ test("Saved removal and clear prune evicted files without resurrecting them", as
   assert.equal(h.disk.size, 399, "every other Saved file is still on disk");
   assert.equal(h.cache.thumbnailFor("prntsc:0"), undefined);
   assert.equal(await h.cache.hydrateThumbnail("prntsc:1"), true);
-});
-
-test("legacy migration of a large library also ends bounded", async () => {
-  const h = await harness("legacy-bound");
-  const stored = {};
-  for (let i = 0; i < 400; i++) stored[`prntsc:m${i}`] = h.image;
-  globalThis.localStorage.setItem("prntsc-gallery-thumbnails", JSON.stringify(stored));
-  h.state.favorites = Object.keys(stored).map((key) => ({ source: "prntsc", id: key.slice(7) }));
-  assert.equal(await h.cache.initializeThumbnailCache(), true);
-  assert.equal(h.disk.size, 400, "every migrated file is on disk");
-  assert.ok(h.cache.thumbnails.size <= 300, `migration leaves a bounded cache: ${h.cache.thumbnails.size}`);
 });
 
 test("a cleared entry re-added with the same bytes after an in-flight save is written again", async () => {

@@ -6,7 +6,7 @@ use super::{
 use crate::time::now_ms;
 use crate::{
     error::AppError,
-    snapshot::{merge_snapshots, DeviceRecord, PreferencesV2, Register, SyncSnapshot},
+    snapshot::{merge_snapshots, DeviceRecord, Preferences, Register, SyncSnapshot},
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -20,8 +20,7 @@ use std::{
 #[serde(deny_unknown_fields)]
 struct PreferenceData {
     version: u8,
-    imported: bool,
-    preferences: PreferencesV2,
+    preferences: Preferences,
     devices: Vec<DeviceRecord>,
 }
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -118,7 +117,7 @@ impl PreferenceStore {
     pub fn generation(&self) -> u64 {
         self.generation.load(Ordering::Relaxed)
     }
-    pub fn sync_state(&self) -> (PreferencesV2, Vec<DeviceRecord>) {
+    pub fn sync_state(&self) -> (Preferences, Vec<DeviceRecord>) {
         let data = self
             .data
             .lock()
@@ -132,30 +131,21 @@ impl PreferenceStore {
             history_page_size: p.history_page_size.map(|x| x.value),
         }
     }
-    pub fn set(
-        &self,
-        preferences: UserPreferences,
-        legacy_import: bool,
-    ) -> Result<UserPreferences, AppError> {
+    pub fn set(&self, preferences: UserPreferences) -> Result<UserPreferences, AppError> {
         let mut data = self
             .data
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if legacy_import && data.imported {
-            drop(data);
-            return Ok(self.get());
-        }
         let mut next = data.clone();
         let clock = max_clock(&next)
             .checked_add(1)
             .ok_or_else(|| AppError::persistence("Preference clock exhausted"))?;
         if let Some(value) = preferences.theme {
-            if (!legacy_import || next.preferences.theme.is_none())
-                && next
-                    .preferences
-                    .theme
-                    .as_ref()
-                    .is_none_or(|x| x.value != value)
+            if next
+                .preferences
+                .theme
+                .as_ref()
+                .is_none_or(|x| x.value != value)
             {
                 next.preferences.theme = Some(Register {
                     clock,
@@ -165,12 +155,11 @@ impl PreferenceStore {
             }
         }
         if let Some(value) = preferences.history_page_size {
-            if (!legacy_import || next.preferences.history_page_size.is_none())
-                && next
-                    .preferences
-                    .history_page_size
-                    .as_ref()
-                    .is_none_or(|x| x.value != value)
+            if next
+                .preferences
+                .history_page_size
+                .as_ref()
+                .is_none_or(|x| x.value != value)
             {
                 next.preferences.history_page_size = Some(Register {
                     clock,
@@ -179,7 +168,6 @@ impl PreferenceStore {
                 });
             }
         }
-        next.imported |= legacy_import;
         crate::snapshot::validate_snapshot(&SyncSnapshot {
             preferences: next.preferences.clone(),
             devices: next.devices.clone(),
@@ -190,11 +178,10 @@ impl PreferenceStore {
         drop(data);
         Ok(self.get())
     }
-    /// Restore: preferences and roster become exactly the incoming ones; the legacy
-    /// browser import is closed so it cannot overwrite them.
+    /// Restore: preferences and roster become exactly the incoming ones.
     pub fn replace(
         &self,
-        preferences: PreferencesV2,
+        preferences: Preferences,
         devices: Vec<DeviceRecord>,
     ) -> Result<(), AppError> {
         let mut data = self
@@ -203,7 +190,6 @@ impl PreferenceStore {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let next = PreferenceData {
             version: 2,
-            imported: true,
             preferences,
             devices,
         };
@@ -244,7 +230,7 @@ impl PreferenceStore {
 
     pub fn merge(
         &self,
-        preferences: PreferencesV2,
+        preferences: Preferences,
         devices: Vec<DeviceRecord>,
     ) -> Result<(), AppError> {
         let mut data = self
@@ -291,7 +277,7 @@ fn snapshot_clock(snapshot: &SyncSnapshot) -> u64 {
     registers_clock(&snapshot.preferences, &snapshot.devices)
 }
 
-fn registers_clock(preferences: &PreferencesV2, devices: &[DeviceRecord]) -> u64 {
+fn registers_clock(preferences: &Preferences, devices: &[DeviceRecord]) -> u64 {
     devices
         .iter()
         .flat_map(|d| {

@@ -67,7 +67,7 @@ pub struct Control {
 /// Answer to `GET /sync/invitations/{id}`.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct InvitationLookup {
+pub struct AdministratorCodeLookup {
     pub group_id: String,
     pub epoch: i64,
     pub revision: i64,
@@ -308,7 +308,7 @@ mod tests {
             json!({"operationId": "o", "revision": 2, "epoch": 1, "futureField": true}),
         )?;
         assert_eq!(result.revision, 2);
-        let lookup: InvitationLookup = serde_json::from_value(json!({
+        let lookup: AdministratorCodeLookup = serde_json::from_value(json!({
             "groupId": "g", "epoch": 1, "revision": 2, "keyId": "k",
             "package": wire_package(), "futureField": 1
         }))?;

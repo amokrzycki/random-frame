@@ -2,7 +2,7 @@ import { closeDialog, onDialogClosed, openDialog } from "./dialogs.js";
 import { elements } from "./elements.js";
 import { blobKey, blobs, hydrateThumbnail, thumbnailFor } from "./frame-cache.js";
 import { goTo } from "./frame-loader.js";
-import { getExplorationStats, getViewingActivity, migrateViewingStats } from "./persistence.js";
+import { getExplorationStats, getViewingActivity } from "./persistence.js";
 import type { LedgerDay } from "./statistics.js";
 import {
   drawStreak,
@@ -10,11 +10,9 @@ import {
   formatLedgerCounts,
   LEDGER_PAGE_DAYS,
   LEDGER_STRIP_MAX,
-  LEGACY_STATS_STORAGE_KEY,
   ledgerDateLabel,
   ledgerDays,
   localDayKey,
-  parseLegacyStats,
 } from "./statistics.js";
 import { toast } from "./toast.js";
 import { isFavorite, state } from "./viewer-state.js";
@@ -179,13 +177,6 @@ async function loadStats(): Promise<void> {
   } finally {
     if (generation === statsGeneration) elements.statsBody.setAttribute("aria-busy", "false");
   }
-}
-
-export async function migrateLegacyStats(): Promise<void> {
-  const legacy = parseLegacyStats(localStorage.getItem(LEGACY_STATS_STORAGE_KEY));
-  if (!legacy) return;
-  await migrateViewingStats(legacy.day, legacy.today, legacy.total);
-  localStorage.removeItem(LEGACY_STATS_STORAGE_KEY);
 }
 
 export function bindStatsDialogEvents(): void {

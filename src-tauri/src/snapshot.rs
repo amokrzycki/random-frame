@@ -1,10 +1,10 @@
-//! Canonical, device-independent snapshot. The format is unversioned; envelope and
-//! membership versions are independent.
+//! Canonical, device-independent snapshot. The eight-byte `MAGIC` header fixes the
+//! snapshot format version; envelope and membership versions are independent.
 mod merge;
 use crate::sources::prntsc::LEGACY_MAX_VALUE;
 use chrono::{NaiveDate, TimeZone, Utc};
 pub use merge::merge_snapshots;
-pub(crate) use merge::{reconcile_legacy_seen, reconcile_seen};
+pub(crate) use merge::reconcile_seen;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, fmt};
 
@@ -95,72 +95,6 @@ pub(crate) fn validate_collection_name(name: &str) -> Result<(), SnapshotError> 
     }
     Ok(())
 }
-/// The complete migration record is device-independent, including its register stamp.
-pub(crate) fn migrate_legacy_collections(s: &mut SyncSnapshot) {
-    let collection_id = hash_id(&[b"rf/collections/legacy-favorites/v1"]);
-    if s.favorites.is_empty() {
-        return;
-    }
-    if !s.collections_removed.contains(&collection_id)
-        && !s
-            .collections
-            .iter()
-            .any(|c| c.collection_id == collection_id)
-    {
-        s.collections.push(CollectionRecord {
-            collection_id,
-            name: Register {
-                clock: 0,
-                operation_id: hash_id(&[b"rf/collections/legacy-favorites/name/v1"]),
-                value: "Ulubione".into(),
-            },
-        });
-    }
-    for favorite in &s.favorites {
-        if s.favorites_removed.contains(&favorite.operation_id) {
-            continue;
-        }
-        let operation_id = hash_id(&[
-            b"rf/collections/legacy-membership/v1",
-            &favorite.operation_id,
-        ]);
-        if !s.memberships_removed.contains(&operation_id)
-            && !s.memberships.iter().any(|m| m.operation_id == operation_id)
-        {
-            s.memberships.push(MembershipRecord {
-                operation_id,
-                collection_id,
-                favorite_operation_id: favorite.operation_id,
-            });
-        }
-    }
-    s.collections.sort_by_key(|c| c.collection_id);
-    s.memberships.sort_by_key(|m| m.operation_id);
-    normalize_seeded_collection_name(s);
-}
-
-/// Only the untouched Polish seed is renamed. A new deterministic register wins over
-/// old clients' seed without rewriting an immutable operation or a user's rename.
-pub(crate) fn normalize_seeded_collection_name(s: &mut SyncSnapshot) {
-    let collection_id = hash_id(&[b"rf/collections/legacy-favorites/v1"]);
-    let seed_operation = hash_id(&[b"rf/collections/legacy-favorites/name/v1"]);
-    for collection in &mut s.collections {
-        if collection.collection_id == collection_id
-            && collection.name.clock == 0
-            && collection.name.operation_id == seed_operation
-            && collection.name.value == "Ulubione"
-        {
-            collection.name = Register {
-                // Keep seed clock zero so every user rename (including an old
-                // client's first rename at clock one) wins. This hash sorts after
-                // the original seed ID; the ordering is pinned by regression tests.
-                clock: 0,
-                operation_id: hash_id(&[b"rf/collections/legacy-favorites/name/en/v1"]),
-                value: "Favourite".into(),
-            };
-        }
-    }
-}
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct ExplorationRecord {
     pub source: String,
@@ -187,18 +121,11 @@ pub enum ActivityOperation {
         occurred_at_ms: u64,
         day: String,
     },
-    LegacyImport {
-        operation_id: OperationId,
-        viewed_total: u64,
-        days: BTreeMap<String, DailyCounts>,
-    },
 }
 impl ActivityOperation {
     pub fn operation_id(&self) -> OperationId {
         match self {
-            Self::Discovery { operation_id, .. } | Self::LegacyImport { operation_id, .. } => {
-                *operation_id
-            }
+            Self::Discovery { operation_id, .. } => *operation_id,
         }
     }
 }
@@ -214,7 +141,7 @@ impl<T> Register<T> {
     }
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
-pub struct PreferencesV2 {
+pub struct Preferences {
     pub theme: Option<Register<String>>,
     pub history_page_size: Option<Register<u16>>,
 }
@@ -256,7 +183,7 @@ pub struct SyncSnapshot {
     pub exploration: Vec<ExplorationRecord>,
     pub activity: Vec<ActivityOperation>,
     pub activity_removed: Vec<OperationId>,
-    pub preferences: PreferencesV2,
+    pub preferences: Preferences,
     pub devices: Vec<DeviceRecord>,
 }
 impl SyncSnapshot {
@@ -275,7 +202,7 @@ impl SyncSnapshot {
             && self.exploration.is_empty()
             && self.activity.is_empty()
             && self.activity_removed.is_empty()
-            && self.preferences == PreferencesV2::default()
+            && self.preferences == Preferences::default()
             && self.devices.iter().all(|d| d.device_id == this_device))
     }
 }
@@ -284,6 +211,7 @@ impl SyncSnapshot {
 pub enum SnapshotError {
     TruncatedHeader,
     InvalidMagic,
+    UnsupportedVersion,
     TooManyEntries,
     PayloadTooLarge,
     InvalidLength,
@@ -298,6 +226,9 @@ impl fmt::Display for SnapshotError {
         match self {
             Self::TruncatedHeader => f.write_str("Sync snapshot header is too short"),
             Self::InvalidMagic => f.write_str("Sync snapshot has invalid magic bytes"),
+            Self::UnsupportedVersion => {
+                f.write_str("Sync snapshot format version is not supported")
+            }
             Self::TooManyEntries => f.write_str("Sync snapshot has too many entries"),
             Self::PayloadTooLarge => f.write_str("Sync snapshot exceeds payload limit"),
             Self::InvalidLength => f.write_str("Sync snapshot has invalid length or field size"),
@@ -314,7 +245,8 @@ impl fmt::Display for SnapshotError {
     }
 }
 impl std::error::Error for SnapshotError {}
-// Changed when the unversioned format replaced the versioned one, so old blobs fail cleanly.
+/// `RFSNAP` followed by the snapshot format version byte and a reserved zero byte.
+/// A newer format version fails cleanly instead of misparsing.
 const MAGIC: &[u8; 8] = b"RFSNAP\x01\0";
 
 pub fn validate_day(day: &str) -> Result<(), SnapshotError> {
@@ -357,41 +289,17 @@ pub fn activity_projection(
     let mut total = 0u64;
     let mut days: BTreeMap<String, DailyCounts> = BTreeMap::new();
     for op in ops {
-        match op {
-            ActivityOperation::Discovery { outcome, day, .. } => {
-                validate_day(day)?;
-                let counts = days.entry(day.clone()).or_default();
-                let count = match outcome {
-                    Outcome::Viewed => {
-                        total = total.checked_add(1).ok_or(SnapshotError::CounterOverflow)?;
-                        &mut counts.viewed
-                    }
-                    Outcome::Rejected => &mut counts.rejected,
-                };
-                *count = count.checked_add(1).ok_or(SnapshotError::CounterOverflow)?;
+        let ActivityOperation::Discovery { outcome, day, .. } = op;
+        validate_day(day)?;
+        let counts = days.entry(day.clone()).or_default();
+        let count = match outcome {
+            Outcome::Viewed => {
+                total = total.checked_add(1).ok_or(SnapshotError::CounterOverflow)?;
+                &mut counts.viewed
             }
-            ActivityOperation::LegacyImport {
-                viewed_total,
-                days: legacy,
-                ..
-            } => {
-                total = total
-                    .checked_add(*viewed_total)
-                    .ok_or(SnapshotError::CounterOverflow)?;
-                for (day, counts) in legacy {
-                    validate_day(day)?;
-                    let sum = days.entry(day.clone()).or_default();
-                    sum.viewed = sum
-                        .viewed
-                        .checked_add(counts.viewed)
-                        .ok_or(SnapshotError::CounterOverflow)?;
-                    sum.rejected = sum
-                        .rejected
-                        .checked_add(counts.rejected)
-                        .ok_or(SnapshotError::CounterOverflow)?;
-                }
-            }
-        }
+            Outcome::Rejected => &mut counts.rejected,
+        };
+        *count = count.checked_add(1).ok_or(SnapshotError::CounterOverflow)?;
     }
     Ok((total, days))
 }
@@ -449,13 +357,11 @@ pub fn validate_snapshot(s: &SyncSnapshot) -> Result<(), SnapshotError> {
         }
     }
     for x in &s.activity {
-        if let ActivityOperation::Discovery {
+        let ActivityOperation::Discovery {
             source, id, day, ..
-        } = x
-        {
-            validate_fields(source, id, "")?;
-            validate_day(day)?;
-        }
+        } = x;
+        validate_fields(source, id, "")?;
+        validate_day(day)?;
     }
     for op in &s.activity {
         activity_projection(std::slice::from_ref(op))?;
@@ -663,38 +569,23 @@ pub fn serialize_snapshot(s: &SyncSnapshot) -> Result<Vec<u8>, SnapshotError> {
     w.count(s.activity.len())?;
     for x in &s.activity {
         w.bytes(&x.operation_id())?;
-        match x {
-            ActivityOperation::Discovery {
-                source,
-                id,
-                outcome,
-                occurred_at_ms,
-                day,
-                ..
-            } => {
-                w.u8(0)?;
-                w.text(source)?;
-                w.text(id)?;
-                w.u8(match outcome {
-                    Outcome::Viewed => 1,
-                    Outcome::Rejected => 2,
-                })?;
-                w.u64(*occurred_at_ms)?;
-                w.text(day)?;
-            }
-            ActivityOperation::LegacyImport {
-                viewed_total, days, ..
-            } => {
-                w.u8(1)?;
-                w.u64(*viewed_total)?;
-                w.count(days.len())?;
-                for (day, counts) in days {
-                    w.text(day)?;
-                    w.u64(counts.viewed)?;
-                    w.u64(counts.rejected)?;
-                }
-            }
-        }
+        let ActivityOperation::Discovery {
+            source,
+            id,
+            outcome,
+            occurred_at_ms,
+            day,
+            ..
+        } = x;
+        w.u8(0)?;
+        w.text(source)?;
+        w.text(id)?;
+        w.u8(match outcome {
+            Outcome::Viewed => 1,
+            Outcome::Rejected => 2,
+        })?;
+        w.u64(*occurred_at_ms)?;
+        w.text(day)?;
     }
     w.count(s.activity_removed.len())?;
     for x in &s.activity_removed {
@@ -741,13 +632,20 @@ pub fn parse_snapshot(bytes: &[u8]) -> Result<SyncSnapshot, SnapshotError> {
     if bytes.len() > MAX_PLAINTEXT {
         return Err(SnapshotError::PayloadTooLarge);
     }
+    // The whole eight-byte header is bounds-checked before any byte of it is read.
     if bytes.len() < MAGIC.len() {
         return Err(SnapshotError::TruncatedHeader);
     }
-    let mut r = Reader { bytes, pos: 0 };
-    if r.bytes(MAGIC.len())? != MAGIC {
+    if bytes[..6] == *b"RFSNAP" && bytes[6] > MAGIC[6] {
+        return Err(SnapshotError::UnsupportedVersion);
+    }
+    if bytes[..MAGIC.len()] != *MAGIC {
         return Err(SnapshotError::InvalidMagic);
     }
+    let mut r = Reader {
+        bytes,
+        pos: MAGIC.len(),
+    };
     let mut s = SyncSnapshot::default();
     for _ in 0..r.count(8)? {
         s.seen.push(r.u64()?);
@@ -803,30 +701,6 @@ pub fn parse_snapshot(bytes: &[u8]) -> Result<SyncSnapshot, SnapshotError> {
                 occurred_at_ms: r.u64()?,
                 day: r.text()?,
             },
-            1 => {
-                let viewed_total = r.u64()?;
-                let mut days = BTreeMap::new();
-                let mut previous = None;
-                for _ in 0..r.count(28)? {
-                    let day = r.text()?;
-                    if previous.as_ref().is_some_and(|p| p >= &day) {
-                        return Err(SnapshotError::UnsortedOrDuplicate);
-                    }
-                    previous = Some(day.clone());
-                    days.insert(
-                        day,
-                        DailyCounts {
-                            viewed: r.u64()?,
-                            rejected: r.u64()?,
-                        },
-                    );
-                }
-                ActivityOperation::LegacyImport {
-                    operation_id,
-                    viewed_total,
-                    days,
-                }
-            }
             _ => return Err(SnapshotError::InvalidValue),
         });
     }
@@ -877,9 +751,8 @@ pub fn parse_snapshot(bytes: &[u8]) -> Result<SyncSnapshot, SnapshotError> {
         return Err(SnapshotError::InvalidLength);
     }
     validate_snapshot(&s)?;
-    normalize_seeded_collection_name(&mut s);
     Ok(s)
 }
 #[cfg(test)]
 #[path = "snapshot/tests.rs"]
-mod v2_tests;
+mod tests;

@@ -37,8 +37,8 @@ export function getHistory(): Promise<HistorySnapshot> {
   return invoke("get_history");
 }
 
-export function recordHistoryItem(item: HistoryItem, legacyImport = false): Promise<HistorySnapshot> {
-  return invoke("record_history_item", { item, legacyImport });
+export function recordHistoryItem(item: HistoryItem): Promise<HistorySnapshot> {
+  return invoke("record_history_item", { item });
 }
 
 export function recordNearbyHistoryItem(item: HistoryItem): Promise<HistorySnapshot> {
@@ -78,10 +78,6 @@ export function getViewingActivity(): Promise<ViewingActivity> {
   return invoke("get_viewing_activity");
 }
 
-export function migrateViewingStats(legacyDay: string, legacyToday: number, legacyTotal: number): Promise<void> {
-  return invoke("migrate_viewing_stats", { legacyDay, legacyToday, legacyTotal });
-}
-
 export interface FrameView {
   source: string;
   id: string;
@@ -99,25 +95,14 @@ export function getUserPreferences(): Promise<UserPreferences> {
   return invoke("get_user_preferences");
 }
 
-export function setUserPreferences(
-  preferences: Partial<UserPreferences>,
-  legacyImport = false,
-): Promise<UserPreferences> {
-  return invoke("set_user_preferences", { preferences, legacyImport });
+export function setUserPreferences(preferences: Partial<UserPreferences>): Promise<UserPreferences> {
+  return invoke("set_user_preferences", { preferences });
 }
 
-export function prepareHistoryClear(legacyPending = false): Promise<string> {
-  return invoke("prepare_history_clear", { legacyPending });
+export function prepareHistoryClear(): Promise<string> {
+  return invoke("prepare_history_clear");
 }
 
 export function commitHistoryClear(requestId: string): Promise<void> {
   return invoke("commit_history_clear", { requestId });
-}
-
-export function importSessionHistory(items: HistoryItem[], index: number): Promise<HistorySnapshot> {
-  return invoke("import_session_history", { items, index });
-}
-
-export function completeStateImports(): Promise<void> {
-  return invoke("complete_state_imports");
 }

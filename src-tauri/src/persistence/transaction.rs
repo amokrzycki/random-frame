@@ -24,9 +24,6 @@ struct Transaction {
     version: u8,
     id: [u8; 16],
     effects: SyncSnapshot,
-    close_legacy_import: bool,
-    #[serde(default)]
-    session_import: bool,
     /// Restore: `effects` replace the synchronized stores instead of merging into them.
     #[serde(default)]
     replace: bool,
@@ -42,8 +39,6 @@ struct ClearRequest {
 #[derive(Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Clears {
-    #[serde(default)]
-    legacy_request: Option<String>,
     requests: BTreeMap<String, Option<ClearRequest>>,
 }
 #[derive(Debug, PartialEq, Eq)]
@@ -105,17 +100,6 @@ impl PersistentState {
             identity,
         };
         state.read(|| Ok(()))?;
-        state.read(|| {
-            let receipt = directory.join("seen-reconciliation-v4.json");
-            let complete: bool = load_json(&receipt)?;
-            if !complete {
-                let mut legacy = state.snapshot_unlocked()?;
-                snapshot::reconcile_legacy_seen(&mut legacy);
-                state.transact(&legacy, false)?;
-                save_json(&receipt, &true)?;
-            }
-            Ok(())
-        })?;
         let clears: Clears = load_json(&state.clear_path)?;
         // A prepared clear survives closing the app during its Undo window.
         for (id, request) in clears.requests {
@@ -174,7 +158,7 @@ impl PersistentState {
         self.read(|| {
             let before = self.preferences.generation();
             self.preferences
-                .merge(crate::snapshot::PreferencesV2::default(), vec![record])?;
+                .merge(crate::snapshot::Preferences::default(), vec![record])?;
             if generation[5] == before {
                 generation[5] = self.preferences.generation();
             }
@@ -219,12 +203,9 @@ impl PersistentState {
     }
     fn recover(&self) -> Result<(), AppError> {
         let pending: Option<Transaction> = load_json(&self.path)?;
-        if let Some(mut pending) = pending {
-            if ![1, 2].contains(&pending.version) {
+        if let Some(pending) = pending {
+            if pending.version != 2 {
                 return Err(AppError::persistence("Unsupported transaction schema"));
-            }
-            if pending.version == 1 {
-                snapshot::migrate_legacy_collections(&mut pending.effects);
             }
             // ponytail: recovery re-validates the entire snapshot before applying effects.
             // This adds startup latency for large datasets, but ensures crash safety:
@@ -257,18 +238,9 @@ impl PersistentState {
             self.activity.merge_sync_state(
                 tx.effects.activity.clone(),
                 tx.effects.activity_removed.clone(),
-                tx.close_legacy_import,
             )?;
             self.preferences
                 .merge(tx.effects.preferences.clone(), tx.effects.devices.clone())?;
-        }
-        if tx.session_import {
-            super::migration::receipt(
-                self.path
-                    .parent()
-                    .ok_or_else(|| AppError::persistence("Missing data directory"))?,
-                "session-history",
-            )?;
         }
         if let Some(id) = tx.restore_operation {
             save_json(
@@ -326,9 +298,6 @@ impl PersistentState {
                 version: 2,
                 id: operation_id(),
                 effects: target.clone(),
-                close_legacy_import: true,
-                // The browser session import is pre-join local history as well.
-                session_import: true,
                 replace: true,
                 restore_operation: operation,
             };
@@ -338,28 +307,18 @@ impl PersistentState {
             Ok(self.generation())
         })
     }
-    fn transact(&self, effects: &SyncSnapshot, close_legacy_import: bool) -> Result<(), AppError> {
-        self.transact_import(effects, close_legacy_import, false)
-    }
-    fn transact_import(
-        &self,
-        effects: &SyncSnapshot,
-        close_legacy_import: bool,
-        session_import: bool,
-    ) -> Result<(), AppError> {
+    fn transact(&self, effects: &SyncSnapshot) -> Result<(), AppError> {
         let current = self.snapshot_unlocked()?;
         let mut effects =
             snapshot::merge_snapshots(&current, effects).map_err(AppError::persistence)?;
         snapshot::reconcile_seen(&mut effects);
-        if effects == current && !close_legacy_import && !session_import {
+        if effects == current {
             return Ok(());
         }
         let tx = Transaction {
             version: 2,
             id: operation_id(),
             effects,
-            close_legacy_import,
-            session_import,
             replace: false,
             restore_operation: None,
         };
@@ -373,7 +332,7 @@ impl PersistentState {
         self.read(|| {
             snapshot::merge_snapshots(&self.snapshot_unlocked()?, incoming)
                 .map_err(|error| AppError::invalid_input(error.to_string()))?;
-            self.transact(incoming, false)
+            self.transact(incoming)
         })
     }
     pub fn record_check(
@@ -391,17 +350,14 @@ impl PersistentState {
             let evidence = previous.unwrap_or(0) | outcome.evidence();
             let changed = previous != Some(evidence);
             if changed {
-                self.transact(
-                    &SyncSnapshot {
-                        exploration: vec![ExplorationRecord {
-                            source: "prntsc".into(),
-                            id: crate::sources::prntsc::value_to_base36(id),
-                            evidence,
-                        }],
-                        ..SyncSnapshot::default()
-                    },
-                    false,
-                )?;
+                self.transact(&SyncSnapshot {
+                    exploration: vec![ExplorationRecord {
+                        source: "prntsc".into(),
+                        id: crate::sources::prntsc::value_to_base36(id),
+                        evidence,
+                    }],
+                    ..SyncSnapshot::default()
+                })?;
             }
             Ok(CheckCommit {
                 inserted: previous.is_none(),
@@ -419,7 +375,7 @@ impl PersistentState {
         self.read(|| {
             let mut effects = SyncSnapshot::default();
             self.discovery_effects(&mut effects, id, outcome, at_ms, day)?;
-            self.transact(&effects, false)
+            self.transact(&effects)
         })
     }
     fn discovery_effects(
@@ -463,20 +419,15 @@ impl PersistentState {
         });
         Ok(())
     }
-    pub fn accept(
-        &self,
-        item: &HistoryItem,
-        legacy_import: bool,
-    ) -> Result<HistorySnapshot, AppError> {
-        self.accept_with_origin(item, legacy_import, AcceptanceOrigin::Standard)
+    pub fn accept(&self, item: &HistoryItem) -> Result<HistorySnapshot, AppError> {
+        self.accept_with_origin(item, AcceptanceOrigin::Standard)
     }
     pub fn accept_nearby(&self, item: &HistoryItem) -> Result<HistorySnapshot, AppError> {
-        self.accept_with_origin(item, false, AcceptanceOrigin::Nearby)
+        self.accept_with_origin(item, AcceptanceOrigin::Nearby)
     }
     fn accept_with_origin(
         &self,
         item: &HistoryItem,
-        legacy_import: bool,
         origin: AcceptanceOrigin,
     ) -> Result<HistorySnapshot, AppError> {
         self.read(|| {
@@ -484,7 +435,7 @@ impl PersistentState {
                 .map_err(AppError::persistence)?;
             let current = self.snapshot_unlocked()?;
             let mut effects = SyncSnapshot::default();
-            let stamp = local_stamp(item.viewed_at, legacy_import);
+            let stamp = local_stamp(item.viewed_at, false);
             if let Some(existing) = current
                 .history
                 .iter()
@@ -520,7 +471,7 @@ impl PersistentState {
                         id: crate::sources::prntsc::value_to_base36(id),
                         evidence: 1,
                     });
-                } else if !legacy_import {
+                } else {
                     self.discovery_effects(
                         &mut effects,
                         id,
@@ -530,7 +481,7 @@ impl PersistentState {
                     )?;
                 }
             }
-            self.transact(&effects, false)?;
+            self.transact(&effects)?;
             let position = self
                 .history
                 .snapshot()
@@ -541,73 +492,10 @@ impl PersistentState {
             self.history.select(position)
         })
     }
-    pub fn import_session_history(
-        &self,
-        items: Vec<HistoryItem>,
-        index: i64,
-    ) -> Result<HistorySnapshot, AppError> {
-        self.read(|| {
-            let directory = self
-                .path
-                .parent()
-                .ok_or_else(|| AppError::persistence("Missing data directory"))?;
-            if super::migration::has_receipt(directory, "session-history")? {
-                return Ok(self.history.snapshot());
-            }
-            let mut current = self.snapshot_unlocked()?;
-            for item in items {
-                snapshot::validate_fields(&item.source, &item.id, &item.source_page_url)
-                    .map_err(AppError::persistence)?;
-                if item.source == "prntsc" {
-                    current
-                        .seen
-                        .push(crate::sources::prntsc::item_id_value(&item.id)?);
-                }
-                if !current
-                    .history
-                    .iter()
-                    .any(|x| x.source == item.source && x.id == item.id)
-                {
-                    current.history.push(SyncRecord {
-                        operation_id: operation_id(),
-                        order_at: current
-                            .history
-                            .iter()
-                            .map(|x| x.order_at.saturating_add(1))
-                            .max()
-                            .unwrap_or(0)
-                            .max(item.viewed_at),
-                        last_view: local_stamp(item.viewed_at, true),
-                        source: item.source,
-                        id: item.id,
-                        source_page_url: item.source_page_url,
-                    });
-                }
-            }
-            current.seen.sort_unstable();
-            current.seen.dedup();
-            current.history.sort_by_key(|x| x.operation_id);
-            self.transact_import(&current, false, true)?;
-            if let Ok(index) = usize::try_from(index) {
-                if index < self.history.snapshot().history.len() {
-                    return self.history.select(index);
-                }
-            }
-            Ok(self.history.snapshot())
-        })
-    }
     pub fn prepare_clear(&self) -> Result<String, AppError> {
-        self.prepare_clear_request(false)
-    }
-    pub fn prepare_clear_request(&self, legacy_pending: bool) -> Result<String, AppError> {
         self.read(|| {
             let current = self.snapshot_unlocked()?;
             let mut clears: Clears = load_json(&self.clear_path)?;
-            if legacy_pending {
-                if let Some(id) = clears.legacy_request {
-                    return Ok(id);
-                }
-            }
             let id = hex::encode(operation_id());
             clears.requests.insert(
                 id.clone(),
@@ -620,9 +508,6 @@ impl PersistentState {
                         .collect(),
                 }),
             );
-            if legacy_pending {
-                clears.legacy_request = Some(id.clone());
-            }
             save_json(&self.clear_path, &clears)?;
             Ok(id)
         })
@@ -639,14 +524,11 @@ impl PersistentState {
                 history_removed.sort_unstable();
                 let mut activity_removed = request.activity.clone();
                 activity_removed.sort_unstable();
-                self.transact(
-                    &SyncSnapshot {
-                        history_removed,
-                        activity_removed,
-                        ..SyncSnapshot::default()
-                    },
-                    true,
-                )?;
+                self.transact(&SyncSnapshot {
+                    history_removed,
+                    activity_removed,
+                    ..SyncSnapshot::default()
+                })?;
                 clears.requests.insert(id.into(), None);
                 save_json(&self.clear_path, &clears)?;
             }
