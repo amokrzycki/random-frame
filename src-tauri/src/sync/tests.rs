@@ -234,13 +234,22 @@ async fn real_server_create_join_converge_and_leave() -> TestResult {
     assert!(a.seen.contains(303));
 
     assert_eq!(a.show_code().await?, code);
-    assert_eq!(b.show_code().await.err(), Some(SyncError::MasterRequired));
-    assert_eq!(b.new_code().await.err(), Some(SyncError::MasterRequired));
+    assert_eq!(
+        b.show_code().await.err(),
+        Some(SyncError::AdministratorRequired)
+    );
+    assert_eq!(
+        b.new_code().await.err(),
+        Some(SyncError::AdministratorRequired)
+    );
     assert_eq!(
         b.dissolve_group().await.err(),
-        Some(SyncError::MasterRequired)
+        Some(SyncError::AdministratorRequired)
     );
-    assert_eq!(a.leave().await.err(), Some(SyncError::MasterCannotLeave));
+    assert_eq!(
+        a.leave().await.err(),
+        Some(SyncError::AdministratorCannotLeave)
+    );
 
     let left = b.leave().await?;
     assert_eq!(left.control.membership_state.as_deref(), Some("left"));

@@ -21,7 +21,7 @@ use error::{AppError, ErrorKind};
 #[cfg(test)]
 use persistence::SeenStore;
 use persistence::{
-    activity_day, day_key, ActivityStore, CollectionEditorRequest, ExplorationStore, FavoriteItem,
+    activity_day, ActivityStore, CollectionEditorRequest, ExplorationStore, FavoriteItem,
     FavoriteStore, FrameView, HistoryItem, HistorySnapshot, HistoryStore, PersistentState,
     RemoveSavedRequest, RemovedFrame, RemovedSaved, SavedLibrary, SavedUndo, UserPreferences,
 };
@@ -48,7 +48,6 @@ struct PendingFrame {
 
 struct AppState {
     data: Arc<PersistentState>,
-    imports_ready: tokio::sync::watch::Sender<bool>,
     #[cfg(desktop)]
     shutdown_started: AtomicBool,
     #[cfg(desktop)]
@@ -121,7 +120,6 @@ impl AppState {
             prntsc: Prntsc::new(Arc::clone(&data))?,
             nearby: nearby::Nearby::default(),
             data,
-            imports_ready: tokio::sync::watch::channel(false).0,
             #[cfg(desktop)]
             shutdown_started: AtomicBool::new(false),
             #[cfg(desktop)]
@@ -138,25 +136,10 @@ impl AppState {
         })
     }
 
-    fn ensure_imports_ready(&self) -> Result<(), SyncError> {
-        if *self.imports_ready.borrow() {
-            Ok(())
-        } else {
-            Err(SyncError::LocalMigrationPending)
-        }
-    }
-
     async fn flush_before_exit(&self) {
-        // Never export incomplete migrations. An early close can wait for imports, at most 5s,
-        // then gets the separate 5s network budget. Failed initialization remains local for retry.
-        let mut ready = self.imports_ready.subscribe();
-        if tokio::time::timeout(Duration::from_secs(5), ready.wait_for(|ready| *ready))
-            .await
-            .is_ok()
-        {
-            if let Some(sync) = &self.sync {
-                let _ = sync.flush_pending().await;
-            }
+        // One bounded final attempt; an interrupted publication stays durable for the next start.
+        if let Some(sync) = &self.sync {
+            let _ = sync.flush_pending().await;
         }
     }
 
@@ -352,9 +335,6 @@ fn set_nearby_window(
     state: State<'_, AppState>,
 ) -> Result<nearby::WindowState, AppError> {
     state
-        .ensure_imports_ready()
-        .map_err(|_| AppError::persistence("Finish initialization first"))?;
-    state
         .nearby
         .set_window(&session_id, generation, &center_id, &anchor_id, &state.data)
 }
@@ -455,22 +435,20 @@ fn get_history(state: State<'_, AppState>) -> Result<HistorySnapshot, AppError> 
 )]
 fn record_history_item(
     item: HistoryItem,
-    legacy_import: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<HistorySnapshot, AppError> {
-    record_accepted_frame(&item, &state, legacy_import.unwrap_or(false))
+    record_accepted_frame(&item, &state)
 }
 
 fn record_accepted_frame(
     item: &HistoryItem,
     state: &AppState,
-    legacy_import: bool,
 ) -> Result<HistorySnapshot, AppError> {
     let source = select_source(&item.source)?;
     if source == Source::Prntsc {
         prntsc::item_id_value(&item.id)?;
     }
-    state.data.accept(item, legacy_import)
+    state.data.accept(item)
 }
 
 #[tauri::command]
@@ -771,72 +749,13 @@ fn draw_view_times(history: &[HistoryItem], frame_views: &[FrameView]) -> Vec<Op
         .collect()
 }
 
-/// One-shot migration of the legacy client-side viewing counter into the backend store.
 #[tauri::command]
 #[allow(
     clippy::needless_pass_by_value,
-    reason = "Tauri command state extractors must be passed by value"
+    reason = "Tauri command state extractors are passed by value"
 )]
-fn migrate_viewing_stats(
-    legacy_day: String,
-    legacy_today: u64,
-    legacy_total: u64,
-    state: State<'_, AppState>,
-) -> Result<(), AppError> {
-    let today = day_key(activity_day(&Local::now()));
-    state.data.read(|| {
-        state
-            .activity
-            .migrate(&legacy_day, legacy_today, legacy_total, &today)
-    })
-}
-
-#[tauri::command]
-#[allow(
-    clippy::needless_pass_by_value,
-    reason = "Tauri command arguments must be passed by value"
-)]
-fn complete_state_imports(
-    state: State<'_, AppState>,
-    app: tauri::AppHandle,
-) -> Result<(), AppError> {
-    state.data.read(|| Ok(()))?;
-    if !state.imports_ready.send_replace(true) {
-        let changes = state.data.subscribe_changes();
-        tauri::async_runtime::spawn(async move {
-            let state = app.state::<AppState>();
-            if let Some(sync) = &state.sync {
-                sync.run_background(changes).await;
-            }
-        });
-    }
-    Ok(())
-}
-
-#[tauri::command]
-#[allow(
-    clippy::needless_pass_by_value,
-    reason = "Tauri command arguments must be passed by value"
-)]
-fn import_session_history(
-    items: Vec<HistoryItem>,
-    index: i64,
-    state: State<'_, AppState>,
-) -> Result<HistorySnapshot, AppError> {
-    state.data.import_session_history(items, index)
-}
-#[tauri::command]
-#[allow(
-    clippy::needless_pass_by_value,
-    reason = "Tauri command arguments must be passed by value"
-)]
-fn prepare_history_clear(
-    legacy_pending: Option<bool>,
-    state: State<'_, AppState>,
-) -> Result<String, AppError> {
-    state
-        .data
-        .prepare_clear_request(legacy_pending.unwrap_or(false))
+fn prepare_history_clear(state: State<'_, AppState>) -> Result<String, AppError> {
+    state.data.prepare_clear()
 }
 #[tauri::command]
 #[allow(
@@ -869,15 +788,9 @@ fn get_user_preferences(state: State<'_, AppState>) -> Result<UserPreferences, A
 )]
 fn set_user_preferences(
     preferences: UserPreferences,
-    legacy_import: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<UserPreferences, AppError> {
-    state.data.read(|| {
-        state
-            .data
-            .preferences
-            .set(preferences, legacy_import.unwrap_or(false))
-    })
+    state.data.read(|| state.data.preferences.set(preferences))
 }
 
 #[tauri::command]
@@ -890,7 +803,6 @@ async fn get_sync_status(state: State<'_, AppState>) -> Result<SyncStatus, SyncE
 
 #[tauri::command]
 async fn create_sync(state: State<'_, AppState>) -> Result<CreateSyncResult, SyncError> {
-    state.ensure_imports_ready()?;
     match &state.sync {
         Some(sync) => sync.create().await,
         None => Err(SyncError::UnsupportedPlatform),
@@ -903,7 +815,6 @@ async fn join_sync(
     mode: JoinMode,
     state: State<'_, AppState>,
 ) -> Result<SyncStatus, SyncError> {
-    state.ensure_imports_ready()?;
     match &state.sync {
         Some(sync) => sync.join(&code, mode).await,
         None => Err(SyncError::UnsupportedPlatform),
@@ -916,7 +827,6 @@ async fn join_sync(
     reason = "Tauri command state extractors must be passed by value"
 )]
 fn get_sync_join_summary(state: State<'_, AppState>) -> Result<LocalSyncSummary, SyncError> {
-    state.ensure_imports_ready()?;
     match &state.sync {
         Some(sync) => sync.local_summary(),
         None => Err(SyncError::UnsupportedPlatform),
@@ -925,7 +835,6 @@ fn get_sync_join_summary(state: State<'_, AppState>) -> Result<LocalSyncSummary,
 
 #[tauri::command]
 async fn sync_now(state: State<'_, AppState>) -> Result<SyncStatus, SyncError> {
-    state.ensure_imports_ready()?;
     match &state.sync {
         Some(sync) => sync.sync_now().await,
         None => Err(SyncError::UnsupportedPlatform),
@@ -934,7 +843,6 @@ async fn sync_now(state: State<'_, AppState>) -> Result<SyncStatus, SyncError> {
 
 #[tauri::command]
 async fn startup_sync(state: State<'_, AppState>) -> Result<SyncStatus, SyncError> {
-    state.ensure_imports_ready()?;
     match &state.sync {
         Some(sync) => sync.startup_sync().await,
         None => Ok(SyncStatus::unsupported()),
@@ -970,7 +878,6 @@ async fn remove_sync_device(
     member_id: String,
     state: State<'_, AppState>,
 ) -> Result<SyncStatus, SyncError> {
-    state.ensure_imports_ready()?;
     match &state.sync {
         Some(sync) => sync.remove_device(&member_id).await,
         None => Err(SyncError::UnsupportedPlatform),
@@ -1093,8 +1000,17 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         .setup(|app| {
             let data_directory = app.path().app_data_dir()?;
             let handle = app.handle().clone();
-            app.manage(AppState::new(&data_directory, Some(handle))?);
+            app.manage(AppState::new(&data_directory, Some(handle.clone()))?);
             thumbnail_cache::setup(app)?;
+            // Background publication starts once state exists; edits made during a
+            // mutation, focus/resume or restart retrigger it.
+            let changes = app.state::<AppState>().data.subscribe_changes();
+            tauri::async_runtime::spawn(async move {
+                let state = handle.state::<AppState>();
+                if let Some(sync) = &state.sync {
+                    sync.run_background(changes).await;
+                }
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1115,8 +1031,6 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             thumbnail_cache::save_thumbnail_cache,
             get_history,
             record_history_item,
-            import_session_history,
-            complete_state_imports,
             select_history_item,
             remove_history_item,
             restore_history_item,
@@ -1140,7 +1054,6 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             restore_saved_frames,
             get_exploration_stats,
             get_viewing_activity,
-            migrate_viewing_stats,
             get_sync_status,
             create_sync,
             join_sync,
@@ -1176,7 +1089,7 @@ mod tests {
         }
         let directory = test_state_directory("profile-lock");
         let state = AppState::new(&directory, None)?;
-        record_accepted_frame(&history_item("abc123"), &state, false)?;
+        record_accepted_frame(&history_item("abc123"), &state)?;
         let history = std::fs::read(directory.join("history-v3.json"))?;
         let child = |available: bool| {
             let _spawning = child_spawn_guard();
@@ -1266,55 +1179,51 @@ mod tests {
     }
 
     #[test]
-    fn startup_merges_history_and_only_viewed_legacy_exploration() -> Result<(), AppError> {
-        let directory = test_state_directory("seen-migration");
-        let history = HistoryStore::new(&directory)?;
-        history.record(history_item("abc123"))?;
-        std::fs::write(
-            directory.join("prntsc-explored.txt"),
-            "1,v\n2,r\n3\n1,v\n4,v\n5\n",
-        )
-        .map_err(AppError::persistence)?;
-        // A prior launch may have saved only part of the migration.
-        SeenStore::new(&directory)?.insert(1)?;
-
-        for _ in 0..2 {
-            let state = AppState::new(&directory, None)?;
-            for id in [prntsc::item_id_value("abc123")?, 1, 4] {
-                assert!(state.seen.contains(id));
-            }
-            for id in [2, 3, 5] {
-                assert!(!state.seen.contains(id));
-            }
-            assert_eq!(state.explored.count(), 5);
-        }
+    fn startup_seen_follows_history_but_never_exploration_evidence() -> Result<(), AppError> {
+        let directory = test_state_directory("seen-startup");
+        let state = AppState::new(&directory, None)?;
+        state.data.merge(&crate::snapshot::SyncSnapshot {
+            exploration: vec![crate::snapshot::ExplorationRecord {
+                source: "prntsc".into(),
+                id: "abc123".into(),
+                evidence: 1,
+            }],
+            ..crate::snapshot::SyncSnapshot::default()
+        })?;
+        let id = prntsc::item_id_value("abc123")?;
+        assert!(!state.seen.contains(id));
+        drop(state);
+        // Restarting must not reinterpret exploration evidence as a view either.
+        let state = AppState::new(&directory, None)?;
+        assert!(!state.seen.contains(id));
+        record_accepted_frame(&history_item("abc123"), &state)?;
+        assert!(state.seen.contains(id));
         std::fs::remove_dir_all(directory).map_err(AppError::persistence)
     }
 
     #[test]
-    fn startup_repairs_history_saved_before_seen_and_clear_preserves_seen() -> Result<(), AppError>
-    {
-        let directory = test_state_directory("seen-repair-clear");
-        HistoryStore::new(&directory)?.record(history_item("abc123"))?;
+    fn clear_preserves_seen_and_restart_keeps_it() -> Result<(), AppError> {
+        let directory = test_state_directory("seen-clear-restart");
         let state = AppState::new(&directory, None)?;
+        record_accepted_frame(&history_item("abc123"), &state)?;
         let id = prntsc::item_id_value("abc123")?;
         assert!(state.seen.contains(id));
 
-        record_accepted_frame(&history_item("abc124"), &state, false)?;
-        record_accepted_frame(&history_item("abc124"), &state, false)?;
+        record_accepted_frame(&history_item("abc124"), &state)?;
+        record_accepted_frame(&history_item("abc124"), &state)?;
         assert!(state.seen.contains(prntsc::item_id_value("abc124")?));
-        assert_eq!(state.activity.viewed_total(), 1);
+        assert_eq!(state.activity.viewed_total(), 2);
         clear_local_history(&state)?;
         assert_eq!(state.history.snapshot().history, vec![]);
-        assert_eq!(state.explored.count(), 1);
-        assert_eq!(state.explored.viewable_count(), 1);
+        assert_eq!(state.explored.count(), 2);
+        assert_eq!(state.explored.viewable_count(), 2);
         assert_eq!(state.activity.viewed_total(), 0);
         assert!(state.seen.contains(id));
         drop(state);
         let restarted = AppState::new(&directory, None)?;
         assert!(restarted.seen.contains(id));
-        assert_eq!(restarted.explored.count(), 1);
-        assert_eq!(restarted.explored.viewable_count(), 1);
+        assert_eq!(restarted.explored.count(), 2);
+        assert_eq!(restarted.explored.viewable_count(), 2);
         assert_eq!(restarted.activity.viewed_total(), 0);
         drop(restarted);
         std::fs::remove_dir_all(directory).map_err(AppError::persistence)
@@ -1325,29 +1234,13 @@ mod tests {
         let directory = test_state_directory("manual-seen");
         let state = AppState::new(&directory, None)?;
         let id = prntsc::item_id_value("abc123")?;
-        record_accepted_frame(&history_item("abc123"), &state, false)?;
+        record_accepted_frame(&history_item("abc123"), &state)?;
         assert!(state.seen.contains(id));
         assert_eq!(state.explored.viewable_count(), 1);
-        record_accepted_frame(&history_item("abc123"), &state, false)?;
+        record_accepted_frame(&history_item("abc123"), &state)?;
         assert_eq!(state.history.snapshot().history.len(), 1);
         assert_eq!(state.activity.viewed_total(), 1);
         drop(state);
-        std::fs::remove_dir_all(directory).map_err(AppError::persistence)
-    }
-
-    #[test]
-    fn legacy_history_import_does_not_count_views_again() -> Result<(), AppError> {
-        let directory = test_state_directory("legacy-import-activity");
-        let state = AppState::new(&directory, None)?;
-        let id = prntsc::item_id_value("0abc123")?;
-        record_accepted_frame(&history_item("0abc123"), &state, true)?;
-        assert!(state.seen.contains(id));
-        assert_eq!(state.activity.viewed_total(), 0);
-        assert_eq!(state.explored.viewable_count(), 0);
-        state.activity.migrate("2026-09-24", 1, 1, "2026-09-24")?;
-        assert_eq!(state.activity.viewed_total(), 1);
-        drop(state);
-        assert!(AppState::new(&directory, None)?.seen.contains(id));
         std::fs::remove_dir_all(directory).map_err(AppError::persistence)
     }
 
@@ -1369,60 +1262,6 @@ mod tests {
         assert!(restarted.seen.contains(42));
         assert_eq!(restarted.explored.count(), 0);
         drop(restarted);
-        std::fs::remove_dir_all(directory).map_err(AppError::persistence)
-    }
-
-    #[test]
-    fn startup_repairs_revisit_overcount_from_older_builds_without_touching_other_data(
-    ) -> Result<(), AppError> {
-        // Pre-fix shape: activity counted 2 uncached revisits on top of 3 first views.
-        let directory = test_state_directory("revisit-repair");
-        std::fs::create_dir_all(&directory).map_err(AppError::persistence)?;
-        let now = Local::now();
-        let today = day_key(activity_day(&now));
-        let viewed_at = u64::try_from(now.timestamp_millis()).unwrap_or_default();
-        let history: Vec<_> = ["abc123", "abc124", "abc125"]
-            .iter()
-            .map(|id| {
-                serde_json::json!({
-                    "source": "prntsc",
-                    "id": id,
-                    "sourcePageUrl": format!("https://prnt.sc/{id}"),
-                    "viewedAt": viewed_at,
-                })
-            })
-            .collect();
-        let write = |name: &str, contents: String| {
-            std::fs::write(directory.join(name), contents).map_err(AppError::persistence)
-        };
-        write(
-            "history.json",
-            serde_json::json!({ "history": history, "index": 1 }).to_string(),
-        )?;
-        write(
-            "activity.json",
-            serde_json::json!({
-                "migrated": false,
-                "viewed_total": 5,
-                "days": { &today: { "viewed": 5, "rejected": 2 } },
-            })
-            .to_string(),
-        )?;
-        write(
-            "prntsc-explored.txt",
-            "1,v\n2,v\n3,v\n4,r\n5,r\n".to_owned(),
-        )?;
-
-        for _ in 0..2 {
-            let state = AppState::new(&directory, None)?;
-            let days = state.activity.recent_days(activity_day(&now), 1);
-            assert_eq!(days[0].1.viewed, 5);
-            assert_eq!(days[0].1.rejected, 2);
-            assert_eq!(state.activity.viewed_total(), 5);
-            assert_eq!(state.explored.viewable_count(), 3);
-            assert_eq!(state.explored.unavailable_count(), 2);
-            assert_eq!(state.history.snapshot().history.len(), 3);
-        }
         std::fs::remove_dir_all(directory).map_err(AppError::persistence)
     }
 
@@ -1453,38 +1292,17 @@ mod tests {
 mod startup_guard_tests {
     use super::*;
     #[tokio::test(start_paused = true)]
-    async fn early_close_waits_for_imports_and_abandoned_initialization_is_bounded(
-    ) -> Result<(), AppError> {
+    async fn early_close_flush_is_bounded_and_does_not_block_a_clean_state() -> Result<(), AppError>
+    {
         let path = tests::test_state_directory("early-close");
         let state = AppState::new(&path, None)?;
         let started = tokio::time::Instant::now();
-        let complete = async {
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            state.imports_ready.send_replace(true);
-        };
-        tokio::join!(state.flush_before_exit(), complete);
-        assert_eq!(started.elapsed(), Duration::from_millis(100));
-        state.imports_ready.send_replace(false);
-        let started = tokio::time::Instant::now();
         state.flush_before_exit().await;
-        assert_eq!(started.elapsed(), Duration::from_secs(5));
+        // A clean state has nothing to publish; the close budget is never consumed.
+        assert_eq!(started.elapsed(), Duration::ZERO);
         drop(state);
         std::fs::remove_dir_all(path).map_err(AppError::persistence)?;
         Ok(())
-    }
-
-    #[test]
-    fn sync_exports_wait_for_startup_imports() -> Result<(), AppError> {
-        let directory = tests::test_state_directory("startup-gate");
-        let state = AppState::new(&directory, None)?;
-        assert_eq!(
-            state.ensure_imports_ready(),
-            Err(SyncError::LocalMigrationPending)
-        );
-        state.imports_ready.send_replace(true);
-        assert_eq!(state.ensure_imports_ready(), Ok(()));
-        drop(state);
-        std::fs::remove_dir_all(directory).map_err(AppError::persistence)
     }
 }
 

@@ -29,11 +29,12 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
     return 0;
   };
   localStorage.setItem("random-frame-risk-accepted", "accepted");
-  localStorage.setItem("random-frame-viewing-stats", JSON.stringify({ day: "2026-10-02", today: 1, total: 2 }));
-  sessionStorage.setItem(
-    "prntsc-gallery-history",
-    JSON.stringify({ history: [{ id: "saved1" }, { id: "saved2" }], index: 1 }),
-  );
+  const initialHistory = ["saved1", "saved2"].map((id) => ({
+    source: "prntsc",
+    id,
+    sourcePageUrl: `https://prnt.sc/${id}`,
+    viewedAt: Date.now(),
+  }));
 
   Object.assign(globalThis, { document, localStorage, performance, sessionStorage, window });
   const todayIso = new Date().toLocaleDateString("en-CA");
@@ -44,7 +45,7 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   let failStats = false;
   let failNextCommitClear = false;
   const invocations = [];
-  let persisted = { history: [], index: -1 };
+  let persisted = { history: structuredClone(initialHistory), index: 1 };
   const syncStatus = {
     supported: true,
     paired: false,
@@ -74,18 +75,9 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   window.__TAURI_INTERNALS__ = {
     async invoke(command, args, options) {
       if (command === "get_platform_capabilities") return testCapabilities;
-      if (command === "complete_state_imports") {
-        invocations.push({ command, args });
-        return null;
-      }
       if (command === "get_user_preferences" || command === "set_user_preferences") {
         invocations.push({ command, args });
         return { theme: null, historyPageSize: null };
-      }
-      if (command === "import_session_history") {
-        invocations.push({ command, args });
-        if (!persisted.history.length) persisted = { history: structuredClone(args.items), index: args.index };
-        return structuredClone(persisted);
       }
       invocations.push({ command, args, options });
       if (command === "get_history") return structuredClone(persisted);
@@ -127,7 +119,6 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
           localViewTimes: persisted.history.map((item) => item.viewedAt),
         };
       }
-      if (command === "migrate_viewing_stats") return null;
       if (command === "get_random_frame") {
         if (failNextDraw) {
           failNextDraw = false;
@@ -183,28 +174,13 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   await flush();
   await flush();
   assert.ok(invocations.some(({ command }) => command === "startup_sync"));
-  for (const command of ["import_session_history", "migrate_viewing_stats", "set_user_preferences"]) {
-    assert.ok(
-      invocations.findIndex((call) => call.command === command) <
-        invocations.findIndex((call) => call.command === "complete_state_imports"),
-      command,
-    );
-  }
   assert.ok(
-    invocations.findIndex(({ command }) => command === "complete_state_imports") <
-      invocations.findIndex(({ command }) => command === "startup_sync"),
-  );
-  assert.ok(
-    invocations.findIndex(({ command }) => command === "import_session_history") <
+    invocations.findIndex(({ command }) => command === "get_user_preferences") <
       invocations.findIndex(({ command }) => command === "startup_sync"),
   );
   assert.ok(
     invocations.findIndex(({ command }) => command === "select_history_item") <
       invocations.findIndex(({ command }) => command === "startup_sync"),
-  );
-  assert.deepEqual(
-    invocations.find(({ command }) => command === "import_session_history").args.items.map((item) => item.id),
-    ["saved1", "saved2"],
   );
   finishStartupSync(syncStatus);
   await flush();
@@ -272,8 +248,8 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(get("draw-button").getAttribute("aria-busy"), "false");
   assert.equal(historyWrites(), 2);
   assert.deepEqual(
-    invocations.filter(({ command }) => command === "record_history_item").map(({ args }) => args.legacyImport),
-    [false, false],
+    invocations.filter(({ command }) => command === "record_history_item").map(({ args }) => args.item.id),
+    ["abc123", "def456"],
   );
 
   keydown(document, "t");
@@ -327,7 +303,6 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(get("history-grid").children.length, 4);
   // Newest first: def456, abc123 (shown), saved2, saved1.
   assert.equal(get("history-grid").children[1].children[0].getAttribute("aria-current"), "true");
-  assert.equal(sessionStorage.getItem("prntsc-gallery-history"), null);
   assert.deepEqual(
     persisted.history.map(({ source, id }) => ({ source, id })),
     [
@@ -537,47 +512,4 @@ test("persistent history, the info line, the draw ledger, and the lightbox", asy
   assert.equal(get("draw-button").getAttribute("aria-disabled"), "false");
   const commits = invocations.filter(({ command }) => command === "commit_history_clear");
   assert.deepEqual(commits.at(-1).args, commits.at(-2).args);
-});
-
-test("migrates the legacy localStorage counter once on startup and clears it", async (t) => {
-  const document = new FakeDocument(ids);
-  const sessionStorage = new FakeStorage();
-  const localStorage = new FakeStorage();
-  const window = new EventTarget();
-  const performance = { getEntriesByType: () => [{ type: "back_forward" }] };
-  const globalNames = ["document", "localStorage", "performance", "sessionStorage", "window"];
-  const originalGlobals = new Map(globalNames.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
-  localStorage.setItem("random-frame-risk-accepted", "accepted");
-  const legacyDay = new Date().toLocaleDateString("en-CA");
-  localStorage.setItem("random-frame-viewing-stats", JSON.stringify({ day: legacyDay, today: 5, total: 42 }));
-
-  Object.assign(globalThis, { document, localStorage, performance, sessionStorage, window });
-  const invocations = [];
-  window.__TAURI_INTERNALS__ = {
-    async invoke(command, args) {
-      if (command === "get_platform_capabilities") return testCapabilities;
-      if (command === "complete_state_imports") return null;
-      if (command === "get_user_preferences" || command === "set_user_preferences")
-        return { theme: null, historyPageSize: null };
-      if (command === "import_session_history") return { history: [], index: -1 };
-      invocations.push({ command, args });
-      if (command === "get_history") return { history: [], index: -1 };
-      if (command === "get_saved_library") return libraryOf();
-      if (command === "migrate_viewing_stats") return null;
-      throw new Error(`Unexpected command: ${command}`);
-    },
-  };
-  t.after(() => {
-    for (const [name, descriptor] of originalGlobals) {
-      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
-      else delete globalThis[name];
-    }
-  });
-
-  await import(`../dist/test-client/app.js?test=${Date.now()}`);
-  await new Promise((resolve) => setImmediate(resolve));
-
-  const migration = invocations.find(({ command }) => command === "migrate_viewing_stats");
-  assert.deepEqual(migration?.args, { legacyDay, legacyToday: 5, legacyTotal: 42 });
-  assert.equal(localStorage.getItem("random-frame-viewing-stats"), null);
 });

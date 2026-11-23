@@ -48,7 +48,6 @@ import {
 } from "./viewer-state.js";
 
 type HistoryDialogTab = "history" | "favourites";
-export const pendingHistoryClearKey = "random-frame-history-clear-pending";
 let filter: HistoryDialogTab = "history";
 const views: Record<HistoryDialogTab, { page: number; scroll: number; initialized: boolean }> = {
   history: { page: 0, scroll: 0, initialized: false },

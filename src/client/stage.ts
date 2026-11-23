@@ -216,13 +216,8 @@ export function syncControls(): void {
   elements.lightboxFavorite.dataset.tip = `${favoriteLabel} (F)`;
   elements.nearbyGroup.hidden = current?.source !== "prntsc";
   elements.nearbyButton.hidden = current?.source !== "prntsc";
-  let clearPending =
+  const clearPending =
     elements.historyClearGroup.hasAttribute("data-armed") || Boolean(elements.historyDialog.dataset.busy);
-  try {
-    clearPending ||= Boolean(localStorage.getItem("random-frame-history-clear-pending"));
-  } catch {
-    /* Availability still follows the viewer state. */
-  }
   elements.nearbyButton.disabled =
     state.loading || state.historyLoadFailed || current?.source !== "prntsc" || !currentBlob || clearPending;
   const nearbyTip = clearPending

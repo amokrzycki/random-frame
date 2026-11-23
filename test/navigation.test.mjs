@@ -3,7 +3,6 @@ import test from "node:test";
 import {
   adjacentPrntscId,
   frameNumberToIndex,
-  historyFromStorage,
   historyIndexForId,
   nextHistoryIndex,
   shouldShowEntryDialog,
@@ -31,16 +30,7 @@ test("validates frame numbers before jumping", () => {
   assert.equal(frameNumberToIndex("3.5", 42), null);
 });
 
-test("reads the existing session history format", () => {
-  assert.deepEqual(historyFromStorage('{"history":[{"id":"abc123"},{"id":"def456"}],"index":1}'), {
-    history: [{ id: "abc123" }, { id: "def456" }],
-    index: 1,
-  });
-  assert.deepEqual(historyFromStorage(null), { history: [], index: -1 });
-  assert.deepEqual(historyFromStorage("invalid"), { history: [], index: -1 });
-});
-
-test("steps through the legacy sequential base-36 Prnt.sc namespace", () => {
+test("steps through the sequential base-36 Prnt.sc namespace", () => {
   assert.equal(adjacentPrntscId("z", 1), "10");
   assert.equal(adjacentPrntscId("10", -1), "z");
   assert.equal(adjacentPrntscId("0", -1), null);

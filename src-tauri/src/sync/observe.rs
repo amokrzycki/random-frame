@@ -220,7 +220,8 @@ impl<S: SecretStore> SyncEngine<S> {
             .derive()
             .decrypt_snapshot(&control.group_id, control.epoch, payload)
             .map_err(invalid)?;
-        let remote = snapshot::parse_snapshot(&plaintext).map_err(invalid)?;
+        let remote =
+            snapshot::parse_snapshot(&plaintext).map_err(super::helpers::snapshot_error)?;
         c.root = *root.as_bytes();
         Ok((control, remote))
     }

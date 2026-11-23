@@ -1,5 +1,5 @@
 use super::{
-    validate_snapshot, ActivityOperation, ExplorationRecord, OperationId, PreferencesV2, Register,
+    validate_snapshot, ActivityOperation, ExplorationRecord, OperationId, Preferences, Register,
     SnapshotError, SyncSnapshot,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -103,7 +103,7 @@ pub fn merge_snapshots(a: &SyncSnapshot, b: &SyncSnapshot) -> Result<SyncSnapsho
             immutable,
         )?,
         activity_removed: union(&a.activity_removed, &b.activity_removed),
-        preferences: PreferencesV2 {
+        preferences: Preferences {
             theme: register(a.preferences.theme.as_ref(), b.preferences.theme.as_ref())?,
             history_page_size: register(
                 a.preferences.history_page_size.as_ref(),
@@ -158,7 +158,6 @@ pub fn merge_snapshots(a: &SyncSnapshot, b: &SyncSnapshot) -> Result<SyncSnapsho
     result
         .memberships
         .retain(|x| !memberships_removed.contains(&x.operation_id));
-    super::normalize_seeded_collection_name(&mut result);
     validate_snapshot(&result)?;
     Ok(result)
 }
@@ -180,16 +179,4 @@ pub(crate) fn reconcile_seen(snapshot: &mut SyncSnapshot) {
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
-}
-
-/// Only legacy ingestion may interpret historical availability as viewed evidence.
-pub(crate) fn reconcile_legacy_seen(snapshot: &mut SyncSnapshot) {
-    snapshot.seen.extend(
-        snapshot
-            .exploration
-            .iter()
-            .filter(|x| x.source == "prntsc" && x.evidence & 1 != 0)
-            .filter_map(|x| crate::sources::prntsc::item_id_value(&x.id).ok()),
-    );
-    reconcile_seen(snapshot);
 }

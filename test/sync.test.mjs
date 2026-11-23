@@ -185,10 +185,8 @@ before(async () => {
         return `cb-${listeners.length}`;
       },
       async invoke(command, args) {
-        if (command === "complete_state_imports") return null;
         if (command === "get_user_preferences" || command === "set_user_preferences")
           return { theme: null, historyPageSize: null };
-        if (command === "import_session_history") return { history: backend.history, index: -1 };
         calls.push({ command, args });
         everyCommand.add(command);
         if (command === "plugin:event|listen") return 1;
@@ -859,7 +857,7 @@ const CATEGORIES = [
   "invalid_remote_data",
   "invalid_endpoint",
   "unsupported_platform",
-  "migration_pending",
+  "unsupported_version",
   "operation_mismatch",
   "code_length",
   "code_word",
@@ -886,6 +884,7 @@ test("every error category has its own calm copy and retry appears only where re
     "invalid_remote_data",
     "invalid_endpoint",
     "unsupported_platform",
+    "unsupported_version",
     "operation_mismatch",
     "code_length",
     "code_word",

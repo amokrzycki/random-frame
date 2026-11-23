@@ -1,4 +1,4 @@
-import { DEFAULT_PAGE_SIZE, PAGE_SIZE_STORAGE_KEY, PAGE_SIZES } from "./history-pagination.js";
+import { DEFAULT_PAGE_SIZE, PAGE_SIZE_STORAGE_KEY } from "./history-pagination.js";
 import { getUserPreferences, setUserPreferences, type UserPreferences } from "./persistence.js";
 
 const themeKey = "random-frame-theme";
@@ -6,13 +6,10 @@ let mutationGeneration = 0;
 let pendingMutations = 0;
 let mutationQueue: Promise<unknown> = Promise.resolve();
 
-export async function updateUserPreferences(
-  preferences: Partial<UserPreferences>,
-  legacyImport = false,
-): Promise<void> {
+export async function updateUserPreferences(preferences: Partial<UserPreferences>): Promise<void> {
   const generation = ++mutationGeneration;
   pendingMutations += 1;
-  const result = mutationQueue.then(() => setUserPreferences(preferences, legacyImport));
+  const result = mutationQueue.then(() => setUserPreferences(preferences));
   mutationQueue = result.catch(() => undefined);
   try {
     const saved = await result;
@@ -44,17 +41,7 @@ export function applyUserPreferences(preferences: UserPreferences | null): void 
 }
 
 export async function initializeUserPreferences(): Promise<void> {
-  let theme: UserPreferences["theme"] = null;
-  let historyPageSize: number | null = null;
-  try {
-    const storedTheme = localStorage.getItem(themeKey);
-    if (storedTheme === "system" || storedTheme === "light" || storedTheme === "dark") theme = storedTheme;
-    const storedSize = Number(localStorage.getItem(PAGE_SIZE_STORAGE_KEY));
-    if (PAGE_SIZES.some((size) => size === storedSize)) historyPageSize = storedSize;
-  } catch {
-    // Missing cache values are absent preferences, never default-setting operations.
-  }
-  await updateUserPreferences({ theme, historyPageSize }, true);
+  await refreshUserPreferences();
 }
 
 export async function refreshUserPreferences(): Promise<void> {

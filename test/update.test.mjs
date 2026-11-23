@@ -27,10 +27,8 @@ test("release notes follow a successful update, wait for dialogs, and are dismis
   window.__TAURI_INTERNALS__ = {
     transformCallback: () => 1,
     async invoke(command) {
-      if (command === "complete_state_imports") return null;
       if (command === "get_user_preferences" || command === "set_user_preferences")
         return { theme: null, historyPageSize: null };
-      if (command === "import_session_history") return window.__TAURI_INTERNALS__.invoke("get_history");
       if (command === "plugin:app|version") return version;
       if (command === "plugin:updater|check")
         return { rid: 1, currentVersion: "0.9.0", version: "1.0.0", body: "Do not display remote notes" };

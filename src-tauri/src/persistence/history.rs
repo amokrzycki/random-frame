@@ -27,23 +27,29 @@ pub struct HistoryItem {
     pub viewed_at: u64,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(default)]
 struct HistoryData {
-    #[serde(default = "schema_v2")]
+    #[serde(default)]
     version: u8,
     history: Vec<HistoryItem>,
     index: Option<usize>,
-    #[serde(default)]
     history_ops: Vec<HistoryOp>,
-    #[serde(default)]
     removed_history_ops: Vec<[u8; 16]>,
-    #[serde(default)]
     local_views: HashMap<String, u64>,
 }
 
-fn schema_v2() -> u8 {
-    2
+impl Default for HistoryData {
+    fn default() -> Self {
+        Self {
+            version: 3,
+            history: Vec::new(),
+            index: None,
+            history_ops: Vec::new(),
+            removed_history_ops: Vec::new(),
+            local_views: HashMap::new(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -113,35 +119,9 @@ impl HistoryStore {
     pub fn new(directory: &Path) -> Result<Self, AppError> {
         fs::create_dir_all(directory).map_err(AppError::persistence)?;
         let path = directory.join("history-v3.json");
-        let source = super::migration::source_path(directory, "history-v3.json", "history.json")?;
-        let mut data: HistoryData = load_json(&source)?;
-        if source == path && data.version != 3 {
+        let mut data: HistoryData = load_json(&path)?;
+        if data.version != 3 {
             return Err(AppError::persistence("Unsupported history schema"));
-        }
-        if source != path
-            && (data.version != 2 || (data.history_ops.is_empty() && !data.history.is_empty()))
-        {
-            data.version = 2;
-            data.history_ops = data
-                .history
-                .iter()
-                .enumerate()
-                .map(|(index, item)| HistoryOp {
-                    operation_id: operation_id(),
-                    order_at: index as u64,
-                    viewed_at: item.viewed_at,
-                    day: local_stamp(item.viewed_at, true).day,
-                    day_inferred: true,
-                    source: item.source.clone(),
-                    id: item.id.clone(),
-                    source_page_url: item.source_page_url.clone(),
-                })
-                .collect();
-            data.local_views = data
-                .history
-                .iter()
-                .map(|item| (history_key(item), item.viewed_at))
-                .collect();
         }
         for op in &mut data.history_ops {
             if op.day.is_empty() {
@@ -153,11 +133,9 @@ impl HistoryStore {
                 op.day_inferred = true;
             }
         }
-        data.version = 3;
         let selected = data.selected_key();
         data.normalize(selected);
         save_json(&path, &data)?;
-        super::migration::receipt(directory, "history-v3")?;
         Ok(Self {
             path,
             data: Mutex::new(data),
@@ -487,7 +465,7 @@ impl HistoryStore {
         self.generation.load(Ordering::Relaxed)
     }
 
-    /// Restore: history becomes exactly `incoming`; local operations, tombstones and legacy views are dropped.
+    /// Restore: history becomes exactly `incoming`; local operations, tombstones and local view records are dropped.
     pub fn replace_sync_state(&self, incoming: HistorySyncState) -> Result<(), AppError> {
         let mut data = self
             .data

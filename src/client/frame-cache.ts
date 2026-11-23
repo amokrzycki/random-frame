@@ -8,7 +8,6 @@ export interface CachedBlob {
   url: string;
 }
 
-const thumbnailStorageKey = "prntsc-gallery-thumbnails";
 const THUMBNAIL_MAX_DIMENSION = 384;
 // Small JPEG files; only non-favourites count toward this on-disk budget.
 const THUMBNAIL_LIMIT = 300;
@@ -102,20 +101,6 @@ export function discardThumbnail(key: string, expected: string): void {
     }
 }
 
-function loadThumbnails(): Map<string, string> {
-  try {
-    const stored: unknown = JSON.parse(localStorage.getItem(thumbnailStorageKey) ?? "{}");
-    if (typeof stored !== "object" || stored === null) return new Map();
-    return new Map(
-      Object.entries(stored as Record<string, unknown>).filter(
-        (entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].startsWith("data:image/"),
-      ),
-    );
-  } catch {
-    return new Map();
-  }
-}
-
 export const thumbnails = new Map<string, string>();
 // Subset of `thumbnails` whose exact bytes are on disk. It shares the strings, so it
 // must shrink together with `thumbnails` or evicting would free nothing.
@@ -165,35 +150,6 @@ export function initializeThumbnailCache(): Promise<boolean> {
       const allowed = keys.filter(([key]) => !retainedAfterClear || retainedAfterClear.has(pendingThumbnailKey(key)));
       diskKeys = new Map(allowed);
       for (const [key] of keys) if (!diskKeys.has(key)) deletedKeys.add(key);
-      const legacy = loadThumbnails();
-      for (const [key, image] of legacy)
-        if (
-          (!retainedAfterClear || retainedAfterClear.has(pendingThumbnailKey(key))) &&
-          !thumbnails.has(key) &&
-          // An existing file is newer than a leftover legacy value.
-          !storedThumbnailKey(key)
-        )
-          thumbnails.set(key, image);
-      if (legacy.size) {
-        const entries = [...thumbnails].filter(([key, image]) => savedThumbnails.get(key) !== image);
-        const pruned = new Set(deletedKeys);
-        const keep = keepKeys();
-        await invoke("save_thumbnail_cache", {
-          entries: entries.map(([key, image]) => [key, thumbnailBytes(image)]),
-          keep,
-        });
-        for (const [key, image] of entries) savedThumbnails.set(key, image);
-        for (const key of pruned) deletedKeys.delete(key);
-        setDiskKeys(keep);
-        persisted = true;
-        trimLoadedThumbnails();
-      }
-      // Remove the old value only after every legacy thumbnail was saved successfully.
-      try {
-        localStorage.removeItem(thumbnailStorageKey);
-      } catch {
-        // Saved files remain usable; legacy cleanup will be retried next launch.
-      }
       initialized = true;
       retainedAfterClear = undefined;
       return true;

@@ -68,7 +68,7 @@ impl FavoriteSyncState {
         s
     }
 }
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 struct FavoriteData {
     version: u8,
     #[serde(flatten)]
@@ -78,10 +78,19 @@ struct FavoriteData {
     #[serde(default)]
     removals: BTreeMap<String, RemovalReceipt>,
 }
+impl Default for FavoriteData {
+    fn default() -> Self {
+        Self {
+            version: 4,
+            state: FavoriteSyncState::default(),
+            editors: BTreeMap::new(),
+            removals: BTreeMap::new(),
+        }
+    }
+}
 impl FavoriteData {
     fn normalize(&mut self) -> Result<(), AppError> {
         let mut s = self.state.snapshot();
-        snapshot::normalize_seeded_collection_name(&mut s);
         s.favorites_removed.dedup();
         s.collections_removed.dedup();
         s.memberships_removed.dedup();
@@ -295,54 +304,12 @@ impl FavoriteStore {
     pub fn new(directory: &Path) -> Result<Self, AppError> {
         fs::create_dir_all(directory).map_err(AppError::persistence)?;
         let path = directory.join("favorites-v4.json");
-        let source =
-            super::migration::source_path(directory, "favorites-v4.json", "favorites-v3.json")?;
-        let source = if source == path {
-            source
-        } else {
-            super::migration::source_path(directory, "favorites-v3.json", "favorites.json")?
-        };
-        let value: serde_json::Value = load_json(&source)?;
-        let mut data = if value.is_null() {
-            FavoriteData::default()
-        } else if value.is_array() {
-            let old: Vec<FavoriteItem> =
-                serde_json::from_value(value).map_err(AppError::persistence)?;
-            FavoriteData {
-                version: 2,
-                state: FavoriteSyncState {
-                    favorites: old
-                        .into_iter()
-                        .map(|x| FavoriteRecord {
-                            operation_id: operation_id(),
-                            added_at: x.added_at,
-                            source: x.source,
-                            id: x.id,
-                            source_page_url: x.source_page_url,
-                        })
-                        .collect(),
-                    ..FavoriteSyncState::default()
-                },
-                ..FavoriteData::default()
-            }
-        } else {
-            serde_json::from_value(value).map_err(AppError::persistence)?
-        };
-        if (source == path && data.version != 4)
-            || (source != path && ![0, 2, 3].contains(&data.version))
-        {
+        let mut data: FavoriteData = load_json(&path)?;
+        if data.version != 4 {
             return Err(AppError::persistence("Unsupported saved library schema"));
         }
         data.normalize()?;
-        if source != path {
-            let mut s = data.state.snapshot();
-            snapshot::migrate_legacy_collections(&mut s);
-            data.state = FavoriteSyncState::from_snapshot(&s);
-        }
-        data.version = 4;
-        data.normalize()?;
         save_json(&path, &data)?;
-        super::migration::receipt(directory, "favorites-v4")?;
         Ok(Self {
             path,
             data: Mutex::new(data),

@@ -34,7 +34,6 @@ mod activity;
 mod backup_recovery;
 mod device;
 mod history_favorites;
-mod incident;
 mod large_activity;
 mod migration;
 mod restore;

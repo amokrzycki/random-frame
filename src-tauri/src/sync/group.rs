@@ -13,7 +13,7 @@ use crate::{
     secure_storage::SecretStore,
     snapshot, sync_code,
     sync_membership_crypto::{self as crypto},
-    sync_protocol::{valid_hex, InvitationLookup, Mutation, Recipient},
+    sync_protocol::{valid_hex, AdministratorCodeLookup, Mutation, Recipient},
     time::now_ms,
 };
 use zeroize::Zeroizing;
@@ -93,11 +93,11 @@ impl<S: SecretStore> SyncEngine<S> {
             let mut vault = self.vault().await?;
             let c = vault.current.as_mut().ok_or(SyncError::Unpaired)?;
             if !c.admin {
-                return Err(SyncError::MasterRequired);
+                return Err(SyncError::AdministratorRequired);
             }
             let (control, _) = self.read_group(c).await?;
             if control.master_member_id != c.member_id {
-                return Err(SyncError::MasterRequired);
+                return Err(SyncError::AdministratorRequired);
             }
             let seed = Zeroizing::new(crypto::random_secret());
             let join = crypto::join_credentials(&seed).map_err(invalid)?;
@@ -176,7 +176,7 @@ impl<S: SecretStore> SyncEngine<S> {
         let vault = self.vault().await?;
         let c = vault.current.as_ref().ok_or(SyncError::Unpaired)?;
         if !c.admin {
-            return Err(SyncError::MasterRequired);
+            return Err(SyncError::AdministratorRequired);
         }
         let seed = c.join_seed.ok_or(SyncError::NoCode)?;
         Ok(sync_code::encode(&seed)?.to_string())
@@ -251,7 +251,7 @@ impl<S: SecretStore> SyncEngine<S> {
             }
             Err(error) => return Err(error.into()),
         };
-        let lookup: InvitationLookup = serde_json::from_slice(&bytes).map_err(invalid)?;
+        let lookup: AdministratorCodeLookup = serde_json::from_slice(&bytes).map_err(invalid)?;
         if !valid_hex(&lookup.group_id, 32)
             || !valid_hex(&lookup.key_id, 32)
             || lookup.epoch < 1
@@ -385,7 +385,7 @@ impl<S: SecretStore> SyncEngine<S> {
         let mut c = vault.current.clone().ok_or(SyncError::Unpaired)?;
         let (control, remote) = self.read_group(&mut c).await?;
         if control.master_member_id != c.member_id {
-            return Err(SyncError::MasterRequired);
+            return Err(SyncError::AdministratorRequired);
         }
         if control.epoch == i64::MAX
             || target == c.member_id
@@ -457,7 +457,7 @@ impl<S: SecretStore> SyncEngine<S> {
         let mut vault = self.vault().await?;
         let c = vault.current.as_mut().ok_or(SyncError::Unpaired)?;
         if !dissolve && c.admin {
-            return Err(SyncError::MasterCannotLeave);
+            return Err(SyncError::AdministratorCannotLeave);
         }
         let read = self.read_group(c).await;
         if !dissolve
@@ -476,10 +476,10 @@ impl<S: SecretStore> SyncEngine<S> {
         }
         let (control, _) = read?;
         if dissolve && control.master_member_id != c.member_id {
-            return Err(SyncError::MasterRequired);
+            return Err(SyncError::AdministratorRequired);
         }
         if !dissolve && control.master_member_id == c.member_id {
-            return Err(SyncError::MasterCannotLeave);
+            return Err(SyncError::AdministratorCannotLeave);
         }
         let version = credential_version(&control, &c.member_id)?;
         let mutation = if dissolve {

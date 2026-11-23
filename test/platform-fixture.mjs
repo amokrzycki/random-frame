@@ -87,7 +87,7 @@ export async function startApp(t, capabilities) {
         return typeof capabilities === "function" ? capabilities() : capabilities;
       if (command === "get_user_preferences" || command === "set_user_preferences")
         return { theme: null, historyPageSize: null };
-      if (command === "get_history" || command === "import_session_history") return { history: [], index: -1 };
+      if (command === "get_history") return { history: [], index: -1 };
       if (command === "get_saved_library") return libraryOf();
       if (command === "startup_sync" || command === "get_sync_status") return syncStatus;
       if (command === "list_thumbnail_cache") return [];

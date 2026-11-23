@@ -146,35 +146,20 @@ fn failed_write_leaves_no_partial_collections_and_move_keeps_other_assignments(
     fs::remove_dir_all(dir).map_err(AppError::persistence)
 }
 #[test]
-fn canonical_migration_survives_rename_delete_detach_receipt_and_old_journal(
-) -> Result<(), AppError> {
-    let dir = test_directory("collections-migration");
-    fs::create_dir_all(&dir).map_err(AppError::persistence)?;
+fn collection_edits_survive_rename_delete_detach_and_sync() -> Result<(), AppError> {
+    let dir = test_directory("collections-lifecycle");
+    let store = FavoriteStore::new(&dir)?;
+    let id = store.create_collection("Screenshots")?.collections[0].collection_id;
+    store.save_frame(item("abc123"), Some(id))?;
     let record = snapshot::FavoriteRecord {
-        operation_id: [7; 16],
+        operation_id: store.sync_state().favorites[0].operation_id,
         added_at: 42,
         source: "prntsc".into(),
         id: "abc123".into(),
         source_page_url: "https://prnt.sc/abc123".into(),
     };
-    fs::write(
-        dir.join("favorites-v3.json"),
-        serde_json::to_vec(
-            &serde_json::json!({"version":3,"favorites":[record],"removed":vec![[8u8;16]]}),
-        )
-        .map_err(AppError::persistence)?,
-    )
-    .map_err(AppError::persistence)?;
-    let store = FavoriteStore::new(&dir)?;
     let converted = store.sync_state();
     assert_eq!(converted.favorites[0], record);
-    assert_eq!(converted.favorites_removed, vec![[8; 16]]);
-    assert_eq!(
-        hex::encode(converted.collections[0].collection_id),
-        "1cd8cf2843ed1f6ec1cdc237d8a9ae7f"
-    );
-    let id = converted.collections[0].collection_id;
-    assert_eq!(converted.collections[0].name.clock, 0);
     store.rename_collection(id, "Custom")?;
     store.merge_sync_state(converted.clone())?;
     assert_eq!(store.library().collections[0].name, "Custom");
@@ -192,8 +177,6 @@ fn canonical_migration_survives_rename_delete_detach_receipt_and_old_journal(
     store.merge_sync_state(converted)?;
     assert!(store.library().collections.is_empty());
     assert!(FavoriteStore::new(&dir)?.library().collections.is_empty());
-    fs::remove_file(dir.join("favorites-v4.json")).map_err(AppError::persistence)?;
-    assert!(FavoriteStore::new(&dir).is_err());
     fs::remove_dir_all(dir).map_err(AppError::persistence)
 }
 #[test]
@@ -297,98 +280,5 @@ fn editor_observed_remove_survives_sync_and_unknown_adds_are_not_removed() -> Re
             .map(|e| e.kind),
         Some(crate::error::ErrorKind::StaleSavedFrame)
     );
-    fs::remove_dir_all(dir).map_err(AppError::persistence)
-}
-
-#[test]
-fn old_transaction_recovery_migrates_favorite_effects_after_v4_already_exists(
-) -> Result<(), AppError> {
-    let dir = test_directory("collections-old-journal");
-    let state = PersistentState::new(&dir)?;
-    drop(state);
-    let record = snapshot::FavoriteRecord {
-        operation_id: [42; 16],
-        added_at: 123,
-        source: "prntsc".into(),
-        id: "abc123".into(),
-        source_page_url: "https://prnt.sc/abc123".into(),
-    };
-    let mut effects = serde_json::to_value(SyncSnapshot {
-        favorites: vec![record.clone()],
-        ..SyncSnapshot::default()
-    })
-    .map_err(AppError::persistence)?;
-    let fields = effects
-        .as_object_mut()
-        .ok_or_else(|| AppError::invalid_input("Fixture must be an object"))?;
-    for name in [
-        "collections",
-        "collections_removed",
-        "memberships",
-        "memberships_removed",
-    ] {
-        fields.remove(name);
-    }
-    let journal = serde_json::json!({"version":1,"id":vec![1u8;16],"effects":effects,"close_legacy_import":false});
-    fs::write(
-        dir.join("state-transaction.json"),
-        serde_json::to_vec(&journal).map_err(AppError::persistence)?,
-    )
-    .map_err(AppError::persistence)?;
-    let recovered = PersistentState::new(&dir)?;
-    assert_eq!(recovered.favorites.sync_state().favorites, vec![record]);
-    assert_eq!(
-        recovered.favorites.library().collections[0].name,
-        "Favourite"
-    );
-    assert_eq!(
-        recovered.favorites.library().memberships[0].favorite_operation_id,
-        [42; 16]
-    );
-    let first = recovered.favorites.sync_state();
-    drop(recovered);
-    assert_eq!(PersistentState::new(&dir)?.favorites.sync_state(), first);
-    fs::remove_dir_all(dir).map_err(AppError::persistence)
-}
-
-#[test]
-fn existing_v4_seed_name_migrates_in_place_and_preserves_user_rename() -> Result<(), AppError> {
-    let dir = test_directory("collections-seeded-name");
-    let store = FavoriteStore::new(&dir)?;
-    store.save_frame(item("abc123"), None)?;
-    let mut legacy = store.sync_state().snapshot();
-    snapshot::migrate_legacy_collections(&mut legacy);
-    let id = legacy.collections[0].collection_id;
-    legacy.collections[0].name = Register {
-        clock: 0,
-        operation_id: snapshot::hash_id(&[b"rf/collections/legacy-favorites/name/v1"]),
-        value: "Ulubione".into(),
-    };
-    let mut file = serde_json::to_value(FavoriteSyncState::from_snapshot(&legacy))
-        .map_err(AppError::persistence)?;
-    file["version"] = serde_json::json!(4);
-    fs::write(
-        dir.join("favorites-v4.json"),
-        serde_json::to_vec(&file).map_err(AppError::persistence)?,
-    )
-    .map_err(AppError::persistence)?;
-    drop(store);
-    let store = FavoriteStore::new(&dir)?;
-    let migrated = store.sync_state();
-    assert_eq!(migrated.collections[0].collection_id, id);
-    assert_eq!(migrated.collections[0].name.value, "Favourite");
-    assert_eq!(migrated.favorites, legacy.favorites);
-    assert_eq!(migrated.memberships, legacy.memberships);
-    assert_eq!(FavoriteStore::new(&dir)?.sync_state(), migrated);
-    // An intentional old spelling remains a user name after restart and old-client Sync.
-    store.rename_collection(id, "Ulubione")?;
-    store.merge_sync_state(FavoriteSyncState::from_snapshot(&legacy))?;
-    assert_eq!(
-        FavoriteStore::new(&dir)?.library().collections[0].name,
-        "Ulubione"
-    );
-    store.delete_collection(id)?;
-    store.merge_sync_state(FavoriteSyncState::from_snapshot(&legacy))?;
-    assert!(FavoriteStore::new(&dir)?.library().collections.is_empty());
     fs::remove_dir_all(dir).map_err(AppError::persistence)
 }

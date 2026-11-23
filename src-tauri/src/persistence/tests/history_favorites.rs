@@ -35,6 +35,19 @@ fn history_survives_reload_and_clear_is_persistent() -> Result<(), AppError> {
 }
 
 #[test]
+fn history_file_without_a_version_fails_closed() -> Result<(), AppError> {
+    let directory = test_directory("history-schemaless");
+    fs::create_dir_all(&directory).map_err(AppError::persistence)?;
+    fs::write(
+        directory.join("history-v3.json"),
+        br#"{"history":[{"source":"prntsc","id":"abc123","sourcePageUrl":"https://prnt.sc/abc123","viewedAt":42}]}"#,
+    )
+    .map_err(AppError::persistence)?;
+    assert!(HistoryStore::new(&directory).is_err());
+    fs::remove_dir_all(directory).map_err(AppError::persistence)
+}
+
+#[test]
 fn remove_drops_one_frame_and_restore_returns_it_in_place() -> Result<(), AppError> {
     let directory = test_directory("history-remove");
     let item = |id: &str, viewed_at| HistoryItem {
